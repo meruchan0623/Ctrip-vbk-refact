@@ -250,6 +250,12 @@ export interface UiMessageExtras {
   readonly disposition?: UiMessage['disposition'];
 }
 
+/** Identity is keyed by uid; display nicknames never decide a sender's role. */
+function senderFields(sender: string, roles: MemberRoles) {
+  const profile = sender ? roles.profileOf?.(sender) : null;
+  return { sender_id: sender, sender_name: profile?.name ?? null, sender_avatar: profile?.avatar ?? null };
+}
+
 /** HTTP message object (history / compensation / list rows) → `UiMessage`; `null` for non-display rows. */
 export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?: string, extras: UiMessageExtras = {}): UiMessage | null {
   if (typeof msg !== 'object' || msg === null) return null;
@@ -270,6 +276,7 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
     local_id: idStr(msg.localId),
     create_time_ms: createTime,
     sender_role: sender ? roles.roleOf(sender) : 'unknown',
+    ...senderFields(sender, roles),
     kind,
     text: messageText(msg.msgtype, msg.messageBody),
     translation: null,
@@ -298,6 +305,7 @@ export function sdkMessageToUi(evt: SdkMessageEvent, roles: MemberRoles): UiMess
     local_id: idStr(evt.localid),
     create_time_ms: createTime,
     sender_role: sender ? roles.roleOf(sender) : 'unknown',
+    ...senderFields(sender, roles),
     kind,
     text: messageText(evt.msgtype, evt.body),
     translation: null,

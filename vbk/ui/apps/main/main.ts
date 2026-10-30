@@ -60,6 +60,7 @@ import type { SoundName } from '../_shared/guards.ts';
 import { playSound, stopSound } from './sound.ts';
 import { settleAccountSend } from './sendScope.ts';
 import { messageAlignment } from './message-alignment.ts';
+import { mergeMessageProfile, renderMessageAvatar } from './message-profile.ts';
 import {
   AGENT_STATUS_ORDER,
   BANNER_VISIBLE,
@@ -497,7 +498,7 @@ function upsertMessage(m: UiMessage): void {
   const list = s.messages[m.gid];
   if (!list) return;
   const idx = list.findIndex((x) => (m.local_id && x.local_id === m.local_id) || (m.message_id && x.message_id === m.message_id));
-  const next = idx >= 0 ? list.map((x, i) => (i === idx ? m : x)) : [...list, m];
+  const next = idx >= 0 ? list.map((x, i) => (i === idx ? mergeMessageProfile(x, m) : x)) : [...list, m];
   store.patch({ messages: { ...s.messages, [m.gid]: next } });
 }
 
@@ -1158,11 +1159,11 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
     );
   }
   const st = isSelf ? sendStateView(m.disposition) : null;
-  const who = isSelf ? roleLabel('merchant_self') : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role);
+  const who = m.sender_name?.trim() || m.sender_id?.trim() || (isSelf ? (acc ? accountLabel(acc) : roleLabel('merchant_self')) : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role));
   return h(
     'div',
     { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '' } },
-    h('div', { class: 'ava sm', style: { background: isSelf ? (acc?.color ?? '#5B6676') : conv.color } }, isSelf ? (acc ? accountInitial(acc) : '我') : initialOf(conv.title)),
+    h('div', { class: 'ava sm', style: { background: isSelf ? (acc?.color ?? '#5B6676') : conv.color } }, renderMessageAvatar(document, who, m.sender_avatar)),
     h(
       'div',
       { class: 'mcol' },

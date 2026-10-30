@@ -434,3 +434,11 @@ export function resumeBanners(list: readonly BannerItem[], pausedAt: number, now
 export function alarmActiveCount(entries: readonly { readonly snoozed_until_ms: number | null }[], nowMs: number): number {
   return entries.filter((e) => e.snoozed_until_ms === null || e.snoozed_until_ms <= nowMs).length;
 }
+
+export function safeMediaUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
+  } catch { return null; }
+}

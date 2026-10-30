@@ -90,6 +90,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   const pendingUnread = new Set<string>();
   let unreadTimer: unknown = null;
   let running = false;
+  let runGeneration = 0;
   const flushUnread = async (): Promise<void> => {
     unreadTimer = null;
     const gids = [...pendingUnread];
@@ -181,11 +182,20 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   };
 
   const onSdkMessage = (evt: SdkMessageEvent): void => {
+    const generation = runGeneration;
     const ui = sdkMessageToUi(evt, roles);
     if (!ui) return;
     if (ui.message_id) store.noteMessage(ui.gid, ui.message_id, ui.create_time_ms);
     pushMessages([ui]);
-    if (store.has(ui.gid)) void roles.ensure(deps, soa, ui.gid).catch(() => undefined);
+    if (store.has(ui.gid)) void roles.ensure(deps, soa, ui.gid).then(() => {
+      if (!running || generation !== runGeneration) return;
+      const enriched = sdkMessageToUi(evt, roles);
+      if (enriched?.sender_id) pushDisplay({ kind: 'message_profiles', gid: enriched.gid, items: [{
+        message_id: enriched.message_id, local_id: enriched.local_id,
+        sender_id: enriched.sender_id, sender_name: enriched.sender_name ?? null,
+        sender_avatar: enriched.sender_avatar ?? null,
+      }] });
+    }).catch(() => undefined);
   };
 
   const onCompensation = (outcome: SoaOutcome<RecentMessagesResponse>): void => {
@@ -247,6 +257,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     unread,
     start() {
       if (running) return;
+      runGeneration++;
       running = true;
       unsubs = [opts.sdk.on('message', onSdkMessage), opts.sdk.on('socket_status', onSocket)];
       pushDisplay({ kind: 'transport', state: opts.sdk.getSocketStatus() ? 'connected' : 'disconnected' });
@@ -255,6 +266,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     },
     stop() {
       if (!running) return;
+      runGeneration++;
       running = false;
       for (const u of unsubs) u();
       unsubs = [];

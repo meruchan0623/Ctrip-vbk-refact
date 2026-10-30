@@ -211,6 +211,9 @@ export interface UiMessage {
   readonly local_id: string | null;
   readonly create_time_ms: number;
   readonly sender_role: SenderRole;
+  readonly sender_id?: string;
+  readonly sender_name?: string | null;
+  readonly sender_avatar?: string | null;
   readonly kind: UiMessageKind;
   readonly text: string;
   /** Inbound: platform translation under the original. */

@@ -91,6 +91,12 @@ pub struct UiMessageDto {
     pub local_id: Option<String>,
     pub create_time_ms: i64,
     pub sender_role: String,
+    #[serde(default)]
+    pub sender_id: String,
+    #[serde(default)]
+    pub sender_name: Option<String>,
+    #[serde(default)]
+    pub sender_avatar: Option<String>,
     pub kind: String,
     pub text: String,
     #[serde(default)]
@@ -170,6 +176,16 @@ impl UiNetStatusDto {
     }
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageProfilePatch {
+    pub message_id: Option<String>,
+    pub local_id: Option<String>,
+    pub sender_id: String,
+    pub sender_name: Option<String>,
+    pub sender_avatar: Option<String>,
+}
+
 /// Mirrors `AdapterDisplayPayload` (adapterProtocol.ts).
 #[derive(Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -184,6 +200,10 @@ pub enum DisplayPayload {
         gid: String,
         replace: bool,
         items: Vec<UiMessageDto>,
+    },
+    MessageProfiles {
+        gid: String,
+        items: Vec<MessageProfilePatch>,
     },
     AgentStatus {
         status: AgentStatusDto,
@@ -274,8 +294,23 @@ fn merge_messages(
     incoming: Vec<UiMessageDto>,
 ) -> Vec<UiMessageDto> {
     let mut changed = Vec::new();
-    for m in incoming {
+    for mut m in incoming {
         if let Some(existing) = thread.iter_mut().find(|e| same_message(e, &m)) {
+            let old_id = existing.sender_id.trim();
+            let new_id = m.sender_id.trim();
+            let same_sender = !old_id.is_empty()
+                && (if new_id.is_empty() {
+                    existing.sender_role == m.sender_role
+                } else {
+                    old_id.to_lowercase() == new_id.to_lowercase()
+                });
+            if same_sender {
+                m.sender_name = m.sender_name.or_else(|| existing.sender_name.clone());
+                m.sender_avatar = m.sender_avatar.or_else(|| existing.sender_avatar.clone());
+                if new_id.is_empty() {
+                    m.sender_id = existing.sender_id.clone();
+                }
+            }
             if *existing != m {
                 *existing = m.clone();
                 changed.push(m);
@@ -409,6 +444,13 @@ impl DisplayCache {
                 }
                 items.iter().try_for_each(|m| validate_message(gid, m))?;
             }
+            DisplayPayload::MessageProfiles { gid, items } => {
+                if gid.is_empty() || items.iter().any(|p| p.sender_id.trim().is_empty()
+                    || (!p.message_id.as_ref().is_some_and(|s| !s.is_empty())
+                        && !p.local_id.as_ref().is_some_and(|s| !s.is_empty()))) {
+                    return Err(invalid("message profile needs thread, message, and sender identities"));
+                }
+            }
             _ => {}
         }
         let acc = self.entry_mut(ctx)?;
@@ -472,6 +514,30 @@ impl DisplayCache {
                     merge_messages(thread, items)
                 };
                 acc.touch_thread(&gid);
+                DisplayDelta::Messages { gid, changed }
+            }
+            DisplayPayload::MessageProfiles { gid, items } => {
+                let mut changed = Vec::new();
+                if let Some(thread) = acc.threads.get_mut(&gid) {
+                    for p in items {
+                        let existing = thread.iter_mut().find(|m| {
+                            let message_matches = if let Some(id) = p.message_id.as_ref().filter(|id| !id.is_empty()) {
+                                m.message_id.as_ref() == Some(id)
+                                    && !matches!((&m.local_id, &p.local_id), (Some(a), Some(b)) if a != b)
+                            } else {
+                                matches!((&m.local_id, &p.local_id), (Some(a), Some(b)) if !b.is_empty() && a == b)
+                            };
+                            message_matches && !m.sender_id.trim().is_empty()
+                                && m.sender_id.trim().to_lowercase() == p.sender_id.trim().to_lowercase()
+                        });
+                        if let Some(m) = existing {
+                            let before = m.clone();
+                            if p.sender_name.is_some() { m.sender_name = p.sender_name; }
+                            if p.sender_avatar.is_some() { m.sender_avatar = p.sender_avatar; }
+                            if *m != before { changed.push(m.clone()); }
+                        }
+                    }
+                }
                 DisplayDelta::Messages { gid, changed }
             }
             DisplayPayload::AgentStatus { status, confirmed } => {
@@ -740,6 +806,9 @@ mod tests {
             local_id: lid.map(Into::into),
             create_time_ms: t,
             sender_role: "customer".into(),
+            sender_id: "customer".into(),
+            sender_name: None,
+            sender_avatar: None,
             kind: "text".into(),
             text: text.into(),
             translation: None,
@@ -870,6 +939,61 @@ mod tests {
         };
         assert!(c.apply(&ctx(1), p).is_err());
         assert!(c.messages(&ctx(1), "g").expect("read").is_none());
+    }
+
+    #[test]
+    fn sender_profile_survives_sparse_receipt_but_never_crosses_identity() {
+        let mut old = msg("g", Some("server"), Some("local"), 20, "synthetic");
+        old.sender_id = "PERSON-A".into();
+        old.sender_name = Some("Person A".into());
+        old.sender_avatar = Some("https://example.invalid/person-a.png".into());
+        let mut sparse = old.clone();
+        sparse.sender_id.clear();
+        sparse.sender_name = None;
+        sparse.sender_avatar = None;
+        let mut thread = vec![old.clone()];
+        merge_messages(&mut thread, vec![sparse]);
+        assert_eq!(thread[0].sender_avatar, old.sender_avatar);
+        assert_eq!(thread[0].sender_id, old.sender_id);
+        let mut changed = old.clone();
+        changed.sender_id = "person-b".into();
+        changed.sender_name = None;
+        changed.sender_avatar = None;
+        merge_messages(&mut thread, vec![changed]);
+        assert_eq!(thread[0].sender_id, "person-b");
+        assert_eq!(thread[0].sender_name, None);
+        assert_eq!(thread[0].sender_avatar, None);
+        let value = serde_json::to_value(&old).unwrap();
+        let restored: UiMessageDto = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.sender_id, old.sender_id);
+        assert_eq!(restored.sender_avatar, old.sender_avatar);
+    }
+
+    #[test]
+    fn profile_patch_preserves_confirmed_content_and_rejects_cross_identity() {
+        let mut cache = DisplayCache::new();
+        let mut confirmed = msg("g", Some("server"), Some("local"), 20, "synthetic confirmed body");
+        confirmed.sender_id = "self".into();
+        confirmed.sender_role = "merchant_self".into();
+        confirmed.original = Some("synthetic original".into());
+        confirmed.quote = Some("synthetic quote".into());
+        confirmed.disposition = Some(SendDispositionDto::Confirmed { server_message_id: "server".into(), server_time_ms: 20 });
+        cache.apply(&ctx(1), DisplayPayload::Messages { gid: "g".into(), replace: false, items: vec![confirmed.clone()] }).unwrap();
+        let patch = |sender: &str, id: &str| serde_json::json!({ "kind": "message_profiles", "gid": "g", "items": [{ "message_id": id, "local_id": "local", "sender_id": sender, "sender_name": "API Self", "sender_avatar": "https://example.invalid/self.png" }] });
+        let delta = cache.apply(&ctx(1), serde_json::from_value(patch("self", "server")).unwrap()).unwrap();
+        let mut expected = confirmed.clone();
+        expected.sender_name = Some("API Self".into());
+        expected.sender_avatar = Some("https://example.invalid/self.png".into());
+        assert!(matches!(delta, DisplayDelta::Messages { changed, .. } if changed == vec![expected.clone()]));
+        assert!(cache.messages(&ctx(1), "g").unwrap().unwrap() == vec![expected.clone()]);
+        for (sender, id) in [("other-person", "server"), ("self", "other-server")] {
+            let delta = cache.apply(&ctx(1), serde_json::from_value(patch(sender, id)).unwrap()).unwrap();
+            assert!(matches!(delta, DisplayDelta::Messages { changed, .. } if changed.is_empty()));
+        }
+        assert!(cache.messages(&ctx(1), "g").unwrap().unwrap() == vec![expected]);
+        let mut illegal = patch("self", "server");
+        illegal["items"][0]["text"] = "must never replay body".into();
+        assert!(serde_json::from_value::<DisplayPayload>(illegal).is_err());
     }
 
     #[test]

@@ -67,9 +67,19 @@ export type DisplayConversation = Omit<UiConversation, 'account' | 'waiting_sinc
 export type AdapterDisplayPayload =
   | { readonly kind: 'conversations'; readonly full: boolean; readonly items: readonly DisplayConversation[]; readonly removed_gids: readonly string[] }
   | { readonly kind: 'messages'; readonly gid: string; readonly replace: boolean; readonly items: readonly UiMessage[] }
+  | { readonly kind: 'message_profiles'; readonly gid: string; readonly items: readonly MessageProfilePatch[] }
   | { readonly kind: 'agent_status'; readonly status: AgentStatus; readonly confirmed: boolean }
   | { readonly kind: 'transport'; readonly state: TransportState }
   | { readonly kind: 'notice_categories'; readonly items: readonly UiNoticeCategory[] };
+
+/** Enrichment may never replay an old message body, status, or timestamp. */
+export interface MessageProfilePatch {
+  readonly message_id: string | null;
+  readonly local_id: string | null;
+  readonly sender_id: string;
+  readonly sender_name: string | null;
+  readonly sender_avatar: string | null;
+}
 
 /** Operations the host may ask the page to perform. `args` per op below. */
 export type AdapterRequest =
