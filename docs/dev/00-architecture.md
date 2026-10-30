@@ -52,4 +52,17 @@ flowchart LR
 
 [01 宿主](01-shell.md)、[02 登录](02-account-login.md)、[03 强提醒](03-strong-alert.md)、[04 订单入口](04-business-pages.md)、[05 最小状态](05-store.md)、[06 网页网络](06-net.md)、[07 网页附件](07-media.md)、[08 偏好与诊断](08-update-telemetry.md)、[09 商家助手](09-assistant.md)、[10 网页 IM](10-im.md)。
 
-实际工程尚未创建；上述职责和标识是待实现设计，不是现有 API。当前计划见[总计划](../plan/00-master-development-plan.md)。
+## 6. 2026-10-30 落盘对照
+
+工程已创建在 [`vbk/`](../../vbk/README.md)。第 3 节职责与代码的对应：
+
+| 部分 | 代码位置 | 本地检查 | 尚未验证 |
+| --- | --- | --- | --- |
+| Web 适配器 | `vbk/ui/packages/web-adapter`（业务/SDK head、SOA 分类、会话列表 5 秒轮询、补偿、分页、发送意图、已读、颜色标记、订单、上传） | 112 项单测；审查记录 `REVIEW-2026-10-30.md` | 在官方页面/WebView2 内接入真实 SDK 句柄；U01–U10 |
+| Rust 核心 | `vbk/crates/{contracts,core-account,core-store,core-net,core-im,core-notify,core-assistant}`（std-only） | 297 项测试、clippy 0 警告；跨模块场景 `vbk/tests/scenarios` | 目标机运行 |
+| 宿主 | `vbk/src-tauri`（main/alarm/setting/update/login 窗口、托盘、按窗口 capability、视图 ACL、1 Hz 调度、轮次持久化） | 仅 rustfmt 语法检查 | Windows + WebView2 构建、置顶不抢焦点、DPI |
+| 主界面 / alarm | `vbk/ui/apps/{main,alarm,setting,login}` + `ui-kit` + Mock IPC | tsc、148 项单测、211 项冒烟与截图 | 接真实宿主命令 |
+
+第 4 节共用约束在代码中的落点：`AccountContext` 代次校验（`contracts::identity`、`core-account::validate`、宿主 `im_push_fact` 先校验再入核心）；`stream/epoch/seq` 去重与跳号重握手（`contracts::events`、`core-im::ingest`）；`confirmed/rejected/unknown`（`contracts::im::SendDisposition`、`core-im::outbox` 无重发 API）；提醒语义（`core-im::rounds`、`core-notify`）；远程页面无 IPC 权限（`src-tauri/capabilities`、`views.rs`）。
+
+落盘不等于验收：G1–G5 仍未运行；当前计划与任务状态见[总计划](../plan/00-master-development-plan.md)。

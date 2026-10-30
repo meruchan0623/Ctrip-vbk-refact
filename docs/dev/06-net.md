@@ -24,4 +24,6 @@
 
 不实现环境切换产品页、网关选择器、代理/PAC 管理或通用受限 fetch 产品接口。宿主必须的系统网络兼容性单独在实际运行环境验证，不引入用户未要求的设置。
 
+2026-10-30 落盘：请求在网页/WebView 内由 `vbk/ui/packages/web-adapter` 发出（`soa.ts` 带 `_fxpcqlniredt`/`x-traceID`、Ack/业务状态/登录失效分类，写请求不重试、超时记 unknown；`conversationList.ts` 响应后 5000 ms 再 POST 并以 `lastUpdateTime→startTime`；`compensation.ts` 连接时 10 秒/断线 5 秒并保留 300 秒停止策略开关；`history.ts` 读 `rangeMessage.isDone`）。宿主侧策略在 `vbk/crates/core-net`：72 个接口的方法/鉴权/副作用/重试登记（写不可重试）、SOA/Nephele 分类、URL 精确校验、`ClockService` 与对账代次、离线不等于登录失效。未验证：真实 Cookie/Profile 在 WebView2 内复用、`.json` 与无后缀列表接口的分别计数、补偿故障分支、`x-ctx-wclient-req`/`w-payload-source` 由页面请求层生成（适配器不自造）。
+
 依据：[网页调查](../research/2026-10-30-web-im-observation.md)、[订单流程](../research/2026-10-30-web-order-conversation.md)。旧网络层设计见[归档](../archive/desktop-baseline/dev/06-net.md)。

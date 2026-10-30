@@ -11,4 +11,6 @@
 5. 客服在线/挂起/离开/下班属于网页业务状态，与登录和网络状态分开；切换后回读，不因断线自行改为下班。
 6. 旧 Electron 数据只读导入票据，不迁移密码。
 
+2026-10-30 落盘：`vbk/crates/core-account` 实现登录 attempt 隔离、`(environment,buid)→AccountId` 稳定索引（同身份重登不产生新 ID）、`session_generation` 推进与迟到回调拒绝、三种退出模式、凭据 `Prepared→SecretStaged→IndexCommitted` 账本与崩溃恢复、客服工作状态只按服务端回读更新（断线不改）；`SecretStore` 为抽象接口，系统凭据库适配未做。宿主 `account_start_login` 只返回官方登录页 URL，隔离 Profile 的 WebView2 承载与登录完成后的身份读取（`publish_identity` 的触发）尚未原型化。
+
 详细设计沿用[归档正文](../archive/desktop-baseline/dev/02-account-login.md)。网页证据：[网页调查](../research/2026-10-30-web-im-observation.md)、[客服状态](../research/2026-10-30-agent-status-and-settings.md)。

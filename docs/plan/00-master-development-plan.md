@@ -1,6 +1,6 @@
 # 当前开发计划：网页 IM 与独立强提醒
 
-2026-10-30。状态：设计收敛完成，原型与业务验收未完成。范围以[决定](../decisions/2026-10-30-web-only-scope.md)为准。
+2026-10-30。状态：设计收敛完成，代码已落盘（见第 5 节），原型与业务验收未完成。范围以[决定](../decisions/2026-10-30-web-only-scope.md)为准。
 
 ## 1. 交付目标
 
@@ -37,6 +37,23 @@
 - [前端原型删减清单](2026-10-30-frontend-prototype-pruning.md)
 
 任务完成须有代码、具体网页版本、受控样本和实际结果，不能把本计划或既有自然流量观测当成验收。调度由执行时决定，不要求创建固定数量代理。
+
+## 5. 2026-10-30 落盘状态
+
+本轮按第 2 节顺序把代码落到 [`vbk/`](../../vbk/README.md)：1 个集成 owner + 6 个模块代理并行，再由 3 个独立审查代理做对抗审查并修正。本地检查：`cargo test --workspace` 297 项、clippy 0 警告、`tsc` 无错误、`node --test` 148 项、Playwright 冒烟 211 项；`src-tauri` 只做了语法级检查。**以下状态均为 `local_verified`，没有任何一项达到 `target_verified`；G0 准入清单中的未闭环项未因写出代码而关闭。**
+
+| 任务 | 代码 | 状态 | 距验收关口还差 |
+| --- | --- | --- | --- |
+| P0 网页接入原型 | `src-tauri`（窗口/托盘/ACL/命令/调度）、`web-adapter`（事实事件、三类来源区分）、`core-account` | 代码就绪，`blocked`（无 Windows/WebView2 与 crate 注册表） | 官方登录页隔离 Profile 承载、SDK 句柄接入、后台事件连续性 |
+| P1 消息事实 | `core-im`、`web-adapter`、`tests/scenarios`（重复/乱序/迟到 ACK/跳号/旧代次/unknown） | `local_verified` | 受控收发、断网补偿、真实回执 |
+| P2 独立强提醒 | `core-im::rounds`、`core-notify`、`src-tauri` alarm、`ui/apps/alarm`、轮次持久化恢复 | `local_verified` | 真实 30 秒等待、不抢焦点、睡眠/重启 |
+| P3 网页必要操作 | 订单联系（适配器 + 界面 + URL 校验）、颜色标记、已读、设置读回、通知中心界面 | `local_verified`（部分） | 具体入口/角色/业务结果读回；通知内容与标读契约未补采 |
+| P5 自有能力 | 多账号（core-account + 标题栏标签）、托盘、设置页、商家助手核心（core-assistant）、上传链路 | `implementing` | 截图/OCR、更新与诊断、系统凭据库、音频/Toast 未实现 |
+| P4 故障与交付验证 | CI 工作流（核心/TS/Windows cargo check） | `planned` | 全部目标机矩阵 |
+
+对抗审查共修正 P1 6 项、P2 16 项，记录在 `vbk/tests/scenarios/REVIEW-2026-10-30.md`、`vbk/ui/packages/web-adapter/REVIEW-2026-10-30.md`、`vbk/ui/apps/REVIEW-2026-10-30.md`；未修正项（契约层 `HideAll` 缺账号字段、`unread_count` 占位、`x-req-src` 来源、适配器 U01–U10、界面 C-01–C-05）保留在记录中，下一轮先处理契约项再进入 P0 目标机原型。
+
+与总和开发计划的对应（同为 `local_verified`，不改变关口状态）：FND-01～04 → `vbk/Cargo.toml`、`crates/contracts`、`src-tauri/capabilities`；ACC-01/03 → `core-account`；DAT-01/02 → `core-store`；NET-01/04 → `core-net`；IM-01/04/05/06 → `core-im`；IM-07/09 → 适配器附件与入站翻译；OPS-01/03 部分 → 适配器 `settings.ts`/`worksheetStar.ts`；UIIM-01/02 部分 → `ui/apps/main`；SHL-01/03/06 部分 → `src-tauri`；NTF-01/02/04 → `core-notify`；NTF-03 → `ui/apps/alarm`；MED-02 部分 → `upload.ts`；AST-02～06 → `core-assistant`；QA-01 → `tests/scenarios`。BIZ、IM-02/03、REL、MAC 未开始。
 
 旧主计划与原始细分工作包保留在[历史归档](../archive/desktop-baseline/plan/00-master-development-plan.md)，不进入当前验收或工作量承诺。
 

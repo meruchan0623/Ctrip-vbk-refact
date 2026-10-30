@@ -15,3 +15,5 @@
 - 订单查询面板（TSim）。
 
 均为本项目接入的外部服务，不冒充携程网页能力。详细设计沿用[归档正文](../archive/desktop-baseline/dev/09-assistant.md)。
+
+2026-10-30 落盘：`vbk/crates/core-assistant` 按 [TSim 契约](../api/external-tsim.md) 实现登录（multipart、不记录密码）/profile/刷新（JWT exp 前 5 分钟，不可读则 30 分钟）/登出请求与解析、出站翻译严格六字段与回显校验、译文绑定账号/会话/草稿版本、替换草稿/直接发送状态机（失败只提示“发送原文 / 重试”，不静默发原文）、套餐查询链与 60 秒缓存、ICCID/EID 识别、语言建议；入站翻译在适配器 `translation.ts` 调平台 `batchTranslateByMsgIds`。界面有翻译栏与套餐速览槽位。TSim 线上兼容、真实 token 与套餐 scope 未动态核验；HTTP 发送由宿主承担，尚未接线。

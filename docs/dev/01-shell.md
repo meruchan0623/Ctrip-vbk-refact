@@ -10,3 +10,5 @@
 - 不再承载首页、工作台、事件、公告、商服、产品、数据、点评等业务页，也没有业务菜单墙与通用业务窗口池。
 
 Tauri/WebView2 的置顶、不激活显示、托盘、焦点与 DPI 需先做原型。详细设计沿用[归档正文](../archive/desktop-baseline/dev/01-shell.md)，去掉其中业务页部分。
+
+2026-10-30 落盘：`vbk/src-tauri/src/{windows,tray,views}.rs` 与 `capabilities/*.json` 已写出 main（关闭即隐藏）、alarm（单例、`always_on_top`、`focused(false)`、关闭即隐藏、工作区右下定位并夹到可见范围，纯函数 `place_alarm` 有测试）、setting/update 单例、托盘菜单（显示主窗口/设置/勿扰 1 小时/直到明天/退出）、未读提示与 500 ms 闪烁相位、单实例插件。界面在 `vbk/ui/apps/main`（标题栏账号标签，左侧栏只有消息/通知/订单联系）。全局快捷键、开机自启、深链、任务栏数字（`set_badge_count`）仅留接口或占位；以上均未在 Windows 目标机构建与验证。
