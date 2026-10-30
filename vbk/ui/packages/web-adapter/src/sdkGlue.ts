@@ -150,6 +150,8 @@ interface EmitterLike {
   on(event: string, cb: (...a: unknown[]) => void): unknown;
   removeListener?(event: string, cb: (...a: unknown[]) => void): unknown;
   off?(event: string, cb: (...a: unknown[]) => void): unknown;
+  /** Captured SDK EventEmitter.prototype.listeners, source offset 151349. */
+  listeners?(event: string): unknown;
 }
 
 function isEmitter(x: unknown): x is EmitterLike {
@@ -202,11 +204,24 @@ export function findImClient(win: Record<string, unknown>): ImClientLike | null 
 
 // ------------------------------------------------------------- glue
 
+export interface SdkBindingDiagnostics {
+  readonly global_state: 'emitter' | 'missing' | 'invalid' | 'unreadable' | 'disposed';
+  /** Health of this glue's callbacks only, never a claim about SDK internals. */
+  readonly listener_health: 'verified' | 'missing' | 'unsupported' | 'detached';
+  readonly attached: boolean;
+  readonly can_rebind: boolean;
+  readonly binding_generation: number;
+  readonly attach_count: number;
+  readonly repair_count: number;
+}
+
 export interface PageSdk extends ImSdkHandle {
-  /** An xmpp client is attached (realtime receive works). */
+  /** Bound to the current global emitter. This alone is not delivery proof. */
   readonly attached: boolean;
   /** A facade with `sendMessageInSocket` was found (sending is possible). */
   readonly canSend: boolean;
+  /** Only booleans, fixed enums and counters; no upstream data. */
+  readonly bindingDiagnostics?: SdkBindingDiagnostics;
   sdkVersion(): string | null;
   /** Bare room jid learnt from inbound frames for this gid (SDK target JID). */
   partnerJidOf(gid: string): string | null;
@@ -250,6 +265,10 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
   let probeTimer: unknown = null;
   let disposed = false;
   let bindingGeneration = 0;
+  let attachCount = 0, repairCount = 0;
+  let reportedUnhealthy = false;
+  type Hook = { emitter: EmitterLike; event: string; callback: (...args: unknown[]) => void };
+  let bindingHooks: Hook[] = [];
   const log = opts.log ?? (() => undefined);
 
   const emit = <K extends keyof SdkEventMap>(event: K, payload: SdkEventMap[K]): void => {
@@ -282,50 +301,86 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
   const onStatus = (status: unknown): void => emit('socket_status', mapXmppStatus(status));
   const onReconnecting = (): void => emit('socket_status', 'reconnecting');
 
+  const globalClient = (): { state: SdkBindingDiagnostics['global_state']; emitter: EmitterLike | null } => {
+    if (disposed) return { state: 'disposed', emitter: null };
+    try {
+      const value = win['xmppClient'];
+      return value === null || value === undefined ? { state: 'missing', emitter: null }
+        : isEmitter(value) ? { state: 'emitter', emitter: value } : { state: 'invalid', emitter: null };
+    } catch { return { state: 'unreadable', emitter: null }; }
+  };
+  const listenerHealth = (): SdkBindingDiagnostics['listener_health'] => {
+    if (!client || bindingHooks.length === 0) return 'detached';
+    let health: 'verified' | 'unsupported' = 'verified';
+    for (const hook of bindingHooks) {
+      try {
+        if (typeof hook.emitter.listeners !== 'function') { health = 'unsupported'; continue; }
+        const registered = hook.emitter.listeners(hook.event);
+        if (!Array.isArray(registered)) { health = 'unsupported'; continue; }
+        if (!registered.includes(hook.callback)) return 'missing';
+      } catch { health = 'unsupported'; }
+    }
+    return health;
+  };
+  const currentBinding = (): boolean => !disposed && client !== null && globalClient().emitter === client;
+  const attached = (): boolean => currentBinding() && listenerHealth() !== 'missing';
+  const canRebind = (): boolean => bindingHooks.length > 0 && bindingHooks.every(hook => {
+    try { return typeof hook.emitter.removeListener === 'function' || typeof hook.emitter.off === 'function'; }
+    catch { return false; }
+  });
+
   const attach = (c: EmitterLike): void => {
     detach?.();
     client = c;
     const generation = ++bindingGeneration;
-    const current = (): boolean => {
-      try { return !disposed && generation === bindingGeneration && client === c && win['xmppClient'] === c; }
-      catch { return false; }
-    };
-    // Removing a listener does not cancel an event already queued by its source.
+    const current = (): boolean => !disposed && generation === bindingGeneration && client === c && globalClient().emitter === c;
+    // Removing listeners does not cancel callbacks already queued by a source.
     const boundStanza = (el: unknown): void => { if (current()) onStanza(el); };
-    const boundStatus = (status: unknown): void => { if (current()) onStatus(status); };
-    const boundReconnecting = (): void => { if (current()) onReconnecting(); };
-    c.on('stanza', boundStanza);
-    c.on('status', boundStatus);
-    const reconnect = (c as { reconnect?: unknown }).reconnect;
-    if (isEmitter(reconnect)) reconnect.on('reconnecting', boundReconnecting);
+    const boundStatus = (status: unknown): void => { if (current()) listenerHealth() === 'missing' ? emit('socket_status', 'disconnected') : onStatus(status); };
+    const boundReconnecting = (): void => { if (current()) listenerHealth() === 'missing' ? emit('socket_status', 'disconnected') : onReconnecting(); };
+    let reconnect: unknown;
+    try { reconnect = (c as { reconnect?: unknown }).reconnect; } catch { reconnect = null; }
+    const hooks: Hook[] = [{ emitter: c, event: 'stanza', callback: boundStanza }, { emitter: c, event: 'status', callback: boundStatus }];
+    if (isEmitter(reconnect)) hooks.push({ emitter: reconnect, event: 'reconnecting', callback: boundReconnecting });
+    bindingHooks = hooks;
     detach = () => {
-      const off = (e: EmitterLike, name: string, cb: (...a: unknown[]) => void): void => {
+      for (const hook of hooks) {
         try {
-          if (typeof e.removeListener === 'function') e.removeListener(name, cb);
-          else if (typeof e.off === 'function') e.off(name, cb);
-        } catch {
-          // ignore
-        }
-      };
-      off(c, 'stanza', boundStanza);
-      off(c, 'status', boundStatus);
-      if (isEmitter(reconnect)) off(reconnect, 'reconnecting', boundReconnecting);
-      if (client === c) client = null;
+          if (typeof hook.emitter.removeListener === 'function') hook.emitter.removeListener(hook.event, hook.callback);
+          else if (typeof hook.emitter.off === 'function') hook.emitter.off(hook.event, hook.callback);
+        } catch { /* The generation fence remains authoritative. */ }
+      }
+      if (client === c) { client = null; bindingHooks = []; }
     };
-    log('xmpp client attached');
-    emit('socket_status', mapXmppStatus((c as { status?: unknown }).status));
-    for (const w of readyWaiters.splice(0)) w();
+    try { for (const hook of hooks) hook.emitter.on(hook.event, hook.callback); }
+    catch {
+      detach(); detach = null; bindingGeneration++; reportedUnhealthy = true;
+      emit('socket_status', 'disconnected'); return;
+    }
+    attachCount++;
+    reportedUnhealthy = !attached();
+    log('xmpp listener binding attempted');
+    emit('socket_status', reportedUnhealthy ? 'disconnected' : mapXmppStatus((c as { status?: unknown }).status));
+    if (!reportedUnhealthy) for (const waiter of readyWaiters.splice(0)) waiter();
   };
 
   const probe = (): void => {
     if (disposed) return;
-    let g: unknown;
-    try {
-      g = win['xmppClient'];
-    } catch {
-      g = undefined;
+    const next = globalClient().emitter;
+    if (!next) {
+      if (client !== null) {
+        detach?.(); detach = null; bindingGeneration++; reportedUnhealthy = false;
+        emit('socket_status', 'disconnected');
+      }
+    } else if (next !== client) attach(next);
+    else if (listenerHealth() === 'missing') {
+      // Re-register only our own callbacks when the supported listeners() API
+      // proves a loss and every old registration can be removed without leaks.
+      if (canRebind()) { repairCount++; attach(next); }
+      else if (!reportedUnhealthy) { reportedUnhealthy = true; emit('socket_status', 'disconnected'); }
+    } else if (reportedUnhealthy) {
+      reportedUnhealthy = false; emit('socket_status', mapXmppStatus((next as { status?: unknown }).status));
     }
-    if (isEmitter(g) && g !== client) attach(g);
     probeTimer = opts.setTimeout(probe, opts.probeIntervalMs ?? 1000);
   };
   probe();
@@ -334,7 +389,10 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
 
   return {
     get attached() {
-      return client !== null;
+      return attached();
+    },
+    get bindingDiagnostics() {
+      return { global_state: globalClient().state, listener_health: currentBinding() ? listenerHealth() : 'detached', attached: attached(), can_rebind: currentBinding() && canRebind(), binding_generation: bindingGeneration, attach_count: attachCount, repair_count: repairCount };
     },
     get canSend() {
       return !disposed && typeof facade()?.sendMessageInSocket === 'function';
@@ -348,7 +406,8 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
       if (gid !== '' && jid !== '' && jidLocal(jid) === gid) partnerJids.set(gid, bareJid(jid));
     },
     waitReady(timeoutMs) {
-      if (client !== null) return Promise.resolve(true);
+      if (disposed) return Promise.resolve(false);
+      if (attached()) return Promise.resolve(true);
       return new Promise((resolve) => {
         let done = false;
         readyWaiters.push(() => {
@@ -372,6 +431,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
       };
     },
     getSocketStatus() {
+      if (!attached()) return false;
       const f = facade();
       if (typeof f?.getSocketStatus === 'function') {
         try {
