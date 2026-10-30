@@ -18,5 +18,26 @@
         }
       }
     }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "VBooking 商家客户端",
+        "url": "apps/main/index.html",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 980,
+        "minHeight": 640,
+        "visible": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 14
+        }
+      }
+    ]
   }
 }

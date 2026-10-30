@@ -11,9 +11,15 @@
 //! and `scheduler.rs`, plus the Dock reopen handler below; macOS bundling
 //! settings are in `tauri.macos.conf.json`.
 
+pub mod adapter;
+pub mod assistant;
 pub mod commands;
 pub mod dto;
+pub mod events;
+pub mod login;
+pub mod prefs;
 pub mod scheduler;
+pub mod shell;
 pub mod state;
 pub mod tray;
 pub mod views;
@@ -36,6 +42,7 @@ pub fn run() {
     tauri::Builder::default()
         // Second instance: forward args (deep links are a later SHL-04
         // task) and bring the main window up.
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             windows::show_main(app);
         }))
@@ -82,6 +89,11 @@ pub fn run() {
                 });
                 let _ = main.show();
             }
+            shell::init(&handle)?;
+            prefs::init(&handle)?;
+            login::init(&handle)?;
+            adapter::init(&handle)?;
+            assistant::init(&handle)?;
             windows::ensure_alarm(&handle)?;
             tray::install(&handle)?;
             scheduler::start(handle);
@@ -96,17 +108,50 @@ pub fn run() {
             commands::notify_set_enabled,
             commands::notify_set_threshold,
             commands::notify_set_sound_enabled,
-            commands::account_snapshot,
-            commands::account_start_login,
-            commands::account_switch,
-            commands::account_suspend,
-            commands::account_logout,
-            commands::account_forget,
             commands::im_push_fact,
             commands::im_conversation_snapshot,
             commands::im_locate_conversation,
             commands::order_validate_im_url,
-            commands::prefs_snapshot,
+            login::account_snapshot,
+            login::account_start_login,
+            login::account_cancel_login,
+            login::account_switch,
+            login::account_suspend,
+            login::account_logout,
+            login::account_forget,
+            login::account_set_remark,
+            login::shell_open_webview,
+            adapter::adapter_ready,
+            adapter::adapter_identity,
+            adapter::adapter_push_fact,
+            adapter::adapter_push_display,
+            adapter::adapter_reply,
+            adapter::account_agent_status,
+            adapter::account_set_agent_status,
+            adapter::im_conversations,
+            adapter::im_messages,
+            adapter::im_send_text,
+            adapter::im_mark_read,
+            adapter::im_set_top,
+            adapter::im_set_mark,
+            adapter::notice_categories,
+            adapter::notice_list,
+            adapter::notice_mark_read,
+            adapter::order_search,
+            adapter::order_create_im_chat,
+            adapter::net_status,
+            shell::shell_window,
+            shell::shell_open_window,
+            shell::shell_open_external,
+            shell::media_screenshot,
+            shell::media_pick,
+            prefs::prefs_snapshot,
+            prefs::prefs_set,
+            assistant::assistant_tsim_status,
+            assistant::assistant_tsim_login,
+            assistant::assistant_tsim_logout,
+            assistant::assistant_translate,
+            assistant::assistant_package_quick_view,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the VBooking host")

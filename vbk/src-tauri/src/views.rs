@@ -15,6 +15,9 @@ pub const ALARM: &str = "alarm";
 pub const SETTING: &str = "setting";
 pub const UPDATE: &str = "update";
 pub const LOGIN: &str = "login";
+/// Prefix of per-account official-page webviews running the web-adapter
+/// boot script. Each one is registered under its full label when created.
+pub const ACCOUNT_WEBVIEW_PREFIX: &str = "acct-";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Role {
@@ -23,6 +26,9 @@ pub enum Role {
     Setting,
     Update,
     LoginShell,
+    /// Remote official IM page of one account (`acct-*`). Only the narrow
+    /// `adapter_*` commands; never account, prefs or shell commands.
+    Adapter,
 }
 
 impl Role {
@@ -33,6 +39,7 @@ impl Role {
             SETTING => Some(Role::Setting),
             UPDATE => Some(Role::Update),
             LOGIN => Some(Role::LoginShell),
+            l if l.starts_with(ACCOUNT_WEBVIEW_PREFIX) => Some(Role::Adapter),
             _ => None,
         }
     }
@@ -42,18 +49,44 @@ impl Role {
         const MAIN_CMDS: &[&str] = &[
             "account_snapshot",
             "account_start_login",
+            "account_cancel_login",
             "account_switch",
             "account_suspend",
             "account_logout",
             "account_forget",
-            "im_push_fact",
+            "account_set_remark",
+            "account_agent_status",
+            "account_set_agent_status",
             "im_conversation_snapshot",
             "im_locate_conversation",
+            "im_conversations",
+            "im_messages",
+            "im_send_text",
+            "im_mark_read",
+            "im_set_top",
+            "im_set_mark",
+            "notice_categories",
+            "notice_list",
+            "notice_mark_read",
             "order_validate_im_url",
+            "order_search",
+            "order_create_im_chat",
+            "shell_window",
+            "shell_open_window",
+            "shell_open_external",
+            "shell_open_webview",
+            "media_screenshot",
+            "media_pick",
+            "net_status",
             "prefs_snapshot",
+            "prefs_set",
+            "notify_snapshot",
             "notify_set_enabled",
             "notify_set_threshold",
             "notify_set_sound_enabled",
+            "assistant_tsim_status",
+            "assistant_translate",
+            "assistant_package_quick_view",
         ];
         const ALARM_CMDS: &[&str] = &[
             "notify_snapshot",
@@ -65,19 +98,41 @@ impl Role {
         ];
         const SETTING_CMDS: &[&str] = &[
             "prefs_snapshot",
+            "prefs_set",
             "account_snapshot",
             "notify_set_enabled",
             "notify_set_threshold",
             "notify_set_sound_enabled",
+            "net_status",
+            "shell_window",
+            "shell_open_window",
+            "shell_open_external",
+            "assistant_tsim_status",
+            "assistant_tsim_login",
+            "assistant_tsim_logout",
         ];
-        const UPDATE_CMDS: &[&str] = &["prefs_snapshot"];
-        const LOGIN_CMDS: &[&str] = &["account_snapshot", "account_start_login", "prefs_snapshot"];
+        const UPDATE_CMDS: &[&str] = &["prefs_snapshot", "shell_window"];
+        const LOGIN_CMDS: &[&str] = &[
+            "account_snapshot",
+            "account_start_login",
+            "account_cancel_login",
+            "prefs_snapshot",
+            "shell_window",
+        ];
+        const ADAPTER_CMDS: &[&str] = &[
+            "adapter_ready",
+            "adapter_identity",
+            "adapter_push_fact",
+            "adapter_push_display",
+            "adapter_reply",
+        ];
         let list = match self {
             Role::MainShell => MAIN_CMDS,
             Role::AlarmPopup => ALARM_CMDS,
             Role::Setting => SETTING_CMDS,
             Role::Update => UPDATE_CMDS,
             Role::LoginShell => LOGIN_CMDS,
+            Role::Adapter => ADAPTER_CMDS,
         };
         list.contains(&command)
     }
@@ -139,6 +194,10 @@ mod tests {
         assert!(r.authorize(ALARM, "im_push_fact").is_err());
         assert!(r.authorize(ALARM, "account_logout").is_err());
         assert!(r.authorize("web-remote-1", "prefs_snapshot").is_err());
+        r.register("acct-p1");
+        assert!(r.authorize("acct-p1", "adapter_push_fact").is_ok());
+        assert!(r.authorize("acct-p1", "account_logout").is_err());
+        assert!(r.authorize("acct-unregistered", "adapter_ready").is_err());
         assert!(
             r.authorize(MAIN, "prefs_snapshot").is_err(),
             "unregistered main"

@@ -1,4 +1,7 @@
-# One command per line; mirrors ui/packages/ipc/src/commands.ts.
+# One command per line. FROZEN list (integration owner, 2026-10-30).
+# Must equal: lib.rs generate_handler!, views.rs role lists, capabilities/*.json,
+# ui/packages/ipc/src/{commands,client,adapterProtocol}.ts. Checked by
+# ui/apps/_shared/contract-consistency.test.ts.
 notify_snapshot
 notify_open_conversation
 notify_hide_round
@@ -7,14 +10,47 @@ notify_snooze
 notify_set_enabled
 notify_set_threshold
 notify_set_sound_enabled
-account_snapshot
-account_start_login
-account_switch
-account_suspend
-account_logout
-account_forget
 im_push_fact
 im_conversation_snapshot
 im_locate_conversation
 order_validate_im_url
+account_snapshot
+account_start_login
+account_cancel_login
+account_switch
+account_suspend
+account_logout
+account_forget
+account_set_remark
+shell_open_webview
+adapter_ready
+adapter_identity
+adapter_push_fact
+adapter_push_display
+adapter_reply
+account_agent_status
+account_set_agent_status
+im_conversations
+im_messages
+im_send_text
+im_mark_read
+im_set_top
+im_set_mark
+notice_categories
+notice_list
+notice_mark_read
+order_search
+order_create_im_chat
+net_status
+shell_window
+shell_open_window
+shell_open_external
+media_screenshot
+media_pick
 prefs_snapshot
+prefs_set
+assistant_tsim_status
+assistant_tsim_login
+assistant_tsim_logout
+assistant_translate
+assistant_package_quick_view

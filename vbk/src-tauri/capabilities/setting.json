@@ -1,16 +1,28 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "setting",
-  "description": "setting window: prefs and reminder settings",
-  "windows": ["setting"],
+  "description": "setting window: prefs, reminder settings, TSim login",
+  "windows": [
+    "setting"
+  ],
   "permissions": [
     "core:default",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
     "allow-prefs-snapshot",
+    "allow-prefs-set",
     "allow-account-snapshot",
     "allow-notify-set-enabled",
     "allow-notify-set-threshold",
-    "allow-notify-set-sound-enabled"
+    "allow-notify-set-sound-enabled",
+    "allow-net-status",
+    "allow-shell-window",
+    "allow-shell-open-window",
+    "allow-shell-open-external",
+    "allow-assistant-tsim-status",
+    "allow-assistant-tsim-login",
+    "allow-assistant-tsim-logout"
   ]
 }

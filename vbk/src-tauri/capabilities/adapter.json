@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "adapter",
+  "description": "per-account official IM page webviews (acct-*): only the narrow adapter_* bridge plus event listen for adapter://request. Granted to the official HTTPS origins only.",
+  "webviews": [
+    "acct-*"
+  ],
+  "remote": {
+    "urls": [
+      "https://vbooking.ctrip.com/*",
+      "https://imvendor.ctrip.com/*"
+    ]
+  },
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-adapter-ready",
+    "allow-adapter-identity",
+    "allow-adapter-push-fact",
+    "allow-adapter-push-display",
+    "allow-adapter-reply"
+  ]
+}

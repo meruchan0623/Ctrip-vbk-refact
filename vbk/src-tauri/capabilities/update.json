@@ -2,6 +2,15 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "update",
   "description": "update window: minimal; must not inherit account or business permissions",
-  "windows": ["update"],
-  "permissions": ["core:default", "core:event:allow-listen", "allow-prefs-snapshot"]
+  "windows": [
+    "update"
+  ],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "allow-prefs-snapshot",
+    "allow-shell-window"
+  ]
 }

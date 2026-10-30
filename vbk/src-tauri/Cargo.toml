@@ -30,7 +30,15 @@ core-assistant = { path = "../crates/core-assistant" }
 
 # FND-01 locks exact versions on the first Windows build; these are the
 # minimum majors the code is written against (Tauri 2.x with work_area()).
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+# `unstable`: multi-webview windows (login window = local header + remote page).
+tauri = { version = "2", features = ["tray-icon", "image-png", "unstable"] }
+tauri-plugin-dialog = "2"
+# HTTP for core-assistant (TSim) requests built by the std-only core.
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+# macOS Keychain / Windows Credential Manager for SecretStore.
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+tokio = { version = "1", features = ["time", "sync"] }
+uuid = { version = "1", features = ["v4"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
