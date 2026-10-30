@@ -227,6 +227,30 @@ export function orderSummary(orderId: string | null): UiOrderSummary | null {
   return { order_id: orderId, product: '', use_date: '', quantity: '', status: '', contact: '' };
 }
 
+/** Verified CTL01 order source card. Match its order id before enriching the current conversation. */
+export function orderSummaryFromMessage(msg: HttpMessageObject): UiOrderSummary | null {
+  if (msgTypeNumber(msg.msgtype) !== 7) return null;
+  const body = parseJsonObject(msg.messageBody);
+  if (body?.['action'] !== 'CTL01') return null;
+  const ext = recordOrNull(body['ext']);
+  if (!Array.isArray(ext?.['dataInfoList'])) return null;
+  const fields = new Map<string, string>();
+  for (const item of ext['dataInfoList']) {
+    const row = recordOrNull(item);
+    const key = str(row?.['Id']);
+    const value = str(row?.['text']);
+    if (key && value) fields.set(key, value);
+  }
+  const id = fields.get('orderid');
+  if (!id || !/^\d{1,32}$/.test(id)) return null;
+  return {
+    order_id: id, product: fields.get('productName') ?? '', use_date: fields.get('usedate') ?? '',
+    quantity: '', status: '', contact: '', source_channel: fields.get('platformName') ?? '',
+    total_amount: fields.get('orderamout') ?? '', source_title: str(ext?.['title']) ?? '',
+    source_description: str(ext?.['desc']) ?? '',
+  };
+}
+
 export function toDisplayConversation(row: ConversationListItem, isFullSnapshot: boolean, unread?: UnreadLookup): DisplayConversation | null {
   const fact = toConversationFact(row, isFullSnapshot, unread);
   const view = rowView(row);
@@ -266,7 +290,8 @@ function recallFields(msgtype: unknown, body: unknown) {
 /** HTTP message object (history / compensation / list rows) → `UiMessage`; `null` for non-display rows. */
 export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?: string, extras: UiMessageExtras = {}): UiMessage | null {
   if (typeof msg !== 'object' || msg === null) return null;
-  const kind = uiKindOf(msg.msgtype);
+  const order = orderSummaryFromMessage(msg);
+  const kind = order ? 'order_card' : uiKindOf(msg.msgtype);
   if (kind === null) return null;
   const createTime = normalizeTimeMs(msg.createTime);
   if (createTime === null) return null;
@@ -285,12 +310,12 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
     sender_role: sender ? roles.roleOf(sender) : 'unknown',
     ...senderFields(sender, roles),
     kind,
-    text: messageText(msg.msgtype, msg.messageBody),
+    text: order?.product ?? messageText(msg.msgtype, msg.messageBody),
     ...recallFields(msg.msgtype, msg.messageBody),
     translation: null,
     original: extras.original ?? null,
     quote: cite,
-    order_id: null,
+    order_id: order?.order_id ?? null,
     disposition: extras.disposition ?? null,
   };
 }
@@ -300,7 +325,8 @@ export function sdkMessageToUi(evt: SdkMessageEvent, roles: MemberRoles): UiMess
   if (typeof evt !== 'object' || evt === null) return null;
   const type = str(evt.type);
   if (type !== 'groupchat' && type !== 'chat') return null;
-  const kind = uiKindOf(evt.msgtype);
+  const order = orderSummaryFromMessage({ msgtype: evt.msgtype, messageBody: evt.body });
+  const kind = order ? 'order_card' : uiKindOf(evt.msgtype);
   if (kind === null) return null;
   const address = resolveSdkAddress(evt, roles);
   if (!address) return null;
@@ -315,12 +341,12 @@ export function sdkMessageToUi(evt: SdkMessageEvent, roles: MemberRoles): UiMess
     sender_role: sender ? roles.roleOf(sender) : 'unknown',
     ...senderFields(sender, roles),
     kind,
-    text: messageText(evt.msgtype, evt.body),
+    text: order?.product ?? messageText(evt.msgtype, evt.body),
     ...recallFields(evt.msgtype, evt.body),
     translation: null,
     original: null,
     quote: idStr(evt.citemsgid),
-    order_id: null,
+    order_id: order?.order_id ?? null,
     disposition: null,
   };
 }

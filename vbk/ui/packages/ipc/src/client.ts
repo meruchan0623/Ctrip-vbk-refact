@@ -227,6 +227,10 @@ export interface UiOrderSummary {
   readonly status: string;
   /** Masked contact label, never a phone number. */
   readonly contact: string;
+  readonly source_channel?: string;
+  readonly total_amount?: string;
+  readonly source_title?: string;
+  readonly source_description?: string;
 }
 
 export interface UiConversation extends ConversationFact {

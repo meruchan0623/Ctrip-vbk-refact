@@ -44,6 +44,14 @@ pub struct UiOrderSummaryDto {
     pub status: String,
     /// Masked contact label, never a phone number.
     pub contact: String,
+    #[serde(default)]
+    pub source_channel: String,
+    #[serde(default)]
+    pub total_amount: String,
+    #[serde(default)]
+    pub source_title: String,
+    #[serde(default)]
+    pub source_description: String,
 }
 
 /// Mirrors `DisplayConversation` (adapterProtocol.ts): `UiConversation`

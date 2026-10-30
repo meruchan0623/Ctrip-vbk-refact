@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentStatusOf, colorOf, httpMessageToUi, langOf, messageText, previewOf, rowView, sdkMessageToUi, toDisplayConversation, uiKindOf } from './display.ts';
+import { agentStatusOf, colorOf, httpMessageToUi, langOf, messageText, orderSummaryFromMessage, previewOf, rowView, sdkMessageToUi, toDisplayConversation, uiKindOf } from './display.ts';
 import { stanzaToEvent, mapXmppStatus, readElement } from './sdkGlue.ts';
 import { buildPageContext, createContextSniffer, localeFromSearch, readCookie } from './pageContext.ts';
 import { UNKNOWN_ROLES } from './facts.ts';
-import { RoleBook } from './stores.ts';
+import { ConversationStore, RoleBook } from './stores.ts';
 import { sampleRow } from './testing.ts';
 
 test('display: conversation row → DisplayConversation', () => {
@@ -120,4 +120,25 @@ test('page context: sniffed head cid/sid + _fxpcqlniredt; cookie fallback for ci
   assert.deepEqual(noSid, { ok: false, missing: ['sid'] });
   assert.equal(readCookie('a=1; vbk_login_cid=V', 'vbk_login_cid'), 'V');
   assert.equal(localeFromSearch('?lang=<script>'), 'zh-CN');
+});
+
+test('display: CTL01 enriches only the matching current order and newer cards win', () => {
+  const store = new ConversationStore();
+  store.update([sampleRow('g')]);
+  const card = { msgtype: 7, messageBody: JSON.stringify({ action: 'CTL01', ext: { title: '订单咨询通知', desc: '订单详情页', dataInfoList: [
+    { Id: 'orderid', text: '1234567890' }, { Id: 'productName', text: 'eSIM' }, { Id: 'usedate', text: '2026/10/28' }, { Id: 'platformName', text: 'Trip-App' }, { Id: 'orderamout', text: '18.52' },
+  ] } }) };
+  const order = orderSummaryFromMessage(card);
+  assert.ok(order);
+  assert.equal(order.source_channel, 'Trip-App');
+  assert.equal(order.total_amount, '18.52');
+  assert.equal(order.source_description, '订单详情页');
+  store.noteOrder('g', order, 200);
+  store.noteOrder('g', { ...order, product: 'stale' }, 100);
+  store.noteOrder('g', { ...order, order_id: '9999999', product: 'wrong order' }, 300);
+  assert.equal(store.order('g')?.product, 'eSIM');
+  const message = httpMessageToUi({ ...card, fromJid: 'g@room/customer', createTime: 1700000000000, msgId: 'c' }, UNKNOWN_ROLES);
+  assert.equal(message?.kind, 'order_card');
+  assert.equal(message?.order_id, order.order_id);
+  assert.equal(message?.text, 'eSIM');
 });

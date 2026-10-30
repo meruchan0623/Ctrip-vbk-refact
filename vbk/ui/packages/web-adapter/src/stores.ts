@@ -16,13 +16,14 @@
 
 import type { IdentityProfile } from './identity.ts';
 import type { SenderRole } from '../../ipc/src/contracts.ts';
+import type { UiOrderSummary } from '../../ipc/src/client.ts';
 import type { AdapterDeps } from './deps.ts';
 import type { ConversationListItem, UnreadLookup } from './conversationList.ts';
 import { Endpoints } from './endpoints.ts';
 import { businessHead } from './heads.ts';
 import { isBizSuccess, recordOrNull, type SoaClient } from './soa.ts';
 import type { HttpMessageObject, MemberRoles } from './facts.ts';
-import { jidLocal } from './facts.ts';
+import { jidLocal, normalizeTimeMs } from './facts.ts';
 import { rowView, type ConversationRowView } from './display.ts';
 
 function norm(uid: string): string {
@@ -33,6 +34,15 @@ function idStr(x: unknown): string | null {
   if (typeof x === 'string' && x !== '') return x;
   if (typeof x === 'number' && Number.isFinite(x)) return String(x);
   return null;
+}
+
+function orderContext(view: ConversationRowView): string {
+  return JSON.stringify([view.gid, view.orderId, view.sessionId, view.customerUid, view.conversationType, view.serviceType, view.threadId, view.conversationKey ?? null, view.worksheetId]);
+}
+function orderSnapshotFence(row: unknown): number | null {
+  const value = recordOrNull(row);
+  const times = [normalizeTimeMs(value?.['lastUpdateTime']), normalizeTimeMs(value?.['lastMessageTime'])].filter((time): time is number => time !== null);
+  return times.length ? Math.max(...times) : null;
 }
 
 // ------------------------------------------------------------- conversations
@@ -46,6 +56,11 @@ export class ConversationStore {
   readonly #rows = new Map<string, ConversationListItem>();
   readonly #views = new Map<string, ConversationRowView>();
   readonly #latest = new Map<string, LatestMessage>();
+  readonly #orders = new Map<string, { context: string; revision: number; time: number; order: UiOrderSummary }>();
+  // Independent of order evidence: a service may change before any card arrives.
+  // undefined is the initial matching-order history scope; null is an observed
+  // transition with no usable server snapshot boundary and cannot bind a card.
+  readonly #orderScopes = new Map<string, { context: string; revision: number; fence: number | null | undefined }>();
   readonly #watchers: ((gids: readonly string[]) => void)[] = [];
 
   /** Stores rows; returns the gids that were stored. */
@@ -54,6 +69,13 @@ export class ConversationStore {
     for (const r of rows) {
       const view = rowView(r as ConversationListItem);
       if (!view) continue;
+      const context = orderContext(view), previous = this.#orderScopes.get(view.gid);
+      if (!previous) this.#orderScopes.set(view.gid, { context, revision: 1, fence: undefined });
+      else if (previous.context !== context) this.#orderScopes.set(view.gid, { context, revision: previous.revision + 1, fence: orderSnapshotFence(r) });
+      else if (previous.fence === null) {
+        const fence = orderSnapshotFence(r);
+        if (fence !== null) this.#orderScopes.set(view.gid, { ...previous, fence });
+      }
       this.#rows.set(view.gid, r as ConversationListItem);
       this.#views.set(view.gid, view);
       gids.push(view.gid);
@@ -96,6 +118,24 @@ export class ConversationStore {
 
   latestMessage(gid: string): LatestMessage | null {
     return this.#latest.get(gid) ?? null;
+  }
+
+  noteOrder(gid: string, order: UiOrderSummary, time: number): void {
+    const view = this.view(gid);
+    if (!view || view.orderId !== order.order_id || !Number.isFinite(time) || time < 0) return;
+    const context = orderContext(view);
+    const scope = this.#orderScopes.get(gid);
+    if (!scope || scope.context !== context || scope.fence === null || (scope.fence !== undefined && time <= scope.fence)) return;
+    const current = this.#orders.get(gid);
+    // A different service/customer cannot inherit the old card, nor rebind an
+    // older/equal-time delayed card to itself. Keep the room's evidence floor.
+    if (current && (current.time > time || (current.revision !== scope.revision && current.time === time))) return;
+    this.#orders.set(gid, { context, revision: scope.revision, time, order });
+  }
+
+  order(gid: string): UiOrderSummary | null {
+    const stored = this.#orders.get(gid), view = this.view(gid), scope = this.#orderScopes.get(gid);
+    return stored && view && scope && scope.fence !== null && stored.revision === scope.revision && stored.context === orderContext(view) && (scope.fence === undefined || stored.time > scope.fence) ? stored.order : null;
   }
 
   /** Called with the gids of every `update`; returns an unsubscribe. */

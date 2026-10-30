@@ -20,7 +20,7 @@ import { SoaClient, type SoaOutcome } from './soa.ts';
 import { toConversationFact, type ConversationListItem, type ConversationListResponse, type ConversationListVariant } from './conversationList.ts';
 import type { RecentMessagesResponse } from './compensation.ts';
 import type { HttpMessageObject } from './facts.ts';
-import { agentStatusOf, byCreateTime, httpMessageToUi, previewOfUi, sdkMessageToUi, toDisplayConversation } from './display.ts';
+import { agentStatusOf, byCreateTime, httpMessageToUi, orderSummaryFromMessage, previewOfUi, sdkMessageToUi, toDisplayConversation } from './display.ts';
 import { ConversationStore, RoleBook, UnreadBook, roomJidFromMessage } from './stores.ts';
 import { createRpc, type AgentStatusBox, type Rpc } from './rpc.ts';
 import type { IdentityProfile } from './identity.ts';
@@ -141,7 +141,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (fact) adapter.bridge.push({ kind: 'conversation', fact });
       const base = toDisplayConversation(row, false, unread);
       const uid = store.view(gid)?.customerUid;
-      const d = base ? { ...base, title: uid ? roles.profileOf(uid).name ?? base.title : base.title } : null;
+      const d = base ? { ...base, title: uid ? roles.profileOf(uid).name ?? base.title : base.title, order: store.order(gid) ?? base.order } : null;
       if (d) {
         items.push(d);
       }
@@ -171,7 +171,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       const base = toDisplayConversation(raw as ConversationListItem, full, unread);
       if (!base) continue;
       const uid = store.view(base.gid)?.customerUid;
-      const d = { ...base, title: uid ? roles.profileOf(uid).name ?? base.title : base.title };
+      const d = { ...base, title: uid ? roles.profileOf(uid).name ?? base.title : base.title, order: store.order(base.gid) ?? base.order };
       const prev = displays.get(d.gid);
       // a realtime preview newer than the row stays until the list catches up
       const merged = prev && prev.last_message_time_ms !== null && (d.last_message_time_ms ?? 0) < prev.last_message_time_ms ? { ...d, preview: prev.preview, last_message_time_ms: prev.last_message_time_ms } : d;
@@ -219,9 +219,11 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       pushDisplay({ kind: 'messages', gid, replace: false, items: list });
       const last = list[list.length - 1];
       const d = displays.get(gid);
-      if (last && d && (d.last_message_time_ms ?? 0) <= last.create_time_ms) {
-        const preview = previewOfUi(last);
-        const next = { ...d, preview, last_message_time_ms: last.create_time_ms, is_full_snapshot: false };
+      const row = store.row(gid);
+      const order = store.order(gid) ?? (row ? toDisplayConversation(row, false, unread)?.order : null) ?? null;
+      const newerPreview = last && (d?.last_message_time_ms ?? 0) <= last.create_time_ms;
+      if (last && d && (newerPreview || JSON.stringify(d.order) !== JSON.stringify(order))) {
+        const next = { ...d, order, ...(newerPreview ? { preview: previewOfUi(last), last_message_time_ms: last.create_time_ms } : {}), is_full_snapshot: false };
         convs.push(next);
       }
     }
@@ -235,6 +237,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     if (!ui) { diagnostics.session.ui_dropped = receiveCount(diagnostics.session.ui_dropped); return; }
     diagnostics.session.ui_mapped = receiveCount(diagnostics.session.ui_mapped);
     if (ui.message_id) store.noteMessage(ui.gid, ui.message_id, ui.create_time_ms);
+    const order = orderSummaryFromMessage({ msgtype: evt.msgtype, messageBody: evt.body });
+    if (order) store.noteOrder(ui.gid, order, ui.create_time_ms);
     pushMessages([ui]);
     if (store.has(ui.gid)) void roles.ensure(deps, soa, ui.gid).then(() => {
       if (!running || generation !== runGeneration) return;
@@ -259,6 +263,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (!ui) { diagnostics.compensation.dropped = receiveCount(diagnostics.compensation.dropped); continue; }
       diagnostics.compensation.mapped = receiveCount(diagnostics.compensation.mapped);
       store.noteMessage(ui.gid, m.msgId, m.createTime);
+      const order = orderSummaryFromMessage(m);
+      if (order) store.noteOrder(ui.gid, order, ui.create_time_ms);
       const jid = roomJidFromMessage(ui.gid, m);
       if (jid) opts.sdk.rememberPartnerJid(ui.gid, jid);
       items.push(ui);
@@ -320,7 +326,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (running) return;
       runGeneration++;
       running = true;
-      unsubs = [opts.sdk.on('message', onSdkMessage), opts.sdk.on('socket_status', onSocket)];
+      const generation = runGeneration;
+      unsubs = [opts.sdk.on('message', evt => { if (running && generation === runGeneration) onSdkMessage(evt); }), opts.sdk.on('socket_status', onSocket)];
       pushDisplay({ kind: 'transport', state: opts.sdk.getSocketStatus() ? 'connected' : 'disconnected' });
       adapter.start();
       log(`adapter started (epoch ${adapter.bridge.epoch})`);

@@ -32,7 +32,7 @@ import { createSendIntent, submitIntent, type SendIntent } from './send.ts';
 import { markRead } from './markRead.ts';
 import { numericGid, setWorkSheetStar } from './worksheetStar.ts';
 import { createImChat, isValidOrderId, validateImUrl } from './order.ts';
-import { AGENT_STATUS_CODES, agentStatusOf, byCreateTime, httpMessageToUi, toDisplayConversation } from './display.ts';
+import { AGENT_STATUS_CODES, agentStatusOf, byCreateTime, httpMessageToUi, orderSummaryFromMessage, toDisplayConversation } from './display.ts';
 import type { PageSdk } from './sdkGlue.ts';
 import { roomJidFromMessage, type ConversationStore, type RoleBook } from './stores.ts';
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
@@ -170,9 +170,11 @@ const imMessages: Handler<'im.messages'> = async (ctx, args) => {
   const gid = requireString(args, 'gid');
   const view = requireConversation(ctx, gid);
   if (!view.conversationType) fail(ErrorCodes.ADAPTER_FAILED, 'conversationType unknown for this conversation');
+  const historyOwner = JSON.stringify([sendIdentity(ctx, view), view.orderId]);
   const checkHistoryContext = (): void => {
+    ensureCurrent(current);
     const live = requireConversation(ctx, gid);
-    if (!current() || live.sessionId !== view.sessionId || live.customerUid !== view.customerUid || live.conversationType !== view.conversationType) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation changed during history read');
+    if (JSON.stringify([sendIdentity(ctx, live), live.orderId]) !== historyOwner) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation changed during history read');
   };
   checkHistoryContext();
   await ctx.roles.ensure(ctx.deps, ctx.soa, gid);
@@ -187,6 +189,8 @@ const imMessages: Handler<'im.messages'> = async (ctx, args) => {
     const ui = httpMessageToUi(row, ctx.roles, gid);
     if (ui) items.push(ui);
     if (typeof row === 'object' && row !== null) {
+      const order = ui ? orderSummaryFromMessage(row) : null;
+      if (order && ui) ctx.store.noteOrder(gid, order, ui.create_time_ms);
       ctx.store.noteMessage(gid, row.msgId, row.createTime);
       const jid = roomJidFromMessage(gid, row);
       if (jid) ctx.sdk.rememberPartnerJid(gid, jid);
@@ -197,7 +201,7 @@ const imMessages: Handler<'im.messages'> = async (ctx, args) => {
   const display = row ? toDisplayConversation(row, false) : null;
   if (display) {
     const profile = view.customerUid ? ctx.roles.profileOf(view.customerUid) : null;
-    ctx.pushDisplay({ kind: 'conversations', full: false, items: [{ ...display, customer_avatar: profile?.avatar ?? null, title: profile?.name ?? display.title }], removed_gids: [] });
+    ctx.pushDisplay({ kind: 'conversations', full: false, items: [{ ...display, customer_avatar: profile?.avatar ?? null, title: profile?.name ?? display.title, order: ctx.store.order(gid) ?? display.order }], removed_gids: [] });
   }
   ctx.pushDisplay({ kind: 'messages', gid, replace: true, items });
   return items;

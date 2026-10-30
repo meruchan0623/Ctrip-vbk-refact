@@ -1206,6 +1206,18 @@ function richText(text: string): HTMLElement[] {
   );
 }
 
+/** A card may reveal only its own current order in its original account/session scope. */
+function openMessageOrder(m: UiMessage, rendered: UiConversation, account: UiAccount | null): void {
+  if (!account || !sameAccount(rendered.account, account.context) || rendered.account.session_generation !== account.context.session_generation || !stillActive(account.context)) return;
+  const current = activeConv();
+  if (S().activeGid !== m.gid || m.gid !== rendered.gid || !current || current.gid !== m.gid || !sameAccount(current.account, account.context) || current.account.session_generation !== account.context.session_generation) return;
+  if (!m.order_id || current.order?.order_id !== m.order_id) {
+    toast('当前未提供此订单的可用详情，请在订单查询中核对。');
+    return;
+  }
+  store.patch({ sideOpen: true, hotOrder: true });
+}
+
 function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAccount | null): HTMLElement {
   const alignment = messageAlignment(m);
   if (alignment.side === 'system') return h('div', { class: 'msg-sys' }, h('span', null, m.text));
@@ -1221,7 +1233,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
       { class: 'card' },
       h('div', { class: 'card-h' }, icon(IC.order, 14), t('chat.orderCard'), h('span', { class: 'mono', style: { 'margin-left': 'auto' } }, m.order_id ?? '')),
       h('div', { class: 'card-b' }, h('div', { class: 'card-t' }, o?.product ?? m.text), o ? h('div', { class: 'kv' }, h('span', { class: 'k' }, t('side.useDate')), h('span', null, o.use_date)) : null, o ? h('div', { class: 'kv' }, h('span', { class: 'k' }, t('side.quantity')), h('span', null, o.quantity)) : null),
-      h('div', { class: 'card-f' }, o ? h('span', { class: 'chip chip-info', style: { 'margin-right': 'auto' } }, o.status) : null, h('button', { class: 'link', onclick: () => store.patch({ sideOpen: true, hotOrder: true }) }, t('chat.viewOrder'))),
+      h('div', { class: 'card-f' }, o ? h('span', { class: 'chip chip-info', style: { 'margin-right': 'auto' } }, o.status) : null, h('button', { class: 'link', onclick: () => openMessageOrder(m, conv, acc) }, t('chat.viewOrder'))),
     );
   } else if (m.kind === 'image') {
     body = h('div', { class: 'shot', title: m.text }, h('span', { class: 'shot-t' }, t('chat.image')), h('span', { class: 'shot-l' }, m.text), h('span', { class: 'shot-bar', style: { width: '70%' } }), h('span', { class: 'shot-bar', style: { width: '45%' } }));
@@ -1444,7 +1456,7 @@ function packageCard(s: MainState, conv: UiConversation): HTMLElement | null {
 
 function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
   const o = conv.order;
-  const tags = [conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, langName(conv.lang)) : null, ...conv.customer_tags.map((tag, i) => h('span', { class: cx('chip', i === 0 ? 'chip-biz' : 'chip-info') }, tag))];
+  const row = (label: string, value: string | undefined) => value?.trim() ? [h('div', { class: 'ik' }, label), h('div', { class: 'iv' }, value)] : null;
   return h(
     'aside',
     { class: 'side' },
@@ -1452,28 +1464,28 @@ function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
     h(
       'div',
       { class: 'sbody', dataset: { keepScroll: 'side' } },
-      h(
-        'div',
-        { class: cx('ucard', { hot: s.hotOrder }) },
-        h('div', { class: 'ucard-h' }, h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)), h('div', { style: { flex: '1', 'min-width': '0', display: 'flex', 'flex-direction': 'column', gap: '4px' } }, h('b', { style: { 'font-size': '13.5px' } }, conv.title), h('div', { class: 'tagrow' }, tags))),
-        h('div', { class: 'ucard-sep' }),
-        o
-          ? [
-              h('div', { class: 'ucard-t', title: o.product }, o.product),
-              h('div', { class: 'tagrow' }, h('span', { class: 'chip chip-info' }, o.status), h('span', { class: 'chip chip-biz' }, conv.biz), h('span', { class: 'chip chip-biz' }, t('side.useOn', { d: o.use_date })), h('span', { class: 'chip chip-biz' }, o.quantity)),
-              h(
-                'div',
-                { class: 'oid' },
-                h('span', { class: 'muted' }, t('side.orderNo')),
-                h('span', { class: 'mono' }, o.order_id),
-                h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('side.copyOrder'), onclick: () => copyText(o.order_id, t('side.orderCopied')) }, icon(IC.copy, 12)),
-                h('span', { class: 'sp' }),
-                h('button', { class: 'link', dataset: { side: 'detail' }, onclick: () => goOrderDetail(o.order_id) }, t('side.detail')),
-                h('button', { class: 'link', dataset: { side: 'pc' }, onclick: () => void openWebAdvanced(o) }, t('side.pcDetail')),
-              ),
-            ]
-          : h('div', { class: 'muted', style: { 'font-size': '12px' } }, t('side.noOrder')),
-      ),
+      h('div', { class: 'side-customer' }, h('div', { class: 'ava', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)), h('span', { class: 'side-customer-name' }, conv.title)),
+      h('div', { class: 'source-heading' }, '咨询来源'),
+      o
+        ? h('div', { class: cx('source-info', { hot: s.hotOrder }) },
+            o.source_title ? h('div', { class: 'source-title' }, o.source_title) : null,
+            o.source_description ? h('div', { class: 'source-description' }, o.source_description) : null,
+            h('div', { class: 'info-grid' },
+              row('来源渠道', o.source_channel),
+              row('订单ID', o.order_id),
+              row('产品名称', o.product),
+              row('使用日期', o.use_date),
+              row('订单总额', o.total_amount),
+              row('数量', o.quantity),
+              row('订单状态', o.status),
+            ),
+            h('div', { class: 'source-actions' },
+              h('button', { class: 'ibtn', 'aria-label': t('side.copyOrder'), onclick: () => copyText(o.order_id, t('side.orderCopied')) }, icon(IC.copy, 12)),
+              h('button', { class: 'link', dataset: { side: 'detail' }, onclick: () => goOrderDetail(o.order_id) }, t('side.detail')),
+              h('button', { class: 'link', dataset: { side: 'pc' }, onclick: () => void openWebAdvanced(o) }, t('side.pcDetail')),
+            ),
+          )
+        : h('div', { class: 'muted', style: { 'font-size': '12px' } }, t('side.noOrder')),
     ),
     packageCard(s, conv),
   );
