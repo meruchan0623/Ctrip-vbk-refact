@@ -58,6 +58,7 @@ import {
 } from '../_shared/guards.ts';
 import type { SoundName } from '../_shared/guards.ts';
 import { playSound, stopSound } from './sound.ts';
+import { settleAccountSend } from './sendScope.ts';
 import {
   AGENT_STATUS_ORDER,
   BANNER_VISIBLE,
@@ -243,7 +244,7 @@ function activeConv(s: MainState = S()): UiConversation | null {
 /** True when `account` is still the active one: results of an in-flight command for another account are dropped. */
 function stillActive(account: AccountContext): boolean {
   const acc = activeAccount();
-  return !!acc && sameAccount(acc.context, account);
+  return !!acc && sameAccount(acc.context, account) && acc.context.session_generation === account.session_generation;
 }
 
 /** Per-account state that must not leak across an account switch (navigation itself is kept). */
@@ -374,10 +375,11 @@ async function loadNet(): Promise<void> {
 
 function applyAccountSnapshot(snap: UiAccountSnapshot): void {
   const prev = S().accounts?.active_account_id ?? null;
+  const nextAccount = snap.accounts.find((a) => a.context.account_id === snap.active_account_id);
   const attempt = S().loginAttempt;
   // The login attempt is over once no account is logging in any more.
   const loginAttempt = attempt && snap.accounts.some((a) => a.state === 'logging_in') ? attempt : null;
-  if (snap.active_account_id !== prev) {
+  if (snap.active_account_id !== prev || activeAccount()?.context.environment !== nextAccount?.context.environment || activeAccount()?.context.session_generation !== nextAccount?.context.session_generation) {
     store.patch({ accounts: snap, accountsError: null, loginAttempt, ...ACCOUNT_SCOPED_RESET });
     void loadForActiveAccount();
   } else {
@@ -519,10 +521,16 @@ async function sendText(text: string, original: string | null): Promise<void> {
   const quote = s.quote;
   const local: UiMessage = { gid: conv.gid, message_id: null, local_id: localId, create_time_ms: Date.now(), sender_role: 'merchant_self', kind: 'text', text, translation: null, original, quote: quote ? quote.text : null, order_id: null, disposition: null };
   store.patch({ messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] }, draft: '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: { ...TRANSLATION_IDLE, target: s.translation.target } });
-  try {
-    const d = await ipc.invoke<SendDisposition>(UiCommands.IM_SEND_TEXT, { account: acc.context, gid: conv.gid, local_id: localId, text, original: original ?? undefined, quote_id: quote?.message_id ?? quote?.local_id ?? undefined });
+  const result = await settleAccountSend(acc.context,
+    () => ipc.invoke<SendDisposition>(UiCommands.IM_SEND_TEXT, { account: acc.context, gid: conv.gid, local_id: localId, text, original: original ?? undefined, quote_id: quote?.message_id ?? quote?.local_id ?? undefined }),
+    () => activeAccount()?.context ?? null);
+  // The helper guards success and failure; re-check at the actual projection boundary too.
+  if (result.kind === 'stale' || !stillActive(acc.context)) return;
+  if (result.kind === 'result') {
+    const d = result.value;
     upsertMessage({ ...local, disposition: d, message_id: d.kind === 'confirmed' ? d.server_message_id : null });
-  } catch (e) {
+  } else {
+    const e = result.error;
     // An IPC failure is not a server rejection: the result is unknown and must not be auto-resent.
     upsertMessage({ ...local, disposition: isAppError(e) && e.code === 'im.permission_denied' ? { kind: 'rejected', code: e.code, reason: e.message } : { kind: 'unknown' } });
   }
@@ -561,9 +569,10 @@ async function translateAndSend(text: string): Promise<void> {
   store.patch({ translation: { status: 'busy', gid: conv.gid, draftVersion: version, target, text: '', error: null } });
   try {
     const r = await ipc.invoke<{ draft_version: number; text: string }>(UiCommands.ASSIST_TRANSLATE, { account: acc.context, gid: conv.gid, draft_version: version, text, target });
-    if (S().draftVersion !== version) return; // draft changed meanwhile: translation is stale
+    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || r.draft_version !== version) return; // account, room or draft changed while translating
     await sendText(r.text, text);
   } catch (e) {
+    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version) return;
     const msg = isAppError(e) && e.code === 'assistant.tsim_unauthenticated' ? t('tr.needLogin') : errorMessage(e);
     store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg } });
   }
@@ -596,10 +605,10 @@ async function runPreviewTranslation(): Promise<void> {
   store.patch({ translation: { status: 'busy', gid: conv.gid, draftVersion: version, target, text: '', error: null } });
   try {
     const r = await ipc.invoke<{ draft_version: number; text: string }>(UiCommands.ASSIST_TRANSLATE, { account: acc.context, gid: conv.gid, draft_version: version, text, target });
-    if (!translationApplies(S().translation, conv.gid, version) || r.draft_version !== version) return;
+    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || !translationApplies(S().translation, conv.gid, version) || r.draft_version !== version) return;
     store.patch({ translation: { status: 'done', gid: conv.gid, draftVersion: version, target, text: r.text, error: null } });
   } catch (e) {
-    if (!translationApplies(S().translation, conv.gid, version)) return;
+    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || !translationApplies(S().translation, conv.gid, version)) return;
     const msg = isAppError(e) && e.code === 'assistant.tsim_unauthenticated' ? t('tr.needLogin') : errorMessage(e);
     store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg } });
   }
