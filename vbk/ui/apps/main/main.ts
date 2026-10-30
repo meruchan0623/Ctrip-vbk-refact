@@ -349,8 +349,8 @@ async function loadForActiveAccount(): Promise<void> {
     activeGid: s.activeGid && !conversations.some((c) => c.gid === s.activeGid) ? null : s.activeGid,
   });
   if (S().noticeCat) await loadNotices();
-  const first = filterConversations(S().conversations, 'doing', '')[0];
-  if (first && !S().activeGid && stillActive(account)) await openConversation(first.gid, false);
+  // Opening a conversation can acknowledge unread messages. Background account
+  // refresh must wait for an explicit user selection instead of opening row one.
 }
 
 async function loadNotices(): Promise<void> {
