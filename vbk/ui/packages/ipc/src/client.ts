@@ -128,7 +128,7 @@ export const UiCommands = {
   SHELL_WINDOW: 'shell_window', // {action: 'minimize'|'toggle_maximize'|'close'}
   MEDIA_SCREENSHOT: 'media_screenshot', // {} → {attachment_id, name}
   MEDIA_PICK: 'media_pick', // {kind: 'image'|'file'|'video'} → {attachment_id, name} | null
-  NET_STATUS: 'net_status', // {} → UiNetStatus
+  NET_STATUS: 'net_status', // {include_diagnostics?: boolean, account?: AccountContext} → UiNetStatus; diagnostics require account
   // prefs (in addition to PrefsCommands.SNAPSHOT)
   // {section, key, value} → PrefsSnapshot. `section: 'reminder'` is accepted only for the fields without a
   // notify_set_* command (continuous_l4, position_bottom_right, alert_during_dnd, alert_during_fullscreen,
@@ -182,6 +182,38 @@ export interface UiAgentStatus {
 export interface UiNetStatus {
   readonly online: boolean;
   readonly transport: TransportState;
+  readonly diagnostics?: UiReceiveDiagnostics;
+}
+
+/** Read-only receive-path counters. No upstream identifiers, payloads or free errors. */
+export interface UiSdkReceiveDiagnostics {
+  readonly binding: {
+    readonly global_state: 'emitter' | 'missing' | 'invalid' | 'unreadable' | 'disposed';
+    readonly listener_health: 'verified' | 'missing' | 'unsupported' | 'detached';
+    readonly attached: boolean; readonly can_rebind: boolean;
+    readonly binding_generation: number; readonly attach_count: number; readonly repair_count: number;
+  };
+  readonly counters: { readonly callbacks: number; readonly stale_callbacks: number; readonly messages: number; readonly acks: number; readonly ignored: number; readonly listener_errors: number };
+  readonly last_stanza_ms: number | null;
+}
+export interface UiPageReceiveDiagnostics {
+  readonly version: 1; readonly captured_at_ms: number; readonly running: boolean; readonly run_generation: number;
+  readonly sdk: UiSdkReceiveDiagnostics | null;
+  readonly session: { readonly received: number; readonly ui_mapped: number; readonly ui_dropped: number; readonly display_batches: number; readonly display_items: number; readonly display_resolved: number; readonly display_rejected: number };
+  readonly compensation: {
+    readonly running: boolean; readonly mode: 'normal' | 'frequent' | 'stopped'; readonly cursor_ms: number; readonly last_outcome_ms: number | null;
+    readonly outcomes: { readonly success: number; readonly business_failure: number; readonly auth_invalid: number; readonly http_error: number; readonly malformed: number; readonly network_error: number; readonly timeout: number; readonly unknown: number };
+    readonly rows: number; readonly mapped: number; readonly dropped: number;
+  };
+}
+export interface UiHostReceiveDiagnostics {
+  readonly display_entered: number; readonly display_decode_rejected: number; readonly display_apply_rejected: number;
+  readonly message_items: number; readonly changed_messages: number; readonly main_emit_attempts: number;
+}
+export interface UiReceiveDiagnostics {
+  readonly version: 1; readonly captured_at_ms: number;
+  readonly availability: 'ready' | 'no_account' | 'timeout' | 'unavailable' | 'invalid';
+  readonly page: UiPageReceiveDiagnostics | null; readonly host: UiHostReceiveDiagnostics | null;
 }
 
 /** 0 = clear, 1 橙, 2 绿, 3 蓝, 4 紫, 5 粉 (official `setWorkSheetStar.action`). */

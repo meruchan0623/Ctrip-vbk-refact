@@ -38,6 +38,7 @@ import { roomJidFromMessage, type ConversationStore, type RoleBook } from './sto
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
 
 export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
+  'adapter.diagnostics': 'read-only local receive counters; no upstream operation',
   'im.customer_scripts': 'getCustomerScripts (evidence 51); nonempty entry schema unsupported',
   'im.members': 'checkMemberStatus (evidence 55), current status and roles',
   'im.invite_candidates': 'getInviteMemberListBySkillGroup (evidence 24)',
@@ -80,6 +81,7 @@ export interface RpcContext {
   readonly orderGidWaitMs?: number;
   /** Captures the current lifecycle generation; old awaited work must never write. */
   readonly captureWriteGuard?: () => (() => boolean);
+  readonly receiveDiagnostics?: () => import('../../ipc/src/client.ts').UiPageReceiveDiagnostics;
 }
 
 export class RpcError extends Error {
@@ -514,6 +516,10 @@ const imTransfer: Handler<'im.transfer'> = (ctx, args, state) => peripheralWrite
 const imFinish: Handler<'im.finish'> = (ctx, args, state) => peripheralWrite(ctx, args, state, 'finish');
 
 const HANDLERS: { readonly [K in AdapterOp]: Handler<K> } = {
+  'adapter.diagnostics': async (ctx) => {
+    if (!ctx.receiveDiagnostics) fail(ErrorCodes.HOST_UNSUPPORTED, 'receive diagnostics unavailable');
+    return ctx.receiveDiagnostics();
+  },
   'im.customer_scripts': imCustomerScripts,
   'im.members': imMembers,
   'im.invite_candidates': imInviteCandidates,

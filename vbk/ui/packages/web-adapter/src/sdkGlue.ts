@@ -222,6 +222,7 @@ export interface PageSdk extends ImSdkHandle {
   readonly canSend: boolean;
   /** Only booleans, fixed enums and counters; no upstream data. */
   readonly bindingDiagnostics?: SdkBindingDiagnostics;
+  readonly receiveDiagnostics?: import('../../ipc/src/client.ts').UiSdkReceiveDiagnostics;
   sdkVersion(): string | null;
   /** Bare room jid learnt from inbound frames for this gid (SDK target JID). */
   partnerJidOf(gid: string): string | null;
@@ -267,6 +268,8 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
   let bindingGeneration = 0;
   let attachCount = 0, repairCount = 0;
   let reportedUnhealthy = false;
+  const receive = { callbacks: 0, stale_callbacks: 0, messages: 0, acks: 0, ignored: 0, listener_errors: 0 };
+  let lastStanzaMs: number | null = null;
   type Hook = { emitter: EmitterLike; event: string; callback: (...args: unknown[]) => void };
   let bindingHooks: Hook[] = [];
   const log = opts.log ?? (() => undefined);
@@ -277,6 +280,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
       try {
         cb(payload);
       } catch {
+        receive.listener_errors = Math.min(Number.MAX_SAFE_INTEGER, receive.listener_errors + 1);
         // a listener error never breaks the SDK dispatch chain
       }
     }
@@ -286,17 +290,19 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
     if (disposed) return;
     const g = stanzaToEvent(el);
     if (g.kind === 'message') {
+      receive.messages = Math.min(Number.MAX_SAFE_INTEGER, receive.messages + 1);
       if (g.roomJid) {
         const gid = jidLocal(g.roomJid);
         if (gid) partnerJids.set(gid, g.roomJid);
       }
       emit('message', g.event);
     } else if (g.kind === 'send_result') {
+      receive.acks = Math.min(Number.MAX_SAFE_INTEGER, receive.acks + 1);
       // The SDK may still be performing its own HTTP fallback after raw -2.
       // Only this local call's final facade callback/Promise decides its result.
       if (typeof g.event.localid === 'string' && pendingFacadeSends.has(g.event.localid)) return;
       emit('send_result', g.event);
-    }
+    } else receive.ignored = Math.min(Number.MAX_SAFE_INTEGER, receive.ignored + 1);
   };
   const onStatus = (status: unknown): void => emit('socket_status', mapXmppStatus(status));
   const onReconnecting = (): void => emit('socket_status', 'reconnecting');
@@ -335,7 +341,12 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
     const generation = ++bindingGeneration;
     const current = (): boolean => !disposed && generation === bindingGeneration && client === c && globalClient().emitter === c;
     // Removing listeners does not cancel callbacks already queued by a source.
-    const boundStanza = (el: unknown): void => { if (current()) onStanza(el); };
+    const boundStanza = (el: unknown): void => {
+      receive.callbacks = Math.min(Number.MAX_SAFE_INTEGER, receive.callbacks + 1);
+      lastStanzaMs = opts.now();
+      if (current()) onStanza(el);
+      else receive.stale_callbacks = Math.min(Number.MAX_SAFE_INTEGER, receive.stale_callbacks + 1);
+    };
     const boundStatus = (status: unknown): void => { if (current()) listenerHealth() === 'missing' ? emit('socket_status', 'disconnected') : onStatus(status); };
     const boundReconnecting = (): void => { if (current()) listenerHealth() === 'missing' ? emit('socket_status', 'disconnected') : onReconnecting(); };
     let reconnect: unknown;
@@ -386,14 +397,16 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
   probe();
 
   const facade = (): ImClientLike | null => findImClient(win);
+  const bindingSnapshot = (): SdkBindingDiagnostics => ({ global_state: globalClient().state, listener_health: currentBinding() ? listenerHealth() : 'detached', attached: attached(), can_rebind: currentBinding() && canRebind(), binding_generation: bindingGeneration, attach_count: attachCount, repair_count: repairCount });
 
   return {
     get attached() {
       return attached();
     },
     get bindingDiagnostics() {
-      return { global_state: globalClient().state, listener_health: currentBinding() ? listenerHealth() : 'detached', attached: attached(), can_rebind: currentBinding() && canRebind(), binding_generation: bindingGeneration, attach_count: attachCount, repair_count: repairCount };
+      return bindingSnapshot();
     },
+    get receiveDiagnostics() { return { binding: bindingSnapshot(), counters: { ...receive }, last_stanza_ms: lastStanzaMs }; },
     get canSend() {
       return !disposed && typeof facade()?.sendMessageInSocket === 'function';
     },

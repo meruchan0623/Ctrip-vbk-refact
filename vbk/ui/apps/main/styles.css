@@ -275,3 +275,13 @@ html[data-platform="macos"] .wbtns { display: none; }
 .peripheral-note .spin { display: inline-block; margin-right: 8px; vertical-align: middle; }
 .peripheral-dialog .dlg-f { flex-wrap: wrap; margin-top: auto; }
 .peripheral-confirmed { color: var(--c-primary); background: var(--c-primary-tint); }
+
+
+/* Manually captured, read-only receive diagnostics. */
+.sb-diagnostics { font-size: 12px; white-space: nowrap; }
+.receive-diagnostics { width: 660px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.receive-diagnostics .dlg-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.receive-diagnostics-body { padding: 0 20px 16px; overflow-y: auto; min-height: 0; }
+.receive-diagnostics-body p { margin: 8px 0; line-height: 1.6; }
+.receive-diagnostics-summary { padding: 6px 12px; background: var(--c-surface-2); border: 1px solid var(--c-border); border-radius: 6px; }
+.receive-diagnostics-json { margin: 12px 0 0; padding: 12px; font-size: 11px; line-height: 1.6; max-height: 340px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--c-surface-2); border: 1px solid var(--c-border); user-select: text; }

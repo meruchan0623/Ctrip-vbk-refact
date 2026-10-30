@@ -25,6 +25,7 @@ import { ConversationStore, RoleBook, UnreadBook, roomJidFromMessage } from './s
 import { createRpc, type AgentStatusBox, type Rpc } from './rpc.ts';
 import type { IdentityProfile } from './identity.ts';
 import type { PageSdk } from './sdkGlue.ts';
+import { createReceiveCounters, receiveCount } from './diagnostics.ts';
 
 export interface PageSessionOptions {
   readonly account: AccountContext;
@@ -62,10 +63,16 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   const unread = new UnreadBook();
   const displays = new Map<string, DisplayConversation>();
   const log = opts.log ?? (() => undefined);
+  const diagnostics = createReceiveCounters();
   let agent: { status: AgentStatus; confirmed: boolean } | null = null;
 
   const pushDisplay = (payload: AdapterDisplayPayload): void => {
     if (payload.kind === 'conversations' && !running) return;
+    const messages = payload.kind === 'messages';
+    if (messages) {
+      diagnostics.session.display_batches = receiveCount(diagnostics.session.display_batches);
+      diagnostics.session.display_items = receiveCount(diagnostics.session.display_items, payload.items.length);
+    }
     // Every conversation projection (including history enrichment) shares the
     // authoritative unread book. Reading history cannot acknowledge messages.
     const current = payload.kind === 'conversations'
@@ -87,8 +94,14 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
         }) }
       : payload;
     try {
-      opts.pushDisplay(current).catch(() => log(`display push failed (${payload.kind})`));
+      opts.pushDisplay(current).then(() => {
+        if (messages) diagnostics.session.display_resolved = receiveCount(diagnostics.session.display_resolved);
+      }, () => {
+        if (messages) diagnostics.session.display_rejected = receiveCount(diagnostics.session.display_rejected);
+        log(`display push failed (${payload.kind})`);
+      });
     } catch {
+      if (messages) diagnostics.session.display_rejected = receiveCount(diagnostics.session.display_rejected);
       log(`display push failed (${payload.kind})`);
     }
   };
@@ -216,9 +229,11 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   };
 
   const onSdkMessage = (evt: SdkMessageEvent): void => {
+    diagnostics.session.received = receiveCount(diagnostics.session.received);
     const generation = runGeneration;
     const ui = sdkMessageToUi(evt, roles);
-    if (!ui) return;
+    if (!ui) { diagnostics.session.ui_dropped = receiveCount(diagnostics.session.ui_dropped); return; }
+    diagnostics.session.ui_mapped = receiveCount(diagnostics.session.ui_mapped);
     if (ui.message_id) store.noteMessage(ui.gid, ui.message_id, ui.create_time_ms);
     pushMessages([ui]);
     if (store.has(ui.gid)) void roles.ensure(deps, soa, ui.gid).then(() => {
@@ -233,12 +248,16 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   };
 
   const onCompensation = (outcome: SoaOutcome<RecentMessagesResponse>): void => {
+    diagnostics.compensation.last_outcome_ms = deps.now();
+    diagnostics.compensation.outcomes[outcome.kind] = receiveCount(diagnostics.compensation.outcomes[outcome.kind]);
     if (outcome.kind !== 'success' || !Array.isArray(outcome.body.messages)) return;
+    diagnostics.compensation.rows = receiveCount(diagnostics.compensation.rows, outcome.body.messages.length);
     const items: UiMessage[] = [];
     for (const m of outcome.body.messages as HttpMessageObject[]) {
-      if (typeof m !== 'object' || m === null) continue;
+      if (typeof m !== 'object' || m === null) { diagnostics.compensation.dropped = receiveCount(diagnostics.compensation.dropped); continue; }
       const ui = httpMessageToUi(m, roles);
-      if (!ui) continue;
+      if (!ui) { diagnostics.compensation.dropped = receiveCount(diagnostics.compensation.dropped); continue; }
+      diagnostics.compensation.mapped = receiveCount(diagnostics.compensation.mapped);
       store.noteMessage(ui.gid, m.msgId, m.createTime);
       const jid = roomJidFromMessage(ui.gid, m);
       if (jid) opts.sdk.rememberPartnerJid(ui.gid, jid);
@@ -277,6 +296,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     pushFact,
     pushDisplay,
     agent: agentBox,
+    receiveDiagnostics: () => ({ version: 1, captured_at_ms: deps.now(), running, run_generation: runGeneration, sdk: opts.sdk.receiveDiagnostics ?? null,
+      session: { ...diagnostics.session }, compensation: { ...diagnostics.compensation, outcomes: { ...diagnostics.compensation.outcomes }, running: adapter.compensation.running, mode: adapter.compensation.mode, cursor_ms: adapter.compensation.cursor } }),
     captureWriteGuard: () => {
       const generation = runGeneration;
       return () => running && generation === runGeneration;

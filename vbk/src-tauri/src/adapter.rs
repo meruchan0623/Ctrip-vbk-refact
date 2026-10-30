@@ -292,6 +292,7 @@ pub struct AdapterState {
     epoch: AtomicU64,
     /// Account the main shell last addressed (proxy for the active account).
     focus: Mutex<Option<AccountContext>>,
+    receive: Mutex<HostReceiveBook>,
 }
 
 impl AdapterState {
@@ -304,8 +305,39 @@ impl AdapterState {
             peripheral: None,
             epoch: AtomicU64::new(0),
             focus: Mutex::new(None),
+            receive: Mutex::new(HostReceiveBook::default()),
         }
     }
+}
+
+#[derive(Default)]
+struct HostReceiveBook { scopes: HashMap<(String, String, u64), display::HostReceiveDiagnosticsDto> }
+impl std::fmt::Debug for HostReceiveBook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.debug_struct("HostReceiveBook").field("scopes", &self.scopes.len()).finish() }
+}
+impl std::fmt::Debug for display::HostReceiveDiagnosticsDto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.debug_struct("HostReceiveDiagnostics").finish_non_exhaustive() }
+}
+impl HostReceiveBook {
+    fn key(ctx: &AccountContext) -> (String, String, u64) { (ctx.environment.as_str().into(), ctx.account_id.as_str().into(), ctx.session_generation) }
+    fn snapshot(&self, ctx: &AccountContext) -> display::HostReceiveDiagnosticsDto { self.scopes.get(&Self::key(ctx)).cloned().unwrap_or_default() }
+    fn note(&mut self, ctx: &AccountContext, update: impl FnOnce(&mut display::HostReceiveDiagnosticsDto)) {
+        let key = Self::key(ctx);
+        if !self.scopes.contains_key(&key) && self.scopes.len() >= 256 {
+            if let Some(old) = self.scopes.keys().next().cloned() { self.scopes.remove(&old); }
+        }
+        update(self.scopes.entry(key).or_default());
+    }
+}
+fn diagnostic_count(value: u64, amount: usize) -> u64 { value.saturating_add(amount as u64).min(9_007_199_254_740_991) }
+
+fn apply_display_diagnosed(m: &AdapterState, ctx: &AccountContext, payload: Result<DisplayPayload, AppError>) -> Result<DisplayDelta, AppError> {
+    lock(&m.receive).note(ctx, |c| c.display_entered = diagnostic_count(c.display_entered, 1));
+    let payload = payload.map_err(|error| { lock(&m.receive).note(ctx, |c| c.display_decode_rejected = diagnostic_count(c.display_decode_rejected, 1)); error })?;
+    if let DisplayPayload::Messages { items, .. } = &payload { lock(&m.receive).note(ctx, |c| c.message_items = diagnostic_count(c.message_items, items.len())); }
+    let delta = lock(&m.display).apply(ctx, payload).map_err(|error| { lock(&m.receive).note(ctx, |c| c.display_apply_rejected = diagnostic_count(c.display_apply_rejected, 1)); error })?;
+    if let DisplayDelta::Messages { changed, .. } = &delta { lock(&m.receive).note(ctx, |c| c.changed_messages = diagnostic_count(c.changed_messages, changed.len())); }
+    Ok(delta)
 }
 
 /// Called once from `lib.rs` setup. Register module state with `app.manage(..)` here.
@@ -663,9 +695,8 @@ pub fn adapter_push_display(
     request: Request<'_>,
 ) -> CmdResult<()> {
     let ctx = bound_caller(&app, &state, &webview, "adapter_push_display")?;
-    let payload: DisplayPayload = body(&request, "payload").map_err(e2dto)?;
     let m = module(&app).map_err(e2dto)?;
-    let delta = lock(&m.display).apply(&ctx, payload).map_err(e2dto)?;
+    let delta = apply_display_diagnosed(&m, &ctx, body(&request, "payload")).map_err(e2dto)?;
     match delta {
         DisplayDelta::Conversations { changed, removed } => {
             emit_conversations(&app, &ctx, &changed);
@@ -676,6 +707,7 @@ pub fn adapter_push_display(
         DisplayDelta::Messages { changed, .. } => {
             let account = AccountContextDto::from(&ctx);
             for message in &changed {
+                lock(&m.receive).note(&ctx, |c| c.main_emit_attempts = diagnostic_count(c.main_emit_attempts, 1));
                 events::to_main(
                     &app,
                     events::IM_MESSAGE_NEW,
@@ -1274,31 +1306,73 @@ pub async fn order_create_im_chat(
     tagged_object(v, "gid").map_err(e2dto)
 }
 
-#[tauri::command]
-pub fn net_status(
+const DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(2);
+async fn diagnostics_if_requested<F, Fut>(include: bool, has_account: bool, host: Option<display::HostReceiveDiagnosticsDto>, request: F) -> Option<display::ReceiveDiagnosticsDto>
+where F: FnOnce() -> Fut, Fut: std::future::Future<Output = Result<Value, RequestFailure>> {
+    if !include { return None; }
+    let captured_at_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let mut result = display::ReceiveDiagnosticsDto { version: 1, captured_at_ms, availability: display::DiagnosticAvailability::NoAccount, page: None, host };
+    if has_account {
+        match request().await {
+            Ok(value) => { result.page = display::PageReceiveDiagnosticsDto::decode(value); result.availability = if result.page.is_some() { display::DiagnosticAvailability::Ready } else { display::DiagnosticAvailability::Invalid }; }
+            Err(f) => { result.availability = if f.error.code == codes::ADAPTER_TIMEOUT { display::DiagnosticAvailability::Timeout } else { display::DiagnosticAvailability::Unavailable }; }
+        }
+    }
+    Some(result)
+}
+fn bind_diagnostic_result(diagnostics: &mut Option<display::ReceiveDiagnosticsDto>, requested: Option<&AccountContext>, focus: Option<&AccountContext>, valid: bool) {
+    if requested.is_some() && (!valid || requested != focus) {
+        if let Some(diag) = diagnostics { diag.availability = display::DiagnosticAvailability::Unavailable; diag.page = None; diag.host = None; }
+    }
+}
+
+fn diagnostic_account(state: &HostState, account: AccountContextDto) -> Option<AccountContext> {
+    let ctx: AccountContext = account.into();
+    state.lock().accounts.validate(&ctx).ok()?;
+    Some(ctx)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn net_status(
     app: AppHandle,
     webview: Webview,
     state: State<'_, HostState>,
-) -> CmdResult<UiNetStatusDto> {
+    include_diagnostics: Option<bool>,
+    account: Option<AccountContextDto>,
+) -> CmdResult<display::NetStatusResult> {
     guard(&state, webview.label(), "net_status")?;
     let m = module(&app).map_err(e2dto)?;
+    let include = include_diagnostics == Some(true);
+    let provided = account.is_some();
+    // Explicit diagnostics never borrow another account from the focus cache.
+    let current = if include { account.and_then(|account| diagnostic_account(&state, account)) } else { None };
     let focus = lock(&m.focus).clone();
-    let cache = lock(&m.display);
-    if let Some(ctx) = focus {
-        return Ok(cache
-            .transport(&ctx)
-            .map(UiNetStatusDto::from)
-            .unwrap_or_else(UiNetStatusDto::offline));
+    let status = {
+        let cache = lock(&m.display);
+        if let Some(ctx) = &focus { cache.transport(ctx).map(UiNetStatusDto::from).unwrap_or_else(UiNetStatusDto::offline) }
+        else {
+            let all = cache.transports();
+            let best = all.iter().find(|t| t.3 == display::TransportDto::Connected).or_else(|| all.first());
+            best.map(|t| UiNetStatusDto::from(t.3)).unwrap_or_else(UiNetStatusDto::offline)
+        }
+    };
+    let mut diagnostics = diagnostics_if_requested(include, current.is_some(), None, || async {
+        let ctx = current.as_ref().expect("only called with validated focus");
+        request_inner(&app, ctx, "adapter.diagnostics", serde_json::json!({}), DIAGNOSTIC_TIMEOUT).await
+    }).await;
+    // Sample host counters after the page reply so an already-resolved page
+    // display invoke cannot be paired with a stale pre-request host snapshot.
+    if let Some(diag) = &mut diagnostics {
+        diag.host = current.as_ref().map(|ctx| lock(&m.receive).snapshot(ctx));
+        diag.captured_at_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
     }
-    // No account addressed yet: report the best transport of any account.
-    let all = cache.transports();
-    let best = all
-        .iter()
-        .find(|t| t.3 == display::TransportDto::Connected)
-        .or_else(|| all.first());
-    Ok(best
-        .map(|t| UiNetStatusDto::from(t.3))
-        .unwrap_or_else(UiNetStatusDto::offline))
+    // A result from a replaced account generation is never shown in its successor.
+    if include && provided && current.is_none() {
+        if let Some(diag) = &mut diagnostics { diag.availability = display::DiagnosticAvailability::Unavailable; }
+    }
+    let valid = current.as_ref().is_some_and(|ctx| state.lock().accounts.validate(ctx).is_ok());
+    bind_diagnostic_result(&mut diagnostics, current.as_ref(), lock(&m.focus).as_ref(), valid);
+    Ok(display::NetStatusResult { status, diagnostics })
 }
 
 // ------------------------------------------------------------------
@@ -1579,5 +1653,120 @@ mod peripheral_tests {
         assert_eq!(serde_json::to_value(dto).unwrap(), value);
         let invalid = serde_json::json!({"uid": 9007199254740993u64, "nickname": null, "status": "1", "roles": [0,3,4], "can_transfer": true});
         assert!(serde_json::from_value::<display::UiMemberDto>(invalid).is_err());
+    }
+}
+
+#[cfg(test)]
+mod receive_diagnostic_tests {
+    use super::*;
+    use contracts::{AccountId, Environment};
+    fn ctx(gen: u64) -> AccountContext { AccountContext::new(AccountId::new("synthetic"), Environment::production(), gen) }
+    fn payload(gid: &str, message_gid: &str) -> DisplayPayload { serde_json::from_value(serde_json::json!({
+        "kind":"messages", "gid":gid, "replace":false, "items":[{
+            "gid":message_gid,"message_id":"synthetic-id","local_id":null,"create_time_ms":1700000000000u64,
+            "sender_role":"customer","kind":"text","text":"synthetic private body","translation":null,"original":null,"quote":null,"order_id":null,"disposition":null
+        }]
+    })).unwrap() }
+
+    #[test]
+    fn actual_display_apply_boundary_counts_decode_mapping_rejection_and_changes_per_account_generation() {
+        let m = AdapterState::new(PinnedTable::default());
+        assert!(apply_display_diagnosed(&m, &ctx(1), Err(AppError::new("adapter.invalid_payload", "synthetic private error"))).is_err());
+        assert!(apply_display_diagnosed(&m, &ctx(1), Ok(payload("room-a", "room-b"))).is_err());
+        assert!(apply_display_diagnosed(&m, &ctx(1), Ok(payload("room-a", "room-a"))).is_ok());
+        let counters = lock(&m.receive).snapshot(&ctx(1));
+        assert_eq!(counters.display_entered, 3); assert_eq!(counters.display_decode_rejected, 1); assert_eq!(counters.display_apply_rejected, 1);
+        assert_eq!(counters.message_items, 2); assert_eq!(counters.changed_messages, 1);
+        assert_eq!(lock(&m.receive).snapshot(&ctx(2)).display_entered, 0);
+        let other = AccountContext::new(AccountId::new("other"), Environment::production(), 1);
+        assert_eq!(lock(&m.receive).snapshot(&other).display_entered, 0);
+        let encoded = serde_json::to_string(&counters).unwrap();
+        for value in ["synthetic", "room-a", "private", "text", "message_id"] { assert!(!encoded.contains(value)); }
+    }
+
+    fn page_json() -> Value { serde_json::json!({
+        "version":1,"captured_at_ms":1700000000000u64,"running":true,"run_generation":1,"sdk":null,
+        "session":{"received":0,"ui_mapped":0,"ui_dropped":0,"display_batches":0,"display_items":0,"display_resolved":0,"display_rejected":0},
+        "compensation":{"running":true,"mode":"normal","cursor_ms":1700000000000u64,"last_outcome_ms":null,"outcomes":{"success":0,"business_failure":0,"auth_invalid":0,"http_error":0,"malformed":0,"network_error":0,"timeout":0,"unknown":0},"rows":0,"mapped":0,"dropped":0}
+    }) }
+
+    #[test]
+    fn page_diagnostic_schema_rejects_raw_fields_unknown_enums_and_unsafe_numbers() {
+        assert!(display::PageReceiveDiagnosticsDto::decode(page_json()).is_some());
+        let mut raw = page_json(); raw["session"]["error"] = serde_json::json!("synthetic private body");
+        assert!(display::PageReceiveDiagnosticsDto::decode(raw).is_none());
+        let mut raw = page_json(); raw["compensation"]["mode"] = serde_json::json!("synthetic-url");
+        assert!(display::PageReceiveDiagnosticsDto::decode(raw).is_none());
+        for number in [serde_json::json!(-1),serde_json::json!(1.5),serde_json::json!(9007199254740992u64)] {
+            let mut raw = page_json(); raw["session"]["received"] = number;
+            assert!(display::PageReceiveDiagnosticsDto::decode(raw).is_none());
+        }
+        let mut raw = page_json(); raw["version"] = serde_json::json!(2);
+        assert!(display::PageReceiveDiagnosticsDto::decode(raw).is_none());
+    }
+
+    #[test]
+    fn diagnostics_are_explicitly_opted_in_and_failures_never_replace_cached_transport_or_echo_errors() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = AtomicUsize::new(0);
+        let absent = tauri::async_runtime::block_on(diagnostics_if_requested(false, true, None, || async { calls.fetch_add(1, Ordering::SeqCst); Ok(page_json()) }));
+        assert!(absent.is_none()); assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let no_account = tauri::async_runtime::block_on(diagnostics_if_requested(true, false, None, || async { calls.fetch_add(1, Ordering::SeqCst); Ok(page_json()) })).unwrap();
+        assert!(no_account.availability == display::DiagnosticAvailability::NoAccount); assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let bad = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async { Ok(serde_json::json!({"body":"synthetic private body"})) })).unwrap();
+        assert!(bad.availability == display::DiagnosticAvailability::Invalid); assert!(bad.page.is_none());
+        let unavailable = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async { Err(RequestFailure::before_emit(AppError::new("synthetic.error", "synthetic private error"))) })).unwrap();
+        assert!(unavailable.availability == display::DiagnosticAvailability::Unavailable);
+        let result = display::NetStatusResult { status: display::TransportDto::Connected.into(), diagnostics: Some(unavailable) };
+        let value = serde_json::to_value(result).unwrap(); assert_eq!(value["online"], true); assert_eq!(value["transport"], "connected");
+        assert!(!value.to_string().contains("synthetic"));
+    }
+
+    #[test]
+    fn diagnostic_rpc_timeout_uses_the_real_bounded_reply_wait_without_resetting_transport() {
+        let start = std::time::Instant::now();
+        let result = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async {
+            let (_hold, rx) = oneshot::channel::<Result<Value, AppError>>();
+            await_reply(rx, DIAGNOSTIC_TIMEOUT).await
+        })).unwrap();
+        assert!(result.availability == display::DiagnosticAvailability::Timeout);
+        assert!(result.page.is_none());
+        assert_eq!(DIAGNOSTIC_TIMEOUT, Duration::from_secs(2));
+        assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn delayed_diagnostic_reply_is_scrubbed_when_account_or_generation_changes() {
+        for focus in [ctx(2), AccountContext::new(AccountId::new("other"), Environment::production(), 1)] {
+            let mut result = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, Some(display::HostReceiveDiagnosticsDto::default()), || async { Ok(page_json()) }));
+            assert!(result.as_ref().unwrap().page.is_some());
+            bind_diagnostic_result(&mut result, Some(&ctx(1)), Some(&focus), true);
+            let result = result.unwrap(); assert!(result.availability == display::DiagnosticAvailability::Unavailable); assert!(result.page.is_none()); assert!(result.host.is_none());
+        }
+        let mut result = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async { Ok(page_json()) }));
+        bind_diagnostic_result(&mut result, Some(&ctx(1)), Some(&ctx(1)), false);
+        assert!(result.unwrap().page.is_none());
+    }
+
+    #[test]
+    fn diagnostic_for_valid_account_a_cannot_steal_existing_valid_focus_b() {
+        let state = HostState::new(None, 1);
+        let login = |buid: &str| {
+            let mut cores = state.lock();
+            let attempt = cores.accounts.start_login(Environment::production());
+            cores.accounts.publish_identity(&attempt.attempt_id, core_account::UpstreamIdentity {
+                buid: core_account::Buid::new(buid), uid: format!("synthetic-{buid}"), agent_id: None, environment: Environment::production(),
+            }).unwrap().ctx
+        };
+        let a = login("a"); let b = login("b");
+        assert!(state.lock().accounts.validate(&a).is_ok()); assert!(state.lock().accounts.validate(&b).is_ok());
+        let m = AdapterState::new(PinnedTable::default()); *lock(&m.focus) = Some(b.clone());
+        let requested = diagnostic_account(&state, (&a).into()).expect("A is valid for a read-only diagnostic");
+        assert_eq!(requested, a);
+        assert_eq!(*lock(&m.focus), Some(b.clone()), "diagnostics must not record or restore UI focus");
+        let mut result = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async { Ok(page_json()) }));
+        bind_diagnostic_result(&mut result, Some(&requested), lock(&m.focus).as_ref(), true);
+        let result = result.unwrap(); assert!(result.availability == display::DiagnosticAvailability::Unavailable); assert!(result.page.is_none());
+        assert_eq!(*lock(&m.focus), Some(b));
     }
 }

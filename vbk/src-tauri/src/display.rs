@@ -178,6 +178,84 @@ impl UiNetStatusDto {
     }
 }
 
+// Diagnostic schemas are deliberately closed: deserialization cannot retain
+// a free error, identifier, URL, or message field returned by the remote page.
+#[derive(Clone, Default, Serialize)]
+pub struct HostReceiveDiagnosticsDto {
+    pub display_entered: u64, pub display_decode_rejected: u64, pub display_apply_rejected: u64,
+    pub message_items: u64, pub changed_messages: u64, pub main_emit_attempts: u64,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticGlobalState { Emitter, Missing, Invalid, Unreadable, Disposed }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticListenerHealth { Verified, Missing, Unsupported, Detached }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticBinding {
+    pub global_state: DiagnosticGlobalState, pub listener_health: DiagnosticListenerHealth,
+    pub attached: bool, pub can_rebind: bool, pub binding_generation: u64, pub attach_count: u64, pub repair_count: u64,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticSdkCounters { pub callbacks: u64, pub stale_callbacks: u64, pub messages: u64, pub acks: u64, pub ignored: u64, pub listener_errors: u64 }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticSdk { pub binding: DiagnosticBinding, pub counters: DiagnosticSdkCounters, pub last_stanza_ms: Option<u64> }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticSession {
+    pub received: u64, pub ui_mapped: u64, pub ui_dropped: u64, pub display_batches: u64,
+    pub display_items: u64, pub display_resolved: u64, pub display_rejected: u64,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticOutcomes { pub success: u64, pub business_failure: u64, pub auth_invalid: u64, pub http_error: u64, pub malformed: u64, pub network_error: u64, pub timeout: u64, pub unknown: u64 }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticCompensationMode { Normal, Frequent, Stopped }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticCompensation {
+    pub running: bool, pub mode: DiagnosticCompensationMode, pub cursor_ms: u64, pub last_outcome_ms: Option<u64>,
+    pub outcomes: DiagnosticOutcomes, pub rows: u64, pub mapped: u64, pub dropped: u64,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageReceiveDiagnosticsDto {
+    pub version: u8, pub captured_at_ms: u64, pub running: bool, pub run_generation: u64,
+    pub sdk: Option<DiagnosticSdk>, pub session: DiagnosticSession, pub compensation: DiagnosticCompensation,
+}
+impl PageReceiveDiagnosticsDto {
+    pub fn decode(value: serde_json::Value) -> Option<Self> {
+        fn safe(value: &serde_json::Value) -> bool {
+            match value {
+                serde_json::Value::Number(n) => n.as_u64().is_some_and(|n| n <= 9_007_199_254_740_991),
+                serde_json::Value::Array(_) => false,
+                serde_json::Value::Object(o) => o.values().all(safe),
+                _ => true,
+            }
+        }
+        if !safe(&value) { return None; }
+        let page: Self = serde_json::from_value(value).ok()?;
+        (page.version == 1).then_some(page)
+    }
+}
+#[derive(Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticAvailability { Ready, NoAccount, Timeout, Unavailable, Invalid }
+#[derive(Clone, Serialize)]
+pub struct ReceiveDiagnosticsDto {
+    pub version: u8, pub captured_at_ms: u64, pub availability: DiagnosticAvailability,
+    pub page: Option<PageReceiveDiagnosticsDto>, pub host: Option<HostReceiveDiagnosticsDto>,
+}
+#[derive(Serialize)]
+pub struct NetStatusResult {
+    #[serde(flatten)] pub status: UiNetStatusDto,
+    #[serde(skip_serializing_if = "Option::is_none")] pub diagnostics: Option<ReceiveDiagnosticsDto>,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MessageProfilePatch {
