@@ -1,0 +1,112 @@
+{
+  "dryRun": {
+    "urls": [
+      "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "https://m.ctrip.com/restapi/soa2/13500/checkMemberStatus",
+      "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "https://m.ctrip.com/restapi/soa2/16037/getVenAgentByUid"
+    ],
+    "methods": "POST",
+    "mutations": "none; read-only endpoints only",
+    "historyChanges": [
+      "pageSize=2",
+      "endTime=observed createTime/direction=prev",
+      "beginTime=observed createTime/direction=next"
+    ]
+  },
+  "history": {
+    "base": {
+      "httpStatus": 200,
+      "ack": "Success",
+      "count": 2,
+      "isDone": false,
+      "cursorType": "number"
+    },
+    "prev": {
+      "httpStatus": 200,
+      "ack": "Success",
+      "count": 2,
+      "isDone": false,
+      "cursorType": "number"
+    },
+    "next": {
+      "httpStatus": 200,
+      "ack": "Success",
+      "count": 1,
+      "isDone": true,
+      "cursorType": "number"
+    },
+    "timeDigits": [
+      13,
+      13
+    ],
+    "baseAscending": true,
+    "prevBoundaryIncluded": false,
+    "nextBoundaryIncluded": false,
+    "sameTimestampLimit": "not tested"
+  },
+  "members": {
+    "httpStatus": 200,
+    "status": {
+      "code": 0,
+      "msg": ""
+    },
+    "items": [
+      {
+        "alias": "other",
+        "roles": [
+          0,
+          3,
+          5
+        ],
+        "status": "4"
+      },
+      {
+        "alias": "invited-agent",
+        "roles": [
+          3,
+          4,
+          4
+        ],
+        "status": "1"
+      },
+      {
+        "alias": "current-agent",
+        "roles": [
+          0,
+          3,
+          4
+        ],
+        "status": "2"
+      },
+      {
+        "alias": "other",
+        "roles": [
+          0,
+          1,
+          0
+        ],
+        "status": "1"
+      },
+      {
+        "alias": "other",
+        "roles": [
+          0,
+          2,
+          0
+        ],
+        "status": "1"
+      }
+    ]
+  },
+  "conversation": {
+    "httpStatus": 200,
+    "business": {
+      "resultCode": "SUCCESS"
+    },
+    "status": 2,
+    "inGroup": 0,
+    "currentConversationRole": 2
+  },
+  "automaticTranslation": "Y"
+}

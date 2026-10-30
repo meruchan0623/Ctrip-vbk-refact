@@ -1,0 +1,167 @@
+{
+  "dryRun": [
+    {
+      "name": "getMessageList",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "beginTime",
+        "direction"
+      ],
+      "diff": "pageSize=2",
+      "writes": false
+    },
+    {
+      "name": "getOrderDetailsForVbk",
+      "url": "https://m.ctrip.com/restapi/soa2/14735/getOrderDetailsForVbk",
+      "method": "POST",
+      "bodyKeys": [
+        "head",
+        "OrderDetailsRequestDTO"
+      ],
+      "diff": "none",
+      "writes": false
+    },
+    {
+      "name": "getVenAgentByUid",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getVenAgentByUid",
+      "method": "POST",
+      "bodyKeys": [
+        "head"
+      ],
+      "diff": "none",
+      "writes": false
+    },
+    {
+      "name": "getCategories",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getCategories",
+      "method": "POST",
+      "bodyKeys": [
+        "head",
+        "typeList",
+        "categoryType",
+        "status"
+      ],
+      "diff": "none",
+      "writes": false
+    },
+    {
+      "name": "checkMemberStatus",
+      "url": "https://m.ctrip.com/restapi/soa2/13500/checkMemberStatus",
+      "method": "POST",
+      "bodyKeys": [
+        "head",
+        "groupId"
+      ],
+      "diff": "none",
+      "writes": false
+    },
+    {
+      "name": "getLatestConversationByGid",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "bodyKeys": [
+        "head",
+        "gid"
+      ],
+      "diff": "none",
+      "writes": false
+    }
+  ],
+  "results": [
+    {
+      "name": "getMessageList",
+      "httpStatus": 200,
+      "ack": "Success",
+      "count": 1
+    },
+    {
+      "name": "getOrderDetailsForVbk",
+      "httpStatus": 200,
+      "ack": "Success",
+      "resultCode": 3,
+      "expectedPermissionDenial": true,
+      "orderInfoPresent": false
+    },
+    {
+      "name": "getVenAgentByUid",
+      "httpStatus": 200,
+      "ack": "Success",
+      "automaticTranslation": "Y"
+    },
+    {
+      "name": "getCategories",
+      "httpStatus": 200,
+      "ack": "Success",
+      "categoryCount": 1,
+      "scriptCounts": [
+        8
+      ]
+    },
+    {
+      "name": "checkMemberStatus",
+      "httpStatus": 200,
+      "ack": "Success",
+      "members": [
+        {
+          "alias": "other",
+          "roles": [
+            0,
+            3,
+            5
+          ],
+          "status": "4"
+        },
+        {
+          "alias": "invited-agent",
+          "roles": [
+            3,
+            4,
+            4
+          ],
+          "status": "1"
+        },
+        {
+          "alias": "current-agent",
+          "roles": [
+            0,
+            3,
+            4
+          ],
+          "status": "2"
+        },
+        {
+          "alias": "other",
+          "roles": [
+            0,
+            1,
+            0
+          ],
+          "status": "1"
+        },
+        {
+          "alias": "other",
+          "roles": [
+            0,
+            2,
+            0
+          ],
+          "status": "1"
+        }
+      ]
+    },
+    {
+      "name": "getLatestConversationByGid",
+      "httpStatus": 200,
+      "ack": "Success",
+      "resultCode": "SUCCESS",
+      "conversationStatus": 2
+    }
+  ],
+  "at": "2026-10-30T10:16:35.598Z"
+}

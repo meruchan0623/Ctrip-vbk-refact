@@ -1,0 +1,20 @@
+{
+  "source": "Passive XHR loadend observer; original open/send restored",
+  "samples": [
+    {
+      "method": "POST",
+      "payloadKind": "File",
+      "payloadSize": 269,
+      "payloadType": "image/png",
+      "status": 200,
+      "response": {
+        "Code": 2000,
+        "Content": {
+          "url": "string",
+          "file_name": "string"
+        },
+        "Message": "string"
+      }
+    }
+  ]
+}

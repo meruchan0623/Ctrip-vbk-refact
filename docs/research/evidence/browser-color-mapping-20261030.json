@@ -1,0 +1,28 @@
+{
+  "mapping": [
+    {
+      "action": 1,
+      "classes": "mark-star orange"
+    },
+    {
+      "action": 2,
+      "classes": "mark-star green"
+    },
+    {
+      "action": 3,
+      "classes": "mark-star blue",
+      "confirmationStage": "controlled-color-blue-confirmed"
+    },
+    {
+      "action": 4,
+      "classes": "mark-star purple"
+    },
+    {
+      "action": 5,
+      "classes": "mark-star pink"
+    }
+  ],
+  "clearAction": 0,
+  "restored": true,
+  "note": "Initial 450ms blue observation was still green; replaced by waiting for actual blue DOM and response."
+}

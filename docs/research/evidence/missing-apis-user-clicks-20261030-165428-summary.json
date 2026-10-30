@@ -1,0 +1,83 @@
+{
+  "startedAt": "2026-10-30T16:54:28.352+08:00",
+  "lastUpdatedAt": "2026-10-30T19:28:18.434+08:00",
+  "capture": "passive CDP Network; dynamically attaches targets; no UI/DOM/navigation/request replay; query values and body values removed except allowlisted config names and business codes",
+  "port": 53240,
+  "output": "missing-apis-user-clicks-20261030-165428.jsonl",
+  "stats": {
+    "requests": 55,
+    "responses": 55,
+    "bodies": 55
+  },
+  "targets": {
+    "BEE0A6E9A6FFFC4B344BCEC99244F445": {
+      "page": "/pages/order/index.html",
+      "type": "page"
+    },
+    "6014C6ED3045F75CDC9343FC8AAC1709": {
+      "page": "/pages/product/index.html",
+      "type": "page"
+    },
+    "1B3B6ACC7659FAD0C79270B70F7D5457": {
+      "page": "/pages/home/index.html",
+      "type": "page"
+    },
+    "0C3E2158C96DA75D47580E9E35611298": {
+      "page": "/pages/comment/index.html",
+      "type": "page"
+    },
+    "4E086F23FEBAF200DECD5CEE1CA099F4": {
+      "page": "/pages/bi/index.html",
+      "type": "page"
+    },
+    "B9FD0E702E6CE1685D77315D0BF8A9B2": {
+      "page": "/pages/course/index.html",
+      "type": "page"
+    },
+    "A0150C813FFC3A815865DB9D491CF904": {
+      "page": "/pages/bulletin/index.html",
+      "type": "page"
+    },
+    "AE7C93CAC1F7EC0BA0DB2AF26045E4A3": {
+      "page": "/pages/event/index.html",
+      "type": "page"
+    },
+    "A1C8EAC94211794E2469429DA1B5F07E": {
+      "page": "/pages/notice/index.html",
+      "type": "page"
+    },
+    "8A9B2C4FC1020EC5376095EFD0A09739": {
+      "page": "/pages/notice/index.html",
+      "type": "page"
+    },
+    "9C2F556183CF7662544E9A12CFEBF2C3": {
+      "page": "/pages/imPlus/index.html",
+      "type": "page"
+    },
+    "BDF66153BBB9B58D2ECE47BFBB452DCA": {
+      "page": "/pages/imPlus/index.html",
+      "type": "page"
+    },
+    "DC712A1C49DEBC5083BA5B917927E6DA": {
+      "page": "vbooking.ctrip.com",
+      "type": "service_worker"
+    }
+  },
+  "endpoints": {
+    "POST https://s.c-ctrip.com/bee/collect": 33,
+    "POST https://m.ctrip.com/restapi/soa2/13807/getLastImportTimeByIdList": 1,
+    "POST https://m.ctrip.com/restapi/soa2/13807/addUserActionInfo": 1,
+    "POST https://online.ctrip.com/restapi/soa2/21028/innerSearchCanApplyList": 1,
+    "POST https://online.ctrip.com/restapi/soa2/13807/getVendorRateDataMetricCard": 1,
+    "POST https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json": 2,
+    "POST https://cdid.c-ctrip.com/model-poc2/hv": 1,
+    "POST https://m.ctrip.com/restapi/soa2/13807/sendOfflineLogV2": 6,
+    "POST https://m.ctrip.com/restapi/soa2/13807/getKylinDataWithSublineV2": 2,
+    "POST https://m.ctrip.com/restapi/soa2/13807/getKylinTrendLineData": 2,
+    "POST https://m.ctrip.com/restapi/soa2/13807/getSortableKylinDataWithSublineSameTable": 2,
+    "POST https://m.ctrip.com/restapi/soa2/13807/getDateRangeList": 1,
+    "POST https://m.ctrip.com/restapi/soa2/13807/getFirstPageMetricCard": 1,
+    "POST https://m.ctrip.com/restapi/soa2/16163/saveLogInfo": 1
+  },
+  "running": true
+}

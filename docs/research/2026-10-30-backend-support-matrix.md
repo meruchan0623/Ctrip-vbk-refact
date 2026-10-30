@@ -1,75 +1,76 @@
 # 功能与后端接口支持对照
 
-2026-10-30。按当前范围（只删除左侧栏携程业务模块，本项目自有功能保留，见[范围决定](../decisions/2026-10-30-web-only-scope.md)），逐项说明每个功能有没有携程后端接口、证据强到什么程度。
+2026-10-30，更新至本轮浏览器实测。当前范围见[范围决定](../decisions/2026-10-30-web-only-scope.md)。仓库仍为调查与设计阶段，以下是官方网页接口证据，不是本项目客户端功能验收。
 
-结论先行：**当前范围内并非所有功能都有携程后端接口支持。** 读取类功能基本都有接口并观测过；写操作接口多数已定位但没有一次业务成功的样本；另有一批功能明确没有携程接口，要么是本地能力，要么依赖 TSim 等外部服务，要么需要本项目自建后端。
+**目前已有一批写操作完成受控样本验证，但仍不能声称所有功能都有已验证的携程后端支持。** HTTP200/Ack Success 不能代替业务结果；例如14735订单摘要本轮明确返回 No permission。详细动作、字段、失败样本与清理见[浏览器实测报告](2026-10-30-browser-api-validation.md)。路径默认相对 `/restapi/soa2/`。
 
-HTTP 200、`Ack=Success` 或 Socket 已连接都不等于业务成功；本文的“已观测”只表示看到过真实请求与响应，不等于验收通过。
+## 一、本轮完成单场景验证
 
-## 一、携程接口已观测到
+这些项目有真实页面动作、业务结果及页面或服务端读回。只代表该账号、网页版本和样本；无权限/超时/幂等/跨设备等未测分支不自动通过。
 
-有真实请求与响应记录。路径相对 `/restapi/soa2`。
-
-| 功能 | 接口 | 边界 | 证据 |
-| --- | --- | --- | --- |
-| 网页登录、身份读取 | `22160/pwdLogin`、`12405/getCurrentUserInfo`、`12405/authToken`、`13191/validateTicket` | 只在浏览器中验证；WebView2 内登录与 Profile 隔离未验证 | [网页 IM 调查](2026-10-30-web-im-observation.md)、[最终复核](evidence/web-im-final-verification-20261030.json) |
-| 客服工作状态读取、切换 | `16037/getVenAgentByUid`、`16037/setVenAgentStatus` | 切换请求抓到过但无界面时间线；各状态对派单的影响未知 | [客服状态与设置](2026-10-30-agent-status-and-settings.md) |
-| 会话列表、未读数 | `16037/getConversationList`、`16037/getConversationInfoByGidList` | “处理中/已完成”由会话状态在本地区分 | [桌面实机观测](../observations/2026-10-30-desktop-runtime.md) |
-| 历史消息、补拉 | `16037/getMessageList`、`11679/getRecentMessages` | 翻页参数 `beginTime/endTime/direction` 只有静态证据；同时间戳与中断恢复未验证 | [网页 IM 调查](2026-10-30-web-im-observation.md) |
-| 接收消息 | `wss://im3.ctrip.com/ws-xmpp/` 等 XMPP over WSS，SASL 认证、心跳 | 两条连接分工不明；重连、被踢、token 失效、睡眠恢复未测 | [IM 选型决策](../decisions/2026-10-30-im-transport.md) |
-| 入站翻译（平台官方） | `11679/batchTranslateByMsgIds` | — | [桌面第二轮抓包](../observations/desktop-network-2026-10-30-round2.json) |
-| 通知中心分类、内容、标读 | `11679/getIQConversations`、`11679/getIQMessages`、`11679/putAdviceofreadIQMessage` | 进入分类会触发官方标读；部分响应体未读取 | [网页提醒调查](2026-10-30-web-reminders.md) |
-| 按订单号搜索已有会话 | `16037/searchConversation`、`15529/queryGroupInfo` | `queryGroupInfo` 本次返回 `gid:null`；只证明能找到已有会话 | [订单会话](2026-10-30-web-order-conversation.md) |
-| 订单查询与 IM 联系 | `14361/searchorderlist`、`14361/createimchat` | 走通一次；无权限、多结果、无会话分支未验证；未证明幂等 | [订单会话](2026-10-30-web-order-conversation.md) |
-| 排班读取 | `16037/getAgentWorkingSchedule` | 只有读取 | [最终复核](evidence/web-im-final-verification-20261030.json) |
-| 产品推荐查询 | `15529/queryRecommendProductList` | 只有查询，发送卡片未验证 | [IM 边际接口](2026-10-30-im-peripheral-apis.md) |
-| 邀请成员候选 | `16037/getInviteMemberListBySkillGroup` | 只有候选查询；邀请提交未完成 | [IM 边际接口](2026-10-30-im-peripheral-apis.md) |
-
-## 二、携程接口只有静态证据
-
-接口名与字段在客户端或网页代码中定位到，**从未真正调用成功**。这些都是写操作，需在专用测试会话中各执行一次，记录响应与刷新后的读回，才能确认可用。
-
-| 功能 | 接口（静态） | 风险 |
+| 功能 | 实际接口/通道 | 已验证与边界 |
 | --- | --- | --- |
-| 发送消息与确认 | `IMClient.sendMessageInSocket`，兜底 `11679/SendMessage.json`；`status.code` 0 或 3（重复视为成功） | 服务端去重键与作用域未知；超时不得自动重发 |
-| 标为已读 | `11679/PutAdviceOfReadByMsgId.json` | — |
-| 图片、文件上传 | `16037/uploadTokenCreate`、`12329/uploadImageV2`、`uploadFileV2`、`18837/ImUploadImage` | 实际使用哪条路由未确认 |
-| 撤回 | `11679/RecallMessage.json` | — |
-| 结束会话 | `finishConversation`（不带 `venAgentUids`） | 与移除成员共用接口，空列表必须拒绝 |
-| 转移主客服 | `transferVenMaster`、`15529/updateGroupOwner` | 未执行 |
-| 移除成员 | `finishConversation`（带 `venAgentUids`） | 同上 |
-| 邀请成员提交 | `16037/inviteVenAgent`、`inviteCtrip` | 曾自发出现过请求，来源不明，未复现 |
-| 结束后评价 | `16037/checkScoreStatus`、`getEvaluateInfo`、`submitScore` | 角色条件与先后顺序未验证 |
-| 发送产品卡片 | `15529/sendCardMessageForOffline` | 无响应样本 |
-| 快捷回复增删改与排序 | `16037/getCustomerScripts`、`add/update/deleteCustomerScript`、`getCategories` 等 | 组长权限只在前端判断 |
-| 自动答复保存 | `16037/getWordsAboves`、`saveWordsAboves` | 自动答复由哪一端发出未知 |
-| 排班保存 | `16037/modifyAgentWorkingSchedule` | — |
-| 自动翻译开关 | `16037/modifyVendorAgentOption` | 源码中路径缺开头 `/`，需核实完整 URL |
-| 下班后上线的实名验证 | `20016/checkVBKRealNameAuthStatus`、`startVBKRealNameAuthTask`、`getVbkRealNameTask` | 仅特定角色触发 |
-| 侧栏客户信息 | `15529/getVBKImUserInfo` | 从未抓到响应 |
-| 侧栏订单摘要 | `14735/getOrderDetailsForVbk` | 有请求记录，但从未返回有效 `orderInfoDto` |
-| 会话星标（网页另有） | `16037/setWorkSheetStar` | 当前原型按官方网页设计不提供星标入口 |
+| 会话颜色标记/清除 | `16037/setWorkSheetStar` | action0清除，1橙/2绿/3蓝/4紫/5粉；写入、橙色刷新保留、清除完成。**这是颜色接口，不是另一个独立星标功能**；跨设备未测 |
+| 自动翻译开关 | `m.ctrip.com/restapi/soa2/16037/modifyVendorAgentOption` | `automaticTranslation:N/Y`；关闭后重新打开设置读回，恢复Y并服务端确认；完整URL已核实 |
+| 个人快捷回复 | `16037/getCategories/createRootCategory/addCustomerScript/updateCustomerScript/deleteCustomerScript/deleteCategory` | 临时分类及话术新增、编辑、删除，最后原Default八条恢复；分类改名、移动、排序及团队权限未测 |
+| 文本发送 | 网页 SDK 的 WSS 消息通道 | 发出/返回关联ID一致，页面显示文本及已读，后续撤回；未验证 `11679/SendMessage.json` 兜底、超时和去重 |
+| 撤回 | **`11679/recallMessage`** | 本次小写无.json后缀，字段 `head,messageId,partnerId`；文本/图片/卡片返回 `status.code="0"` 并显示撤回，刷新后保持 |
+| 图片上传与发送 | `16037/uploadTokenCreate` → **`nephele.ctrip.com/image/v2/api/upload`** → WSS | PNG二进制上传返回Code2000，聊天实际加载160×80并已读，随后撤回；文件/视频及签名独立构造未测 |
+| 产品卡片 | `15529/queryRecommendProductList/sendCardMessageForOffline` | 查询、inSession=true发送、响应localId/msgId、聊天展示繁体HKD卡片、撤回完成；未做msgId逐字段对账及超时恢复 |
+| 邀请供应商客服 | `16037/getInviteMemberListBySkillGroup/inviteVenAgent`、`13500/checkMemberStatus` | 选择绿色在线候选、成功邀请、成员3→4读回；携程侧邀请和其他角色未测 |
+| 移除指定成员 | `16037/finishConversation` **带非空venAgentUids** | 移除所选一个测试成员，SUCCESS，成员4→3；未用空列表试错，适配器仍须禁止空移除 |
+| 结束与重新开启 | `16037/finishConversation` **不带venAgentUids**、`getLatestConversationByGid/startChatB2C` | 结束SUCCESS，读回status4/inGroup-1；再次发送触发startChatB2C并重新开启；评价未触发 |
+| 历史小样本分页 | `16037/getMessageList` | 真实beginTime/endTime/direction，2条基础页、prev2条、next1条；样本为13位时间、排除边界；同时间戳满页、断线恢复未测 |
 
-## 三、没有携程接口
+以上证据：[请求与响应结构](evidence/browser-api-validation-20261030.json)、[颜色映射](evidence/browser-color-mapping-20261030.json)、[上传响应](evidence/browser-upload-contract-20261030.json)、[只读replay](evidence/browser-readonly-replay-20261030.json)、[最终核对](evidence/browser-replay-check-20261030.json)。
 
-| 功能 | 情况 | 处理 |
+## 二、已观测，但仍有重要缺口
+
+| 功能 | 接口/来源 | 当前证据及限制 |
 | --- | --- | --- |
-| 会话颜色标记 | 官方网页右键有此操作，但仓库**没有任何抓包**；颜色选项、存储位置与接口未知 | 实现前在官方网页标记一次，记录请求、响应与读回 |
-| 会话置顶 | 网页版用本地会话存储的 `isTop`，没有服务端接口 | 本地实现，不承诺跨设备同步 |
-| 发送结果未知时的“核对状态” | 没有按 localId 查询的接口 | 只能通过历史消息间接对账；对账前不重发 |
-| 回复超时计时、L0–L4 分级提醒、稍后提醒 | 携程没有“首条未回复”或考核时钟接口 | 用已有消息事实本地计算，见[独立强提醒](../dev/03-strong-alert.md) |
-| 出站翻译、套餐速览、订单查询面板 | 依赖 **TSim** 外部服务，不是携程接口；仅有插件代码中的静态证据，未抓到 TSim 流量 | 见[商家助手](../dev/09-assistant.md)；需补 TSim 接口实测 |
-| 多账号、托盘与任务栏、截图、中文纠错、诊断包 | 本地能力，不需要携程接口 | 平台能力需原型验证 |
-| OCR | 本地能力；Windows 系统 OCR 需要应用包身份，普通安装没有 | 引擎与安装方式需原型决定 |
-| 客户端更新 | 没有更新服务器 | 需本项目自建受控发布源与签名策略 |
-| ticket 续期 | 没有显式续期接口 | 被动刷新：读回 Profile 中变化的票据后再校验 |
-| 云端崩溃上报、埋点 | 旧接收端未获授权 | 默认关闭，只做本地诊断 |
+| 网页登录、身份 | `22160/pwdLogin`、`12405/getCurrentUserInfo/authToken`、`13191/validateTicket` | 历史已走通登录，本轮复用现有登录态；WebView2内登录、Profile隔离未测，见[网页调查](2026-10-30-web-im-observation.md) |
+| 工作状态读取、切换 | `16037/getVenAgentByUid/getConversationList/setVenAgentStatus` | 本轮读取，未切换；历史切换请求无完整界面时间线，派单语义未知，见[状态设置](2026-10-30-agent-status-and-settings.md) |
+| 会话列表、补拉与接收 | `16037/getConversationList/getConversationInfoByGidList`、`11679/getRecentMessages`、WSS | 有真实流量；重连、被踢、认证失效、睡眠恢复未测 |
+| 已读 | 页面显示及WSS回执；候选HTTP `11679/PutAdviceOfReadByMsgId.json` | 本轮没有该HTTP请求，不能由页面已读推定REST契约通过 |
+| 转移主客服 | 已定位 `transferVenMaster`，旅游群主候选 `15529/updateGroupOwner` | 本轮真实转移后角色读回：受邀客服[3,4,4]、当前客服[0,3,4]；**未保存该动作请求/响应，HTTP契约仍需补采**；旅游分支未测 |
+| 订单摘要 | `14735/getOrderDetailsForVbk` | 本轮HTTP200/Ack Success但 **resultCode3/No permission**，只读重放同结果；无有效orderInfoDto，不能写详情可用 |
+| 会话状态检查 | `16037/checkSessionStatus` | 本轮Ack Success但业务UNKNOWN，不能当有效状态 |
+| 侧栏资料、跳转 | iframe HTML的 `__INITIAL_STATE__.vbkUserInfo/moduleJumpInfo`；静态映射 `15529/getVBKImUserInfo/getImPlusModuleJump` | 页面/SSR数据已确认；本轮没有这两个客户端SOA成功响应，见[SSR结构](evidence/browser-sidebar-ssr-20261030.json) |
+| 排班、时区 | `16037/getAgentWorkingSchedule/getTimeZoneList` | 本轮SUCCESS并显示数据；未保存排班 |
+| 自动答复 | `16037/getWordsAboves` | 本轮返回SUCCESS但无正文配置；保存及自动发送归属未验 |
+| 入站翻译 | `11679/batchTranslateByMsgIds` | 本轮有请求/响应及译文显示；翻译失败与语言边界未测 |
+| 通知中心 | `11679/getIQConversations/getIQMessages/putAdviceofreadIQMessage` | 历史已观测，部分响应未读；本轮未点击通知分类，见[提醒调查](2026-10-30-web-reminders.md) |
+| 订单查询、IM联系及会话搜索 | `14361/searchorderlist/createimchat`、`16037/searchConversation`、`15529/queryGroupInfo` | 历史联系路径已走通，本轮按UID片段搜到受控会话；无权限/多结果/幂等仍未完整覆盖，见[订单会话](2026-10-30-web-order-conversation.md) |
 
-## 四、要把“全部有后端支持”变成事实
+## 三、只有静态定位或尚未完成目标分支
 
-1. 用专用测试账号与测试会话，把第二节的写操作各做一次，记录请求、业务结果与刷新后的读回；失败、无权限、超时各留一个样本。
-2. 在官方网页标记一次会话颜色并抓包，确认第三节第一项。
-3. 实测 TSim 的登录、翻译、套餐查询接口，记录鉴权方式与失败返回。
-4. 决定更新发布源的归属与签名方式。
+| 功能 | 候选接口 | 缺少的验证 |
+| --- | --- | --- |
+| HTTP发送兜底 | `11679/SendMessage.json` | WSS断开/错误分支的业务成功及未知结果恢复 |
+| 文件/视频上传 | `12329/uploadFileV2`、其他上传候选 | 不能将PNG的Nephele路径直接套给其他类型 |
+| 携程侧邀请、旅游群主转移 | `16037/inviteCtrip`、`15529/updateGroupOwner` | 对应网页入口、角色、响应和读回 |
+| 服务评价 | `16037/checkScoreStatus/getEvaluateInfo/submitScore` | 本次结束未触发这些接口，不能主动绕过角色条件提交 |
+| 快捷回复其他分支 | `updateCategory/updateCategorySortNo/updateCustomerScriptSort` 等 | 分类改名、移动/排序、团队权限 |
+| 自动答复保存 | `16037/saveWordsAboves` | 保存与刷新读回、实际自动发送归属 |
+| 排班保存 | `16037/modifyAgentWorkingSchedule` | 保存与权限/失败样本 |
+| 上线实名验证完整流程 | `20016/checkVBKRealNameAuthStatus/startVBKRealNameAuthTask/getVbkRealNameTask` | 检查接口有初始化流量；二维码/人脸验证完整分支未测 |
 
-补充背景见[接口复查](2026-10-30-missing-apis.md)。
+## 四、本地能力与外部服务
+
+| 功能 | 来源与处理 |
+| --- | --- |
+| 会话置顶 | 网页本地 `isTop`；没有新增服务端同步契约，不承诺跨设备 |
+| 按localId核对发送结果 | 尚无独立查询契约；通过已验证历史/回执间接对账，未知结果不自动重发 |
+| 回复超时、L0–L4提醒、稍后提醒 | 基于消息事实的本地能力，见[独立强提醒](../dev/03-strong-alert.md) |
+| TSim登录、出站翻译、套餐/订单查询 | 外部TSim服务；本轮无实际模板，仍未测，不冒充携程接口 |
+| 多账号、托盘/任务栏、截图、中文纠错、诊断包 | 本地能力，仍需客户端原型验证 |
+| OCR | 引擎与Windows应用包身份需原型验证 |
+| 客户端更新 | 需本项目受控发布源及签名策略，尚未验收 |
+| ticket续期 | 沿用网页认证处理，尚无显式续期契约 |
+| 云端崩溃上报、埋点 | 旧接收端未获授权，默认关闭，先做本地诊断 |
+
+## 五、下一轮验收
+
+优先补转移主客服完整网络链路、服务评价入口、14735有权限样本、HTTP发送兜底/断线补偿与幂等，随后验证其他设置和附件类型。不得把本轮成功样本延伸为所有角色/业务线均可用，也不得因旧清单恢复已取消的携程业务模块。
+
+本轮测试数据已撤回/清理、个人设置恢复。本任务18:16最后读回时，受控会话仍在进行中，主客服为Sara、Meru为次客服，这是已执行转移后的状态，见[实测报告](2026-10-30-browser-api-validation.md#5-清理最终状态与剩余项)。

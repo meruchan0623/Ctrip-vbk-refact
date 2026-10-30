@@ -1,0 +1,201 @@
+{
+  "source": "Rendered iframe inline __INITIAL_STATE__, not a client SOA response",
+  "schema": {
+    "location": {
+      "pattern": "string",
+      "params": {
+        "platform": "string"
+      },
+      "raw": "string",
+      "basename": "string",
+      "pathname": "string",
+      "search": "string",
+      "hash": "string",
+      "action": 2,
+      "query": {
+        "groupid": "string",
+        "sessionid": "string",
+        "uid": "string",
+        "locale": "string",
+        "servicetype": "string",
+        "status": "string"
+      }
+    },
+    "basename": "string",
+    "publicPath": "string",
+    "restapi": "string",
+    "html": {
+      "title": "string",
+      "description": "string"
+    },
+    "env": "string",
+    "userInfo": {
+      "userId": "string",
+      "account": "string",
+      "name": "string",
+      "partyId": "string",
+      "partyType": "string",
+      "partyName": "string",
+      "uid": "string",
+      "buid": "string",
+      "loginChannel": null,
+      "userType": null,
+      "email": "string",
+      "mobilePhone": "string",
+      "mobileAreaCode": "string",
+      "positionCode": "string",
+      "eid": "string",
+      "eidName": null,
+      "empCode": "string",
+      "userGroupId": "number",
+      "userGroupName": "string"
+    },
+    "pageId": "number",
+    "preload": {
+      "main": "string",
+      "boxInfo": "string",
+      "aiReply": "string",
+      "xtaro": "string"
+    },
+    "lang": {},
+    "applicationCode": "string",
+    "isOffline": "boolean",
+    "locale": "string",
+    "isDeploy": "boolean",
+    "queryParams": {
+      "groupid": "string",
+      "sessionid": "string",
+      "uid": "string",
+      "locale": "string",
+      "servicetype": "string",
+      "status": "string"
+    },
+    "sessionId": "string",
+    "sourceFrom": "string",
+    "groupId": "string",
+    "uid": "string",
+    "bizType": "number",
+    "imBuType": "string",
+    "wecomEditableGray": "boolean",
+    "moduleJumpInfo": {
+      "hasOrderPrivilege": true,
+      "hasModuleJumpPrivilege": true,
+      "moduleJumpList": {
+        "length": 2,
+        "sample": [
+          {
+            "moduleId": "string",
+            "showText": "string",
+            "jumpUrl": "string",
+            "showPointList": {
+              "IsRightClick": "boolean",
+              "IsOrder": "boolean",
+              "IsUid": "boolean",
+              "IsRBCorner": "boolean"
+            }
+          },
+          {
+            "moduleId": "string",
+            "showText": "string",
+            "jumpUrl": "string",
+            "showPointList": {
+              "IsRightClick": "boolean",
+              "IsOrder": "boolean",
+              "IsUid": "boolean",
+              "IsRBCorner": "boolean"
+            }
+          }
+        ]
+      }
+    },
+    "hasInviteLeaveEmailAuth": false,
+    "wechatGroupInfo": {
+      "hasWeChatGroupPrivilege": false,
+      "requirementOrderId": null,
+      "productId": null,
+      "requirementOrderCreateTime": null,
+      "requirementOrderServiceName": null,
+      "requirementOrderProductH5Url": null,
+      "requirementOrderH5Url": null,
+      "requirementOrderPCUrl": null,
+      "opInfoList": null
+    },
+    "showOpInfoList": null,
+    "whatsAppInfo": {
+      "hasWhatsAppPrivilege": false
+    },
+    "vbkUserInfo": {
+      "promotionInfo": {
+        "hasPromotionPrivilege": false,
+        "productId": null
+      },
+      "riskInfo": {
+        "hasRiskPrivilege": true,
+        "riskMessage": "string"
+      },
+      "userInfo": {
+        "hasUserPrivilege": false,
+        "userTag": null,
+        "platform": null,
+        "riskMessage": null,
+        "userTags": null,
+        "userTagEnum": null,
+        "customerLocale": null
+      },
+      "sourceTraceInfo": {
+        "hasSourceTracePrivilege": true,
+        "lastSourceTrace": {
+          "msg": "string",
+          "sendTime": "number",
+          "action": "CTL01"
+        },
+        "sourceTraceList": {
+          "length": 1,
+          "sample": [
+            {
+              "msg": "string",
+              "sendTime": "number",
+              "action": "CTL01"
+            }
+          ]
+        }
+      },
+      "vbkHistoryOrderInfo": {
+        "hasHistoryOrderPrivilege": false,
+        "historyOrderList": null
+      },
+      "vbkBrowserHistoryInfo": {
+        "hasBrowserHistoryPrivilege": false,
+        "browseHistoryInfoList": null
+      },
+      "vendorPrivilege": {
+        "hasProductRecommendPrivilege": true,
+        "hasGuideProductRecommendPrivilege": false
+      },
+      "wechatGroupInfo": {
+        "hasWeChatGroupPrivilege": false,
+        "requirementOrderId": null,
+        "productId": null,
+        "requirementOrderCreateTime": null,
+        "requirementOrderServiceName": null,
+        "requirementOrderProductH5Url": null,
+        "requirementOrderH5Url": null,
+        "requirementOrderPCUrl": null,
+        "opInfoList": null
+      }
+    },
+    "productId": "string",
+    "orderId": "string",
+    "bookingPhase": "string",
+    "benefitId": "string",
+    "weChatPollingTime": "string",
+    "tabIdList": {
+      "length": 2,
+      "sample": [
+        "number",
+        "number"
+      ]
+    },
+    "curTabIndex": "number"
+  }
+}
