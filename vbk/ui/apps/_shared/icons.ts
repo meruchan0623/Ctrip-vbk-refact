@@ -35,4 +35,10 @@ export const IC = {
   megaphone: 'M3 10v4h3l9 5V5L6 10zM18 9.5a3.5 3.5 0 0 1 0 5',
   external: 'M14 4h6v6M20 4l-9 9M19 14v6H4V5h6',
   quote: 'M7 9h4v6H7zM13 9h4v6h-4z',
+  restore: 'M8 8h11v11H8zM5 15V5h10',
+  smile: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM8.5 14a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01',
+  userPlus: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21c0-3.9 3.1-6 7-6s7 2.1 7 6M19 8v6M16 11h6',
+  swap: 'M4 8h15l-4-4M20 16H5l4 4',
+  exit: 'M10 4H5v16h5M14 8l4 4-4 4M18 12H9',
+  volume: 'M4 9.5v5h3.5L12 18V6L7.5 9.5zM15.5 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11',
 } as const;

@@ -6,7 +6,7 @@
 
 import type { AccountContext, AppError, SendDisposition } from '../../packages/ipc/src/contracts.ts';
 import { ErrorCodes, isAppError } from '../../packages/ipc/src/contracts.ts';
-import type { AgentStatus, MarkAction, OrderSearchResult, UiAccount, UiConversation, UiMessage, UiOrderSummary } from '../../packages/ipc/src/client.ts';
+import type { AgentStatus, MarkAction, OrderSearchResult, UiAccount, UiAgentStatus, UiConversation, UiMessage, UiNetStatus, UiOrderSummary } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
@@ -189,6 +189,10 @@ export function shouldShowTranslationBar(conv: UiConversation | null, assistantE
 }
 
 export const LANG_NAMES: Readonly<Record<string, string>> = {
+  ar: '阿拉伯语',
+  pt: '葡萄牙语',
+  it: '意大利语',
+  tr: '土耳其语',
   zh: '中文',
   en: '英语',
   ja: '日语',
@@ -298,9 +302,12 @@ export function accountLabel(a: UiAccount): string {
   return a.remark && a.remark.trim() ? a.remark : a.nick;
 }
 
+/** Avatar letter: the part after the last 「·」 names the agent (云游·夜班组 → 夜, 畅行租车·Lily → L). */
 export function accountInitial(a: UiAccount): string {
-  const s = accountLabel(a).trim();
-  return Array.from(s)[0] ?? '?';
+  const label = accountLabel(a).trim();
+  const tail = label.split('·').pop()?.trim() ?? '';
+  const first = Array.from(tail || label)[0] ?? '?';
+  return /[a-z]/.test(first) ? first.toUpperCase() : first;
 }
 
 export type LogoutMode = 'suspend' | 'logout' | 'forget';
@@ -340,4 +347,90 @@ export function agentStatusColorVar(s: AgentStatus): string {
 
 export function sameAccount(a: AccountContext, b: AccountContext): boolean {
   return a.account_id === b.account_id && a.environment === b.environment;
+}
+
+
+/** Agent status as shown: an unconfirmed (not yet read back) status is 「状态未知」, never the default value. */
+export function agentView(a: UiAgentStatus): { readonly label: string; readonly colorVar: string; readonly known: boolean } {
+  if (!a.confirmed) return { label: t('status.unknown'), colorVar: '--c-offline', known: false };
+  return { label: agentStatusLabel(a.status), colorVar: agentStatusColorVar(a.status), known: true };
+}
+
+export function agentStatusDesc(s: AgentStatus): string {
+  return t(`status.desc.${s}` as I18nKey);
+}
+
+/** Network label from the host read-back only; `null` means nothing was read back yet (「未连接」). */
+export function netView(n: UiNetStatus | null): { readonly label: string; readonly ok: boolean; readonly offline: boolean } {
+  if (!n) return { label: t('bar.net.none'), ok: false, offline: false };
+  if (!n.online) return { label: t('bar.net.offline'), ok: false, offline: true };
+  switch (n.transport) {
+    case 'connected':
+      return { label: t('bar.net.online'), ok: true, offline: false };
+    case 'connecting':
+      return { label: t('bar.net.connecting'), ok: false, offline: false };
+    case 'reconnecting':
+      return { label: t('bar.net.reconnecting'), ok: false, offline: false };
+    default:
+      return { label: t('bar.net.none'), ok: false, offline: false };
+  }
+}
+
+// ------------------------------------------------------------ inline highlights
+
+export type TextPart = { readonly kind: 'plain' | 'order' | 'iccid'; readonly text: string };
+
+const HIGHLIGHT_RE = /(89\d{17,18})|(?<!\d)(\d{10})(?!\d)/g;
+
+/** Split message text into plain runs, ICCIDs and 10-digit order numbers (prototype: 「消息里的订单号 / ICCID 可点击」). */
+export function highlightParts(text: string): TextPart[] {
+  const out: TextPart[] = [];
+  let last = 0;
+  for (const m of text.matchAll(HIGHLIGHT_RE)) {
+    const at = m.index ?? 0;
+    if (at > last) out.push({ kind: 'plain', text: text.slice(last, at) });
+    out.push({ kind: m[1] ? 'iccid' : 'order', text: m[0] });
+    last = at + m[0].length;
+  }
+  if (last < text.length) out.push({ kind: 'plain', text: text.slice(last) });
+  return out;
+}
+
+// ------------------------------------------------------------ banner notifier
+
+export interface BannerItem {
+  readonly id: number;
+  readonly account: AccountContext;
+  readonly gid: string;
+  readonly count: number;
+  readonly system: boolean;
+  readonly at: number;
+  readonly until: number;
+}
+
+export const BANNER_VISIBLE = 3;
+export const BANNER_STAY_MS = 6000;
+
+/** A new banner for the same conversation replaces the old one (count carried by the host) and moves to the top. */
+export function pushBanner(list: readonly BannerItem[], b: Omit<BannerItem, 'until'> & { readonly stayMs: number }): BannerItem[] {
+  const stay = b.stayMs > 0 ? b.stayMs : BANNER_STAY_MS;
+  const item: BannerItem = { id: b.id, account: b.account, gid: b.gid, count: b.count, system: b.system, at: b.at, until: b.at + stay };
+  return [item, ...list.filter((x) => !(x.gid === b.gid && sameAccount(x.account, b.account)))];
+}
+
+/** Expire banners; while the pointer hovers the stack nothing expires (prototype: 悬停暂停). */
+export function expireBanners(list: readonly BannerItem[], now: number, paused: boolean): readonly BannerItem[] {
+  if (paused) return list;
+  const keep = list.filter((b) => b.until > now);
+  return keep.length === list.length ? list : keep;
+}
+
+/** Hovering pauses the countdown: on leave, every banner gets its remaining time back (at least 1.5 s). */
+export function resumeBanners(list: readonly BannerItem[], pausedAt: number, now: number): BannerItem[] {
+  const shift = Math.max(0, now - pausedAt);
+  return list.map((b) => ({ ...b, until: Math.max(b.until + shift, now + 1500) }));
+}
+
+export function alarmActiveCount(entries: readonly { readonly snoozed_until_ms: number | null }[], nowMs: number): number {
+  return entries.filter((e) => e.snoozed_until_ms === null || e.snoozed_until_ms <= nowMs).length;
 }

@@ -7,7 +7,15 @@ import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
 import {
   MARK_COLORS,
+  accountInitial,
+  agentView,
+  alarmActiveCount,
   canContactOrder,
+  expireBanners,
+  highlightParts,
+  netView,
+  pushBanner,
+  resumeBanners,
   contextMenuCommand,
   contextMenuItems,
   filterConversations,
@@ -192,16 +200,17 @@ test('mock: marking read never touches the waiting round; conversations and crea
   assert.equal(after.waiting_confirmed, before.waiting_confirmed);
   assert.deepEqual(await ipc.invoke('notify_snapshot').then((s) => (s as { entries: unknown[] }).entries), alarmBefore.entries, 'alarm rounds untouched by mark-read');
   // account isolation
-  assert.deepEqual(await ipc.invoke(UiCommands.IM_CONVERSATIONS, { account: b }), [], 'account B sees none of A\'s conversations');
+  const convB = await ipc.invoke<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account: b });
+  assert.ok(convB.length > 0 && convB.every((c) => c.account.account_id === b.account_id), 'account B sees only its own conversations');
   await assert.rejects(ipc.invoke(UiCommands.IM_MESSAGES, { account: b, gid: 'g-demo-1' }), (e: { code: string }) => e.code === ErrorCodes.IM_PERMISSION_DENIED);
   await assert.rejects(ipc.invoke(UiCommands.IM_SET_MARK, { account: b, gid: 'g-demo-1', action: 1 }), (e: { code: string }) => e.code === ErrorCodes.IM_PERMISSION_DENIED);
   // an in-flight createimchat carries the account from its payload, not the account active in the host
   await ipc.invoke(AccountCommands.SWITCH, { account: b });
-  const r = await ipc.invoke<{ gid: string; reused: boolean }>(UiCommands.ORDER_CREATE_IM_CHAT, { account: a, order_id: '0000000001' });
+  const r = await ipc.invoke<{ gid: string; reused: boolean }>(UiCommands.ORDER_CREATE_IM_CHAT, { account: a, order_id: '3051228766' });
   assert.equal(r.reused, true, 'existing conversation of A is reused');
   const empty = createMockIpc('empty', { tick: false, latency: 0 });
   await empty.invoke(AccountCommands.SWITCH, { account: b });
-  const created = await empty.invoke<{ gid: string; reused: boolean }>(UiCommands.ORDER_CREATE_IM_CHAT, { account: a, order_id: '0000000001' });
+  const created = await empty.invoke<{ gid: string; reused: boolean }>(UiCommands.ORDER_CREATE_IM_CHAT, { account: a, order_id: '3051228766' });
   assert.equal(created.reused, false);
   const convA = await empty.invoke<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account: a });
   assert.equal(convA.find((c) => c.gid === created.gid)?.account.account_id, a.account_id, 'new conversation belongs to the payload account');
@@ -242,10 +251,73 @@ test('mock enforces contracts used by the main window', async () => {
   assert.ok(acc);
   await assert.rejects(ipc.invoke(UiCommands.IM_SET_MARK, { account: acc, gid: 'g-demo-1', action: 6 }), (e: { code: string }) => e.code === 'im.bad_mark');
   await assert.rejects(ipc.invoke(UiCommands.IM_CONVERSATIONS, { account: { ...acc, session_generation: 0 } }), (e: { code: string }) => e.code === ErrorCodes.ACCOUNT_STALE_GENERATION);
-  const r = await ipc.invoke<{ kind: string }>(UiCommands.ORDER_SEARCH, { account: acc, order_id: '0000000003' });
+  const r = await ipc.invoke<{ kind: string }>(UiCommands.ORDER_SEARCH, { account: acc, order_id: '3050000403' });
   assert.equal(r.kind, 'forbidden');
-  await assert.rejects(ipc.invoke(UiCommands.ORDER_SEARCH, { account: acc, order_id: '0000000009' }), (e: { code: string }) => e.code === ErrorCodes.NET_TIMEOUT);
+  await assert.rejects(ipc.invoke(UiCommands.ORDER_SEARCH, { account: acc, order_id: '3051000408' }), (e: { code: string }) => e.code === ErrorCodes.NET_TIMEOUT);
+  assert.equal((await ipc.invoke<{ kind: string }>(UiCommands.ORDER_SEARCH, { account: acc, order_id: '2287450193' })).kind, 'multiple');
   const d = await ipc.invoke<{ kind: string }>(UiCommands.IM_SEND_TEXT, { account: acc, gid: 'g-demo-3', local_id: 'l1', text: '结果未知' });
   assert.equal(d.kind, 'unknown');
   ipc.dispose();
+});
+
+test('no fake status: unconfirmed agent → 状态未知, no net read-back → 未连接', () => {
+  assert.equal(agentView({ status: 'online', confirmed: false }).label, '状态未知');
+  assert.equal(agentView({ status: 'online', confirmed: false }).known, false);
+  assert.equal(agentView({ status: 'hangup', confirmed: true }).label, '挂起');
+  assert.equal(netView(null).label, '未连接');
+  assert.equal(netView(null).ok, false);
+  assert.equal(netView({ online: true, transport: 'connected' }).label, '已连接');
+  assert.equal(netView({ online: true, transport: 'disconnected' }).label, '未连接');
+  assert.equal(netView({ online: true, transport: 'reconnecting' }).label, '正在重连');
+  assert.equal(netView({ online: false, transport: 'connected' }).offline, true);
+});
+
+test('message text highlights: ICCID and 10-digit order numbers only', () => {
+  const parts = highlightParts('ICCIDは 8981100022334455667 です。订单 3051228766。电话 13800138000x');
+  assert.deepEqual(parts.filter((p) => p.kind !== 'plain').map((p) => [p.kind, p.text]), [['iccid', '8981100022334455667'], ['order', '3051228766']]);
+  assert.equal(parts.map((p) => p.text).join(''), 'ICCIDは 8981100022334455667 です。订单 3051228766。电话 13800138000x', 'parts reassemble the original text');
+  assert.deepEqual(highlightParts('123456789012'), [{ kind: 'plain', text: '123456789012' }], 'a longer digit run is not an order number');
+});
+
+test('banner stack: same conversation replaces, newest first, hover pauses expiry', () => {
+  const acc = { account_id: 'a', environment: 'production', session_generation: 1 };
+  let list = pushBanner([], { id: 1, account: acc, gid: 'g1', count: 1, system: false, at: 0, stayMs: 6000 });
+  list = pushBanner(list, { id: 2, account: acc, gid: 'g2', count: 1, system: false, at: 100, stayMs: 0 });
+  list = pushBanner(list, { id: 3, account: acc, gid: 'g1', count: 2, system: false, at: 200, stayMs: 6000 });
+  assert.deepEqual(list.map((b) => [b.gid, b.count]), [['g1', 2], ['g2', 1]]);
+  assert.equal(list[1]?.until, 6100, 'stay_ms 0 falls back to 6 s');
+  assert.equal(expireBanners(list, 7000, true), list, 'paused: nothing expires');
+  assert.deepEqual(expireBanners(list, 6150, false).map((b) => b.gid), ['g1']);
+  const resumed = resumeBanners(list, 1000, 5000);
+  assert.equal(resumed[0]?.until, 6200 + 4000, 'hover time is given back');
+  assert.ok(resumeBanners(list, 0, 9000).every((b) => b.until >= 10500), 'at least 1.5 s after leaving');
+});
+
+test('alarm count ignores snoozed entries; account avatar letter', () => {
+  assert.equal(alarmActiveCount([{ snoozed_until_ms: null }, { snoozed_until_ms: 5000 }, { snoozed_until_ms: 100 }], 1000), 2);
+  const acc = (nick: string, remark: string | null = null) => ({ context: ctx, nick, remark, party: 'p', color: '#000', state: 'online' as const, unread: 0 });
+  assert.equal(accountInitial(acc('云游·夜班组')), '夜');
+  assert.equal(accountInitial(acc('畅行租车·lily')), 'L');
+  assert.equal(accountInitial(acc('示例商家')), '示');
+  assert.equal(accountInitial(acc('x', '备注名')), '备');
+});
+
+test('mock login contract: start_login → {attempt_id}, cancel removes the placeholder, agent status read-back', async () => {
+  const ipc = createMockIpc('no-accounts', { tick: false, latency: 0 });
+  const snap0 = await ipc.invoke<{ accounts: unknown[]; active_account_id: string | null }>(AccountCommands.SNAPSHOT);
+  assert.deepEqual([snap0.accounts.length, snap0.active_account_id], [0, null]);
+  const r = await ipc.invoke<{ attempt_id: string }>(AccountCommands.START_LOGIN, {});
+  assert.deepEqual(Object.keys(r), ['attempt_id']);
+  const mid = await ipc.invoke<{ accounts: { state: string }[] }>(AccountCommands.SNAPSHOT);
+  assert.deepEqual(mid.accounts.map((a) => a.state), ['logging_in']);
+  const after = await ipc.invoke<{ accounts: unknown[] }>(UiCommands.ACCOUNT_CANCEL_LOGIN, { attempt_id: r.attempt_id });
+  assert.equal(after.accounts.length, 0);
+  await assert.rejects(ipc.invoke(UiCommands.ACCOUNT_CANCEL_LOGIN, { attempt_id: r.attempt_id }));
+  ipc.dispose();
+  const d = createMockIpc('default', { tick: false, latency: 0 });
+  const acc = (await d.invoke<{ accounts: { context: typeof ctx }[] }>(AccountCommands.SNAPSHOT)).accounts[0]?.context;
+  assert.ok(acc);
+  assert.deepEqual(await d.invoke(UiCommands.ACCOUNT_SET_AGENT_STATUS, { account: acc, status: 'leaving' }), { status: 'leaving', confirmed: true });
+  await assert.rejects(d.invoke(UiCommands.ACCOUNT_SET_AGENT_STATUS, { account: acc, status: 'busy' }));
+  d.dispose();
 });

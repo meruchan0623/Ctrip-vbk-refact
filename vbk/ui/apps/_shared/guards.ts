@@ -5,7 +5,7 @@
  * guard checks exactly the fields the views dereference, nothing more.
  */
 
-import type { AlarmSnapshot, ClockReading } from '../../packages/ipc/src/contracts.ts';
+import type { AccountContext, AlarmSnapshot, ClockReading } from '../../packages/ipc/src/contracts.ts';
 import type { PrefsSnapshot, UiAccountSnapshot, UiAgentStatus, UiConversation, UiMessage, UiNetStatus } from '../../packages/ipc/src/client.ts';
 
 type Rec = Record<string, unknown>;
@@ -130,6 +130,47 @@ export function isUiAgentStatus(x: unknown): x is UiAgentStatus {
 
 export function isToastPayload(x: unknown): x is { readonly text: string } {
   return rec(x) && str(x['text']);
+}
+
+/** `im://locate-conversation` → `{account, gid}`. */
+export interface LocatePayload {
+  readonly account: AccountContext;
+  readonly gid: string;
+}
+
+export function isLocatePayload(x: unknown): x is LocatePayload {
+  return rec(x) && accountContext(x['account']) && str(x['gid']) && x['gid'] !== '';
+}
+
+/** `notify://banner` → `{account, gid, count, stay_ms, system?}` (scheduler.rs). No message text. */
+export interface BannerPayload {
+  readonly account: AccountContext;
+  readonly gid: string;
+  readonly count: number;
+  readonly stay_ms: number;
+  readonly system?: boolean;
+}
+
+export function isBannerPayload(x: unknown): x is BannerPayload {
+  return rec(x) && accountContext(x['account']) && str(x['gid']) && num(x['count']) && x['count'] >= 0 && num(x['stay_ms']) && x['stay_ms'] >= 0 && (x['system'] === undefined || bool(x['system']));
+}
+
+export type SoundName = 'new_message' | 'timeout' | 'loop';
+
+/** `notify://play-sound` carries the bare clip name. */
+export function isSoundName(x: unknown): x is SoundName {
+  return x === 'new_message' || x === 'timeout' || x === 'loop';
+}
+
+/** `im://message-new` may carry the owning account next to the message; when present it must be well-formed. */
+export function messageAccount(x: unknown): AccountContext | null {
+  if (!rec(x) || !accountContext(x['account'])) return null;
+  return x['account'] as AccountContext;
+}
+
+/** `account_start_login` result. */
+export function isAttemptResult(x: unknown): x is { readonly attempt_id: string } {
+  return rec(x) && str(x['attempt_id']) && x['attempt_id'] !== '';
 }
 
 /** Wrap an event handler so that a malformed payload is dropped (and logged) instead of throwing. */

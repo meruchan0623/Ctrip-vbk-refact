@@ -5,6 +5,7 @@ import type { AlarmSnapshot } from '../../packages/ipc/src/contracts.ts';
 import { Events, NotifyCommands, PrefsCommands, AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
+import { isAttemptResult, isBannerPayload, isLocatePayload, isSoundName, messageAccount } from './guards.ts';
 import { guarded, isAlarmSnapshot, isClockReading, isPrefsSnapshot, isToastPayload, isUiAccountSnapshot, isUiAgentStatus, isUiConversation, isUiMessage, isUiNetStatus } from './guards.ts';
 
 const acc = { account_id: 'a', environment: 'production', session_generation: 1 };
@@ -83,4 +84,26 @@ test('guarded() drops malformed payloads without throwing and still delivers goo
   } finally {
     console.warn = origWarn;
   }
+});
+
+test('host event guards for locate / banner / sound / login attempt', () => {
+  for (const g of GARBAGE) {
+    assert.equal(isLocatePayload(g), false);
+    assert.equal(isBannerPayload(g), false);
+    assert.equal(isSoundName(g), false);
+    assert.equal(isAttemptResult(g), false);
+    assert.equal(messageAccount(g), null);
+  }
+  assert.equal(isLocatePayload({ account: acc, gid: 'g1' }), true);
+  assert.equal(isLocatePayload({ account: acc, gid: '' }), false, 'empty gid');
+  assert.equal(isLocatePayload({ account: { account_id: 'a' }, gid: 'g1' }), false, 'incomplete account context');
+  assert.equal(isBannerPayload({ account: acc, gid: 'g1', count: 2, stay_ms: 6000 }), true);
+  assert.equal(isBannerPayload({ account: acc, gid: 'g1', count: 2, stay_ms: 6000, system: true }), true);
+  assert.equal(isBannerPayload({ account: acc, gid: 'g1', count: -1, stay_ms: 6000 }), false);
+  assert.equal(isBannerPayload({ account: acc, gid: 'g1', count: 1, stay_ms: 6000, system: 'yes' }), false);
+  assert.equal(isSoundName('new_message') && isSoundName('timeout') && isSoundName('loop'), true);
+  assert.equal(isSoundName('alarm.mp3'), false);
+  assert.equal(isAttemptResult({ attempt_id: 'x' }), true);
+  assert.equal(isAttemptResult({ attempt_id: '' }), false);
+  assert.deepEqual(messageAccount({ account: acc, gid: 'g' }), acc);
 });

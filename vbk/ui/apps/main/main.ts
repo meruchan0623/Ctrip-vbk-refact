@@ -1,14 +1,23 @@
 /**
- * Main window: title bar with account tabs, left nav (消息 / 通知 / 订单联系,
- * bottom 设置 / 账号), messages workspace, notification centre, order contact,
- * status bar. All state lives in one store; the view is re-rendered on change
- * (focus/caret/scroll preserved by `rerender`).
+ * Main window (prototype 02-main): title bar with account tabs, left nav
+ * (消息 / 通知 / 订单联系, bottom 设置 / 账号), messages workspace,
+ * notification centre, order contact, banner notifier, status bar.
+ *
+ * Every displayed status comes from a host read-back (command result or
+ * event); nothing is assumed: the agent status starts as 「状态未知」 and
+ * the network as 「未连接」. All state lives in one store; the view is
+ * re-rendered on change (focus/caret/scroll preserved by `rerender`).
  */
+
+import { applyPlatform } from '../_shared/platform.ts';
+const platform = applyPlatform();
 
 import type { AccountContext, SendDisposition } from '../../packages/ipc/src/contracts.ts';
 import { RED_AFTER_SECONDS, isAppError } from '../../packages/ipc/src/contracts.ts';
 import { AccountCommands, Events, PrefsCommands, WindowLabels } from '../../packages/ipc/src/commands.ts';
 import type {
+  AgentStatus,
+  OrderSearchResult,
   PrefsSnapshot,
   UiAccount,
   UiAccountSnapshot,
@@ -22,44 +31,85 @@ import type {
   UiPackageInfo,
 } from '../../packages/ipc/src/client.ts';
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
+import { MOCK_ORDER_SAMPLES } from '../../packages/ipc/src/mock.ts';
 import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { badgeText, formatClock, formatDate, formatDuration, formatRelativeTime, initialOf } from '../../packages/ui-kit/src/format.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
-import { guarded, isAlarmSnapshot, isClockReading, isPrefsSnapshot, isToastPayload, isUiAccountSnapshot, isUiAgentStatus, isUiConversation, isUiMessage, isUiNetStatus } from '../_shared/guards.ts';
+import {
+  guarded,
+  isAlarmSnapshot,
+  isAttemptResult,
+  isBannerPayload,
+  isClockReading,
+  isLocatePayload,
+  isPrefsSnapshot,
+  isSoundName,
+  isToastPayload,
+  isUiAccountSnapshot,
+  isUiAgentStatus,
+  isUiConversation,
+  isUiMessage,
+  isUiNetStatus,
+  messageAccount,
+} from '../_shared/guards.ts';
+import type { SoundName } from '../_shared/guards.ts';
+import { playSound, stopSound } from './sound.ts';
 import {
   AGENT_STATUS_ORDER,
+  BANNER_VISIBLE,
   MARK_COLORS,
   TRANSLATION_IDLE,
   accountInitial,
   accountLabel,
   agentStatusColorVar,
+  agentStatusDesc,
   agentStatusLabel,
+  agentView,
+  alarmActiveCount,
   canContactOrder,
   contextMenuCommand,
   contextMenuItems,
   errorMessage,
+  expireBanners,
   filterConversations,
   findIccids,
+  highlightParts,
   isDone,
   isOutbound,
   isValidOrderId,
   langName,
   logoutCommand,
+  netView,
   nextLocalId,
   orderContactReduce,
   orderDetailUrl,
   previewOf,
+  pushBanner,
+  resumeBanners,
   roleLabel,
+  sameAccount,
   sendStateView,
   shouldShowTranslationBar,
   tabCounts,
   translationApplies,
   unreadTotal,
 } from './viewmodel.ts';
-import type { ListTab, LogoutMode, OrderContactState, TranslationState } from './viewmodel.ts';
+import type { BannerItem, ListTab, LogoutMode, OrderContactState, TranslationState } from './viewmodel.ts';
+
+/** Host events not (yet) listed in the frozen `Events` / `UiEvents` tables; names mirror `src-tauri/src/events.rs`. */
+const HostEvents = {
+  LOCATE: 'im://locate-conversation',
+  BANNER: 'notify://banner',
+  PLAY_SOUND: 'notify://play-sound',
+  STOP_SOUND: 'notify://stop-sound',
+} as const;
+
+const PERSONAL_SETTINGS_URL = 'https://vbooking.ctrip.com/vbk/im/main';
+const EMOJI = ['😀', '😊', '😂', '🙏', '👍', '👌', '👏', '🎉', '❤️', '😅', '🤔', '😢', '🌹', '☀️', '✈️', '🏨', '🎫', '🚌', '📍', '⏰', '✅', '❗', '💡', '🙂'];
+const TR_TARGETS = ['en', 'ja', 'ko', 'th', 'vi', 'id', 'ms', 'es', 'fr', 'de', 'ru', 'ar', 'zh-TW', 'pt', 'it', 'tr'];
 
 type View = 'messages' | 'notifications' | 'order';
 
@@ -70,9 +120,13 @@ interface Attachment {
 
 interface MainState {
   readonly accounts: UiAccountSnapshot | null;
+  readonly accountsError: string | null;
+  readonly loginAttempt: string | null;
   readonly view: View;
   readonly agent: UiAgentStatus;
-  readonly net: UiNetStatus;
+  readonly agentBusy: boolean;
+  /** null until the host has reported the network state. */
+  readonly net: UiNetStatus | null;
   readonly clockTrusted: boolean;
   readonly alarmCount: number;
   readonly prefs: PrefsSnapshot | null;
@@ -88,7 +142,14 @@ interface MainState {
   readonly quote: UiMessage | null;
   readonly attachment: Attachment | null;
   readonly translation: TranslationState;
+  /** Local display choices only (never sent to the host). */
+  readonly hideInboundTr: boolean;
+  readonly trBarOff: boolean;
+  readonly emoOpen: boolean;
   readonly sideOpen: boolean;
+  readonly hotOrder: boolean;
+  readonly pkgOpen: boolean;
+  readonly pkgHot: boolean;
   readonly pkg: { readonly status: 'idle' | 'busy' | 'done' | 'error'; readonly info: UiPackageInfo | null; readonly error: string | null };
   readonly ctxMenu: { readonly gid: string; readonly x: number; readonly y: number } | null;
   // notifications
@@ -103,14 +164,21 @@ interface MainState {
   readonly meMenu: boolean;
   readonly logoutDialog: { readonly account: UiAccount; readonly mode: LogoutMode } | null;
   readonly editingTab: { readonly accountId: string; readonly value: string } | null;
+  readonly banners: readonly BannerItem[];
+  readonly bannerHoverAt: number | null;
   readonly toast: string | null;
 }
 
+const PKG_IDLE = { status: 'idle', info: null, error: null } as const;
+
 const initial: MainState = {
   accounts: null,
+  accountsError: null,
+  loginAttempt: null,
   view: 'messages',
   agent: { status: 'online', confirmed: false },
-  net: { online: true, transport: 'connecting' },
+  agentBusy: false,
+  net: null,
   clockTrusted: true,
   alarmCount: 0,
   prefs: null,
@@ -125,8 +193,14 @@ const initial: MainState = {
   quote: null,
   attachment: null,
   translation: TRANSLATION_IDLE,
+  hideInboundTr: false,
+  trBarOff: false,
+  emoOpen: false,
   sideOpen: true,
-  pkg: { status: 'idle', info: null, error: null },
+  hotOrder: false,
+  pkgOpen: true,
+  pkgHot: false,
+  pkg: PKG_IDLE,
   ctxMenu: null,
   noticeCats: [],
   noticeCat: null,
@@ -137,6 +211,8 @@ const initial: MainState = {
   meMenu: false,
   logoutDialog: null,
   editingTab: null,
+  banners: [],
+  bannerHoverAt: null,
   toast: null,
 };
 
@@ -155,7 +231,8 @@ function S(): MainState {
 function activeAccount(s: MainState = S()): UiAccount | null {
   const snap = s.accounts;
   if (!snap) return null;
-  return snap.accounts.find((a) => a.context.account_id === snap.active_account_id) ?? snap.accounts[0] ?? null;
+  // No fallback: with no active account (first start, login still running) the welcome state is shown.
+  return snap.accounts.find((a) => a.context.account_id === snap.active_account_id) ?? null;
 }
 
 function activeConv(s: MainState = S()): UiConversation | null {
@@ -165,11 +242,32 @@ function activeConv(s: MainState = S()): UiConversation | null {
 /** True when `account` is still the active one: results of an in-flight command for another account are dropped. */
 function stillActive(account: AccountContext): boolean {
   const acc = activeAccount();
-  return !!acc && acc.context.account_id === account.account_id && acc.context.environment === account.environment;
+  return !!acc && sameAccount(acc.context, account);
 }
 
 /** Per-account state that must not leak across an account switch (navigation itself is kept). */
-const ACCOUNT_SCOPED_RESET = { activeGid: null, messages: {}, draft: '', quote: null, attachment: null, translation: TRANSLATION_IDLE, pkg: { status: 'idle', info: null, error: null }, order: { kind: 'idle' }, orderBusyId: null, ctxMenu: null, meMenu: false } as const satisfies Partial<MainState>;
+const ACCOUNT_SCOPED_RESET = {
+  conversations: [],
+  activeGid: null,
+  messages: {},
+  draft: '',
+  quote: null,
+  attachment: null,
+  translation: TRANSLATION_IDLE,
+  pkg: PKG_IDLE,
+  hotOrder: false,
+  pkgHot: false,
+  noticeCats: [],
+  notices: [],
+  noticeCat: null,
+  order: { kind: 'idle' },
+  orderBusyId: null,
+  ctxMenu: null,
+  meMenu: false,
+  emoOpen: false,
+  // The read-back belongs to the previous account; the new one starts unknown until the host answers.
+  agent: { status: 'online', confirmed: false },
+} as const satisfies Partial<MainState>;
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function toast(text: string): void {
@@ -178,6 +276,7 @@ function toast(text: string): void {
   toastTimer = setTimeout(() => store.patch({ toast: null }), 2600);
 }
 
+/** User-initiated command: a failure is shown. */
 async function invokeSafe<T>(cmd: string, payload?: unknown): Promise<T | null> {
   try {
     return await ipc.invoke<T>(cmd, payload);
@@ -187,20 +286,42 @@ async function invokeSafe<T>(cmd: string, payload?: unknown): Promise<T | null> 
   }
 }
 
-function copyText(text: string): void {
+/** Background read: a failure (e.g. `adapter.not_ready`) leaves the view in its unknown state without a toast. */
+async function invokeQuiet<T>(cmd: string, payload?: unknown): Promise<T | null> {
   try {
-    void navigator.clipboard?.writeText(text);
+    return await ipc.invoke<T>(cmd, payload);
+  } catch (e) {
+    console.warn(`[main] ${cmd} failed: ${errorMessage(e)}`);
+    return null;
+  }
+}
+
+function copyText(text: string, done: string = t('misc.copied')): void {
+  try {
+    void navigator.clipboard?.writeText(text).catch(() => undefined);
   } catch {
     /* clipboard may be unavailable */
   }
-  toast(t('misc.copied'));
+  toast(done);
+}
+
+/** A control whose official entry has no frozen host command yet: rendered disabled with the reason as tooltip. */
+function notWired(control: HTMLElement, reason: string): HTMLElement {
+  control.setAttribute('aria-disabled', 'true');
+  (control as HTMLButtonElement).disabled = true;
+  return h('span', { class: 'dis-wrap', title: reason, dataset: { notWired: '1' } }, control);
 }
 
 // --------------------------------------------------------------- loading
 
 async function loadAccounts(): Promise<void> {
-  const snap = await invokeSafe<UiAccountSnapshot>(AccountCommands.SNAPSHOT);
-  if (snap) store.patch({ accounts: snap });
+  try {
+    const snap = await ipc.invoke<unknown>(AccountCommands.SNAPSHOT);
+    if (!isUiAccountSnapshot(snap)) throw new Error('account_snapshot 返回格式不正确');
+    store.patch({ accounts: snap, accountsError: null });
+  } catch (e) {
+    store.patch({ accounts: { accounts: [], active_account_id: null, max_accounts: 16 }, accountsError: errorMessage(e) });
+  }
 }
 
 async function loadForActiveAccount(): Promise<void> {
@@ -208,54 +329,85 @@ async function loadForActiveAccount(): Promise<void> {
   if (!acc) return;
   const account = acc.context;
   const [convs, agent, net, cats] = await Promise.all([
-    invokeSafe<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account }),
-    invokeSafe<UiAgentStatus>(UiCommands.ACCOUNT_AGENT_STATUS, { account }),
-    invokeSafe<UiNetStatus>(UiCommands.NET_STATUS, {}),
-    invokeSafe<UiNoticeCategory[]>(UiCommands.NOTICE_CATEGORIES, { account }),
+    invokeQuiet<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account }),
+    invokeQuiet<unknown>(UiCommands.ACCOUNT_AGENT_STATUS, { account }),
+    invokeQuiet<unknown>(UiCommands.NET_STATUS, {}),
+    invokeQuiet<UiNoticeCategory[]>(UiCommands.NOTICE_CATEGORIES, { account }),
   ]);
   if (!stillActive(account)) return; // the user switched accounts meanwhile: these belong to the old one
   const s = S();
-  const conversations = convs ?? [];
+  const conversations = Array.isArray(convs) ? convs.filter(isUiConversation) : [];
+  const noticeCats = Array.isArray(cats) ? cats : [];
   store.patch({
     conversations,
-    noticeCats: cats ?? [],
-    agent: agent ?? s.agent,
-    net: net ?? s.net,
-    noticeCat: !s.noticeCat && cats && cats.length > 0 ? (cats[0]?.id ?? null) : s.noticeCat,
+    noticeCats,
+    agent: isUiAgentStatus(agent) ? agent : s.agent,
+    net: isUiNetStatus(net) ? net : s.net,
+    noticeCat: s.noticeCat && noticeCats.some((c) => c.id === s.noticeCat) ? s.noticeCat : (noticeCats[0]?.id ?? null),
     activeGid: s.activeGid && !conversations.some((c) => c.gid === s.activeGid) ? null : s.activeGid,
   });
   if (S().noticeCat) await loadNotices();
+  const first = filterConversations(S().conversations, 'doing', '')[0];
+  if (first && !S().activeGid && stillActive(account)) await openConversation(first.gid, false);
 }
 
 async function loadNotices(): Promise<void> {
   const acc = activeAccount();
   const s = S();
   if (!acc || !s.noticeCat) return;
-  const list = await invokeSafe<UiNotice[]>(UiCommands.NOTICE_LIST, { account: acc.context, category_id: s.noticeCat });
+  const list = await invokeQuiet<UiNotice[]>(UiCommands.NOTICE_LIST, { account: acc.context, category_id: s.noticeCat });
   if (list && stillActive(acc.context)) store.patch({ notices: list });
 }
 
 async function loadPrefs(): Promise<void> {
-  const p = await invokeSafe<PrefsSnapshot>(PrefsCommands.SNAPSHOT);
-  if (p) store.patch({ prefs: p });
+  const p = await invokeQuiet<unknown>(PrefsCommands.SNAPSHOT);
+  if (isPrefsSnapshot(p)) store.patch({ prefs: p });
+}
+
+async function loadNet(): Promise<void> {
+  const n = await invokeQuiet<unknown>(UiCommands.NET_STATUS, {});
+  if (isUiNetStatus(n)) store.patch({ net: n });
 }
 
 // --------------------------------------------------------------- accounts
+
+function applyAccountSnapshot(snap: UiAccountSnapshot): void {
+  const prev = S().accounts?.active_account_id ?? null;
+  const attempt = S().loginAttempt;
+  // The login attempt is over once no account is logging in any more.
+  const loginAttempt = attempt && snap.accounts.some((a) => a.state === 'logging_in') ? attempt : null;
+  if (snap.active_account_id !== prev) {
+    store.patch({ accounts: snap, accountsError: null, loginAttempt, ...ACCOUNT_SCOPED_RESET });
+    void loadForActiveAccount();
+  } else {
+    store.patch({ accounts: snap, accountsError: null, loginAttempt });
+  }
+}
 
 async function switchAccount(a: UiAccount): Promise<void> {
   if (a.state === 'logging_in') return;
   // Clicking the tab that is already active is a no-op: it must not close the open conversation or drop the draft.
   if (a.context.account_id === S().accounts?.active_account_id) return;
-  const snap = await invokeSafe<UiAccountSnapshot>(AccountCommands.SWITCH, { account: a.context });
-  if (snap) {
-    store.patch({ accounts: snap, ...ACCOUNT_SCOPED_RESET });
-    await loadForActiveAccount();
+  const snap = await invokeSafe<unknown>(AccountCommands.SWITCH, { account: a.context });
+  if (isUiAccountSnapshot(snap)) applyAccountSnapshot(snap);
+}
+
+/** `account_start_login` → `{attempt_id}`; the host opens the login window and publishes the account itself. */
+async function startLogin(relogin?: AccountContext): Promise<void> {
+  try {
+    const r = await ipc.invoke<unknown>(AccountCommands.START_LOGIN, relogin ? { account: relogin } : {});
+    if (isAttemptResult(r)) store.patch({ loginAttempt: r.attempt_id });
+  } catch (e) {
+    toast(t('misc.failed', { msg: errorMessage(e) }));
   }
 }
 
-async function addAccount(): Promise<void> {
-  await invokeSafe(AccountCommands.START_LOGIN, {});
-  toast(t('misc.placeholderInvoke', { cmd: AccountCommands.START_LOGIN }));
+async function cancelLogin(): Promise<void> {
+  const attempt = S().loginAttempt;
+  if (!attempt) return;
+  const snap = await invokeSafe<unknown>(UiCommands.ACCOUNT_CANCEL_LOGIN, { attempt_id: attempt });
+  store.patch({ loginAttempt: null });
+  if (isUiAccountSnapshot(snap)) applyAccountSnapshot(snap);
 }
 
 async function saveRemark(): Promise<void> {
@@ -266,40 +418,75 @@ async function saveRemark(): Promise<void> {
   store.patch({ editingTab: null });
   if (!acc) return;
   if ((acc.remark ?? '') === e.value.trim()) return;
-  const snap = await invokeSafe<UiAccountSnapshot>(UiCommands.ACCOUNT_SET_REMARK, { account: acc.context, remark: e.value });
-  if (snap) store.patch({ accounts: snap });
+  const snap = await invokeSafe<unknown>(UiCommands.ACCOUNT_SET_REMARK, { account: acc.context, remark: e.value });
+  if (isUiAccountSnapshot(snap)) applyAccountSnapshot(snap);
 }
 
 async function confirmLogout(): Promise<void> {
   const d = S().logoutDialog;
   if (!d) return;
   store.patch({ logoutDialog: null });
-  const snap = await invokeSafe<UiAccountSnapshot>(logoutCommand(d.mode), { account: d.account.context });
-  if (snap) {
-    store.patch({ accounts: snap });
-    await loadForActiveAccount();
+  const snap = await invokeSafe<unknown>(logoutCommand(d.mode), { account: d.account.context });
+  if (isUiAccountSnapshot(snap)) applyAccountSnapshot(snap);
+}
+
+/** Work status changes only after the server read-back (`account_set_agent_status` result). */
+async function setAgentStatus(status: AgentStatus): Promise<void> {
+  const acc = activeAccount();
+  if (!acc || S().agentBusy) return;
+  store.patch({ agentBusy: true, meMenu: false });
+  try {
+    const r = await ipc.invoke<unknown>(UiCommands.ACCOUNT_SET_AGENT_STATUS, { account: acc.context, status });
+    if (!stillActive(acc.context)) return;
+    if (isUiAgentStatus(r)) {
+      store.patch({ agent: r });
+      toast(r.confirmed && r.status === status ? t('me.statusOk', { s: agentStatusLabel(r.status) }) : t('me.statusUnconfirmed'));
+    }
+  } catch (e) {
+    toast(t('me.statusFailed', { msg: errorMessage(e) }));
+  } finally {
+    store.patch({ agentBusy: false });
   }
 }
 
 // --------------------------------------------------------------- messages
 
-async function openConversation(gid: string): Promise<void> {
+/** `reveal`: switch to the messages view (user action); the automatic first-open keeps the current view. */
+async function openConversation(gid: string, reveal = true): Promise<void> {
   const acc = activeAccount();
   if (!acc) return;
   const s = S();
+  const view: View = reveal ? 'messages' : s.view;
+  // Opening a conversation dismisses its banner; it never touches the alarm round (host-owned).
+  const banners = s.banners.filter((b) => !(b.gid === gid && sameAccount(b.account, acc.context)));
   if (s.activeGid === gid && s.messages[gid]) {
-    store.patch({ view: 'messages', ctxMenu: null });
+    store.patch({ view, ctxMenu: null, banners });
     return;
   }
-  store.patch({ activeGid: gid, view: 'messages', draft: s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: TRANSLATION_IDLE, pkg: { status: 'idle', info: null, error: null }, ctxMenu: null });
-  const list = await invokeSafe<UiMessage[]>(UiCommands.IM_MESSAGES, { account: acc.context, gid });
-  if (list && S().activeGid === gid) {
-    store.patch({ messages: { ...S().messages, [gid]: list } });
+  store.patch({ activeGid: gid, view, banners, draft: s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
+  const list = await invokeQuiet<UiMessage[]>(UiCommands.IM_MESSAGES, { account: acc.context, gid });
+  if (list && S().activeGid === gid && stillActive(acc.context)) {
+    store.patch({ messages: { ...S().messages, [gid]: list.filter(isUiMessage) } });
     const conv = S().conversations.find((c) => c.gid === gid);
-    if (conv && conv.unread_count > 0) {
-      await invokeSafe(UiCommands.IM_MARK_READ, { account: acc.context, gid });
-    }
+    if (conv && conv.unread_count > 0) await invokeQuiet(UiCommands.IM_MARK_READ, { account: acc.context, gid });
+    autoQueryPackage();
   }
+}
+
+/** `im://locate-conversation` (alarm click, tray, banner): activate the owning account and open the conversation. */
+async function locateConversation(account: AccountContext, gid: string): Promise<void> {
+  const snap = S().accounts;
+  const target = snap?.accounts.find((a) => a.context.account_id === account.account_id && a.context.environment === account.environment);
+  if (!target || target.context.session_generation !== account.session_generation) return; // stale generation or unknown account
+  if (snap?.active_account_id !== target.context.account_id) {
+    const next = await invokeSafe<unknown>(AccountCommands.SWITCH, { account: target.context });
+    if (!isUiAccountSnapshot(next)) return;
+    applyAccountSnapshot(next);
+    // wait for the new account's list before opening
+    for (let i = 0; i < 50 && !S().conversations.some((c) => c.gid === gid); i += 1) await new Promise((r) => setTimeout(r, 40));
+  }
+  store.patch({ tab: S().conversations.find((c) => c.gid === gid && isDone(c)) ? 'done' : 'doing' });
+  await openConversation(gid);
 }
 
 function upsertMessage(m: UiMessage): void {
@@ -315,6 +502,10 @@ function upsertConversation(c: UiConversation): void {
   const s = S();
   const exists = s.conversations.some((x) => x.gid === c.gid);
   store.patch({ conversations: exists ? s.conversations.map((x) => (x.gid === c.gid ? c : x)) : [...s.conversations, c] });
+  // Viewing the conversation reads it; the waiting round stays host-owned (read ≠ replied).
+  if (c.gid === S().activeGid && c.unread_count > 0 && S().view === 'messages' && document.visibilityState === 'visible') {
+    void invokeQuiet(UiCommands.IM_MARK_READ, { account: c.account, gid: c.gid });
+  }
 }
 
 async function sendText(text: string, original: string | null): Promise<void> {
@@ -325,7 +516,7 @@ async function sendText(text: string, original: string | null): Promise<void> {
   const localId = nextLocalId(Date.now());
   const quote = s.quote;
   const local: UiMessage = { gid: conv.gid, message_id: null, local_id: localId, create_time_ms: Date.now(), sender_role: 'merchant_self', kind: 'text', text, translation: null, original, quote: quote ? quote.text : null, order_id: null, disposition: null };
-  store.patch({ messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] }, draft: '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: TRANSLATION_IDLE });
+  store.patch({ messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] }, draft: '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: { ...TRANSLATION_IDLE, target: s.translation.target } });
   try {
     const d = await ipc.invoke<SendDisposition>(UiCommands.IM_SEND_TEXT, { account: acc.context, gid: conv.gid, local_id: localId, text, original: original ?? undefined, quote_id: quote?.message_id ?? quote?.local_id ?? undefined });
     upsertMessage({ ...local, disposition: d, message_id: d.kind === 'confirmed' ? d.server_message_id : null });
@@ -335,6 +526,10 @@ async function sendText(text: string, original: string | null): Promise<void> {
   }
 }
 
+function translationOn(s: MainState, conv: UiConversation): boolean {
+  return !s.trBarOff && shouldShowTranslationBar(conv, !!s.prefs?.assistant.enabled, !!s.prefs?.assistant.outbound_translation);
+}
+
 async function handleSend(): Promise<void> {
   const s = S();
   const conv = activeConv(s);
@@ -342,12 +537,15 @@ async function handleSend(): Promise<void> {
   let text = s.draft.trim();
   if (s.attachment) text = text ? `${text}\n[附件] ${s.attachment.name}` : `[附件] ${s.attachment.name}`;
   if (!text) return;
-  const direct = s.prefs?.assistant.send_mode === 'send_direct';
-  if (direct && shouldShowTranslationBar(conv, !!s.prefs?.assistant.enabled, !!s.prefs?.assistant.outbound_translation)) {
+  if (s.prefs?.assistant.send_mode === 'send_direct' && translationOn(s, conv)) {
     await translateAndSend(text);
     return;
   }
   await sendText(text, null);
+}
+
+function translationTarget(s: MainState, conv: UiConversation): string {
+  return s.translation.gid === conv.gid || s.translation.target !== 'en' ? s.translation.target : conv.lang === 'zh' ? 'en' : conv.lang;
 }
 
 async function translateAndSend(text: string): Promise<void> {
@@ -356,14 +554,15 @@ async function translateAndSend(text: string): Promise<void> {
   if (!acc || !conv) return;
   const s = S();
   const version = s.draftVersion;
-  store.patch({ translation: { status: 'busy', gid: conv.gid, draftVersion: version, target: s.translation.target, text: '', error: null } });
+  const target = translationTarget(s, conv);
+  store.patch({ translation: { status: 'busy', gid: conv.gid, draftVersion: version, target, text: '', error: null } });
   try {
-    const r = await ipc.invoke<{ draft_version: number; text: string }>(UiCommands.ASSIST_TRANSLATE, { account: acc.context, gid: conv.gid, draft_version: version, text, target: s.translation.target });
+    const r = await ipc.invoke<{ draft_version: number; text: string }>(UiCommands.ASSIST_TRANSLATE, { account: acc.context, gid: conv.gid, draft_version: version, text, target });
     if (S().draftVersion !== version) return; // draft changed meanwhile: translation is stale
     await sendText(r.text, text);
   } catch (e) {
     const msg = isAppError(e) && e.code === 'assistant.tsim_unauthenticated' ? t('tr.needLogin') : errorMessage(e);
-    store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target: s.translation.target, text: '', error: msg } });
+    store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg } });
   }
 }
 
@@ -372,11 +571,11 @@ function scheduleTranslation(): void {
   if (trTimer) clearTimeout(trTimer);
   const s = S();
   const conv = activeConv(s);
-  if (!conv || !s.prefs || !shouldShowTranslationBar(conv, s.prefs.assistant.enabled, s.prefs.assistant.outbound_translation)) return;
+  if (!conv || !s.prefs || !translationOn(s, conv)) return;
   if (s.prefs.assistant.send_mode !== 'replace_draft') return;
   const text = s.draft.trim();
   if (!text) {
-    store.patch({ translation: { ...TRANSLATION_IDLE, target: s.translation.target } });
+    store.patch({ translation: { ...TRANSLATION_IDLE, gid: conv.gid, target: translationTarget(s, conv) } });
     return;
   }
   trTimer = setTimeout(() => void runPreviewTranslation(), 500);
@@ -390,15 +589,16 @@ async function runPreviewTranslation(): Promise<void> {
   const version = s.draftVersion;
   const text = s.draft.trim();
   if (!text) return;
-  store.patch({ translation: { status: 'busy', gid: conv.gid, draftVersion: version, target: s.translation.target, text: '', error: null } });
+  const target = translationTarget(s, conv);
+  store.patch({ translation: { status: 'busy', gid: conv.gid, draftVersion: version, target, text: '', error: null } });
   try {
-    const r = await ipc.invoke<{ draft_version: number; text: string }>(UiCommands.ASSIST_TRANSLATE, { account: acc.context, gid: conv.gid, draft_version: version, text, target: s.translation.target });
+    const r = await ipc.invoke<{ draft_version: number; text: string }>(UiCommands.ASSIST_TRANSLATE, { account: acc.context, gid: conv.gid, draft_version: version, text, target });
     if (!translationApplies(S().translation, conv.gid, version) || r.draft_version !== version) return;
-    store.patch({ translation: { status: 'done', gid: conv.gid, draftVersion: version, target: s.translation.target, text: r.text, error: null } });
+    store.patch({ translation: { status: 'done', gid: conv.gid, draftVersion: version, target, text: r.text, error: null } });
   } catch (e) {
     if (!translationApplies(S().translation, conv.gid, version)) return;
     const msg = isAppError(e) && e.code === 'assistant.tsim_unauthenticated' ? t('tr.needLogin') : errorMessage(e);
-    store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target: s.translation.target, text: '', error: msg } });
+    store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg } });
   }
 }
 
@@ -415,7 +615,7 @@ async function resend(m: UiMessage): Promise<void> {
   await sendText(m.text, m.original);
 }
 
-async function attach(kind: 'screenshot' | 'image' | 'file' | 'video'): Promise<void> {
+async function attach(kind: 'screenshot' | 'image' | 'file'): Promise<void> {
   const r = kind === 'screenshot' ? await invokeSafe<Attachment>(UiCommands.MEDIA_SCREENSHOT, {}) : await invokeSafe<Attachment | null>(UiCommands.MEDIA_PICK, { kind });
   if (r) store.patch({ attachment: r });
 }
@@ -423,27 +623,44 @@ async function attach(kind: 'screenshot' | 'image' | 'file' | 'video'): Promise<
 async function toggleTop(c: UiConversation): Promise<void> {
   const { cmd, payload } = contextMenuCommand(c, { kind: 'toggle_top' });
   store.patch({ ctxMenu: null });
-  const next = await invokeSafe<UiConversation>(cmd, payload);
-  if (next) upsertConversation(next);
+  const next = await invokeSafe<unknown>(cmd, payload);
+  if (isUiConversation(next) && stillActive(next.account)) upsertConversation(next);
 }
 
 async function setMark(c: UiConversation, action: 0 | 1 | 2 | 3 | 4 | 5): Promise<void> {
   const { cmd, payload } = contextMenuCommand(c, { kind: 'mark', action });
   store.patch({ ctxMenu: null });
-  const next = await invokeSafe<UiConversation>(cmd, payload);
-  if (next) upsertConversation(next); // failure keeps the old value
+  const next = await invokeSafe<unknown>(cmd, payload);
+  if (isUiConversation(next) && stillActive(next.account)) upsertConversation(next); // failure keeps the old value
 }
 
 async function queryPackage(iccid: string, force = false): Promise<void> {
   const s = S();
+  if (!iccid) return;
   if (!force && s.pkg.info && s.pkg.info.iccid === iccid && Date.now() - s.pkg.info.fetched_at_ms < 60_000) return;
+  const gid = s.activeGid;
   store.patch({ pkg: { status: 'busy', info: s.pkg.info, error: null } });
   try {
     const info = await ipc.invoke<UiPackageInfo>(UiCommands.ASSIST_PACKAGE, { iccid });
+    if (S().activeGid !== gid) return;
     store.patch({ pkg: { status: 'done', info, error: null } });
   } catch (e) {
+    if (S().activeGid !== gid) return;
     store.patch({ pkg: { status: 'error', info: null, error: errorMessage(e) } });
   }
+}
+
+function packageEnabled(s: MainState): boolean {
+  return !!s.prefs?.assistant.enabled && !!s.prefs?.assistant.package_quick_view;
+}
+
+/** Prototype: the package card fills in as soon as an ICCID shows up in the conversation (host caches 60 s). */
+function autoQueryPackage(): void {
+  const s = S();
+  const gid = s.activeGid;
+  if (!gid || !packageEnabled(s) || s.pkg.status !== 'idle') return;
+  const id = findIccids(s.messages[gid] ?? [])[0];
+  if (id) void queryPackage(id);
 }
 
 // --------------------------------------------------------------- notifications
@@ -476,7 +693,7 @@ async function markAllNotices(): Promise<void> {
 async function refreshNoticeCats(): Promise<void> {
   const acc = activeAccount();
   if (!acc) return;
-  const cats = await invokeSafe<UiNoticeCategory[]>(UiCommands.NOTICE_CATEGORIES, { account: acc.context });
+  const cats = await invokeQuiet<UiNoticeCategory[]>(UiCommands.NOTICE_CATEGORIES, { account: acc.context });
   if (cats && stillActive(acc.context)) store.patch({ noticeCats: cats });
 }
 
@@ -492,7 +709,7 @@ async function runOrderQuery(id?: string): Promise<void> {
   }
   store.patch({ orderQuery: orderId, order: orderContactReduce(S().order, { type: 'query', orderId }) });
   try {
-    const result = await ipc.invoke<import('../../packages/ipc/src/client.ts').OrderSearchResult>(UiCommands.ORDER_SEARCH, { account: acc.context, order_id: orderId });
+    const result = await ipc.invoke<OrderSearchResult>(UiCommands.ORDER_SEARCH, { account: acc.context, order_id: orderId });
     if (!stillActive(acc.context)) return; // the result is scoped to the account that issued the query
     store.patch({ order: orderContactReduce(S().order, { type: 'result', orderId, result }) });
   } catch (e) {
@@ -514,7 +731,7 @@ async function contactViaIm(o: UiOrderSummary): Promise<void> {
     const r = await ipc.invoke<{ gid: string; reused: boolean }>(UiCommands.ORDER_CREATE_IM_CHAT, { account: acc.context, order_id: o.order_id });
     const convs = await ipc.invoke<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account: acc.context });
     if (!stillActive(acc.context)) return; // never show another account's conversations under the active tab
-    store.patch({ conversations: convs, orderBusyId: null, tab: 'doing' });
+    store.patch({ conversations: convs.filter(isUiConversation), orderBusyId: null, tab: 'doing' });
     await openConversation(r.gid);
   } catch (e) {
     if (!stillActive(acc.context)) return;
@@ -523,10 +740,37 @@ async function contactViaIm(o: UiOrderSummary): Promise<void> {
   }
 }
 
-async function openWebAdvanced(o: UiOrderSummary): Promise<void> {
+async function openWebAdvanced(o: UiOrderSummary | string): Promise<void> {
   const acc = activeAccount();
   if (!acc) return;
-  await invokeSafe(UiCommands.SHELL_OPEN_WEBVIEW, { account: acc.context, url: orderDetailUrl(o.order_id) });
+  await invokeSafe(UiCommands.SHELL_OPEN_WEBVIEW, { account: acc.context, url: orderDetailUrl(typeof o === 'string' ? o : o.order_id) });
+}
+
+function goOrderDetail(orderId: string): void {
+  store.patch({ view: 'order', orderQuery: orderId });
+  void runOrderQuery(orderId);
+}
+
+// --------------------------------------------------------------- banners & sounds
+
+let bannerSeq = 0;
+function onBanner(p: { account: AccountContext; gid: string; count: number; stay_ms: number; system?: boolean }): void {
+  const s = S();
+  const acc = activeAccount(s);
+  // No banner for the conversation the user is looking at.
+  if (acc && sameAccount(acc.context, p.account) && s.activeGid === p.gid && s.view === 'messages' && document.visibilityState === 'visible') return;
+  bannerSeq += 1;
+  store.patch({ banners: pushBanner(s.banners, { id: bannerSeq, account: p.account, gid: p.gid, count: p.count, system: p.system === true, at: Date.now(), stayMs: p.stay_ms }) });
+}
+
+function dismissBanner(id: number): void {
+  store.patch({ banners: S().banners.filter((b) => b.id !== id) });
+}
+
+const soundLog: SoundName[] = [];
+function onPlaySound(name: SoundName): void {
+  soundLog.push(name);
+  playSound(name);
 }
 
 // --------------------------------------------------------------- rendering
@@ -536,23 +780,35 @@ function accBadge(n: number): HTMLElement | null {
   return txt ? h('span', { class: 'badge' }, txt) : null;
 }
 
+/** Windows: double-click on the drag region maximizes through the host command (Tauri's own handler is bypassed). */
+function onTitleMouseDown(e: MouseEvent): void {
+  if (platform !== 'windows' || e.button !== 0 || e.detail !== 2) return;
+  const target = e.target as HTMLElement | null;
+  if (!target || !target.hasAttribute('data-tauri-drag-region')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'toggle_maximize' });
+}
+
 function titleBar(s: MainState): HTMLElement {
   const snap = s.accounts;
   const tabs = (snap?.accounts ?? []).map((a) => {
     const on = a.context.account_id === snap?.active_account_id;
     const editing = s.editingTab?.accountId === a.context.account_id;
+    const logging = a.state === 'logging_in';
     return h(
       'div',
       {
-        class: cx('tab', { on }),
+        class: cx('tab', { on, logging }),
         role: 'tab',
         'aria-selected': String(on),
         title: t('tab.editRemark'),
-        dataset: { account: a.context.account_id },
+        dataset: { account: a.context.account_id, state: a.state },
         onclick: () => void switchAccount(a),
         ondblclick: (e: Event) => {
           e.preventDefault();
-          store.patch({ editingTab: { accountId: a.context.account_id, value: a.remark ?? '' } });
+          if (logging) return;
+          store.patch({ editingTab: { accountId: a.context.account_id, value: a.remark ?? a.nick } });
         },
       },
       h('span', { class: 'tab-ava', style: { background: a.color } }, accountInitial(a)),
@@ -574,19 +830,20 @@ function titleBar(s: MainState): HTMLElement {
             ondblclick: (e: Event) => e.stopPropagation(),
           })
         : h('span', { class: 'tab-name' }, accountLabel(a)),
-      a.state === 'logging_in' ? h('span', { class: 'tab-warn' }, h('span', { class: 'spin' }), t('tab.loggingIn')) : null,
-      a.state === 'expired' ? h('span', { class: 'tab-warn' }, icon(IC.alert, 13), t('tab.expired')) : null,
-      a.state === 'suspended' ? h('span', { class: 'tab-warn muted' }, t('tab.suspended')) : null,
-      a.unread > 0 ? h('span', { class: 'tab-badge' }, badgeText(a.unread)) : null,
+      logging ? h('span', { class: 'tab-warn', dataset: { tabState: 'logging_in' } }, h('span', { class: 'spin' }), t('tab.loggingIn')) : null,
+      a.state === 'expired' ? h('span', { class: 'tab-warn', dataset: { tabState: 'expired' } }, icon(IC.alert, 13), t('tab.expired')) : null,
+      a.state === 'suspended' ? h('span', { class: 'tab-warn muted', dataset: { tabState: 'suspended' } }, t('tab.suspended')) : null,
+      a.unread > 0 && !on && a.state !== 'expired' ? h('span', { class: 'tab-badge' }, badgeText(a.unread)) : null,
       h(
         'button',
         {
           class: 'tab-x',
-          'aria-label': t('tab.logout'),
-          title: t('tab.logout'),
+          'aria-label': logging && s.loginAttempt ? t('tab.cancelLogin') : t('tab.logout'),
+          title: logging && s.loginAttempt ? t('tab.cancelLogin') : t('tab.logout'),
           onclick: (e: Event) => {
             e.stopPropagation();
-            store.patch({ logoutDialog: { account: a, mode: 'suspend' }, meMenu: false });
+            if (logging && s.loginAttempt) void cancelLogin();
+            else store.patch({ logoutDialog: { account: a, mode: 'suspend' }, meMenu: false });
           },
         },
         icon(IC.close, 12),
@@ -596,15 +853,23 @@ function titleBar(s: MainState): HTMLElement {
   const canAdd = !snap || snap.accounts.length < snap.max_accounts;
   return h(
     'div',
-    { class: 'tb' },
-    h('div', { class: 'tb-logo' }, h('div', { class: 'logo', 'aria-hidden': 'true' }, 'V')),
-    h('div', { class: 'tabs', role: 'tablist', 'aria-label': '已登录账号' }, tabs, canAdd ? h('button', { class: 'tab-add', 'aria-label': t('tab.add'), title: t('tab.addTitle', { max: snap?.max_accounts ?? 16 }), onclick: () => void addAccount() }, icon(IC.plus, 16)) : null),
+    { class: 'tb', 'data-tauri-drag-region': true, onmousedown: onTitleMouseDown },
+    h('div', { class: 'tb-logo', 'data-tauri-drag-region': true }, h('div', { class: 'logo', 'aria-hidden': 'true', 'data-tauri-drag-region': true }, 'V')),
+    h(
+      'div',
+      { class: 'tabs', role: 'tablist', 'aria-label': '已登录账号', 'data-tauri-drag-region': true },
+      tabs,
+      canAdd ? h('button', { class: 'tab-add', 'aria-label': t('tab.add'), title: t('tab.addTitle', { max: snap?.max_accounts ?? 16 }), dataset: { action: 'add-account' }, onclick: () => void startLogin() }, icon(IC.plus, 16)) : null,
+    ),
+    s.alarmCount > 0
+      ? h('button', { class: 'tb-alarm', title: t('tb.alarmTitle', { n: s.alarmCount }), dataset: { tbAlarm: String(s.alarmCount) }, onclick: () => void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.ALARM }) }, icon(IC.clock, 13), t('tb.alarm', { n: s.alarmCount }))
+      : null,
     h(
       'div',
       { class: 'wbtns' },
-      h('button', { class: 'wbtn', 'aria-label': t('win.minimize'), onclick: () => void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'minimize' }) }, icon(IC.min, 14)),
-      h('button', { class: 'wbtn', 'aria-label': t('win.maximize'), onclick: () => void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'toggle_maximize' }) }, icon(IC.max, 13)),
-      h('button', { class: 'wbtn x', 'aria-label': t('win.close'), onclick: () => void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'close' }) }, icon(IC.close, 14)),
+      h('button', { class: 'wbtn', 'aria-label': t('win.minimize'), dataset: { win: 'minimize' }, onclick: () => void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'minimize' }) }, icon(IC.min, 14)),
+      h('button', { class: 'wbtn', 'aria-label': t('win.maximize'), dataset: { win: 'toggle_maximize' }, onclick: () => void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'toggle_maximize' }) }, icon(IC.max, 13)),
+      h('button', { class: 'wbtn x', 'aria-label': t('win.close'), dataset: { win: 'close' }, onclick: () => void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'close' }) }, icon(IC.close, 14)),
     ),
   );
 }
@@ -613,27 +878,41 @@ function navBar(s: MainState): HTMLElement {
   const acc = activeAccount(s);
   const unreadMsgs = unreadTotal(s.conversations);
   const unreadNotice = s.noticeCats.reduce((n, c) => n + c.unread, 0);
-  const item = (view: View, label: string, d: string, badge: number) =>
+  const av = agentView(s.agent);
+  const item = (view: View, label: string, d: string, badge: number, extra: HTMLElement | null = null) =>
     h(
       'button',
       { class: cx('nav-i', { on: s.view === view }), 'aria-label': label, 'aria-current': s.view === view ? 'page' : undefined, dataset: { nav: view }, onclick: () => store.patch({ view, ctxMenu: null, meMenu: false }) },
       icon(d, 20),
       h('span', null, label),
       badge > 0 ? h('span', { class: 'nav-badge' }, badgeText(badge)) : null,
+      extra,
     );
+  const alarm = s.alarmCount > 0 ? h('span', { class: 'nav-alarm', title: t('tb.alarmTitle', { n: s.alarmCount }), dataset: { navAlarm: String(s.alarmCount) } }, icon(IC.clock, 9), String(s.alarmCount)) : null;
   return h(
     'nav',
     { class: 'nav', 'aria-label': '导航' },
-    item('messages', t('nav.messages'), IC.chat, unreadMsgs),
+    item('messages', t('nav.messages'), IC.chat, unreadMsgs, alarm),
     item('notifications', t('nav.notifications'), IC.bell, unreadNotice),
     item('order', t('nav.orderContact'), IC.order, 0),
     h('div', { class: 'nav-sp' }),
     h('button', { class: 'nav-i', 'aria-label': t('nav.settings'), dataset: { nav: 'settings' }, onclick: () => void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }) }, icon(IC.gear, 20), h('span', null, t('nav.settings'))),
     h(
       'button',
-      { class: 'me', style: { background: acc?.color ?? '#5B6676' }, 'aria-label': `${t('nav.account')}：${agentStatusLabel(s.agent.status)}`, 'aria-expanded': String(s.meMenu), dataset: { nav: 'me' }, onclick: (e: Event) => { e.stopPropagation(); store.patch({ meMenu: !s.meMenu, ctxMenu: null }); } },
+      {
+        class: 'me',
+        style: { background: acc?.color ?? '#5B6676' },
+        'aria-label': `${t('nav.account')}：${av.label}`,
+        'aria-expanded': String(s.meMenu),
+        disabled: !acc,
+        dataset: { nav: 'me' },
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          store.patch({ meMenu: !s.meMenu, ctxMenu: null });
+        },
+      },
       acc ? accountInitial(acc) : '?',
-      h('span', { class: 'me-dot', style: { background: `var(${agentStatusColorVar(s.agent.status)})` } }),
+      acc ? h('span', { class: 'me-dot', style: { background: `var(${av.colorVar})` } }) : null,
     ),
   );
 }
@@ -642,42 +921,77 @@ function meMenu(s: MainState): HTMLElement | null {
   if (!s.meMenu) return null;
   const acc = activeAccount(s);
   if (!acc) return null;
+  const close = () => store.patch({ meMenu: false });
   return h(
     'div',
     { class: 'menu me-menu', role: 'menu', onmousedown: (e: Event) => e.stopPropagation() },
     h('div', { class: 'me-head' }, h('div', { class: 'ava', style: { background: acc.color } }, accountInitial(acc)), h('div', { class: 'me-head-t' }, h('div', { style: { 'font-weight': '600' } }, accountLabel(acc)), h('div', { class: 'muted', style: { 'font-size': '12px' } }, acc.party))),
     h('div', { class: 'msep' }),
-    h('div', { class: 'mhead' }, t('me.status')),
+    h('div', { class: 'mhead' }, t('me.statusHead')),
     AGENT_STATUS_ORDER.map((st) =>
       h(
         'button',
-        { class: 'mi', role: 'menuitem', 'aria-disabled': 'true', onclick: () => toast(t('me.status')) },
+        { class: 'mi', role: 'menuitem', dataset: { agentStatus: st }, disabled: s.agentBusy, onclick: () => void setAgentStatus(st) },
         h('span', { class: 'dot', style: { background: `var(${agentStatusColorVar(st)})` } }),
         h('span', { style: { flex: '1' } }, agentStatusLabel(st)),
-        st === s.agent.status ? icon(IC.check, 14, { style: 'color: var(--c-primary)' }) : null,
+        h('span', { class: 'muted', style: { 'font-size': '11.5px' } }, agentStatusDesc(st)),
+        s.agent.confirmed && st === s.agent.status ? icon(IC.check, 14, { style: 'color: var(--c-primary)' }) : null,
       ),
     ),
     h('div', { class: 'msep' }),
-    h('button', { class: 'mi', role: 'menuitem', onclick: () => { store.patch({ meMenu: false }); void invokeSafe(UiCommands.SHELL_OPEN_EXTERNAL, { url: 'https://vbooking.ctrip.com/vbk/im/main' }); } }, t('me.personalSettings')),
-    h('button', { class: 'mi', role: 'menuitem', onclick: () => { store.patch({ meMenu: false }); void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); } }, t('me.desktopSettings')),
-    h('button', { class: 'mi', role: 'menuitem', onclick: () => { store.patch({ meMenu: false }); void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.UPDATE }); } }, t('me.checkUpdate')),
+    h('button', { class: 'mi', role: 'menuitem', onclick: () => { close(); void invokeSafe(UiCommands.SHELL_OPEN_WEBVIEW, { account: acc.context, url: PERSONAL_SETTINGS_URL }); } }, t('me.personalSettings')),
+    h('button', { class: 'mi', role: 'menuitem', onclick: () => { close(); void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); } }, t('me.desktopSettings')),
+    h('button', { class: 'mi', role: 'menuitem', onclick: () => { close(); void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.UPDATE }); } }, t('me.checkUpdate')),
     h('div', { class: 'msep' }),
-    h('button', { class: 'mi', role: 'menuitem', onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'suspend' } }) }, t('me.logoutSuspend')),
-    h('button', { class: 'mi', role: 'menuitem', onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'logout' } }) }, t('me.logoutFull')),
-    h('button', { class: 'mi dan', role: 'menuitem', onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'forget' } }) }, t('me.forget')),
+    h('button', { class: 'mi', role: 'menuitem', dataset: { me: 'suspend' }, onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'suspend' } }) }, t('me.logoutSuspend')),
+    h('button', { class: 'mi dan', role: 'menuitem', dataset: { me: 'logout' }, onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'logout' } }) }, t('me.logoutFull')),
+  );
+}
+
+// ---- welcome (no account)
+
+function welcomeView(s: MainState): HTMLElement {
+  const snap = s.accounts;
+  const loggingIn = !!snap?.accounts.some((a) => a.state === 'logging_in');
+  return h(
+    'div',
+    { class: 'content' },
+    h(
+      'div',
+      { class: 'welcome', dataset: { welcome: snap ? 'ready' : 'loading' } },
+      h(
+        'div',
+        { class: 'welcome-card' },
+        h('div', { class: 'welcome-logo', 'aria-hidden': 'true' }, 'V'),
+        h('div', { class: 'welcome-title' }, t('welcome.title')),
+        h('div', { class: 'welcome-desc' }, snap ? t('welcome.desc') : t('welcome.loading')),
+        s.accountsError ? h('div', { class: 'notice-box err', dataset: { welcomeError: '1' } }, t('welcome.loadFailed', { msg: s.accountsError }), ' ', h('button', { class: 'link', onclick: () => void loadAccounts() }, t('welcome.retry'))) : null,
+        loggingIn ? h('div', { class: 'notice-box info' }, t('welcome.loggingIn')) : null,
+        h('button', { class: 'btn pri welcome-add', dataset: { action: 'welcome-add' }, disabled: !snap || loggingIn, onclick: () => void startLogin() }, icon(IC.plus, 15), t('welcome.add')),
+        h('div', { class: 'welcome-foot' }, t('welcome.foot', { max: snap?.max_accounts ?? 16 })),
+      ),
+    ),
   );
 }
 
 // ---- messages view
 
+function waitedSeconds(c: UiConversation, now: number): number {
+  return Math.max(0, Math.floor((now - (c.waiting_since_ms ?? now)) / 1000));
+}
+
 function conversationList(s: MainState): HTMLElement {
   const counts = tabCounts(s.conversations);
   const list = filterConversations(s.conversations, s.tab, s.query);
+  const acc = activeAccount(s);
+  const av = agentView(s.agent);
+  const nv = netView(s.net);
   const rows = list.map((c) => {
     const on = c.gid === s.activeGid;
     const waiting = c.waiting_since_ms !== null && !isDone(c);
-    const waitedSec = waiting ? Math.max(0, Math.floor((s.now - (c.waiting_since_ms ?? s.now)) / 1000)) : 0;
+    const waited = waiting ? waitedSeconds(c, s.now) : 0;
     const mark = MARK_COLORS.find((m) => m.action === c.mark);
+    const hasDraft = !!c.draft && !on;
     return h(
       'div',
       {
@@ -686,7 +1000,9 @@ function conversationList(s: MainState): HTMLElement {
         tabindex: '0',
         dataset: { gid: c.gid },
         onclick: () => void openConversation(c.gid),
-        onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') void openConversation(c.gid); },
+        onkeydown: (e: KeyboardEvent) => {
+          if (e.key === 'Enter') void openConversation(c.gid);
+        },
         oncontextmenu: (e: MouseEvent) => {
           e.preventDefault();
           store.patch({ ctxMenu: { gid: c.gid, x: e.clientX, y: e.clientY }, meMenu: false });
@@ -698,12 +1014,12 @@ function conversationList(s: MainState): HTMLElement {
         'div',
         { class: 'conv-main' },
         h('div', { class: 'crow' }, h('span', { class: 'cname' }, c.title), c.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, langName(c.lang)) : null, h('span', { class: 'ctime' }, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '')),
-        h('div', { class: 'crow' }, c.draft && !on ? h('span', { class: 'cdraft' }, t('list.draft')) : null, h('span', { class: 'cprev' }, c.draft && !on ? c.draft : c.preview), accBadge(c.unread_count)),
+        h('div', { class: 'crow' }, hasDraft ? h('span', { class: 'cdraft' }, t('list.draft')) : null, h('span', { class: 'cprev' }, hasDraft ? c.draft : c.preview), accBadge(c.unread_count)),
         h(
           'div',
           { class: 'crow', style: { 'margin-top': '2px' } },
           h('span', { class: 'chip chip-biz' }, c.biz),
-          waiting ? h('span', { class: cx('wait', waitedSec >= RED_AFTER_SECONDS ? 'red' : 'amber') }, icon(IC.clock, 11), c.waiting_confirmed ? t('list.waiting', { t: formatDuration(waitedSec) }) : `${t('list.waiting', { t: formatDuration(waitedSec) })} · ${t('list.waitingPending')}`) : null,
+          waiting ? h('span', { class: cx('wait', waited >= RED_AFTER_SECONDS ? 'red' : 'amber'), title: c.waiting_confirmed ? undefined : t('alarm.pendingTitle') }, icon(IC.clock, 11), c.waiting_confirmed ? t('list.waiting', { t: formatDuration(waited) }) : `${t('list.waiting', { t: formatDuration(waited) })} · ${t('list.waitingPending')}`) : null,
           isDone(c) ? h('span', { class: 'chip chip-muted' }, t('list.finished')) : null,
           c.is_top ? icon(IC.pin, 12, { style: 'color: var(--c-text-faint)', 'aria-label': t('list.pinned') }) : null,
         ),
@@ -720,10 +1036,17 @@ function conversationList(s: MainState): HTMLElement {
       h(
         'div',
         { class: 'stat-row' },
-        h('span', { class: 'stat-pill', title: t('me.status') }, h('span', { class: 'dot', style: { background: `var(${agentStatusColorVar(s.agent.status)})` } }), agentStatusLabel(s.agent.status), h('span', { class: 'muted', style: { 'font-size': '11px' } }, `· ${t('status.readback')}`)),
-        h('span', { class: 'muted', style: { 'font-size': '12px' } }, t('list.serving', { n: counts.doing })),
+        h(
+          'button',
+          { class: 'stat-pill', title: t('me.statusHead'), dataset: { agent: av.known ? s.agent.status : 'unknown' }, onclick: (e: Event) => { e.stopPropagation(); store.patch({ meMenu: !S().meMenu, ctxMenu: null }); } },
+          h('span', { class: 'dot', style: { background: `var(${av.colorVar})` } }),
+          av.label,
+          s.agentBusy ? h('span', { class: 'spin' }) : null,
+          icon(IC.chevDown, 12),
+        ),
+        h('span', { class: 'muted', style: { 'font-size': '12px' }, title: t('list.queueTitle'), dataset: { serving: String(counts.doing) } }, `${t('list.serving', { n: counts.doing })} · ${t('list.queue')}`),
       ),
-      h('label', { class: 'search', title: t('list.searchHint') }, icon(IC.search, 15), h('input', { class: 'inp', placeholder: t('list.search'), 'aria-label': t('list.search'), value: s.query, dataset: { fid: 'search' }, oninput: (e: Event) => store.patch({ query: (e.target as HTMLInputElement).value }) })),
+      h('label', { class: 'search', title: t('list.searchHint') }, icon(IC.search, 15), h('input', { class: 'inp', placeholder: t('list.search'), 'aria-label': t('list.searchLabel'), value: s.query, dataset: { fid: 'search' }, oninput: (e: Event) => store.patch({ query: (e.target as HTMLInputElement).value }) })),
       h(
         'div',
         { class: 'ftabs', role: 'tablist' },
@@ -731,7 +1054,8 @@ function conversationList(s: MainState): HTMLElement {
         h('button', { class: cx('ftab', { on: s.tab === 'done' }), role: 'tab', 'aria-selected': String(s.tab === 'done'), dataset: { tab: 'done' }, onclick: () => store.patch({ tab: 'done' }) }, `${t('list.done')} ${counts.done}`),
       ),
     ),
-    !s.net.online ? h('div', { class: 'netbar' }, h('span', { class: 'spin', style: { 'border-top-color': '#87500A' } }), h('span', { style: { flex: '1' } }, t('list.offline')), h('button', { class: 'link', onclick: () => void loadForActiveAccount() }, t('list.retryNow'))) : null,
+    nv.offline ? h('div', { class: 'netbar' }, h('span', { class: 'spin', style: { 'border-top-color': '#87500A' } }), h('span', { style: { flex: '1' } }, t('list.offline')), h('button', { class: 'link', onclick: () => void loadForActiveAccount() }, t('list.retryNow'))) : null,
+    acc?.state === 'expired' ? h('div', { class: 'netbar err', dataset: { expired: '1' } }, icon(IC.alert, 15), h('span', { style: { flex: '1' } }, t('list.expired')), h('button', { class: 'link', onclick: () => void startLogin(acc.context) }, t('list.relogin'))) : null,
     h('div', { class: 'cscroll', dataset: { keepScroll: 'clist' } }, rows, rows.length === 0 ? h('div', { class: 'empty', style: { margin: '16px' } }, s.query ? t('list.emptySearch') : t('list.empty')) : null),
   );
 }
@@ -742,8 +1066,8 @@ function contextMenu(s: MainState): HTMLElement | null {
   const c = s.conversations.find((x) => x.gid === m.gid);
   if (!c) return null;
   const items = contextMenuItems(c);
-  const maxX = Math.max(0, window.innerWidth - 200);
-  const maxY = Math.max(0, window.innerHeight - 190);
+  const maxX = Math.max(0, window.innerWidth - 190);
+  const maxY = Math.max(0, window.innerHeight - 170);
   return h(
     'div',
     { class: 'menu ctx-menu', role: 'menu', style: { left: `${Math.min(m.x, maxX)}px`, top: `${Math.min(m.y, maxY)}px` }, onmousedown: (e: Event) => e.stopPropagation() },
@@ -765,7 +1089,30 @@ function contextMenu(s: MainState): HTMLElement | null {
       ),
     ),
     items.showClear ? h('button', { class: 'mi', role: 'menuitem', dataset: { ctx: 'clear' }, onclick: () => void setMark(c, 0) }, t('ctx.clearMark')) : null,
-    h('div', { class: 'mhead' }, t('ctx.markHint')),
+  );
+}
+
+function richText(text: string): HTMLElement[] {
+  return highlightParts(text).map((p) =>
+    p.kind === 'plain'
+      ? h('span', null, p.text)
+      : h(
+          'button',
+          {
+            class: 'hl',
+            title: p.kind === 'iccid' ? t('side.iccidHint') : t('side.orderHint'),
+            dataset: { hl: p.kind },
+            onclick: () => {
+              if (p.kind === 'iccid') {
+                store.patch({ sideOpen: true, pkgOpen: true, pkgHot: true });
+                void queryPackage(p.text);
+              } else {
+                store.patch({ sideOpen: true, hotOrder: true });
+              }
+            },
+          },
+          p.text,
+        ),
   );
 }
 
@@ -775,25 +1122,29 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
   const showTime = s.prefs?.general.show_msg_time ?? true;
   let body: HTMLElement;
   if (m.kind === 'order_card') {
+    const o = conv.order && conv.order.order_id === m.order_id ? conv.order : null;
     body = h(
       'div',
       { class: 'card' },
       h('div', { class: 'card-h' }, icon(IC.order, 14), t('chat.orderCard'), h('span', { class: 'mono', style: { 'margin-left': 'auto' } }, m.order_id ?? '')),
-      h('div', { class: 'card-b' }, h('div', { class: 'card-t' }, m.text)),
-      h('div', { class: 'card-f' }, h('button', { class: 'link', onclick: () => store.patch({ sideOpen: true }) }, t('chat.viewOrder'))),
+      h('div', { class: 'card-b' }, h('div', { class: 'card-t' }, o?.product ?? m.text), o ? h('div', { class: 'kv' }, h('span', { class: 'k' }, t('side.useDate')), h('span', null, o.use_date)) : null, o ? h('div', { class: 'kv' }, h('span', { class: 'k' }, t('side.quantity')), h('span', null, o.quantity)) : null),
+      h('div', { class: 'card-f' }, o ? h('span', { class: 'chip chip-info', style: { 'margin-right': 'auto' } }, o.status) : null, h('button', { class: 'link', onclick: () => store.patch({ sideOpen: true, hotOrder: true }) }, t('chat.viewOrder'))),
     );
-  } else if (m.kind === 'image' || m.kind === 'file' || m.kind === 'video') {
+  } else if (m.kind === 'image') {
+    body = h('div', { class: 'shot', title: m.text }, h('span', { class: 'shot-t' }, t('chat.image')), h('span', { class: 'shot-l' }, m.text), h('span', { class: 'shot-bar', style: { width: '70%' } }), h('span', { class: 'shot-bar', style: { width: '45%' } }));
+  } else if (m.kind === 'file' || m.kind === 'video') {
     body = h('div', { class: 'bubble' }, previewOf(m), ' ', m.text);
   } else {
     body = h(
       'div',
       { class: 'bubble' },
-      h('span', null, m.text),
-      m.translation ? h('div', { class: 'btr' }, h('span', { class: 'trtag' }, t('chat.translated')), h('span', null, m.translation)) : null,
+      richText(m.text),
+      m.translation && !s.hideInboundTr ? h('div', { class: 'btr' }, h('span', { class: 'trtag' }, t('chat.translated')), h('span', null, m.translation)) : null,
       m.original ? h('div', { class: 'btr' }, h('span', { class: 'trtag' }, t('chat.original')), h('span', null, m.original)) : null,
     );
   }
   const st = mine ? sendStateView(m.disposition) : null;
+  const who = mine ? roleLabel('merchant_self') : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role);
   return h(
     'div',
     { class: cx('msg', { mine }), dataset: { mid: m.local_id ?? m.message_id ?? '' } },
@@ -801,7 +1152,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
     h(
       'div',
       { class: 'mcol' },
-      h('div', { class: 'mmeta' }, mine ? roleLabel('merchant_self') : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role), showTime ? ` · ${formatClock(m.create_time_ms, true)}` : ''),
+      h('div', { class: 'mmeta' }, who, showTime ? ` · ${formatClock(m.create_time_ms)}` : ''),
       m.quote ? h('div', { class: 'quote-in' }, t('chat.quotePrefix'), m.quote) : null,
       body,
       st
@@ -820,33 +1171,39 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
 
 function translationBar(s: MainState, conv: UiConversation): HTMLElement | null {
   const p = s.prefs;
-  if (!p || !shouldShowTranslationBar(conv, p.assistant.enabled, p.assistant.outbound_translation)) return null;
+  if (!p || !translationOn(s, conv)) return null;
   const direct = p.assistant.send_mode === 'send_direct';
   const tr = s.translation;
-  const target = tr.target === 'en' && conv.lang !== 'zh' && tr.gid !== conv.gid ? conv.lang : tr.target;
+  const target = translationTarget(s, conv);
   const stale = tr.status === 'done' && tr.draftVersion !== s.draftVersion;
-  const targets = ['en', 'ja', 'ko', 'th', 'vi', 'id', 'ms', 'es', 'fr', 'de', 'ru', 'zh-TW'];
   let bodyEl: HTMLElement;
-  if (tr.status === 'error') {
+  if (tr.status === 'error' && tr.gid === conv.gid) {
     bodyEl = h(
       'div',
       { class: 'trrow', dataset: { trState: 'error' } },
       icon(IC.alert, 14, { style: 'color: var(--c-alert)' }),
       h('span', { style: { color: 'var(--c-alert-text)' } }, `${t('tr.failed')}：${tr.error ?? ''}`),
       h('span', { class: 'sp' }),
-      h('button', { class: 'btn sm', dataset: { tr: 'send-original' }, onclick: () => void sendText(s.draft.trim(), null) }, t('tr.sendOriginal')),
-      h('button', { class: 'btn sm pri', dataset: { tr: 'retry' }, onclick: () => (direct ? void translateAndSend(s.draft.trim()) : void runPreviewTranslation()) }, t('tr.retry')),
+      h('button', { class: 'btn sm', dataset: { tr: 'send-original' }, onclick: () => void sendText(S().draft.trim(), null) }, t('tr.sendOriginal')),
+      h('button', { class: 'btn sm pri', dataset: { tr: 'retry' }, onclick: () => (direct ? void translateAndSend(S().draft.trim()) : void runPreviewTranslation()) }, t('tr.retry')),
     );
   } else if (direct) {
     bodyEl = h('div', { class: 'trprev wait', dataset: { trState: tr.status } }, tr.status === 'busy' ? h('span', { class: 'spin' }) : null, tr.status === 'busy' ? t('tr.busy') : t('composer.directMode'));
-  } else if (tr.status === 'busy' || stale) {
+  } else if ((tr.status === 'busy' || stale) && tr.gid === conv.gid) {
     bodyEl = h('div', { class: 'trprev wait', dataset: { trState: 'busy' } }, h('span', { class: 'spin' }), stale ? t('tr.stale') : t('tr.busy'));
-  } else if (tr.status === 'done') {
+  } else if (tr.status === 'done' && tr.gid === conv.gid) {
     bodyEl = h(
       'div',
-      { dataset: { trState: 'done' } },
+      { class: 'trdone', dataset: { trState: 'done' } },
       h('div', { class: 'trprev' }, tr.text),
-      h('div', { class: 'trrow' }, h('span', { class: 'sp' }), h('button', { class: 'btn sm', onclick: () => copyText(tr.text) }, t('tr.copy')), h('button', { class: 'btn sm pri', dataset: { tr: 'replace' }, onclick: () => { store.patch({ draft: tr.text, draftVersion: s.draftVersion + 1, translation: { ...TRANSLATION_IDLE, target } }); } }, t('tr.replace'))),
+      h(
+        'div',
+        { class: 'trrow' },
+        h('span', { class: 'sp' }),
+        h('button', { class: 'btn sm', onclick: () => copyText(tr.text) }, t('tr.copy')),
+        h('button', { class: 'btn sm', dataset: { tr: 'replace' }, onclick: () => store.patch({ draft: tr.text, draftVersion: S().draftVersion + 1, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target } }) }, t('tr.replace')),
+        h('button', { class: 'btn sm pri', dataset: { tr: 'send' }, onclick: () => void sendText(tr.text, S().draft.trim()) }, t('tr.sendTranslated')),
+      ),
     );
   } else {
     bodyEl = h('div', { class: 'trprev wait', dataset: { trState: 'idle' } }, t('tr.idle'));
@@ -862,8 +1219,17 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
       h('span', { class: 'muted' }, t('tr.target')),
       h(
         'select',
-        { class: 'sel', style: { height: '24px' }, 'aria-label': t('tr.target'), value: target, onchange: (e: Event) => { store.patch({ translation: { ...TRANSLATION_IDLE, target: (e.target as HTMLSelectElement).value } }); scheduleTranslation(); } },
-        targets.map((code) => h('option', { value: code, selected: code === target }, `${langName(code)} ${code}`)),
+        {
+          class: 'sel',
+          style: { height: '24px' },
+          'aria-label': '目标语言',
+          value: target,
+          onchange: (e: Event) => {
+            store.patch({ translation: { ...TRANSLATION_IDLE, gid: conv.gid, target: (e.target as HTMLSelectElement).value } });
+            scheduleTranslation();
+          },
+        },
+        TR_TARGETS.map((code) => h('option', { value: code, selected: code === target }, `${langName(code)} ${code}`)),
       ),
       h('span', { class: 'muted', style: { 'margin-left': 'auto' } }, `${t('tr.provider')} · ${direct ? t('tr.modeDirect') : t('tr.modeReplace')}`),
     ),
@@ -873,109 +1239,160 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
 
 function composer(s: MainState, conv: UiConversation): HTMLElement {
   const finished = isDone(conv);
-  const direct = s.prefs?.assistant.send_mode === 'send_direct' && shouldShowTranslationBar(conv, !!s.prefs?.assistant.enabled, !!s.prefs?.assistant.outbound_translation);
+  const trOn = translationOn(s, conv);
+  const direct = s.prefs?.assistant.send_mode === 'send_direct' && trOn;
   const sendKey = s.prefs?.keys.send_key ?? 'enter';
+  const shotKey = s.prefs?.keys.screenshot ?? '';
+  const chip = (label: string, d: string, data: string) => notWired(h('button', { class: 'chipbtn', dataset: { chip: data } }, icon(d, 13), label), t('composer.notWired', { action: label }));
   return h(
     'div',
     { class: 'composer' },
     translationBar(s, conv),
     h(
       'div',
+      { class: 'chips' },
+      chip(t('composer.phrases'), IC.chat, 'phrases'),
+      chip(t('composer.recommend'), IC.box, 'recommend'),
+      h('button', { class: cx('chipbtn', { on: s.hideInboundTr }), dataset: { chip: 'hide-tr' }, title: s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr'), onclick: () => store.patch({ hideInboundTr: !S().hideInboundTr }) }, icon(IC.translate, 13), s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr')),
+    ),
+    h(
+      'div',
       { class: 'ctools' },
-      h('button', { class: 'ibtn', 'aria-label': t('composer.screenshot'), title: `${t('composer.screenshot')} ${s.prefs?.keys.screenshot ?? ''}`, disabled: finished, onclick: () => void attach('screenshot') }, icon(IC.scissors, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.image'), title: t('composer.image'), disabled: finished, onclick: () => void attach('image') }, icon(IC.image, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.file'), title: t('composer.file'), disabled: finished, onclick: () => void attach('file') }, icon(IC.file, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.video'), title: t('composer.video'), disabled: finished, onclick: () => void attach('video') }, icon(IC.video, 18)),
+      h('button', { class: cx('ibtn', { on: s.emoOpen }), 'aria-label': t('composer.emoji'), title: t('composer.emoji'), disabled: finished, dataset: { tool: 'emoji' }, onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen }); } }, icon(IC.smile, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.screenshot'), title: shotKey ? `${t('composer.screenshot')} ${shotKey}` : t('composer.screenshot'), disabled: finished, dataset: { tool: 'screenshot' }, onclick: () => void attach('screenshot') }, icon(IC.scissors, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.image'), title: t('composer.image'), disabled: finished, dataset: { tool: 'image' }, onclick: () => void attach('image') }, icon(IC.image, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.file'), title: t('composer.file'), disabled: finished, dataset: { tool: 'file' }, onclick: () => void attach('file') }, icon(IC.file, 18)),
+      notWired(h('button', { class: 'ibtn', 'aria-label': t('composer.phrases'), dataset: { tool: 'phrases' } }, icon(IC.chat, 18)), t('composer.notWired', { action: t('composer.phrases') })),
+      conv.lang !== 'zh' && s.prefs?.assistant.enabled && s.prefs.assistant.outbound_translation
+        ? h('button', { class: cx('ibtn', { on: !s.trBarOff }), 'aria-label': t('composer.trToggle'), title: t('composer.trToggleTitle'), dataset: { tool: 'translate' }, onclick: () => store.patch({ trBarOff: !S().trBarOff }) }, icon(IC.translate, 18))
+        : null,
       h('span', { class: 'hint', style: { 'margin-left': 'auto', 'padding-right': '6px' } }, t('composer.attachHint')),
     ),
     s.quote ? h('div', { class: 'quote-bar' }, h('span', { style: { flex: '1', overflow: 'hidden', 'white-space': 'nowrap', 'text-overflow': 'ellipsis' } }, t('chat.quotePrefix'), s.quote.text), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('chat.cancelQuote'), onclick: () => store.patch({ quote: null }) }, icon(IC.close, 12))) : null,
-    s.attachment ? h('div', { class: 'attach' }, h('div', { class: 'attach-img' }), h('span', { style: { 'font-size': '12px' } }, t('composer.attached', { name: s.attachment.name })), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), onclick: () => store.patch({ attachment: null }) }, icon(IC.close, 12))) : null,
+    s.attachment ? h('div', { class: 'attach', title: t('composer.uploadHint') }, h('div', { class: 'attach-img' }), h('span', { style: { 'font-size': '12px' } }, t('composer.attached', { name: s.attachment.name })), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), onclick: () => store.patch({ attachment: null }) }, icon(IC.close, 12))) : null,
     h('textarea', {
       class: 'ta',
       placeholder: finished ? t('composer.placeholderFinished') : t('composer.placeholder'),
-      'aria-label': t('composer.placeholder'),
+      'aria-label': '输入消息',
       value: s.draft,
       disabled: finished,
       dataset: { fid: 'draft' },
       oninput: (e: Event) => setDraft((e.target as HTMLTextAreaElement).value),
       onkeydown: (e: KeyboardEvent) => {
-        if (e.key !== 'Enter') return;
-        const want = sendKey === 'enter' ? !e.shiftKey && !e.ctrlKey : e.ctrlKey;
+        if (e.key !== 'Enter' || e.isComposing) return;
+        const want = sendKey === 'enter' ? !e.shiftKey && !e.ctrlKey && !e.metaKey : e.ctrlKey || e.metaKey;
         if (want) {
           e.preventDefault();
           void handleSend();
         }
       },
     }),
-    h('div', { class: 'cfoot' }, h('span', { class: 'hint' }, direct ? t('composer.directMode') : t('composer.hintEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished, onclick: () => void handleSend() }, icon(IC.send, 14), t('composer.send'))),
+    h('div', { class: 'cfoot' }, h('span', { class: 'hint' }, direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished, onclick: () => void handleSend() }, icon(IC.send, 14), t('composer.send'))),
+  );
+}
+
+function emojiPicker(s: MainState): HTMLElement | null {
+  if (!s.emoOpen) return null;
+  return h(
+    'div',
+    { class: 'emo', onmousedown: (e: Event) => e.stopPropagation() },
+    EMOJI.map((ch) => h('button', { 'aria-label': t('composer.insertEmoji'), onclick: () => { setDraft(S().draft + ch); store.patch({ emoOpen: false }); } }, ch)),
+  );
+}
+
+function packageCard(s: MainState, conv: UiConversation): HTMLElement | null {
+  if (!packageEnabled(s)) return null;
+  const iccids = findIccids(s.messages[conv.gid] ?? []);
+  const info = s.pkg.info;
+  const busy = s.pkg.status === 'busy';
+  let body: HTMLElement | null = null;
+  if (s.pkgOpen) {
+    if (iccids.length === 0) body = h('div', { class: 'empty', style: { margin: '12px' } }, t('side.pkgEmpty'));
+    else if (s.pkg.status === 'error') body = h('div', { class: 'pkg-b' }, h('div', { class: 'notice-box err' }, s.pkg.error ?? ''), h('button', { class: 'btn sm', style: { 'align-self': 'flex-start' }, onclick: () => void queryPackage(iccids[0] ?? '', true) }, t('tr.retry')));
+    else if (!info) body = h('div', { class: 'pkg-b' }, h('div', { class: 'skel', style: { height: '54px' } }), h('div', { class: 'skel', style: { height: '18px', width: '70%' } }));
+    else {
+      const ago = Math.max(0, Math.floor((s.now - info.fetched_at_ms) / 60_000));
+      body = h(
+        'div',
+        { class: 'pkg-scroll' },
+        h(
+          'div',
+          { class: 'pkg-b', dataset: { pkgInfo: '1' } },
+          h(
+            'div',
+            { style: { display: 'flex', gap: '12px', 'align-items': 'center' } },
+            h('div', { class: 'ring', style: { background: `conic-gradient(var(--c-primary) ${info.remain_pct}%, var(--c-border) 0)` } }, h('span', null, `${info.remain_pct}%`)),
+            h('div', { style: { display: 'flex', 'flex-direction': 'column', gap: '2px' } }, h('div', { style: { display: 'flex', gap: '8px', 'align-items': 'center', 'font-size': '12px' } }, h('span', { class: 'chip chip-warn' }, info.status), h('span', { class: 'muted' }, t('side.pkgRemain'))), h('div', null, h('b', { style: { 'font-size': '22px' } }, info.remain), h('span', { class: 'muted', style: { 'font-size': '12px' } }, ` / ${info.total}`))),
+          ),
+          h('div', { style: { 'font-weight': '600', 'font-size': '13px', 'line-height': '1.45' } }, info.plan),
+          h('div', { class: 'pkg-tiles' }, h('div', null, h('span', null, t('side.pkgSupplier')), h('b', null, info.supplier)), h('div', null, h('span', null, t('side.pkgApn')), h('b', null, info.apn))),
+          iccids.map((id) => h('div', { class: 'pkg-id' }, h('span', { class: 'muted' }, 'ICCID'), h('span', { class: 'mono' }, id), h('button', { class: 'ibtn', style: { width: '24px', height: '24px' }, 'aria-label': t('side.copyId', { k: 'ICCID' }), onclick: () => copyText(id, t('side.copied', { k: 'ICCID' })) }, icon(IC.copy, 13)))),
+        ),
+        h('div', { class: 'pkg-f' }, t('side.pkgFoot', { t: ago < 1 ? t('side.pkgJustNow') : t('side.pkgMinutes', { n: ago }) })),
+      );
+    }
+  }
+  return h(
+    'div',
+    { class: cx('pkg', { hot: s.pkgHot }) },
+    h(
+      'div',
+      { class: 'pkg-h' },
+      h('b', null, t('side.pkg')),
+      h('span', { class: 'chip chip-muted' }, t('side.pkgCount', { n: info ? 1 : 0 })),
+      h('span', { class: 'sp' }),
+      h('button', { class: 'ibtn', style: { width: '26px', height: '26px' }, title: t('side.pkgRefresh'), 'aria-label': t('side.pkgRefresh'), disabled: iccids.length === 0 || busy, onclick: () => void queryPackage(info?.iccid ?? iccids[0] ?? '', true) }, busy ? h('span', { class: 'spin' }) : icon(IC.refresh, 14)),
+      h('button', { class: 'ibtn', style: { width: '26px', height: '26px' }, title: t('side.pkgToggle'), 'aria-label': t('side.pkgToggle'), onclick: () => store.patch({ pkgOpen: !S().pkgOpen }) }, icon(s.pkgOpen ? IC.chevDown : IC.chevUp, 14)),
+    ),
+    body,
   );
 }
 
 function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
-  const msgs = s.messages[conv.gid] ?? [];
-  const iccids = findIccids(msgs);
-  const pkgOn = s.prefs?.assistant.enabled && s.prefs?.assistant.package_quick_view;
   const o = conv.order;
-  let pkgBody: HTMLElement;
-  if (!pkgOn) pkgBody = h('div', { class: 'empty', style: { margin: '10px' } }, t('side.pkgOff'));
-  else if (iccids.length === 0) pkgBody = h('div', { class: 'empty', style: { margin: '10px' } }, t('side.pkgEmpty'));
-  else {
-    const info = s.pkg.info;
-    pkgBody = h(
-      'div',
-      { class: 'pkg-b' },
-      iccids.map((id) => h('div', { class: 'pkg-id' }, h('span', { class: 'muted' }, 'ICCID'), h('span', { class: 'mono' }, id), h('button', { class: 'btn sm', dataset: { pkgQuery: id }, disabled: s.pkg.status === 'busy', onclick: () => void queryPackage(id, true) }, s.pkg.status === 'busy' ? t('side.pkgBusy') : t('side.pkgQuery')))),
-      s.pkg.status === 'error' ? h('div', { class: 'notice-box err' }, s.pkg.error ?? '') : null,
-      info
-        ? h(
-            'div',
-            { class: 'pkg-info', dataset: { pkgInfo: '1' } },
-            h('div', { style: { display: 'flex', gap: '12px', 'align-items': 'center' } }, h('div', { class: 'ring', style: { background: `conic-gradient(var(--c-primary) ${info.remain_pct}%, var(--c-border) 0)` } }, h('span', null, `${info.remain_pct}%`)), h('div', null, h('div', { style: { 'font-size': '12px' } }, h('span', { class: 'chip chip-warn' }, info.status), ' ', h('span', { class: 'muted' }, t('side.pkgRemain'))), h('div', null, h('b', { style: { 'font-size': '20px' } }, info.remain), h('span', { class: 'muted', style: { 'font-size': '12px' } }, ` / ${info.total}`)))),
-            h('div', { style: { 'font-weight': '600' } }, info.plan),
-            h('div', { class: 'pkg-tiles' }, h('div', null, h('span', null, t('side.pkgSupplier')), h('b', null, info.supplier)), h('div', null, h('span', null, t('side.pkgApn')), h('b', null, info.apn))),
-            h('div', { class: 'muted', style: { 'font-size': '11.5px' } }, t('side.pkgUpdated', { t: formatClock(info.fetched_at_ms, true) })),
-          )
-        : null,
-    );
-  }
+  const tags = [conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, langName(conv.lang)) : null, ...conv.customer_tags.map((tag, i) => h('span', { class: cx('chip', i === 0 ? 'chip-biz' : 'chip-info') }, tag))];
   return h(
     'aside',
     { class: 'side' },
-    h('div', { class: 'stabs' }, h('span', { class: 'stab on' }, t('side.customer')), h('span', { class: 'sp' }), h('button', { class: 'ibtn', style: { 'align-self': 'center' }, title: t('chat.toggleSide'), 'aria-label': t('chat.toggleSide'), onclick: () => store.patch({ sideOpen: false }) }, icon(IC.chevRight, 16))),
+    h('div', { class: 'stabs' }, h('span', { class: 'stab on' }, t('side.customer')), h('span', { class: 'sp' }), h('button', { class: 'ibtn', style: { 'align-self': 'center' }, title: t('side.collapse'), 'aria-label': t('side.collapse'), onclick: () => store.patch({ sideOpen: false }) }, icon(IC.chevRight, 16))),
     h(
       'div',
       { class: 'sbody', dataset: { keepScroll: 'side' } },
       h(
         'div',
-        { class: 'ucard' },
-        h('div', { class: 'ucard-h' }, h('div', { class: 'ava sm', style: { background: conv.color } }, initialOf(conv.title)), h('div', { style: { flex: '1', 'min-width': '0' } }, h('b', null, conv.title), h('div', { class: 'tagrow' }, h('span', { class: 'chip chip-lang' }, `${t('side.lang')}：${langName(conv.lang)}`), conv.customer_tags.map((tag) => h('span', { class: 'chip chip-biz' }, tag))))),
+        { class: cx('ucard', { hot: s.hotOrder }) },
+        h('div', { class: 'ucard-h' }, h('div', { class: 'ava sm', style: { background: conv.color } }, initialOf(conv.title)), h('div', { style: { flex: '1', 'min-width': '0', display: 'flex', 'flex-direction': 'column', gap: '4px' } }, h('b', { style: { 'font-size': '13.5px' } }, conv.title), h('div', { class: 'tagrow' }, tags))),
         h('div', { class: 'ucard-sep' }),
-        h('div', { class: 'sec-t' }, t('side.order')),
         o
-          ? h(
-              'div',
-              { class: 'info-grid' },
-              h('span', { class: 'ik' }, t('side.orderNo')), h('span', { class: 'iv mono' }, o.order_id, ' ', h('button', { class: 'ibtn', style: { width: '20px', height: '20px' }, 'aria-label': t('side.copyOrder'), onclick: () => copyText(o.order_id) }, icon(IC.copy, 12))),
-              h('span', { class: 'ik' }, t('side.product')), h('span', { class: 'iv' }, o.product),
-              h('span', { class: 'ik' }, t('side.useDate')), h('span', { class: 'iv' }, o.use_date),
-              h('span', { class: 'ik' }, t('side.quantity')), h('span', { class: 'iv' }, o.quantity),
-              h('span', { class: 'ik' }, t('side.statusLabel')), h('span', { class: 'iv' }, h('span', { class: 'chip chip-info' }, o.status)),
-            )
+          ? [
+              h('div', { class: 'ucard-t', title: o.product }, o.product),
+              h('div', { class: 'tagrow' }, h('span', { class: 'chip chip-info' }, o.status), h('span', { class: 'chip chip-biz' }, conv.biz), h('span', { class: 'chip chip-biz' }, t('side.useOn', { d: o.use_date })), h('span', { class: 'chip chip-biz' }, o.quantity)),
+              h(
+                'div',
+                { class: 'oid' },
+                h('span', { class: 'muted' }, t('side.orderNo')),
+                h('span', { class: 'mono' }, o.order_id),
+                h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('side.copyOrder'), onclick: () => copyText(o.order_id, t('side.orderCopied')) }, icon(IC.copy, 12)),
+                h('span', { class: 'sp' }),
+                h('button', { class: 'link', dataset: { side: 'detail' }, onclick: () => goOrderDetail(o.order_id) }, t('side.detail')),
+                h('button', { class: 'link', dataset: { side: 'pc' }, onclick: () => void openWebAdvanced(o) }, t('side.pcDetail')),
+              ),
+            ]
           : h('div', { class: 'muted', style: { 'font-size': '12px' } }, t('side.noOrder')),
-        o ? h('div', { style: { display: 'flex', gap: '6px' } }, h('button', { class: 'btn sm', onclick: () => { store.patch({ view: 'order', orderQuery: o.order_id }); void runOrderQuery(o.order_id); } }, t('side.goOrder')), h('button', { class: 'btn sm', onclick: () => void openWebAdvanced(o) }, icon(IC.lock, 12), t('order.web'))) : null,
       ),
-      h('div', { class: 'pkg' }, h('div', { class: 'pkg-h' }, h('b', null, t('side.pkg')), h('span', { class: 'sp' }), s.pkg.info ? h('button', { class: 'ibtn', style: { width: '26px', height: '26px' }, title: t('side.pkgRefresh'), 'aria-label': t('side.pkgRefresh'), onclick: () => void queryPackage(s.pkg.info?.iccid ?? '', true) }, icon(IC.refresh, 14)) : null), pkgBody),
     ),
+    packageCard(s, conv),
   );
 }
 
 function chatPane(s: MainState): HTMLElement {
   const conv = activeConv(s);
   const acc = activeAccount(s);
-  if (!conv) return h('div', { class: 'chat' }, h('div', { class: 'chat-empty' }, icon(IC.chat, 40), h('div', null, t('chat.empty'))));
+  if (!conv) return h('div', { class: 'chat-empty' }, icon(IC.chat, 40), h('div', null, t('chat.empty')));
   const msgs = s.messages[conv.gid] ?? [];
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
-  const sub = isDone(conv) ? t('chat.finished') : `${t('chat.owner')}${waiting ? ` · ${t('chat.waiting', { t: formatDuration(Math.max(0, Math.floor((s.now - (conv.waiting_since_ms ?? s.now)) / 1000))) })}` : ''}`;
+  const sub = isDone(conv) ? t('chat.finished') : `${t('chat.owner')}${waiting ? ` · ${t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) })}` : ''}`;
+  const type = /^[A-Za-z][A-Za-z0-9]{0,5}$/.test(conv.service_type) ? `${conv.service_type} · ${conv.biz}` : conv.biz;
   return h(
     'div',
     { class: 'chat' },
@@ -983,12 +1400,16 @@ function chatPane(s: MainState): HTMLElement {
       'div',
       { class: 'chat-h' },
       h('div', { class: 'ava sm', style: { background: conv.color } }, initialOf(conv.title)),
-      h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, conv.title, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null, h('span', { class: 'chip chip-biz' }, conv.biz)), h('div', { class: 'chat-sub' }, sub)),
-      !s.sideOpen ? h('button', { class: 'ibtn', title: t('chat.toggleSide'), 'aria-label': t('chat.toggleSide'), onclick: () => store.patch({ sideOpen: true }) }, icon(IC.sidebar, 17)) : null,
+      h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, conv.title, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null, h('span', { class: 'chip chip-biz' }, type)), h('div', { class: 'chat-sub' }, sub)),
+      notWired(h('button', { class: 'ibtn', 'aria-label': t('chat.transfer'), dataset: { chatAct: 'transfer' } }, icon(IC.swap, 17)), t('chat.notWired', { action: t('chat.transfer') })),
+      notWired(h('button', { class: 'ibtn', 'aria-label': t('chat.invite'), dataset: { chatAct: 'invite' } }, icon(IC.userPlus, 17)), t('chat.notWired', { action: t('chat.invite') })),
+      notWired(h('button', { class: 'btn sm', dataset: { chatAct: 'end' } }, icon(IC.exit, 14), t('chat.end')), t('chat.notWired', { action: t('chat.end') })),
+      h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side' }, onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     ),
-    !s.net.online ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
+    netView(s.net).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
     h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: '1' } }, msgs.map((m) => messageRow(s, m, conv, acc))),
     composer(s, conv),
+    emojiPicker(s),
   );
 }
 
@@ -1009,15 +1430,13 @@ function notificationsView(s: MainState): HTMLElement {
       'div',
       { class: 'ncat' },
       h('div', { class: 'ncat-title' }, t('notice.title')),
-      s.noticeCats.map((c) =>
-        h('button', { class: cx('ncat-i', { on: c.id === s.noticeCat }), dataset: { cat: c.id }, onclick: () => void pickNoticeCat(c.id) }, icon(catIcons[c.id] ?? IC.bell, 16), h('span', { style: { flex: '1' } }, c.name), accBadge(c.unread)),
-      ),
+      s.noticeCats.map((c) => h('button', { class: cx('ncat-i', { on: c.id === s.noticeCat }), dataset: { cat: c.id }, onclick: () => void pickNoticeCat(c.id) }, icon(catIcons[c.id] ?? IC.bell, 16), h('span', { style: { flex: '1' } }, c.name), accBadge(c.unread))),
       s.noticeCats.length === 0 ? h('div', { class: 'empty' }, t('notice.empty')) : null,
     ),
     h(
       'div',
       { class: 'nlist' },
-      h('div', { class: 'ph' }, cat ? cat.name : t('notice.title'), cat ? h('span', { class: 'muted', style: { 'font-size': '12px', 'font-weight': '400', 'margin-left': '8px' } }, t('notice.unread', { n: cat.unread })) : null, h('span', { class: 'sp' }), h('button', { class: 'btn sm', dataset: { action: 'mark-all' }, onclick: () => void markAllNotices() }, t('notice.markAll'))),
+      h('div', { class: 'ph' }, h('span', null, cat ? cat.name : t('notice.title'), cat && cat.unread > 0 ? h('span', { class: 'muted', style: { 'font-size': '12px', 'font-weight': '400', 'margin-left': '8px' } }, t('notice.unread', { n: cat.unread })) : null), h('button', { class: 'btn sm', dataset: { action: 'mark-all' }, disabled: !cat, onclick: () => void markAllNotices() }, t('notice.markAll'))),
       h(
         'div',
         { class: 'nscroll', dataset: { keepScroll: 'notices' } },
@@ -1037,6 +1456,8 @@ function notificationsView(s: MainState): HTMLElement {
 
 // ---- order contact view
 
+const ORDER_COLS = '1.1fr 2.4fr 1fr .8fr .8fr .9fr 1.6fr';
+
 function orderRow(s: MainState, o: UiOrderSummary, verified: boolean): HTMLElement {
   const busy = s.orderBusyId === o.order_id;
   // 「IM 联系」/「网页高级操作」only for exactly one verified order; a row of a multiple result must be picked first.
@@ -1048,7 +1469,7 @@ function orderRow(s: MainState, o: UiOrderSummary, verified: boolean): HTMLEleme
     : [h('button', { class: 'btn sm', dataset: { action: 'select' }, title: t('order.selectTitle'), onclick: () => selectOrder(o) }, icon(IC.check, 13), t('order.select'))];
   return h(
     'div',
-    { class: 'grid-r', dataset: { order: o.order_id } },
+    { class: cx('grid-r', { hot: verified }), style: { 'grid-template-columns': ORDER_COLS }, dataset: { order: o.order_id } },
     h('span', { class: 'cell mono' }, o.order_id),
     h('span', { class: 'cell', title: o.product }, o.product),
     h('span', { class: 'cell' }, o.use_date),
@@ -1061,7 +1482,6 @@ function orderRow(s: MainState, o: UiOrderSummary, verified: boolean): HTMLEleme
 
 function orderView(s: MainState): HTMLElement {
   const st = s.order;
-  const samples = ['0000000001', '0000000002', '0000000003', '0000000008', '0000000009'];
   let result: HTMLElement | null = null;
   if (st.kind === 'loading') result = h('div', { class: 'panel', style: { padding: '16px', display: 'flex', 'flex-direction': 'column', gap: '10px' }, dataset: { orderState: 'loading' } }, h('div', { class: 'skel', style: { height: '30px' } }), h('div', { class: 'skel', style: { height: '30px', width: '70%' } }));
   else if (st.kind === 'none') result = h('div', { class: 'empty', style: { background: '#fff' }, dataset: { orderState: 'none' } }, t('order.none'));
@@ -1072,8 +1492,8 @@ function orderView(s: MainState): HTMLElement {
     result = h(
       'div',
       { class: 'panel', dataset: { orderState: st.kind } },
-      h('div', { class: 'ph' }, t('order.result', { n: orders.length }), st.kind === 'multiple' ? h('span', { class: 'chip chip-warn', style: { 'margin-left': '8px' } }, t('order.multiple')) : h('span', { class: 'muted', style: { 'font-size': '12px', 'font-weight': '400', 'margin-left': '8px' } }, t('order.verify'))),
-      h('div', { class: 'grid-h' }, h('span', null, t('order.col.id')), h('span', null, t('order.col.product')), h('span', null, t('order.col.date')), h('span', null, t('order.col.qty')), h('span', null, t('order.col.status')), h('span', null, t('order.col.contact')), h('span', null, t('order.col.actions'))),
+      h('div', { class: 'ph', style: { 'justify-content': 'flex-start', gap: '8px' } }, t('order.result', { n: orders.length }), st.kind === 'multiple' ? h('span', { class: 'chip chip-warn' }, t('order.multiple')) : h('span', { class: 'muted', style: { 'font-size': '12px', 'font-weight': '400' } }, t('order.verify'))),
+      h('div', { class: 'grid-h', style: { 'grid-template-columns': ORDER_COLS } }, h('span', null, t('order.col.id')), h('span', null, t('order.col.product')), h('span', null, t('order.col.date')), h('span', null, t('order.col.qty')), h('span', null, t('order.col.status')), h('span', null, t('order.col.contact')), h('span', null, t('order.col.actions'))),
       orders.map((o) => orderRow(s, o, st.kind === 'one')),
     );
   }
@@ -1091,8 +1511,14 @@ function orderView(s: MainState): HTMLElement {
           { class: 'panel', style: { padding: '16px 18px', display: 'flex', 'flex-direction': 'column', gap: '10px' } },
           h('b', { style: { 'font-size': '15px' } }, t('order.title')),
           h('span', { class: 'muted', style: { 'font-size': '12.5px' } }, t('order.desc')),
-          h('div', { style: { display: 'flex', gap: '8px' } }, h('input', { class: 'inp', style: { width: '300px', height: '34px' }, placeholder: t('order.placeholder'), 'aria-label': t('order.placeholder'), value: s.orderQuery, dataset: { fid: 'order-query' }, inputmode: 'numeric', oninput: (e: Event) => store.patch({ orderQuery: (e.target as HTMLInputElement).value }), onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') void runOrderQuery(); } }), h('button', { class: 'btn pri', style: { height: '34px' }, dataset: { action: 'order-query' }, onclick: () => void runOrderQuery() }, t('order.query'))),
-          h('div', { style: { display: 'flex', 'flex-wrap': 'wrap', gap: '8px', 'align-items': 'center' } }, h('span', { class: 'muted', style: { 'font-size': '12px' } }, t('order.samples')), samples.map((id) => h('button', { class: 'chipbtn', dataset: { sample: id }, onclick: () => void runOrderQuery(id) }, `示例订单 ${id}`))),
+          h(
+            'div',
+            { style: { display: 'flex', gap: '8px' } },
+            h('input', { class: 'inp', style: { width: '300px', height: '34px' }, placeholder: t('order.placeholder'), 'aria-label': '订单号', value: s.orderQuery, dataset: { fid: 'order-query' }, inputmode: 'numeric', oninput: (e: Event) => store.patch({ orderQuery: (e.target as HTMLInputElement).value }), onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') void runOrderQuery(); } }),
+            h('button', { class: 'btn pri', style: { height: '34px' }, dataset: { action: 'order-query' }, onclick: () => void runOrderQuery() }, t('order.query')),
+          ),
+          // Sample chips exist only in the browser demo; the real host never shows fake orders.
+          sel.mock ? h('div', { style: { display: 'flex', 'flex-wrap': 'wrap', gap: '8px', 'align-items': 'center' } }, h('span', { class: 'muted', style: { 'font-size': '12px' } }, t('order.samples')), MOCK_ORDER_SAMPLES.map((x) => h('button', { class: 'chipbtn', title: `查询 ${x.id}`, dataset: { sample: x.id }, onclick: () => void runOrderQuery(x.id) }, x.label))) : null,
         ),
         result,
       ),
@@ -1100,17 +1526,73 @@ function orderView(s: MainState): HTMLElement {
   );
 }
 
-// ---- status bar, dialogs
+// ---- banners, status bar, dialogs
+
+function bannerStack(s: MainState): HTMLElement | null {
+  if (s.banners.length === 0) return null;
+  const snap = s.accounts;
+  const active = activeAccount(s);
+  const shown = s.banners.slice(0, BANNER_VISIBLE);
+  const more = s.banners.length - shown.length;
+  return h(
+    'div',
+    {
+      class: 'pop-stack',
+      onmousedown: (e: Event) => e.stopPropagation(),
+      onmouseenter: () => {
+        if (S().bannerHoverAt === null) store.patch({ bannerHoverAt: Date.now() });
+      },
+      onmouseleave: () => {
+        const at = S().bannerHoverAt;
+        if (at !== null) store.patch({ bannerHoverAt: null, banners: resumeBanners(S().banners, at, Date.now()) });
+      },
+    },
+    shown.map((b) => {
+      const acc = snap?.accounts.find((a) => sameAccount(a.context, b.account));
+      const conv = active && sameAccount(active.context, b.account) ? s.conversations.find((c) => c.gid === b.gid) : undefined;
+      // The view is rebuilt on every change: only a banner that just arrived slides in.
+      const fresh = Date.now() - b.at < 250;
+      const open = () => {
+        dismissBanner(b.id);
+        void locateConversation(b.account, b.gid);
+      };
+      if (b.system) {
+        return h(
+          'div',
+          { class: cx('banner sys', { enter: fresh }), role: 'alert', dataset: { banner: b.gid }, onclick: open },
+          h('div', { style: { display: 'flex', 'flex-direction': 'column', gap: '6px', flex: '1', 'min-width': '0' } }, h('div', { class: 'bn-app' }, h('span', { class: 'mini-ic' }, 'V'), `${t('app.name')} · ${t('banner.system')}`), h('div', { style: { 'font-weight': '600' } }, conv?.title ?? (acc ? accountLabel(acc) : t('banner.newMsg'))), h('div', { class: 'muted', style: { 'font-size': '12.5px' } }, b.count > 1 ? t('banner.count', { n: b.count }) : t('banner.newMsg'))),
+          h('button', { class: 'ibtn bn-x', style: { width: '24px', height: '24px' }, 'aria-label': t('banner.close'), onclick: (e: Event) => { e.stopPropagation(); dismissBanner(b.id); } }, icon(IC.close, 12)),
+        );
+      }
+      return h(
+        'div',
+        { class: cx('banner', { enter: fresh }), role: 'alert', dataset: { banner: b.gid }, onclick: open },
+        h('div', { class: 'ava', style: { background: conv?.color ?? acc?.color ?? '#5B6676' } }, conv ? initialOf(conv.title) : acc ? accountInitial(acc) : 'V'),
+        h(
+          'div',
+          { style: { flex: '1', 'min-width': '0', display: 'flex', 'flex-direction': 'column', gap: '2px' } },
+          h('div', { class: 'bn-app' }, h('span', { class: 'mini-ic' }, 'V'), acc ? accountLabel(acc) : t('app.name'), h('span', { style: { 'margin-left': 'auto', 'padding-right': '22px' } }, formatClock(b.at))),
+          h('div', { style: { 'font-weight': '600', display: 'flex', gap: '6px', 'align-items': 'center' } }, conv?.title ?? t('banner.newMsg'), b.count > 1 ? h('span', { class: 'badge' }, badgeText(b.count)) : null),
+          h('div', { class: 'muted', style: { 'font-size': '12.5px', 'white-space': 'nowrap', overflow: 'hidden', 'text-overflow': 'ellipsis' } }, conv?.preview || t('banner.newMsg')),
+        ),
+        h('button', { class: 'ibtn bn-x', style: { width: '24px', height: '24px' }, 'aria-label': t('banner.close'), onclick: (e: Event) => { e.stopPropagation(); dismissBanner(b.id); } }, icon(IC.close, 12)),
+      );
+    }),
+    more > 0 ? h('button', { class: 'more-bn', onclick: () => store.patch({ view: 'messages', banners: [] }) }, t('banner.more', { n: more })) : null,
+  );
+}
 
 let clockEl: HTMLElement | null = null;
 function statusBar(s: MainState): HTMLElement {
-  const netLabel = s.net.online ? t('bar.net.online') : s.net.transport === 'reconnecting' ? t('bar.net.reconnecting') : t('bar.net.offline');
+  const av = agentView(s.agent);
+  const nv = netView(s.net);
+  const hasAccount = !!activeAccount(s);
   clockEl = h('span', { class: 'sb-clock' }, `${formatDate(s.now)} ${formatClock(s.now, true)}`);
   return h(
     'div',
     { class: 'statusbar', role: 'status' },
-    h('span', { class: 'sb-item', dataset: { sb: 'agent' } }, h('span', { class: 'dot', style: { background: `var(${agentStatusColorVar(s.agent.status)})` } }), agentStatusLabel(s.agent.status), h('span', { class: 'muted' }, ` · ${t('status.readback')}`)),
-    h('span', { class: cx('sb-item', { 'sb-bad': !s.net.online }), dataset: { sb: 'net' } }, icon(s.net.online ? IC.wifi : IC.wifiOff, 13), netLabel),
+    hasAccount ? h('span', { class: 'sb-item', dataset: { sb: 'agent', known: String(av.known) } }, h('span', { class: 'dot', style: { background: `var(${av.colorVar})` } }), av.label, av.known ? h('span', { class: 'muted' }, ` · ${t('status.readback')}`) : null) : null,
+    h('span', { class: cx('sb-item', { 'sb-bad': nv.offline, 'sb-muted': !nv.ok && !nv.offline }), dataset: { sb: 'net' } }, icon(nv.ok ? IC.wifi : IC.wifiOff, 13), nv.label),
     s.alarmCount > 0 ? h('span', { class: 'sb-item sb-alarm', dataset: { sb: 'alarm' } }, icon(IC.clock, 13), t('bar.alarmCount', { n: s.alarmCount })) : null,
     h('span', { class: 'sp' }),
     sel.mock ? h('span', { class: 'sb-item muted' }, t('app.mockMode')) : null,
@@ -1138,16 +1620,18 @@ function logoutDialog(s: MainState): HTMLElement | null {
 }
 
 function render(s: MainState): Node {
-  const view = s.view === 'messages' ? messagesView(s) : s.view === 'notifications' ? notificationsView(s) : orderView(s);
+  const hasAccount = !!activeAccount(s);
+  const view = !hasAccount ? welcomeView(s) : s.view === 'messages' ? messagesView(s) : s.view === 'notifications' ? notificationsView(s) : orderView(s);
   return h(
     'div',
-    { class: 'app', dataset: { view: s.view } },
+    { class: 'app', dataset: { view: hasAccount ? s.view : 'welcome' } },
     titleBar(s),
     h('div', { class: 'body' }, navBar(s), view),
     statusBar(s),
     meMenu(s),
     contextMenu(s),
     logoutDialog(s),
+    bannerStack(s),
     s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast) : null,
   );
 }
@@ -1159,60 +1643,74 @@ rerender(root, () => render(S()));
 
 document.addEventListener('mousedown', () => {
   const s = S();
-  if (s.ctxMenu || s.meMenu) store.patch({ ctxMenu: null, meMenu: false });
+  if (s.ctxMenu || s.meMenu || s.emoOpen) store.patch({ ctxMenu: null, meMenu: false, emoOpen: false });
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const s = S();
-    if (s.ctxMenu || s.meMenu || s.logoutDialog) store.patch({ ctxMenu: null, meMenu: false, logoutDialog: null });
+    if (s.ctxMenu || s.meMenu || s.logoutDialog || s.emoOpen) store.patch({ ctxMenu: null, meMenu: false, logoutDialog: null, emoOpen: false });
   }
 });
 
 // subscribe first, then request snapshots; every payload is validated before it reaches the store
-ipc.listen<unknown>(
-  Events.ACCOUNT_CHANGED,
-  guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, (snap) => {
-    const prev = S().accounts?.active_account_id ?? null;
-    if (snap.active_account_id !== prev) {
-      store.patch({ accounts: snap, ...ACCOUNT_SCOPED_RESET });
-      void loadForActiveAccount();
-    } else {
-      store.patch({ accounts: snap });
-    }
-  }),
-);
+ipc.listen<unknown>(Events.ACCOUNT_CHANGED, guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, applyAccountSnapshot));
 ipc.listen<unknown>(
   Events.IM_CONVERSATION_CHANGED,
   guarded(Events.IM_CONVERSATION_CHANGED, isUiConversation, (c) => {
     if (stillActive(c.account)) upsertConversation(c);
   }),
 );
-ipc.listen<unknown>(Events.IM_MESSAGE_NEW, guarded(Events.IM_MESSAGE_NEW, isUiMessage, (m) => upsertMessage(m)));
+ipc.listen<unknown>(
+  Events.IM_MESSAGE_NEW,
+  guarded(Events.IM_MESSAGE_NEW, isUiMessage, (m) => {
+    const owner = messageAccount(m);
+    if (owner && !stillActive(owner)) return; // another account's message never lands in this list
+    upsertMessage(m);
+  }),
+);
+ipc.listen<unknown>(HostEvents.LOCATE, guarded(HostEvents.LOCATE, isLocatePayload, (p) => void locateConversation(p.account, p.gid)));
 ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, (p) => store.patch({ prefs: p })));
 ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => store.patch({ clockTrusted: c.quality.kind === 'anchored' })));
 ipc.listen<unknown>(
   Events.ALARM_SNAPSHOT,
   guarded(Events.ALARM_SNAPSHOT, isAlarmSnapshot, (snap) => {
     const s = S();
-    const count = snap.entries.filter((e) => e.snoozed_until_ms === null || e.snoozed_until_ms <= snap.generated_at_ms).length;
+    const count = alarmActiveCount(snap.entries, snap.generated_at_ms);
     if (count !== s.alarmCount || snap.clock_trusted !== s.clockTrusted) store.patch({ alarmCount: count, clockTrusted: snap.clock_trusted });
   }),
 );
 ipc.listen<unknown>(UiEvents.NET_STATUS, guarded(UiEvents.NET_STATUS, isUiNetStatus, (n) => store.patch({ net: n })));
 ipc.listen<unknown>(UiEvents.AGENT_STATUS, guarded(UiEvents.AGENT_STATUS, isUiAgentStatus, (a) => store.patch({ agent: a })));
 ipc.listen<unknown>(UiEvents.TOAST, guarded(UiEvents.TOAST, isToastPayload, (p) => toast(p.text)));
+ipc.listen<unknown>(HostEvents.BANNER, guarded(HostEvents.BANNER, isBannerPayload, onBanner));
+ipc.listen<unknown>(HostEvents.PLAY_SOUND, guarded(HostEvents.PLAY_SOUND, isSoundName, onPlaySound));
+ipc.listen<unknown>(HostEvents.STOP_SOUND, () => stopSound());
 
 setInterval(() => {
-  if (clockEl) clockEl.textContent = `${formatDate(Date.now())} ${formatClock(Date.now(), true)}`;
-}, 1000);
-setInterval(() => store.patch({ now: Date.now() }), 5000);
+  const now = Date.now();
+  if (clockEl) clockEl.textContent = `${formatDate(now)} ${formatClock(now, true)}`;
+  const s = S();
+  if (s.banners.length === 0) return;
+  // A hover that ended while the DOM was being replaced never fires mouseleave: re-check the real pointer state.
+  let hoverAt = s.bannerHoverAt;
+  let banners = s.banners;
+  if (hoverAt !== null && !document.querySelector('.pop-stack:hover')) {
+    banners = resumeBanners(banners, hoverAt, now);
+    hoverAt = null;
+  }
+  const next = expireBanners(banners, now, hoverAt !== null);
+  if (next !== s.banners || hoverAt !== s.bannerHoverAt) store.patch({ banners: next, bannerHoverAt: hoverAt });
+}, 500);
+setInterval(() => {
+  // Waiting chips tick every 5 s; skipped while a popup is open so its pop-in animation does not replay.
+  const s = S();
+  if (!s.meMenu && !s.ctxMenu && !s.emoOpen) store.patch({ now: Date.now() });
+}, 5000);
 
 void (async () => {
-  await loadAccounts();
-  await Promise.all([loadForActiveAccount(), loadPrefs()]);
+  await Promise.all([loadAccounts(), loadPrefs(), loadNet()]);
   // Alarm counts arrive only through `Events.ALARM_SNAPSHOT`: notify commands are reserved for the alarm window (strong-alert §6).
-  const first = filterConversations(S().conversations, 'doing', '')[0];
-  if (first && !S().activeGid) await openConversation(first.gid);
+  await loadForActiveAccount();
 })();
 
-exposeForTests(sel, { __vbkStore: store, __vbkOpenConversation: openConversation });
+exposeForTests(sel, { __vbkStore: store, __vbkOpenConversation: openConversation, __vbkSoundLog: soundLog });
