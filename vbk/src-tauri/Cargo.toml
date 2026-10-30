@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.80"
 license = "UNLICENSED"
 publish = false
-description = "Tauri 2 host for the VBooking web-IM client: windows, tray, command ACL, 1 Hz scheduler. Standalone package (not in the std-only workspace); build on Windows with `cargo tauri build`."
+description = "Tauri 2 host for the VBooking web-IM client: windows, tray, command ACL, 1 Hz scheduler. Standalone package (not in the std-only workspace); build on Windows or macOS with `cargo tauri build`."
 
 # This package is intentionally NOT a member of `vbk/Cargo.toml`'s workspace:
 # it needs a crate registry and WebView2, which the cloud check environment

@@ -79,10 +79,16 @@ pub fn set_unread_tooltip(app: &AppHandle, unread_text: Option<&str>) {
     }
 }
 
-/// L1 flashing: the scheduler alternates `on` every 500 ms. Implemented by
-/// hiding/showing the icon so no second asset is required at this stage.
+/// L1 flashing: the scheduler alternates `on` every 500 ms. On Windows this
+/// hides/shows the notification-area icon so no second asset is required at
+/// this stage. On macOS hiding a menu-bar status item makes neighbouring
+/// items jump and can reorder them, so the phase is ignored there; the Dock
+/// attention request in the scheduler is the macOS L1 signal instead.
 pub fn set_flash_phase(app: &AppHandle, visible: bool) {
+    #[cfg(not(target_os = "macos"))]
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_visible(visible);
     }
+    #[cfg(target_os = "macos")]
+    let _ = (app, visible);
 }

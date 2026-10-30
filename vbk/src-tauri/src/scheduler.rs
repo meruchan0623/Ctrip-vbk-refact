@@ -11,7 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 use core_notify::{Effect, Sound};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, UserAttentionType};
 
 use crate::dto::AlarmSnapshotDto;
 use crate::state::HostState;
@@ -62,6 +62,9 @@ fn run(app: AppHandle) {
                 Effect::PlaySound(sound) => play_sound(&app, sound),
                 Effect::StopSound => stop_sound(&app),
                 Effect::TrayFlash(on) => {
+                    if on != flashing {
+                        request_attention(&app, on);
+                    }
                     flashing = on;
                     if !on {
                         tray::set_flash_phase(&app, true);
@@ -110,7 +113,9 @@ fn run(app: AppHandle) {
             // webview) receives customer-adjacent data.
             let _ = app.emit_to(views::ALARM, ALARM_SNAPSHOT_EVENT, snap);
         }
-        if flashing {
+        // The 500 ms tray phase is a Windows notification-area effect; macOS
+        // keeps the plain 1 Hz tick (its L1 signal is the Dock attention).
+        if flashing && cfg!(not(target_os = "macos")) {
             phase = !phase;
             tray::set_flash_phase(&app, phase);
             thread::sleep(FLASH_PHASE);
@@ -139,20 +144,32 @@ fn stop_sound(app: &AppHandle) {
     let _ = app.emit_to(views::MAIN, "notify://stop-sound", ());
 }
 
+/// L1 taskbar/Dock signal. Windows flashes the taskbar button; macOS
+/// bounces the Dock icon once (`Informational`, not the repeating
+/// `Critical`). `false` cancels the request. Never focuses a window.
+fn request_attention(app: &AppHandle, on: bool) {
+    if let Some(win) = app.get_webview_window(views::MAIN) {
+        let kind = on.then_some(UserAttentionType::Informational);
+        let _ = win.request_user_attention(kind);
+    }
+}
+
 fn set_taskbar_badge(app: &AppHandle, text: Option<&str>, total: u32) {
     if let Some(win) = app.get_webview_window(views::MAIN) {
-        // Tauri 2 exposes overlay badges on Windows via `set_badge_count`
-        // (2.3+); fall back to the title when unavailable.
-        #[allow(unused_variables)]
-        let count = if total == 0 {
-            None
-        } else {
-            Some(i64::from(total.min(99)))
-        };
-        #[cfg(windows)]
+        // macOS: Dock badge. `set_badge_count` is unsupported on Windows
+        // (Tauri documents `set_overlay_icon` instead, which needs a badge
+        // asset — a later NTF-04 task), so Windows keeps the title fallback.
+        #[cfg(target_os = "macos")]
         {
+            let count = if total == 0 {
+                None
+            } else {
+                Some(i64::from(total))
+            };
             let _ = win.set_badge_count(count);
         }
+        #[cfg(not(target_os = "macos"))]
+        let _ = total;
         let title = match text {
             Some(t) => format!("({t}) VBooking 商家客户端"),
             None => "VBooking 商家客户端".to_string(),

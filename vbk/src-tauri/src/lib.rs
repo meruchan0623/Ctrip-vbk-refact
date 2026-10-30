@@ -5,8 +5,11 @@
 //! transport itself runs inside the official page's webview and reaches the
 //! cores only through `im_push_fact`.
 //!
-//! This package is compiled on the Windows target machine; it is excluded
-//! from the std-only workspace that the cloud checks build.
+//! This package is compiled on the Windows or macOS target machine; it is
+//! excluded from the std-only workspace that the cloud checks build.
+//! Platform differences live behind `cfg(target_os = "macos")` in `tray.rs`
+//! and `scheduler.rs`, plus the Dock reopen handler below; macOS bundling
+//! settings are in `tauri.macos.conf.json`.
 
 pub mod commands;
 pub mod dto;
@@ -105,6 +108,16 @@ pub fn run() {
             commands::order_validate_im_url,
             commands::prefs_snapshot,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running the VBooking host");
+        .build(tauri::generate_context!())
+        .expect("error while building the VBooking host")
+        .run(|app, event| {
+            // macOS: closing main only hides it (tray behaviour), so a click
+            // on the Dock icon must bring it back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                windows::show_main(app);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }

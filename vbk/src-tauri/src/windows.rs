@@ -100,6 +100,10 @@ pub fn ensure_alarm(app: &AppHandle) -> tauri::Result<()> {
     .resizable(false)
     .decorations(false)
     .always_on_top(true)
+    // macOS: follow the user across Spaces and over full-screen apps
+    // (strong-alert §2 "全屏时仍弹回复超时"); ignored on Windows.
+    .visible_on_all_workspaces(true)
+    // Windows only; macOS has no per-window Dock entry to skip.
     .skip_taskbar(true)
     .focused(false)
     .visible(false)
