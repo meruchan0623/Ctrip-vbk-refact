@@ -1,0 +1,273 @@
+/**
+ * Thin invoke/listen wrapper over Tauri 2's injected globals.
+ *
+ * The host exposes `window.__TAURI__` (withGlobalTauri). We feature-detect it
+ * and type it loosely through `unknown`, so this file has no dependency on
+ * `@tauri-apps/api`. In a browser without the host, apps fall back to
+ * `createMockIpc()` from `./mock.ts`.
+ */
+
+import type {
+  AccountContext,
+  ConversationFact,
+  ReminderSettings,
+  SendDisposition,
+  SenderRole,
+  TransportState,
+} from './contracts.ts';
+
+export interface IpcClient {
+  invoke<T>(cmd: string, payload?: unknown): Promise<T>;
+  /** Returns an unsubscribe function. The handler receives the event payload. */
+  listen<T>(event: string, cb: (payload: T) => void): () => void;
+}
+
+interface TauriLike {
+  readonly core?: { readonly invoke?: (cmd: string, args?: unknown) => Promise<unknown> };
+  readonly event?: {
+    readonly listen?: (name: string, handler: (ev: { readonly payload: unknown }) => void) => Promise<() => void>;
+  };
+}
+
+function tauriGlobal(): TauriLike | null {
+  if (typeof window === 'undefined') return null;
+  const g = (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+  if (!g || typeof g !== 'object') return null;
+  const tl = g as TauriLike;
+  if (typeof tl.core?.invoke !== 'function' || typeof tl.event?.listen !== 'function') return null;
+  return tl;
+}
+
+export function hasTauri(): boolean {
+  return tauriGlobal() !== null;
+}
+
+/** Throws when the host globals are absent; callers should check `hasTauri()` first. */
+export function createTauriIpc(): IpcClient {
+  const g = tauriGlobal();
+  if (!g || !g.core?.invoke || !g.event?.listen) throw new Error('window.__TAURI__ is not available');
+  const invoke = g.core.invoke;
+  const listen = g.event.listen;
+  return {
+    invoke<T>(cmd: string, payload?: unknown): Promise<T> {
+      return invoke(cmd, payload ?? {}) as Promise<T>;
+    },
+    listen<T>(event: string, cb: (payload: T) => void): () => void {
+      let disposed = false;
+      let unlisten: (() => void) | null = null;
+      void listen(event, (ev) => {
+        if (!disposed) cb(ev.payload as T);
+      }).then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) unlisten();
+      };
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 契约变更请求（proposed, NOT frozen）
+//
+// `commands.ts` only names the account/notify/im-fact/order-validate/prefs
+// commands (app-level `<module>_<snake_action>` names). The windows additionally need the UI-facing commands below. They
+// are kept here (the only writable ipc file) so the integration owner can
+// move them into `commands.ts` and mirror the DTOs in `crates/contracts`.
+// Every payload echoes the `AccountContext` so the host can reject stale
+// generations; none of them carry credentials.
+// ---------------------------------------------------------------------------
+
+export const UiCommands = {
+  // account (in addition to AccountCommands)
+  ACCOUNT_SET_REMARK: 'account_set_remark', // {account, remark}
+  ACCOUNT_AGENT_STATUS: 'account_agent_status', // {account} → UiAgentStatus (read-back only)
+  // im display models (web adapter → host → main)
+  IM_CONVERSATIONS: 'im_conversations', // {account} → UiConversation[]
+  IM_MESSAGES: 'im_messages', // {account, gid} → UiMessage[]
+  IM_SEND_TEXT: 'im_send_text', // {account, gid, local_id, text, original?, quote_id?} → SendDisposition
+  IM_SET_TOP: 'im_set_top', // {account, gid, top}
+  IM_SET_MARK: 'im_set_mark', // {account, gid, action: 0..5}  (official setWorkSheetStar)
+  IM_MARK_READ: 'im_mark_read', // {account, gid}
+  // notification centre (official getIQConversations / getIQMessages / putAdviceofreadIQMessage)
+  NOTICE_CATEGORIES: 'notice_categories', // {account} → UiNoticeCategory[]
+  NOTICE_LIST: 'notice_list', // {account, category_id} → UiNotice[]
+  NOTICE_MARK_READ: 'notice_mark_read', // {account, category_id, id | null}
+  // order contact (official searchorderlist / createimchat)
+  ORDER_SEARCH: 'order_search', // {account, order_id} → OrderSearchResult
+  ORDER_CREATE_IM_CHAT: 'order_create_im_chat', // {account, order_id} → {gid}
+  // shell / media placeholders
+  SHELL_OPEN_EXTERNAL: 'shell_open_external', // {url}
+  SHELL_OPEN_WEBVIEW: 'shell_open_webview', // {account, url}
+  SHELL_OPEN_WINDOW: 'shell_open_window', // {label}
+  SHELL_WINDOW: 'shell_window', // {action: 'minimize'|'toggle_maximize'|'close'}
+  MEDIA_SCREENSHOT: 'media_screenshot', // {} → {attachment_id, name}
+  MEDIA_PICK: 'media_pick', // {kind: 'image'|'file'|'video'} → {attachment_id, name} | null
+  NET_STATUS: 'net_status', // {} → UiNetStatus
+  // prefs (in addition to PrefsCommands.SNAPSHOT)
+  PREFS_SET: 'prefs_set', // {section, key, value} → PrefsSnapshot
+  // assistant (TSim)
+  ASSIST_TSIM_STATUS: 'assistant_tsim_status', // {} → {logged_in, user}
+  ASSIST_TSIM_LOGIN: 'assistant_tsim_login', // {user, password} → {logged_in, user}  (password never stored in UI)
+  ASSIST_TSIM_LOGOUT: 'assistant_tsim_logout',
+  ASSIST_TRANSLATE: 'assistant_translate', // {account, gid, draft_version, text, target} → {draft_version, text}
+  ASSIST_PACKAGE: 'assistant_package_quick_view', // {iccid} → UiPackageInfo
+} as const;
+
+/** Events needed in addition to `Events`. */
+export const UiEvents = {
+  NET_STATUS: 'net://status', // UiNetStatus
+  AGENT_STATUS: 'account://agent-status', // UiAgentStatus
+  TOAST: 'shell://toast', // {text}
+} as const;
+
+export type AccountState = 'online' | 'logging_in' | 'expired' | 'suspended';
+
+export interface UiAccount {
+  readonly context: AccountContext;
+  readonly nick: string;
+  readonly remark: string | null;
+  readonly party: string;
+  readonly color: string;
+  readonly state: AccountState;
+  readonly unread: number;
+}
+
+export interface UiAccountSnapshot {
+  readonly accounts: readonly UiAccount[];
+  readonly active_account_id: string | null;
+  readonly max_accounts: number;
+}
+
+export type AgentStatus = 'online' | 'hangup' | 'leaving' | 'getoff';
+
+export interface UiAgentStatus {
+  readonly status: AgentStatus;
+  /** False until the web page has read the status back from the server. */
+  readonly confirmed: boolean;
+}
+
+export interface UiNetStatus {
+  readonly online: boolean;
+  readonly transport: TransportState;
+}
+
+/** 0 = clear, 1 橙, 2 绿, 3 蓝, 4 紫, 5 粉 (official `setWorkSheetStar.action`). */
+export type MarkAction = 0 | 1 | 2 | 3 | 4 | 5;
+
+export interface UiOrderSummary {
+  readonly order_id: string;
+  readonly product: string;
+  readonly use_date: string;
+  readonly quantity: string;
+  readonly status: string;
+  /** Masked contact label, never a phone number. */
+  readonly contact: string;
+}
+
+export interface UiConversation extends ConversationFact {
+  readonly account: AccountContext;
+  readonly title: string;
+  readonly color: string;
+  readonly lang: string;
+  readonly biz: string;
+  readonly preview: string;
+  readonly draft: string;
+  readonly is_top: boolean;
+  readonly mark: MarkAction;
+  readonly waiting_since_ms: number | null;
+  readonly waiting_confirmed: boolean;
+  readonly customer_tags: readonly string[];
+  readonly order: UiOrderSummary | null;
+}
+
+export type UiMessageKind = 'text' | 'image' | 'file' | 'video' | 'order_card' | 'system';
+
+export interface UiMessage {
+  readonly gid: string;
+  readonly message_id: string | null;
+  readonly local_id: string | null;
+  readonly create_time_ms: number;
+  readonly sender_role: SenderRole;
+  readonly kind: UiMessageKind;
+  readonly text: string;
+  /** Inbound: platform translation under the original. */
+  readonly translation: string | null;
+  /** Outbound in direct-send mode: the Chinese original kept for self-check. */
+  readonly original: string | null;
+  readonly quote: string | null;
+  readonly order_id: string | null;
+  /** null while sending; otherwise confirmed/rejected/unknown. */
+  readonly disposition: SendDisposition | null;
+}
+
+export interface UiNoticeCategory {
+  readonly id: string;
+  readonly name: string;
+  readonly unread: number;
+}
+
+export interface UiNotice {
+  readonly id: string;
+  readonly category_id: string;
+  readonly title: string;
+  readonly body: string;
+  readonly time_ms: number;
+  readonly unread: boolean;
+  /** Official page to open externally; never rebuilt in the client. */
+  readonly url: string;
+}
+
+export type OrderSearchResult =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'one'; readonly order: UiOrderSummary }
+  | { readonly kind: 'multiple'; readonly orders: readonly UiOrderSummary[] }
+  | { readonly kind: 'forbidden' };
+
+export type SendMode = 'replace_draft' | 'send_direct';
+
+export interface PrefsSnapshot {
+  readonly reminder: ReminderSettings;
+  readonly general: {
+    readonly autostart: boolean;
+    readonly close_action: 'tray' | 'quit';
+    readonly start_hidden: boolean;
+    readonly show_msg_time: boolean;
+    readonly spell_check: boolean;
+  };
+  readonly display: { readonly zoom: 75 | 100 | 125 | 150; readonly gpu: boolean };
+  readonly keys: { readonly send_key: 'enter' | 'ctrl_enter'; readonly screenshot: string; readonly toggle_main: string };
+  readonly assistant: {
+    readonly enabled: boolean;
+    readonly outbound_translation: boolean;
+    readonly send_mode: SendMode;
+    readonly package_quick_view: boolean;
+    readonly tsim_logged_in: boolean;
+    readonly tsim_user: string | null;
+  };
+  readonly dnd: { readonly schedule_enabled: boolean; readonly follow_system: boolean };
+  readonly network: { readonly system_proxy: boolean };
+  readonly storage: { readonly cache_days: 30 | 90 | 180 | 365; readonly cache_mb: number };
+  readonly privacy: { readonly analytics: boolean; readonly crash_upload: boolean };
+}
+
+export type PrefsSection = Exclude<keyof PrefsSnapshot, 'reminder'>;
+
+export interface UiPackageInfo {
+  readonly iccid: string;
+  readonly plan: string;
+  readonly status: string;
+  readonly remain_pct: number;
+  readonly remain: string;
+  readonly total: string;
+  readonly supplier: string;
+  readonly apn: string;
+  readonly fetched_at_ms: number;
+}
+
+export interface UiTsimStatus {
+  readonly logged_in: boolean;
+  readonly user: string | null;
+}

@@ -1,0 +1,77 @@
+/* Design tokens extracted from the Windows high-fidelity prototype (Main.dc.html / Alerts.dc.html). */
+:root {
+  color-scheme: light;
+
+  /* palette */
+  --c-primary: #1F5FD6;
+  --c-primary-hover: #174AA8;
+  --c-primary-soft: #E8F0FE;
+  --c-primary-tint: #F5F8FF;
+  --c-primary-ring: rgba(31, 95, 214, 0.15);
+  --c-accent: #5B95FF;
+  --c-alert: #C8323C;
+  --c-alert-soft: #FDE8E8;
+  --c-alert-text: #AE2330;
+  --c-badge: #E5484D;
+  --c-warn: #D98A00;
+  --c-warn-soft: #FFF1D6;
+  --c-warn-text: #87500A;
+  --c-ok: #1B9E5A;
+  --c-ok-soft: #E3F5EA;
+  --c-ok-text: #176B3E;
+  --c-info-text: #1A4FB0;
+  --c-leaving: #5B7FB8;
+  --c-offline: #8A94A3;
+
+  --c-ground: #F4F6F9;
+  --c-surface: #FFFFFF;
+  --c-surface-2: #F7F9FC;
+  --c-surface-3: #F1F4F8;
+  --c-chrome: #0A254C;
+  --c-chrome-hover: #163A6E;
+  --c-chrome-text: #C9D6EA;
+  --c-chrome-muted: #AFC0D8;
+  --c-border: #E3E7ED;
+  --c-border-strong: #CDD4DE;
+  --c-border-soft: #EEF1F5;
+  --c-divider: #F0F2F5;
+  --c-text: #1A2433;
+  --c-text-2: #4A5565;
+  --c-text-muted: #5B6676;
+  --c-text-faint: #6B7584;
+  --c-scroll: #C3CAD4;
+  --c-toast: #1E2A3B;
+  --c-win-close: #C42B1C;
+
+  /* conversation marks (official five colours; action 1–5) */
+  --mark-1: #F08A24;
+  --mark-2: #2FA36B;
+  --mark-3: #2F6FED;
+  --mark-4: #8A5CD6;
+  --mark-5: #E0559A;
+
+  /* typography */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  --font-mono: Consolas, "Cascadia Mono", "SFMono-Regular", Menlo, monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 14.5px;
+  --fs-xl: 16px;
+  --fs-big: 22px;
+  --lh: 1.45;
+
+  /* layout */
+  --titlebar-h: 40px;
+  --nav-w: 68px;
+  --clist-w: 280px;
+  --side-w: 330px;
+  --statusbar-h: 26px;
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --shadow-menu: 0 12px 32px rgba(20, 36, 58, 0.2);
+  --shadow-pop: 0 8px 24px rgba(20, 36, 58, 0.16);
+  --shadow-dlg: 0 24px 64px rgba(10, 30, 60, 0.3);
+}
