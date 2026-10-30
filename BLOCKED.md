@@ -1,8 +1,10 @@
 # 待验证项（2026-10-31）
 
 ## 第2轮新包当前断点（优先）
-- 新包PID48183，target/bundle路径及hash已核对；源码18c0ed3+dirty，门禁TS323/核心300/宿主63全通过。账号尚未恢复：进程采样明确vbk-account-restore→recover_credentials→KeychainStore::contains→SecKeychainFindGenericPassword等待。已请求用户处理本次macOS提示；不自动操作SecurityAgent、不清登录态、不新出站。
-- 证据：/tmp/vbk-goal-20261031/round2-startup-sample.txt，round2-build.log，round2-source-manifest.json，round2-artifact-hashes.json，round2-process-path.txt。
+- PID48183新包与源码/产物身份已核对，门禁TS323/核心300/宿主63通过；用户已处理本次钥匙串提示，Meru账号恢复。用户新增要求尽可能减少读取密钥弹窗：已查contains为查标记而读取secret、开发包adhoc签名，已提交e49ca90改为元数据探测并保留不可用引用，待第3轮新包验证弹窗减少；未更改系统保护。
+- 原生C出站confirmed，官方可见，服务端ID字符串一致；官方W在40秒后仍未原生自动出现，加载历史后同正文/发送者/ID可见，实时与连接仍未通过。新离线文案已原生核验，视频仍Invalid。
+- 新P1：实际宿主未接持久发送intent，unknown与local_id去重无法跨重启；同RPC重复1次SDK，重建后显式重提2次。未观察自动重发，正在补宿主持久屏障。新P2：无ID unknown缺专用只读核验入口，消息ID按钮不等同reconciler。
+- 证据见 docs/research/2026-10-31-round2-runtime.md；原始临时目录 /tmp/vbk-goal-20261031/，包含round2两个ID比较与stanza（不进Git）。第2轮整体验收未通过。
 
 ## 第1轮新包实机状态（历史）
 - 新包实际运行 PID33871，路径 src-tauri/target/aarch64-apple-darwin/release/bundle/macos，二进制SHA256 `6c5da79b2ffbdac5fbe8301277fef804eb300397f5777fed3613bd27693a811b`。
@@ -11,8 +13,8 @@
 - 官方02:55:05发送合成标记W，原生02:55:38加载旧页后已见同正文/发送者/时间，显示已确认；尚未跨端核验服务端ID，不能证明实时到达时延。旧页加载后订单来源/产品/日期/总额已补全；历史视频仍Invalid。完整双向、媒体、引用撤回、重连尚未通过。
 
 ## 本次任务 0 差异与有效阻塞
-- 第1轮SDK公共模型/回调与raw ACK竞争、生命周期缺口已在源码提交 `18c0ed3` 修复，专项67/67及独立评审通过；第2轮已构建启动，待钥匙串恢复并完成原生身份双核后再新出站，不能把离线结果视为实机通过。
-- 新包transport状态反复离线/在线，根因调查中；列表离线文案声称消息排队，但实际链路无自动队列；源码文案已提交24b10f2并编入第2轮新包，待账号恢复后原生核验。
+- 第1轮SDK公共模型/回调与raw ACK竞争、生命周期缺口已在源码提交 `18c0ed3` 修复，专项67/67及独立评审通过；第2轮已构建启动，已完成原生双核和单次文本出站对应，但反向实时/重连仍未通过。
+- 新包transport状态反复离线/在线，根因调查中；列表离线文案声称消息排队，但实际链路无自动队列；源码文案已提交24b10f2并编入第2轮新包，已完成本轮原生文案核验。
 - 成员实机不一致：native4条包含公司，官方详情3人仅Meru/客户/机器人；机器人原始key未翻译。官方源码已核实公司按rolesv2=[0,3,5]排除，不能按status4过滤，待修。
 - 周边UI保守限制：unknown/accepted按账号认证代次+room+动作锁写；缺service session identity时，同room新服务会话不能靠只读刷新解锁。confirmed后允许明确新意图，后端同session+target去重。
 - 第1轮静态/离线门禁TS242、核心300、宿主63已通过；构建已通过；新包实机/受控双向与媒体收发仍未通过。
