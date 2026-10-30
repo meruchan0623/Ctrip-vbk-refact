@@ -172,6 +172,8 @@ pub fn shell_open_window(
 /// TSim official registrable domain (`csapi.tsim.tech`, app identifier).
 const TSIM_DOMAIN: &str = "tsim.tech";
 const CTRIP_DOMAIN: &str = "ctrip.com";
+// Official chat attachment and product-link hosts observed in the message payloads.
+const OFFICIAL_MEDIA_DOMAINS: &[&str] = &["c-ctrip.com", "tripcdn.com", "trip.com"];
 
 fn host_in(host: &str, domain: &str) -> bool {
     host == domain
@@ -181,8 +183,8 @@ fn host_in(host: &str, domain: &str) -> bool {
 }
 
 /// Official-origin policy for `shell_open_external`: `https`, default port,
-/// no credentials, host is `ctrip.com` / `*.ctrip.com` / `tsim.tech` /
-/// `*.tsim.tech`. Returns the normalised URL.
+/// no credentials, host is an official Ctrip/Trip content domain or TSim.
+/// Returns the normalised URL; suffix checks always require a label boundary.
 pub fn check_external_url(raw: &str) -> Result<Url, AppError> {
     let reject =
         |why: &str| AppError::new(codes::HOST_URL_REJECTED, format!("url rejected: {why}"));
@@ -201,7 +203,9 @@ pub fn check_external_url(raw: &str) -> Result<Url, AppError> {
         return Err(reject("host is not a domain"));
     };
     let host = host.trim_end_matches('.').to_ascii_lowercase();
-    if !(host_in(&host, CTRIP_DOMAIN) || host_in(&host, TSIM_DOMAIN)) {
+    if !(host_in(&host, CTRIP_DOMAIN)
+        || host_in(&host, TSIM_DOMAIN)
+        || OFFICIAL_MEDIA_DOMAINS.iter().any(|domain| host_in(&host, domain))) {
         return Err(reject("host is not an official domain"));
     }
     Ok(url)
@@ -391,6 +395,9 @@ mod tests {
             "https://csapi.tsim.tech/agent",
             "https://tsim.tech",
             "https://VBOOKING.CTRIP.COM/",
+            "https://dimg04.c-ctrip.com/images/example.png",
+            "https://ak-d.tripcdn.com/images/example.png",
+            "https://hk.trip.com/things-to-do/detail/123",
         ] {
             assert!(check_external_url(ok).is_ok(), "{ok}");
         }
@@ -410,6 +417,9 @@ mod tests {
             "javascript:alert(1)",
             "tsim.tech",
             "https://faketsim.tech/",
+            "https://tripcdn.com.evil.example/file",
+            "https://evilc-ctrip.com/file",
+            "https://trip.com@evil.example/file",
         ] {
             let err = check_external_url(bad).unwrap_err();
             assert_eq!(err.code, codes::HOST_URL_REJECTED, "{bad}");

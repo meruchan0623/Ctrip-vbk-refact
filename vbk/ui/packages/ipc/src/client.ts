@@ -264,6 +264,9 @@ export interface UiMessage {
   readonly sender_avatar?: string | null;
   readonly kind: UiMessageKind;
   readonly text: string;
+  readonly media_url?: string | null;
+  readonly media_thumbnail?: string | null;
+  readonly media_filename?: string | null;
   /** Server target of an authoritative recall control message. */
   readonly recalled_message_id?: string | null;
   /** Inbound: platform translation under the original. */

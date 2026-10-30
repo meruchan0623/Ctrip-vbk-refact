@@ -96,6 +96,7 @@ import {
   pushBanner,
   resumeBanners,
   roleLabel,
+  safeMediaUrl,
   visibleMessages,
   selectedQuoteReference,
   messageQuotePreview,
@@ -1219,6 +1220,13 @@ function openMessageOrder(m: UiMessage, rendered: UiConversation, account: UiAcc
   store.patch({ sideOpen: true, hotOrder: true });
 }
 
+/** Playback state belongs to one verified account generation, room and message identity. */
+function mediaNodeKey(account: AccountContext | null, conv: UiConversation, message: UiMessage): string {
+  const id = message.message_id ?? message.local_id;
+  if (!account || !id || message.gid !== conv.gid || !sameAccount(account, conv.account) || account.session_generation !== conv.account.session_generation) return '';
+  return JSON.stringify([account.environment, account.account_id, account.session_generation, conv.gid, message.message_id ? 'server' : 'local', id]);
+}
+
 function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAccount | null): HTMLElement {
   const alignment = messageAlignment(m);
   if (alignment.side === 'system') return h('div', { class: 'msg-sys' }, h('span', null, m.text));
@@ -1236,10 +1244,17 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
       h('div', { class: 'card-b' }, h('div', { class: 'card-t' }, o?.product ?? m.text), o ? h('div', { class: 'kv' }, h('span', { class: 'k' }, t('side.useDate')), h('span', null, o.use_date)) : null, o ? h('div', { class: 'kv' }, h('span', { class: 'k' }, t('side.quantity')), h('span', null, o.quantity)) : null),
       h('div', { class: 'card-f' }, o ? h('span', { class: 'chip chip-info', style: { 'margin-right': 'auto' } }, o.status) : null, h('button', { class: 'link', onclick: () => openMessageOrder(m, conv, acc) }, t('chat.viewOrder'))),
     );
-  } else if (m.kind === 'image') {
-    body = h('div', { class: 'shot', title: m.text }, h('span', { class: 'shot-t' }, t('chat.image')), h('span', { class: 'shot-l' }, m.text), h('span', { class: 'shot-bar', style: { width: '70%' } }), h('span', { class: 'shot-bar', style: { width: '45%' } }));
-  } else if (m.kind === 'file' || m.kind === 'video') {
-    body = h('div', { class: 'bubble' }, previewOf(m), ' ', m.text);
+  } else if (m.kind === 'image' || m.kind === 'video' || m.kind === 'file') {
+    const url = safeMediaUrl(m.media_url ?? (m.kind !== 'file' ? m.text : null));
+    const thumbnail = safeMediaUrl(m.media_thumbnail);
+    const name = m.media_filename || (m.kind === 'file' ? m.text : previewOf(m));
+    if (url && m.kind === 'image') {
+      body = h('a', { class: 'media-image', href: url, onclick: (e: Event) => { e.preventDefault(); void invokeSafe(UiCommands.SHELL_OPEN_EXTERNAL, { url }); }, title: '查看原图' }, h('img', { src: thumbnail ?? url, alt: name, loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e: Event) => (e.target as HTMLImageElement).replaceWith(h('span', { class: 'bubble' }, '图片加载失败，点击查看原图')) }));
+    } else if (url && m.kind === 'video') {
+      body = h('video', { dataset: { mediaKey: mediaNodeKey(acc?.context ?? null, conv, m) }, class: 'media-video', src: url, poster: thumbnail, controls: true, preload: 'metadata', 'aria-label': name });
+    } else if (url) {
+      body = h('a', { class: 'bubble media-file', href: url, onclick: (e: Event) => { e.preventDefault(); void invokeSafe(UiCommands.SHELL_OPEN_EXTERNAL, { url }); } }, icon(IC.file, 22), name);
+    } else body = h('div', { class: 'bubble' }, name || previewOf(m));
   } else {
     body = h(
       'div',
@@ -1836,7 +1851,19 @@ function render(s: MainState): Node {
 
 // --------------------------------------------------------------- wiring
 
-subscribeBatched(store, (s) => rerender(root, () => render(s)));
+subscribeBatched(store, (s) => rerender(root, () => {
+  const next = render(s);
+  // Keep the actual video node so waiting timers and live updates do not restart playback.
+  if (next instanceof Element) {
+    for (const video of next.querySelectorAll<HTMLVideoElement>('video[data-media-key]')) {
+      const key = video.dataset['mediaKey'];
+      if (!key) continue;
+      const current = root.querySelector<HTMLVideoElement>(`video[data-media-key="${CSS.escape(key)}"]`);
+      if (current && current.getAttribute('src') === video.getAttribute('src')) video.replaceWith(current);
+    }
+  }
+  return next;
+}));
 rerender(root, () => render(S()));
 
 document.addEventListener('mousedown', () => {

@@ -282,6 +282,18 @@ function senderFields(sender: string, roles: MemberRoles) {
   return { sender_id: sender, sender_name: profile?.name ?? null, sender_avatar: profile?.avatar ?? null };
 }
 
+function mediaFields(msgtype: unknown, body: unknown) {
+  const kind = uiKindOf(msgtype);
+  const inner = parseJsonObject(body);
+  const video = recordOrNull(inner?.['video']);
+  const file = recordOrNull(inner?.['file']);
+  return {
+    media_url: kind === 'image' ? str(inner?.['url']) ?? str(inner?.['thumbUrl']) : kind === 'video' ? str(video?.['url']) : kind === 'file' ? str(file?.['url']) : null,
+    media_thumbnail: kind === 'image' ? str(inner?.['thumbUrl']) : kind === 'video' ? str(video?.['cover']) ?? str(video?.['thumbUrl']) : null,
+    media_filename: kind === 'file' ? str(file?.['filename']) : null,
+  };
+}
+
 function recallFields(msgtype: unknown, body: unknown) {
   const inner = parseJsonObject(body);
   return { recalled_message_id: msgTypeNumber(msgtype) === 1009 ? idStr(inner?.['recallMessageId']) : null };
@@ -311,6 +323,7 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
     ...senderFields(sender, roles),
     kind,
     text: order?.product ?? messageText(msg.msgtype, msg.messageBody),
+    ...mediaFields(msg.msgtype, msg.messageBody),
     ...recallFields(msg.msgtype, msg.messageBody),
     translation: null,
     original: extras.original ?? null,
@@ -342,6 +355,7 @@ export function sdkMessageToUi(evt: SdkMessageEvent, roles: MemberRoles): UiMess
     ...senderFields(sender, roles),
     kind,
     text: order?.product ?? messageText(evt.msgtype, evt.body),
+    ...mediaFields(evt.msgtype, evt.body),
     ...recallFields(evt.msgtype, evt.body),
     translation: null,
     original: null,

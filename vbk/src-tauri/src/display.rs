@@ -110,6 +110,12 @@ pub struct UiMessageDto {
     pub kind: String,
     pub text: String,
     #[serde(default)]
+    pub media_url: Option<String>,
+    #[serde(default)]
+    pub media_thumbnail: Option<String>,
+    #[serde(default)]
+    pub media_filename: Option<String>,
+    #[serde(default)]
     pub recalled_message_id: Option<String>,
     #[serde(default)]
     pub translation: Option<String>,
@@ -901,12 +907,39 @@ mod tests {
             sender_avatar: None,
             kind: "text".into(),
             text: text.into(),
+            media_url: None,
+            media_thumbnail: None,
+            media_filename: None,
             recalled_message_id: None,
             translation: None,
             original: None,
             quote: None,
             order_id: None,
             disposition: None,
+        }
+    }
+
+    #[test]
+    fn media_fields_survive_real_display_cache_and_ui_roundtrip() {
+        for kind in ["image", "video", "file"] {
+            let source = "https://example.invalid/synthetic-resource";
+            let thumb = "https://example.invalid/synthetic-preview";
+            let raw = serde_json::json!({
+                "kind": "messages", "gid": "synthetic-room", "replace": false,
+                "items": [{ "gid": "synthetic-room", "message_id": "900719925474099312345",
+                    "local_id": null, "create_time_ms": 1700000000000_i64,
+                    "sender_role": "customer", "kind": kind, "text": "SYNTHETIC MEDIA",
+                    "media_url": source, "media_thumbnail": thumb, "media_filename": "synthetic.pdf" }]
+            });
+            let mut cache = DisplayCache::new();
+            cache.apply(&ctx(1), serde_json::from_value(raw).unwrap()).unwrap();
+            let rows = cache.messages(&ctx(1), "synthetic-room").unwrap().unwrap();
+            let encoded = serde_json::to_value(&rows[0]).unwrap();
+            assert_eq!(encoded["media_url"], source);
+            assert_eq!(encoded["media_thumbnail"], thumb);
+            assert_eq!(encoded["media_filename"], "synthetic.pdf");
+            assert_eq!(encoded["message_id"], "900719925474099312345");
+            assert_eq!(encoded["kind"], kind);
         }
     }
 
