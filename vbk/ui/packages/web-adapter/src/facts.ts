@@ -28,6 +28,7 @@ import type { SdkMessageEvent } from './deps.ts';
 export interface MemberRoles {
   readonly selfUid?: string;
   roleOf(uid: string): SenderRole;
+  profileOf?(uid: string): { readonly name: string | null; readonly avatar: string | null };
 }
 
 export interface CheckMemberStatusMember {

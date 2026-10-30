@@ -14,6 +14,7 @@
  *   `conversationInfoList[].unreadCount` (sample 54 sent 12 gids per call).
  */
 
+import type { IdentityProfile } from './identity.ts';
 import type { SenderRole } from '../../ipc/src/contracts.ts';
 import type { AdapterDeps } from './deps.ts';
 import type { ConversationListItem, UnreadLookup } from './conversationList.ts';
@@ -123,8 +124,10 @@ export function roomJidFromMessage(gid: string, msg: HttpMessageObject | null): 
 
 export class RoleBook implements MemberRoles {
   readonly #self: string;
+  #selfProfile: IdentityProfile | null = null;
   readonly #customers = new Set<string>();
   readonly #merchants = new Set<string>();
+  readonly #profiles = new Map<string, { name: string | null; avatar: string | null }>();
   readonly #checked = new Map<string, number>();
   readonly #inflight = new Map<string, Promise<void>>();
   readonly #ttlMs: number;
@@ -145,6 +148,18 @@ export class RoleBook implements MemberRoles {
 
   get selfUid(): string { return this.#self; }
 
+  profileOf(uid: string): { name: string | null; avatar: string | null } {
+    const profile = this.#profiles.get(norm(uid)) ?? { name: null, avatar: null };
+    return norm(uid) === this.#self && this.#selfProfile
+      ? { name: this.#selfProfile.name ?? profile.name, avatar: this.#selfProfile.avatar ?? profile.avatar }
+      : profile;
+  }
+
+  setSelfProfile(profile: IdentityProfile): void {
+    if (norm(profile.uid) !== this.#self || this.#self === '') return;
+    this.#selfProfile = { ...profile };
+  }
+
   addCustomer(uid: string | null): void {
     if (uid && norm(uid) !== this.#self) this.#customers.add(norm(uid));
   }
@@ -153,8 +168,15 @@ export class RoleBook implements MemberRoles {
     if (!Array.isArray(members)) return;
     for (const m of members) {
       const r = recordOrNull(m);
-      const uid = r?.['uid'];
+      const uid = r?.['uid'] ?? r?.['username'];
       if (typeof uid !== 'string' || uid === '') continue;
+      const nick = r?.['nick'] ?? r?.['nickName'];
+      const avatar = r?.['avatar'];
+      const previous = this.profileOf(uid);
+      this.#profiles.set(norm(uid), {
+        name: typeof nick === 'string' && nick.trim() !== '' ? nick : previous.name,
+        avatar: typeof avatar === 'string' && avatar !== '' ? avatar : previous.avatar,
+      });
       const roles = Array.isArray(r?.['roles']) ? (r['roles'] as unknown[]) : [];
       if ((roles[1] === 4 || roles[2] === 4) && norm(uid) !== this.#self) this.#merchants.add(norm(uid));
     }
@@ -170,6 +192,10 @@ export class RoleBook implements MemberRoles {
       const outcome = await soa.post<{ members?: unknown }>(Endpoints.CHECK_MEMBER_STATUS, { head: businessHead(deps.context), groupId: gid });
       if (outcome.kind === 'success') {
         this.addMembers(outcome.body.members);
+        // gid mode includes former participants and their display identity/roles;
+        // uidList mode only supplies customer remarks and cannot replace it.
+        const remarks = await soa.post<{ remarkList?: unknown }>(Endpoints.REMARK_LIST, { head: businessHead(deps.context), gid });
+        if (remarks.kind === 'success' && isBizSuccess(remarks.body)) this.addMembers(remarks.body.remarkList);
         this.#checked.set(gid, deps.now());
       }
     })().finally(() => {

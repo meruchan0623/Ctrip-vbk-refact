@@ -356,6 +356,7 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
   const session = createPageSession(deps, {
     account,
     selfUid: identity.identity.uid,
+    selfProfile: identity.selfProfile,
     beginMsgTime: ack.begin_msg_time,
     initialEpoch: ack.initial_epoch,
     sdk,

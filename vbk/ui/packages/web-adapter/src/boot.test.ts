@@ -104,8 +104,8 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
     fetch: (url: string) => {
       fetchCalls.push(url);
       if (url.includes('getCurrentUserInfo')) return respond({ ResponseStatus: OK_STATUS, user: { buid: 'B-1', name: '昵称', partyName: '供应商' } });
-      if (url.includes('GetMyInfo.json')) return respond({ ResponseStatus: OK_STATUS, jid: 'me-1@im.x' });
-      if (url.includes('getVenAgentByUid')) return respond({ ResponseStatus: OK_STATUS, venAgent: { id: 77, nickname: 'n' } });
+      if (url.includes('GetMyInfo.json')) return respond({ ResponseStatus: OK_STATUS, jid: 'me-1@im.x', name: 'IM Self', avatar: 'https://example.invalid/im-self.png' });
+      if (url.includes('getVenAgentByUid')) return respond({ ResponseStatus: OK_STATUS, venAgent: { id: 77, ctripUid: 'me-1', nickname: 'n', avatar: 'https://example.invalid/agent-self.png' } });
       if (url.includes('getConversationList')) return respond({ ResponseStatus: OK_STATUS, conversationList: [sampleRow('555')], currentStatus: 0, lastUpdateTime: 1700000000600 });
       return respond({ ResponseStatus: OK_STATUS, bizResponseStatus: { resultCode: 'SUCCESS' } });
     },
@@ -144,6 +144,8 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
   void (win.fetch as (u: string, i: unknown) => Promise<unknown>)('https://m.ctrip.com/restapi/soa2/16037/getVenAgentByUid?_fxpcqlniredt=T-1', { body: JSON.stringify({ head: { cid: 'C-1', sid: 'S-1' } }) });
   const r = await p;
   assert.equal(r.kind, 'started');
+  if (r.kind !== 'started') throw new Error('session must start');
+  assert.deepEqual(r.session.roles.profileOf('me-1'), { name: 'n', avatar: 'https://example.invalid/agent-self.png' });
   const identity = invoked.find((i) => i.cmd === 'adapter_identity');
   assert.deepEqual(identity?.args, { payload: { buid: 'B-1', uid: 'me-1', agent_id: '77', nick: '昵称', party: '供应商', environment: 'production' } });
   const ready = invoked.find((i) => i.cmd === 'adapter_ready');

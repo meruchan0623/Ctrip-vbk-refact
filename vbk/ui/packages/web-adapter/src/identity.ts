@@ -41,8 +41,10 @@ export function currentUserInfoBody(deps: AdapterDeps): Record<string, unknown> 
   };
 }
 
+export interface IdentityProfile { readonly uid: string; readonly name: string | null; readonly avatar: string | null }
+
 export type IdentityResult =
-  | { readonly kind: 'ok'; readonly identity: AdapterIdentityPayload }
+  | { readonly kind: 'ok'; readonly identity: AdapterIdentityPayload; readonly selfProfile: IdentityProfile }
   | { readonly kind: 'auth_invalid' }
   | { readonly kind: 'failed'; readonly step: 'user' | 'im_uid'; readonly detail: string };
 
@@ -76,6 +78,7 @@ interface CurrentUserResponse {
 }
 
 interface MyInfoResponse {
+  readonly avatar?: unknown;
   readonly jid?: unknown;
   readonly name?: unknown;
 }
@@ -101,16 +104,25 @@ export async function readIdentity(deps: AdapterDeps, soa: SoaClient, opts: Iden
   // agent id / nickname are optional: a failure here does not block identity
   let agentId: string | null = null;
   let agentNick: string | null = null;
+  let selfName = s(myOutcome.body.name);
+  let selfAvatar = s(myOutcome.body.avatar);
   const agent = await getVenAgentByUid(deps, soa);
   if (agent.kind === 'ok') {
     const v = agent.value.venAgent;
     const id = v?.['id'];
     agentId = typeof id === 'number' && Number.isFinite(id) ? String(id) : s(id);
     agentNick = s(v?.['nickname']);
+    // The platform account and service agent are distinct identities. Only an
+    // explicit matching IM UID may supply the authoritative self portrait.
+    if (s(v?.['ctripUid'])?.toLowerCase() === uid.toLowerCase()) {
+      selfName = agentNick ?? selfName;
+      selfAvatar = s(v?.['avatar']) ?? selfAvatar;
+    }
   }
 
   return {
     kind: 'ok',
+    selfProfile: { uid, name: selfName, avatar: selfAvatar },
     identity: {
       buid,
       uid,

@@ -23,11 +23,13 @@ import type { HttpMessageObject } from './facts.ts';
 import { agentStatusOf, byCreateTime, httpMessageToUi, previewOfUi, sdkMessageToUi, toDisplayConversation } from './display.ts';
 import { ConversationStore, RoleBook, UnreadBook, roomJidFromMessage } from './stores.ts';
 import { createRpc, type AgentStatusBox, type Rpc } from './rpc.ts';
+import type { IdentityProfile } from './identity.ts';
 import type { PageSdk } from './sdkGlue.ts';
 
 export interface PageSessionOptions {
   readonly account: AccountContext;
   readonly selfUid: string;
+  readonly selfProfile?: IdentityProfile;
   readonly beginMsgTime: number;
   readonly initialEpoch: number;
   readonly sdk: PageSdk;
@@ -56,6 +58,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   const soa = new SoaClient(deps);
   const store = new ConversationStore();
   const roles = new RoleBook(opts.selfUid);
+  if (opts.selfProfile) roles.setSelfProfile(opts.selfProfile);
   const unread = new UnreadBook();
   const displays = new Map<string, DisplayConversation>();
   const log = opts.log ?? (() => undefined);

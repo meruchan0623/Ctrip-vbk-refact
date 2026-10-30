@@ -24,6 +24,7 @@ export const Endpoints = {
   // identity / members
   MY_INFO: endpoint('GetMyInfo.json', M, '11679/GetMyInfo.json', 'read'),
   CHECK_MEMBER_STATUS: endpoint('checkMemberStatus', M, '13500/checkMemberStatus', 'read'),
+  REMARK_LIST: endpoint('getRemarkList', M, '16037/getRemarkList', 'read'),
   CURRENT_USER_INFO: endpoint('getCurrentUserInfo', ONLINE, '12405/getCurrentUserInfo', 'read'),
   LOGIN_ADVISOR_OPEN_INFO: endpoint('getLoginAdvisorOpenInfo', M, '11419/getLoginAdvisorOpenInfo', 'read'),
   // writes
