@@ -258,6 +258,11 @@ function senderFields(sender: string, roles: MemberRoles) {
   return { sender_id: sender, sender_name: profile?.name ?? null, sender_avatar: profile?.avatar ?? null };
 }
 
+function recallFields(msgtype: unknown, body: unknown) {
+  const inner = parseJsonObject(body);
+  return { recalled_message_id: msgTypeNumber(msgtype) === 1009 ? idStr(inner?.['recallMessageId']) : null };
+}
+
 /** HTTP message object (history / compensation / list rows) → `UiMessage`; `null` for non-display rows. */
 export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?: string, extras: UiMessageExtras = {}): UiMessage | null {
   if (typeof msg !== 'object' || msg === null) return null;
@@ -281,6 +286,7 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
     ...senderFields(sender, roles),
     kind,
     text: messageText(msg.msgtype, msg.messageBody),
+    ...recallFields(msg.msgtype, msg.messageBody),
     translation: null,
     original: extras.original ?? null,
     quote: cite,
@@ -310,6 +316,7 @@ export function sdkMessageToUi(evt: SdkMessageEvent, roles: MemberRoles): UiMess
     ...senderFields(sender, roles),
     kind,
     text: messageText(evt.msgtype, evt.body),
+    ...recallFields(evt.msgtype, evt.body),
     translation: null,
     original: null,
     quote: idStr(evt.citemsgid),

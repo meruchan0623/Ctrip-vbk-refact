@@ -260,6 +260,8 @@ export interface UiMessage {
   readonly sender_avatar?: string | null;
   readonly kind: UiMessageKind;
   readonly text: string;
+  /** Server target of an authoritative recall control message. */
+  readonly recalled_message_id?: string | null;
   /** Inbound: platform translation under the original. */
   readonly translation: string | null;
   /** Outbound in direct-send mode: the Chinese original kept for self-check. */

@@ -95,6 +95,10 @@ import {
   pushBanner,
   resumeBanners,
   roleLabel,
+  visibleMessages,
+  selectedQuoteReference,
+  messageQuotePreview,
+  mergeQuoteReference,
   sameAccount,
   sendStateView,
   shouldShowTranslationBar,
@@ -102,7 +106,7 @@ import {
   translationApplies,
   unreadTotal,
 } from './viewmodel.ts';
-import type { BannerItem, ListTab, LogoutMode, OrderContactState, TranslationState } from './viewmodel.ts';
+import type { BannerItem, ListTab, LogoutMode, OrderContactState, TranslationState, QuotedUiMessage } from './viewmodel.ts';
 
 /** Host events not (yet) listed in the frozen `Events` / `UiEvents` tables; names mirror `src-tauri/src/events.rs`. */
 const HostEvents = {
@@ -569,8 +573,9 @@ function upsertMessage(m: UiMessage): boolean {
   const list = s.messages[m.gid];
   if (!list) return false;
   const idx = list.findIndex((x) => (m.local_id && x.local_id === m.local_id) || (m.message_id && x.message_id === m.message_id));
-  const next = idx >= 0 ? list.map((x, i) => (i === idx ? mergeMessageProfile(x, m) : x)) : [...list, m];
-  store.patch({ messages: { ...s.messages, [m.gid]: next } });
+  const next = idx >= 0 ? list.map((x, i) => (i === idx ? mergeQuoteReference(x, mergeMessageProfile(x, m)) : x)) : [...list, m];
+  const quote = s.quote?.gid === m.gid && !selectedQuoteReference(s.quote, next, m.gid) ? null : s.quote;
+  store.patch({ messages: { ...s.messages, [m.gid]: next }, quote });
   return true;
 }
 
@@ -591,11 +596,11 @@ async function sendText(text: string, original: string | null): Promise<void> {
   if (!acc || !conv || isDone(conv)) return;
   const s = S();
   const localId = nextLocalId(Date.now());
-  const quote = s.quote;
-  const local: UiMessage = { gid: conv.gid, message_id: null, local_id: localId, create_time_ms: Date.now(), sender_role: 'merchant_self', kind: 'text', text, translation: null, original, quote: quote ? quote.text : null, order_id: null, disposition: null };
+  const quote = selectedQuoteReference(s.quote, s.messages[conv.gid] ?? [], conv.gid);
+  const local: QuotedUiMessage = { gid: conv.gid, message_id: null, local_id: localId, create_time_ms: Date.now(), sender_role: 'merchant_self', kind: 'text', text, translation: null, original, quote: quote?.target_id ?? null, quote_target_id: quote?.target_id ?? null, order_id: null, disposition: null };
   store.patch({ messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] }, draft: '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: { ...TRANSLATION_IDLE, target: s.translation.target } });
   const result = await settleAccountSend(acc.context,
-    () => ipc.invoke<SendDisposition>(UiCommands.IM_SEND_TEXT, { account: acc.context, gid: conv.gid, local_id: localId, text, original: original ?? undefined, quote_id: quote?.message_id ?? quote?.local_id ?? undefined }),
+    () => ipc.invoke<SendDisposition>(UiCommands.IM_SEND_TEXT, { account: acc.context, gid: conv.gid, local_id: localId, text, original: original ?? undefined, quote_id: quote?.target_id }),
     () => activeAccount()?.context ?? null);
   // The helper guards success and failure; re-check at the actual projection boundary too.
   if (result.kind === 'stale' || !stillActive(acc.context)) return;
@@ -1206,6 +1211,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
   if (alignment.side === 'system') return h('div', { class: 'msg-sys' }, h('span', null, m.text));
   const alignRight = alignment.side === 'right';
   const isSelf = alignment.self;
+  const quotePreview = messageQuotePreview(m, s.messages[conv.gid] ?? []);
   const showTime = s.prefs?.general.show_msg_time ?? true;
   let body: HTMLElement;
   if (m.kind === 'order_card') {
@@ -1240,7 +1246,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
       'div',
       { class: 'mcol' },
       h('div', { class: 'mmeta' }, who, showTime ? ` · ${formatClock(m.create_time_ms)}` : ''),
-      m.quote ? h('div', { class: 'quote-in' }, t('chat.quotePrefix'), m.quote) : null,
+      quotePreview ? h('div', { class: 'quote-in' }, t('chat.quotePrefix'), quotePreview) : null,
       body,
       st
         ? h(
@@ -1325,6 +1331,7 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
 }
 
 function composer(s: MainState, conv: UiConversation): HTMLElement {
+  const quote = selectedQuoteReference(s.quote, s.messages[conv.gid] ?? [], conv.gid);
   const finished = isDone(conv);
   const trOn = translationOn(s, conv);
   const direct = s.prefs?.assistant.send_mode === 'send_direct' && trOn;
@@ -1355,7 +1362,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
         : null,
       h('span', { class: 'hint', style: { 'margin-left': 'auto', 'padding-right': '6px' } }, t('composer.attachHint')),
     ),
-    s.quote ? h('div', { class: 'quote-bar' }, h('span', { style: { flex: '1', overflow: 'hidden', 'white-space': 'nowrap', 'text-overflow': 'ellipsis' } }, t('chat.quotePrefix'), s.quote.text), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('chat.cancelQuote'), onclick: () => store.patch({ quote: null }) }, icon(IC.close, 12))) : null,
+    quote ? h('div', { class: 'quote-bar' }, h('span', { style: { flex: '1', overflow: 'hidden', 'white-space': 'nowrap', 'text-overflow': 'ellipsis' } }, t('chat.quotePrefix'), quote.text), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('chat.cancelQuote'), onclick: () => store.patch({ quote: null }) }, icon(IC.close, 12))) : null,
     s.attachment ? h('div', { class: 'attach', title: ATTACHMENT_SEND_UNAVAILABLE }, h('div', { class: 'attach-img' }), h('span', { style: { 'font-size': '12px' } }, `${s.attachment.name} · 附件发送尚未实现`), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), onclick: () => store.patch({ attachment: null }) }, icon(IC.close, 12))) : null,
     h('textarea', {
       class: 'ta',
@@ -1476,7 +1483,7 @@ function chatPane(s: MainState): HTMLElement {
   const conv = activeConv(s);
   const acc = activeAccount(s);
   if (!conv) return h('div', { class: 'chat-empty' }, icon(IC.chat, 40), h('div', null, t('chat.empty')));
-  const msgs = s.messages[conv.gid] ?? [];
+  const msgs = visibleMessages(s.messages[conv.gid] ?? []);
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
   const sub = isDone(conv) ? t('chat.finished') : `${t('chat.owner')}${waiting ? ` · ${t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) })}` : ''}`;
   const type = /^[A-Za-z][A-Za-z0-9]{0,5}$/.test(conv.service_type) ? `${conv.service_type} · ${conv.biz}` : conv.biz;

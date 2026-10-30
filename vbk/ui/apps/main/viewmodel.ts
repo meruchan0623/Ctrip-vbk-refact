@@ -449,3 +449,48 @@ export function peripheralWriteView(result: import('../../packages/ipc/src/clien
   if (result.kind === 'accepted') return { title: '已受理，待核验', message: '服务端已受理操作。可刷新成员和会话核对结果，请勿重复提交。', confirmed: false };
   return { title: '结果未知，待核验', message: '操作可能已经生效。仅可只读刷新成员和会话，不会重新发送操作。', confirmed: false };
 }
+
+/** Recall notices remain visible while their original content stays hidden across pages. */
+export function visibleMessages(messages: readonly UiMessage[]): UiMessage[] {
+  const recalled = new Set(messages.map(m => (m as QuotedUiMessage).recalled_message_id).filter(Boolean));
+  return messages.filter(m => !m.message_id || !recalled.has(m.message_id));
+}
+
+
+/** UI-only provenance: a target chosen from the current thread, never a copied body. */
+export type QuotedUiMessage = UiMessage & { readonly quote_target_id?: string | null; readonly recalled_message_id?: string | null };
+export const QUOTE_UNAVAILABLE = '引用内容不可用';
+export const QUOTE_RECALLED = '引用消息已撤回';
+
+function quoteWasRecalled(thread: readonly UiMessage[], gid: string, targetId: string): boolean {
+  return thread.some((message) => message.gid === gid && (message as QuotedUiMessage).recalled_message_id === targetId);
+}
+
+/** A stale selected object is not authority: resolve its server ID in the current thread. */
+export function selectedQuoteReference(selected: UiMessage | null, thread: readonly UiMessage[], gid: string): { readonly target_id: string; readonly text: string } | null {
+  const targetId = selected?.message_id;
+  if (!selected || selected.gid !== gid || !targetId || quoteWasRecalled(thread, gid, targetId)) return null;
+  const target = thread.find((message) => message.gid === gid && message.message_id === targetId);
+  return target && target.kind !== 'system' ? { target_id: targetId, text: target.text } : null;
+}
+
+/** Legacy quote mixes free text and IDs. Without explicit provenance, show no raw string. */
+export function messageQuotePreview(message: UiMessage, thread: readonly UiMessage[]): string | null {
+  const targetId = (message as QuotedUiMessage).quote_target_id;
+  if (!targetId) return message.quote ? QUOTE_UNAVAILABLE : null;
+  if (quoteWasRecalled(thread, message.gid, targetId)) return QUOTE_RECALLED;
+  const target = thread.find((candidate) => candidate.gid === message.gid && candidate.message_id === targetId);
+  return target && target.kind !== 'system' ? target.text : QUOTE_UNAVAILABLE;
+}
+
+/** Preserve a verified local target through sparse echoes, without guessing from free text. */
+export function mergeQuoteReference(existing: UiMessage, incoming: UiMessage): UiMessage {
+  const previous = (existing as QuotedUiMessage).quote_target_id;
+  const current = (incoming as QuotedUiMessage).quote_target_id;
+  const oldSender = existing.sender_id?.trim().toLowerCase();
+  const newSender = incoming.sender_id?.trim().toLowerCase();
+  if (existing.sender_role !== incoming.sender_role || (oldSender && newSender && oldSender !== newSender)) return incoming;
+  if (current || !previous || (incoming.quote !== null && incoming.quote !== previous)) return incoming;
+  const merged: QuotedUiMessage = { ...incoming, quote: previous, quote_target_id: previous };
+  return merged;
+}

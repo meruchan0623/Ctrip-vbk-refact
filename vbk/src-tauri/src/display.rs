@@ -102,6 +102,8 @@ pub struct UiMessageDto {
     pub kind: String,
     pub text: String,
     #[serde(default)]
+    pub recalled_message_id: Option<String>,
+    #[serde(default)]
     pub translation: Option<String>,
     #[serde(default)]
     pub original: Option<String>,
@@ -891,12 +893,26 @@ mod tests {
             sender_avatar: None,
             kind: "text".into(),
             text: text.into(),
+            recalled_message_id: None,
             translation: None,
             original: None,
             quote: None,
             order_id: None,
             disposition: None,
         }
+    }
+
+    #[test]
+    fn recall_target_survives_host_dto_roundtrip_without_numeric_conversion() {
+        let target = "900719925474099312345";
+        let raw = serde_json::json!({
+            "gid": "synthetic-room", "message_id": "synthetic-recall", "local_id": null,
+            "create_time_ms": 1700000000000_i64, "sender_role": "system", "kind": "system",
+            "text": "消息已撤回", "recalled_message_id": target
+        });
+        let decoded: UiMessageDto = serde_json::from_value(raw).unwrap();
+        let encoded = serde_json::to_value(decoded).unwrap();
+        assert_eq!(encoded.get("recalled_message_id").and_then(|v| v.as_str()), Some(target));
     }
 
     #[test]
