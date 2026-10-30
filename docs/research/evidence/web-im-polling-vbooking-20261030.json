@@ -1,0 +1,2225 @@
+{
+  "startedAt": "2026-10-30T10:29:47.845Z",
+  "endedAt": "2026-10-30T10:30:24.504Z",
+  "scenario": "vbooking /vbk/im/main default guest route; no conversation selection or agreement acceptance",
+  "state": {
+    "url": "https://vbooking.ctrip.com/vbk/im/main?currentTab=BC&lang=zh-CN",
+    "visibility": "visible",
+    "scripts": [
+      "https://static.tripcdn.com/modules/basebiz.im/web-imclient-core/imsdk.850ee19f2122897fcb3d3d18f17bc8d4.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1793340371237/_next/static/chunks/polyfills-c67a75d1b6f99dc8.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1793340371237/_next/static/chunks/webpack-f07dc181e3a0b6cc.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1793340371237/_next/static/chunks/react-4aa6fd3363af8610.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1793340371237/_next/static/chunks/common-64bcba478022e02f.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1793340371237/_next/static/chunks/main-520be77065e90658.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1793340371237/_next/static/chunks/pages/_app-14c325d84f26b175.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1793340371237/_next/static/chunks/296-1776b2655d6f3342.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1793340371237/_next/static/chunks/pages/main-3007b16f6fe839b6.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1793340371237/_next/static/xxx/_buildManifest.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1793340371237/_next/static/xxx/_ssgManifest.js",
+      "https://ws-s.tripcdn.cn/modules/basebiz.im/web-vendor-unread/index.57b08b3cab811c4ac12f866301513743.js"
+    ],
+    "hasMessageTab": true,
+    "hasAgreement": true
+  },
+  "requests": [
+    {
+      "id": "43500.452",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "time": 199205.692974,
+      "wallTime": 1793356187.893753,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "needTodoList",
+        "locale",
+        "head",
+        "startTime"
+      ],
+      "durationMs": 223
+    },
+    {
+      "id": "43500.495",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "time": 199206.238748,
+      "wallTime": 1793356188.439516,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "durationMs": 204
+    },
+    {
+      "id": "43500.496",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/GetMyInfo.json",
+      "time": 199206.238935,
+      "wallTime": 1793356188.43969,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head"
+      ],
+      "durationMs": 204
+    },
+    {
+      "id": "43500.499",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getVenAgentByUid",
+      "time": 199206.242679,
+      "wallTime": 1793356188.44343,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head"
+      ],
+      "durationMs": 234
+    },
+    {
+      "id": "43500.509",
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "time": 199206.338959,
+      "wallTime": 1793356188.53972,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "appId",
+        "categoryList",
+        "head"
+      ],
+      "durationMs": 194
+    },
+    {
+      "id": "43500.514",
+      "url": "https://m.ctrip.com/restapi/soa2/20016/checkVBKRealNameAuthStatus",
+      "time": 199206.359157,
+      "wallTime": 1793356188.559922,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "page",
+        "deviceType",
+        "deviceInfo",
+        "deviceIp"
+      ],
+      "durationMs": 208
+    },
+    {
+      "id": "43500.526",
+      "url": "https://online.ctrip.com/restapi/soa2/13191/validateTicket",
+      "time": 199206.380259,
+      "wallTime": 1793356188.581026,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "context",
+        "head"
+      ],
+      "durationMs": 241
+    },
+    {
+      "id": "43500.527",
+      "url": "https://online.ctrip.com/restapi/soa2/14894/getDoorFunctionGuide",
+      "time": 199206.380683,
+      "wallTime": 1793356188.581444,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "pageId",
+        "channel",
+        "head"
+      ],
+      "durationMs": 291
+    },
+    {
+      "id": "43500.528",
+      "url": "https://online.ctrip.com/restapi/soa2/16881/searchPop",
+      "time": 199206.380925,
+      "wallTime": 1793356188.581678,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "source",
+        "readed",
+        "head"
+      ],
+      "durationMs": 346
+    },
+    {
+      "id": "43500.529",
+      "url": "https://online.ctrip.com/restapi/soa2/12405/getCurrentUserInfo",
+      "time": 199206.381129,
+      "wallTime": 1793356188.581881,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "needMenu",
+        "needUserInfo",
+        "needPermission",
+        "needToolBar",
+        "needHeadBar",
+        "applicationCode",
+        "head"
+      ],
+      "durationMs": 411
+    },
+    {
+      "id": "43500.530",
+      "url": "https://online.ctrip.com/restapi/soa2/12405/getCurrentUserInfo",
+      "time": 199206.381322,
+      "wallTime": 1793356188.582074,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "needMenu",
+        "needUserInfo",
+        "needPermission",
+        "needToolBar",
+        "needHeadBar",
+        "applicationCode",
+        "businessLineList",
+        "head"
+      ],
+      "durationMs": 458
+    },
+    {
+      "id": "43500.536",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "time": 199206.484584,
+      "wallTime": 1793356188.685351,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "needTodoList"
+      ],
+      "durationMs": 153
+    },
+    {
+      "id": "43500.543",
+      "url": "https://online.ctrip.com/restapi/soa2/12405/generateWaterMark",
+      "time": 199206.604182,
+      "wallTime": 1793356188.804947,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "headers",
+        "head"
+      ],
+      "durationMs": 144
+    },
+    {
+      "id": "43500.546",
+      "url": "https://m.ctrip.com/restapi/soa2/22015/getSceneConfig",
+      "time": 199206.623424,
+      "wallTime": 1793356188.824185,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "platform",
+        "locale",
+        "pageId"
+      ],
+      "durationMs": 139
+    },
+    {
+      "id": "43500.547",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "time": 199206.649359,
+      "wallTime": 1793356188.850133,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "uidList"
+      ],
+      "durationMs": 175
+    },
+    {
+      "id": "43500.548",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "time": 199206.649807,
+      "wallTime": 1793356188.850573,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "gidList"
+      ],
+      "durationMs": 319
+    },
+    {
+      "id": "43500.549",
+      "url": "https://m.ctrip.com/restapi/soa2/11419/getLoginAdvisorOpenInfo",
+      "time": 199206.653311,
+      "wallTime": 1793356188.854081,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "sourceFrom"
+      ],
+      "durationMs": 186
+    },
+    {
+      "id": "43500.550",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/syncVenAgentInfo",
+      "time": 199206.654492,
+      "wallTime": 1793356188.855263,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head"
+      ],
+      "durationMs": 172
+    },
+    {
+      "id": "43500.565",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "time": 199206.665789,
+      "wallTime": 1793356188.866558,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head"
+      ],
+      "durationMs": 173
+    },
+    {
+      "id": "43500.566",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getAgentWorkingSchedule",
+      "time": 199206.666064,
+      "wallTime": 1793356188.866821,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "locale",
+        "venAgentUid"
+      ],
+      "durationMs": 173
+    },
+    {
+      "id": "43500.600",
+      "url": "https://online.ctrip.com/restapi/soa2/14894/getProviderBusinessLineList",
+      "time": 199206.796239,
+      "wallTime": 1793356188.997007,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "providerId",
+        "head"
+      ],
+      "durationMs": 174
+    },
+    {
+      "id": "43500.603",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getVenAgentByUid",
+      "time": 199206.831572,
+      "wallTime": 1793356189.032337,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head"
+      ],
+      "durationMs": 369
+    },
+    {
+      "id": "43500.607",
+      "url": "https://online.ctrip.com/restapi/soa2/17092/listNoticeReceiveConfig",
+      "time": 199206.853346,
+      "wallTime": 1793356189.054117,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "scene",
+        "head"
+      ],
+      "durationMs": 221
+    },
+    {
+      "id": "43500.608",
+      "url": "https://online.ctrip.com/restapi/soa2/16566/queryCountByEid",
+      "time": 199206.85368,
+      "wallTime": 1793356189.054446,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "pageHead",
+        "filterList",
+        "head"
+      ],
+      "durationMs": 202
+    },
+    {
+      "id": "43500.609",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getVenAgentByUid.json",
+      "time": 199206.867256,
+      "wallTime": 1793356189.068019,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head"
+      ],
+      "durationMs": 254
+    },
+    {
+      "id": "43500.639",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.987452,
+      "wallTime": 1793356189.188223,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 343
+    },
+    {
+      "id": "43500.640",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.987757,
+      "wallTime": 1793356189.188521,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 393
+    },
+    {
+      "id": "43500.641",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.987968,
+      "wallTime": 1793356189.188725,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 234
+    },
+    {
+      "id": "43500.642",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.988159,
+      "wallTime": 1793356189.188913,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 304
+    },
+    {
+      "id": "43500.643",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.988356,
+      "wallTime": 1793356189.18911,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 233
+    },
+    {
+      "id": "43500.644",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.988546,
+      "wallTime": 1793356189.189301,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 302
+    },
+    {
+      "id": "43500.645",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.988733,
+      "wallTime": 1793356189.189487,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 302
+    },
+    {
+      "id": "43500.646",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.988909,
+      "wallTime": 1793356189.189663,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 303
+    },
+    {
+      "id": "43500.647",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.989092,
+      "wallTime": 1793356189.189847,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 303
+    },
+    {
+      "id": "43500.648",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.989272,
+      "wallTime": 1793356189.190026,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 302
+    },
+    {
+      "id": "43500.649",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.989446,
+      "wallTime": 1793356189.190206,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 392
+    },
+    {
+      "id": "43500.650",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.989628,
+      "wallTime": 1793356189.190382,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 302
+    },
+    {
+      "id": "43500.651",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.989798,
+      "wallTime": 1793356189.190558,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 526
+    },
+    {
+      "id": "43500.652",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.989988,
+      "wallTime": 1793356189.190742,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 578
+    },
+    {
+      "id": "43500.653",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199206.990165,
+      "wallTime": 1793356189.190919,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 301
+    },
+    {
+      "id": "43500.656",
+      "url": "https://online.ctrip.com/restapi/soa2/12405/getCurrentUserInfo",
+      "time": 199206.994536,
+      "wallTime": 1793356189.195302,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "needMenu",
+        "needUserInfo",
+        "needPermission",
+        "needToolBar",
+        "needHeadBar",
+        "applicationCode",
+        "businessLineList",
+        "head"
+      ],
+      "durationMs": 147
+    },
+    {
+      "id": "43500.657",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "time": 199207.014562,
+      "wallTime": 1793356189.215325,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "durationMs": 66
+    },
+    {
+      "id": "43500.660",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "time": 199207.124269,
+      "wallTime": 1793356189.325032,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "durationMs": 166
+    },
+    {
+      "id": "43500.661",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/GetMyInfo.json",
+      "time": 199207.12445,
+      "wallTime": 1793356189.325214,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head"
+      ],
+      "durationMs": 116
+    },
+    {
+      "id": "43500.662",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "time": 199207.124568,
+      "wallTime": 1793356189.325323,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head"
+      ],
+      "durationMs": 207
+    },
+    {
+      "id": "43500.663",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getLatestSingleChat",
+      "time": 199207.124666,
+      "wallTime": 1793356189.325419,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "paging",
+        "head"
+      ],
+      "durationMs": 206
+    },
+    {
+      "id": "43500.664",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getIQConversations",
+      "time": 199207.124748,
+      "wallTime": 1793356189.325502,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "lastMsgTime",
+        "head"
+      ],
+      "durationMs": 168
+    },
+    {
+      "id": "43500.669",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "time": 199207.334279,
+      "wallTime": 1793356189.535042,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "gidList",
+        "head"
+      ],
+      "durationMs": 182
+    },
+    {
+      "id": "43500.673",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "time": 199207.520184,
+      "wallTime": 1793356189.720951,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "gidList",
+        "head"
+      ],
+      "durationMs": 162
+    },
+    {
+      "id": "43500.681",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "time": 199207.871096,
+      "wallTime": 1793356190.071863,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "durationMs": 143
+    },
+    {
+      "id": "43500.686",
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "time": 199209.757417,
+      "wallTime": 1793356191.958209,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "appId",
+        "categoryList",
+        "head"
+      ],
+      "durationMs": 66
+    },
+    {
+      "id": "43500.693",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "time": 199211.648105,
+      "wallTime": 1793356193.848898,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "startTime",
+        "needTodoList"
+      ],
+      "durationMs": 170
+    },
+    {
+      "id": "43500.695",
+      "url": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "time": 199212.299426,
+      "wallTime": 1793356194.500239,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "tuid",
+        "fullDeviceInfo",
+        "timestamp"
+      ],
+      "durationMs": 120
+    },
+    {
+      "id": "43500.701",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "time": 199216.649469,
+      "wallTime": 1793356198.850307,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "startTime",
+        "needTodoList"
+      ],
+      "durationMs": 153
+    },
+    {
+      "id": "43500.703",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "time": 199217.083248,
+      "wallTime": 1793356199.28407,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "durationMs": 138
+    },
+    {
+      "id": "43500.707",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "time": 199218.016229,
+      "wallTime": 1793356200.217066,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "durationMs": 58
+    },
+    {
+      "id": "43500.710",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "time": 199221.649885,
+      "wallTime": 1793356203.850748,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "startTime",
+        "needTodoList"
+      ],
+      "durationMs": 136
+    },
+    {
+      "id": "43500.712",
+      "url": "https://m.ctrip.com/restapi/soa2/28967/reportInjectFnInfo",
+      "time": 199226.18333,
+      "wallTime": 1793356208.384214,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "buildVersion",
+        "fnInfo",
+        "head"
+      ],
+      "durationMs": 183
+    },
+    {
+      "id": "43500.714",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "time": 199226.648941,
+      "wallTime": 1793356208.849842,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "startTime",
+        "needTodoList"
+      ],
+      "durationMs": 142
+    },
+    {
+      "id": "43500.717",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "time": 199227.224603,
+      "wallTime": 1793356209.425474,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "durationMs": 190
+    },
+    {
+      "id": "43500.720",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "time": 199228.079182,
+      "wallTime": 1793356210.280067,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "durationMs": 71
+    },
+    {
+      "id": "43500.723",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "time": 199231.650418,
+      "wallTime": 1793356213.85133,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "startTime",
+        "needTodoList"
+      ],
+      "durationMs": 146
+    },
+    {
+      "id": "43500.724",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "time": 199231.801701,
+      "wallTime": 1793356214.002602,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "uidList"
+      ],
+      "durationMs": 131
+    },
+    {
+      "id": "43500.725",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "time": 199231.801913,
+      "wallTime": 1793356214.002802,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "gidList"
+      ],
+      "durationMs": 154
+    },
+    {
+      "id": "43500.727",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "time": 199231.959715,
+      "wallTime": 1793356214.160619,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize"
+      ],
+      "durationMs": 337
+    },
+    {
+      "id": "43500.730",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "time": 199236.648404,
+      "wallTime": 1793356218.849331,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "startTime",
+        "needTodoList"
+      ],
+      "durationMs": 209
+    },
+    {
+      "id": "43500.731",
+      "url": "https://online.ctrip.com/restapi/soa2/16566/queryCountByEid",
+      "time": 199236.853039,
+      "wallTime": 1793356219.053971,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "pageHead",
+        "filterList",
+        "head"
+      ],
+      "durationMs": 212
+    },
+    {
+      "id": "43500.734",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "time": 199237.417106,
+      "wallTime": 1793356219.618044,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "durationMs": 132
+    },
+    {
+      "id": "43500.736",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "time": 199238.153303,
+      "wallTime": 1793356220.354258,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "durationMs": 88
+    },
+    {
+      "id": "43500.740",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "time": 199241.649244,
+      "wallTime": 1793356223.850212,
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "head",
+        "startTime",
+        "needTodoList"
+      ],
+      "durationMs": 116
+    }
+  ],
+  "websocket": [
+    {
+      "event": "Network.webSocketCreated",
+      "id": "43500.535",
+      "url": "wss://im3.ctrip.com/ws-xmpp/"
+    },
+    {
+      "event": "Network.webSocketWillSendHandshakeRequest",
+      "id": "43500.535",
+      "time": 199206.67449
+    },
+    {
+      "event": "Network.webSocketHandshakeResponseReceived",
+      "id": "43500.535",
+      "time": 199206.72611,
+      "status": 101
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199206.726754,
+      "root": "open",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199206.791511,
+      "root": "open",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199206.793131,
+      "root": "stream:features",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199206.793263,
+      "root": "auth",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199206.838134,
+      "root": "success",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199206.83848,
+      "root": "open",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199206.967851,
+      "root": "open",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199206.969661,
+      "root": "stream:features",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199206.969786,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199207.013605,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketCreated",
+      "id": "43500.666",
+      "url": "wss://im.ctrip.com/ws-xmpp/"
+    },
+    {
+      "event": "Network.webSocketWillSendHandshakeRequest",
+      "id": "43500.666",
+      "time": 199207.518324
+    },
+    {
+      "event": "Network.webSocketHandshakeResponseReceived",
+      "id": "43500.666",
+      "time": 199207.567636,
+      "status": 101
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199207.568109,
+      "root": "open",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199207.610653,
+      "root": "open",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199207.611091,
+      "root": "stream:features",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199207.611448,
+      "root": "auth",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199207.728698,
+      "root": "success",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199207.728879,
+      "root": "open",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199207.805634,
+      "root": "open",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199207.805812,
+      "root": "stream:features",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199207.806021,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199207.870343,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199208.205925,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199208.209155,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199208.211155,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199208.212753,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199208.216755,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199208.21886,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199208.2802,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199208.281628,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199208.281878,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199208.360106,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199210.674274,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199210.67729,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199210.681085,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199210.681671,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199210.683248,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199210.683969,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199210.684088,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199210.684651,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199210.735432,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199210.736014,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199211.362812,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199211.36396,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199211.364054,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199211.364412,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199211.39717,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199211.398409,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199211.398527,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199211.399688,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199211.444035,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199211.453457,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199211.453736,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199211.500764,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199212.242796,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199212.328281,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199214.97886,
+      "root": "message",
+      "type": "groupchat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199215.028774,
+      "root": "message",
+      "type": "groupchat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199215.560559,
+      "root": "message",
+      "type": "normal",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199215.601053,
+      "root": "message",
+      "type": "normal",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199216.401994,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199216.402812,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199216.423258,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199216.423858,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199216.445213,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199216.503162,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199216.503399,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199216.508925,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199216.509539,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199216.509644,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199216.509965,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199216.577841,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199217.241811,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199217.282932,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199221.444686,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199221.508728,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199222.241922,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199222.286499,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199226.445517,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199226.488917,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199227.181609,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199227.182456,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199227.182536,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199227.182943,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199227.206831,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199227.208058,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199227.208176,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199227.208566,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199227.243411,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199227.265304,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199227.267292,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199227.300289,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199227.469753,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199227.470747,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199227.476879,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199227.478194,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199227.490107,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199227.491283,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199227.500638,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199227.501256,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199227.546696,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199227.559349,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199229.696551,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199229.699862,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199229.69996,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199229.700373,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199229.702648,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199229.703338,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199229.703431,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199229.703856,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199229.753589,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199229.753989,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199231.445291,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199231.490414,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199232.242589,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199232.298167,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199236.444648,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199236.492459,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199237.243257,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199237.382975,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199240.414108,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199240.414879,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199240.4271,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199240.427755,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199240.534361,
+      "root": "message",
+      "type": "chat",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199240.534952,
+      "root": "message",
+      "type": "notify_ack",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199240.535029,
+      "root": "iq",
+      "type": "set",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199240.535503,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199240.554612,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.666",
+      "time": 199240.584773,
+      "root": "iq",
+      "type": "error",
+      "hasPing": false,
+      "hasBody": true
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.535",
+      "time": 199241.445239,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.535",
+      "time": 199241.582856,
+      "root": "iq",
+      "type": "result",
+      "hasPing": false,
+      "hasBody": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.666",
+      "time": 199242.242033,
+      "root": "iq",
+      "type": "get",
+      "hasPing": true,
+      "hasBody": false
+    }
+  ],
+  "redaction": "No credentials, identities, request values, response bodies or customer text retained."
+}

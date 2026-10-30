@@ -1,0 +1,281 @@
+{
+  "observedAt": "2026-10-30T10:25:43.673Z",
+  "page": "https://imvendor.ctrip.com/main?currentTab=BC&lang=zh-CN",
+  "note": "Live ego-browser Network events captured in a single instrumented reload round; credentials, headers, identities and message bodies excluded.",
+  "events": [
+    {
+      "event": "Network.webSocketCreated",
+      "requestId": "40719.579",
+      "url": "wss://im3.ctrip.com/ws-xmpp/"
+    },
+    {
+      "event": "Network.webSocketWillSendHandshakeRequest",
+      "requestId": "40719.579",
+      "timestamp": 198950.070496
+    },
+    {
+      "event": "Network.webSocketHandshakeResponseReceived",
+      "requestId": "40719.579",
+      "timestamp": 198950.117652,
+      "status": 101,
+      "subprotocol": "xmpp"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "requestId": "40719.579",
+      "timestamp": 198950.117883,
+      "opcode": 1,
+      "bytes": 83,
+      "root": "open",
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-framing"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198950.163701,
+      "opcode": 1,
+      "bytes": 125,
+      "root": "open",
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-framing"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198950.164893,
+      "opcode": 1,
+      "bytes": 177,
+      "root": "stream:features",
+      "namespaces": [
+        "http://etherx.jabber.org/streams",
+        "urn:ietf:params:xml:ns:xmpp-sasl"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "requestId": "40719.579",
+      "timestamp": 198950.165057,
+      "opcode": 1,
+      "bytes": 136,
+      "root": "auth",
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-sasl"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198950.270204,
+      "opcode": 1,
+      "bytes": 51,
+      "root": "success",
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-sasl"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "requestId": "40719.579",
+      "timestamp": 198950.270384,
+      "opcode": 1,
+      "bytes": 83,
+      "root": "open",
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-framing"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198950.321581,
+      "opcode": 1,
+      "bytes": 125,
+      "root": "open",
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-framing"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198950.322509,
+      "opcode": 1,
+      "bytes": 205,
+      "root": "stream:features",
+      "namespaces": [
+        "http://etherx.jabber.org/streams",
+        "urn:ietf:params:xml:ns:xmpp-bind",
+        "urn:ietf:params:xml:ns:xmpp-session"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "requestId": "40719.579",
+      "timestamp": 198950.322672,
+      "opcode": 1,
+      "bytes": 152,
+      "root": "iq",
+      "type": "set",
+      "namespaces": [
+        "jabber:client",
+        "urn:ietf:params:xml:ns:xmpp-bind"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198950.366278,
+      "opcode": 1,
+      "bytes": 171,
+      "root": "iq",
+      "type": "result",
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-bind"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198950.610361,
+      "opcode": 1,
+      "bytes": 1165,
+      "root": "message",
+      "type": "chat",
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "requestId": "40719.579",
+      "timestamp": 198950.61176,
+      "opcode": 1,
+      "bytes": 132,
+      "root": "message",
+      "type": "notify_ack",
+      "namespaces": [
+        "jabber:client"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198950.622711,
+      "opcode": 1,
+      "bytes": 1117,
+      "root": "iq",
+      "type": "set",
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "requestId": "40719.579",
+      "timestamp": 198950.6233,
+      "opcode": 1,
+      "bytes": 1039,
+      "root": "iq",
+      "type": "error",
+      "namespaces": [
+        "jabber:client",
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198950.667371,
+      "opcode": 1,
+      "bytes": 1038,
+      "root": "iq",
+      "type": "error",
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "requestId": "40719.579",
+      "timestamp": 198954.837428,
+      "opcode": 1,
+      "bytes": 165,
+      "root": "iq",
+      "type": "get",
+      "namespaces": [
+        "jabber:client",
+        "urn:xmpp:ping"
+      ],
+      "hasBody": false,
+      "hasPing": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198954.89673,
+      "opcode": 1,
+      "bytes": 113,
+      "root": "iq",
+      "type": "result",
+      "namespaces": [],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "requestId": "40719.579",
+      "timestamp": 198959.837338,
+      "opcode": 1,
+      "bytes": 165,
+      "root": "iq",
+      "type": "get",
+      "namespaces": [
+        "jabber:client",
+        "urn:xmpp:ping"
+      ],
+      "hasBody": false,
+      "hasPing": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "requestId": "40719.579",
+      "timestamp": 198959.88318,
+      "opcode": 1,
+      "bytes": 113,
+      "root": "iq",
+      "type": "result",
+      "namespaces": [],
+      "hasBody": false,
+      "hasPing": false
+    }
+  ]
+}

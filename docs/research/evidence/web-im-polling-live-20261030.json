@@ -1,0 +1,2087 @@
+{
+  "startedAt": "2026-10-30T10:28:08.733Z",
+  "endedAt": "2026-10-30T10:28:54.090Z",
+  "scenario": "Guest message list, no conversation selected, visible page, instrumented reload plus 45 seconds idle",
+  "state": {
+    "url": "https://imvendor.ctrip.com/main?currentTab=BC&lang=zh-CN",
+    "visibility": "visible",
+    "hasGuestTab": true,
+    "scripts": [
+      "https://webresource.c-ctrip.com/ares2/basebiz.im/nodesdk/1.0.70/default/imsdk.js",
+      "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+      "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/pages/main-7928b3c422bccbc5.js"
+    ],
+    "iframes": []
+  },
+  "requests": [
+    {
+      "id": "43500.228",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getAgentWorkingSchedule",
+      "method": "POST",
+      "time": 199106.651142,
+      "wallTime": 1793356088.851377,
+      "bodyKeys": [
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 188,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "bizResponseStatus",
+        "workingSchedule"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "businessCode": "SUCCESS"
+    },
+    {
+      "id": "43500.229",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getVenAgentByUid.json",
+      "method": "POST",
+      "time": 199106.651857,
+      "wallTime": 1793356088.852084,
+      "bodyKeys": [
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 263,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "venAgent",
+        "venAgentOption",
+        "hasTodoList",
+        "abTestResult"
+      ],
+      "arrayLengths": {},
+      "ack": "Success"
+    },
+    {
+      "id": "43500.230",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/SyncVenAgentInfo",
+      "method": "POST",
+      "time": 199106.652008,
+      "wallTime": 1793356088.852231,
+      "bodyKeys": [
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 187,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus"
+      ],
+      "arrayLengths": {},
+      "ack": "Success"
+    },
+    {
+      "id": "43500.234",
+      "url": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "time": 199106.655234,
+      "wallTime": 1793356088.855459,
+      "bodyKeys": [
+        "appId",
+        "categoryList",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 184,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 104012
+        }
+      ]
+    },
+    {
+      "id": "43500.239",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getLatestSingleChat",
+      "method": "POST",
+      "time": 199106.919334,
+      "wallTime": 1793356089.119576,
+      "bodyKeys": [
+        "paging",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 163,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "bizResponseStatus",
+        "messages",
+        "haveRest",
+        "lastMessageTime"
+      ],
+      "arrayLengths": {
+        "messages": 1
+      },
+      "ack": "Success",
+      "businessCode": "SUCCESS",
+      "haveRest": false
+    },
+    {
+      "id": "43500.240",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getSystemNotice",
+      "method": "POST",
+      "time": 199106.919675,
+      "wallTime": 1793356089.119906,
+      "bodyKeys": [
+        "locale",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 182,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "bizResponseStatus",
+        "messages"
+      ],
+      "arrayLengths": {
+        "messages": 3
+      },
+      "ack": "Success",
+      "businessCode": "SUCCESS"
+    },
+    {
+      "id": "43500.241",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "method": "POST",
+      "time": 199106.919886,
+      "wallTime": 1793356089.12011,
+      "bodyKeys": [
+        "needTodoList",
+        "locale",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 126,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "conversationList",
+        "currentStatus",
+        "lastUpdateTime",
+        "haveRest"
+      ],
+      "arrayLengths": {
+        "conversationList": 20
+      },
+      "ack": "Success",
+      "haveRest": false
+    },
+    {
+      "id": "43500.242",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "time": 199106.920367,
+      "wallTime": 1793356089.120593,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 72,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "lastMessageTimestamp"
+      ],
+      "arrayLengths": {},
+      "ack": "Success"
+    },
+    {
+      "id": "43500.243",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/GetMyInfo.json",
+      "method": "POST",
+      "time": 199106.920488,
+      "wallTime": 1793356089.120712,
+      "bodyKeys": [
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 143,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "name",
+        "avatar",
+        "jid",
+        "extPropertys"
+      ],
+      "arrayLengths": {},
+      "ack": "Success"
+    },
+    {
+      "id": "43500.246",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "POST",
+      "time": 199107.047113,
+      "wallTime": 1793356089.247347,
+      "bodyKeys": [
+        "gidList",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 329,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "bizResponseStatus",
+        "conversationInfoList"
+      ],
+      "arrayLengths": {
+        "conversationInfoList": 10
+      },
+      "ack": "Success",
+      "businessCode": "SUCCESS"
+    },
+    {
+      "id": "43500.247",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "time": 199107.047392,
+      "wallTime": 1793356089.24762,
+      "bodyKeys": [
+        "uidList",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 153,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "bizResponseStatus",
+        "remarkList"
+      ],
+      "arrayLengths": {
+        "remarkList": 10
+      },
+      "ack": "Success",
+      "businessCode": "SUCCESS"
+    },
+    {
+      "id": "43500.283",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199107.377306,
+      "wallTime": 1793356089.577547,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 362,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 30
+    },
+    {
+      "id": "43500.284",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199107.377499,
+      "wallTime": 1793356089.577736,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 286,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 26
+    },
+    {
+      "id": "43500.285",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199107.377611,
+      "wallTime": 1793356089.577837,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 291,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 50
+    },
+    {
+      "id": "43500.286",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199107.37771,
+      "wallTime": 1793356089.577935,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 285,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 16
+    },
+    {
+      "id": "43500.287",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199107.377796,
+      "wallTime": 1793356089.578022,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 285,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 31
+    },
+    {
+      "id": "43500.288",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199107.377882,
+      "wallTime": 1793356089.578107,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 365,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 17
+    },
+    {
+      "id": "43500.289",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199107.377965,
+      "wallTime": 1793356089.578191,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 361,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 29
+    },
+    {
+      "id": "43500.290",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199107.378045,
+      "wallTime": 1793356089.578271,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 296,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 30
+    },
+    {
+      "id": "43500.291",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199107.378124,
+      "wallTime": 1793356089.57835,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 382,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 13
+    },
+    {
+      "id": "43500.292",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199107.378202,
+      "wallTime": 1793356089.578428,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 295,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 16
+    },
+    {
+      "id": "43500.293",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "time": 199107.44645,
+      "wallTime": 1793356089.646686,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 142,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "lastMessageTimestamp"
+      ],
+      "arrayLengths": {},
+      "ack": "Success"
+    },
+    {
+      "id": "43500.325",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "POST",
+      "time": 199107.763865,
+      "wallTime": 1793356089.964099,
+      "bodyKeys": [
+        "gidList",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 306,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "bizResponseStatus",
+        "conversationInfoList"
+      ],
+      "arrayLengths": {
+        "conversationInfoList": 5
+      },
+      "ack": "Success",
+      "businessCode": "SUCCESS"
+    },
+    {
+      "id": "43500.326",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "time": 199107.764057,
+      "wallTime": 1793356089.964285,
+      "bodyKeys": [
+        "uidList",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 130,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "bizResponseStatus",
+        "remarkList"
+      ],
+      "arrayLengths": {
+        "remarkList": 10
+      },
+      "ack": "Success",
+      "businessCode": "SUCCESS"
+    },
+    {
+      "id": "43500.328",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199108.071288,
+      "wallTime": 1793356090.271542,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 155,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 5
+    },
+    {
+      "id": "43500.329",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199108.07173,
+      "wallTime": 1793356090.271973,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 154,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 16
+    },
+    {
+      "id": "43500.330",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199108.072092,
+      "wallTime": 1793356090.272336,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 125,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 28
+    },
+    {
+      "id": "43500.331",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199108.07243,
+      "wallTime": 1793356090.272671,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 154,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 46
+    },
+    {
+      "id": "43500.332",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "time": 199108.072742,
+      "wallTime": 1793356090.272983,
+      "bodyKeys": [
+        "showTargetIsRead",
+        "groupId",
+        "conversationType",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 154,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "rangeMessage"
+      ],
+      "arrayLengths": {},
+      "ack": "Success",
+      "rangeMessageCount": 47
+    },
+    {
+      "id": "43500.346",
+      "url": "https://www.trip.com/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "time": 199110.162591,
+      "wallTime": 1793356092.362845,
+      "bodyKeys": [
+        "appId",
+        "categoryList",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 159,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ]
+    },
+    {
+      "id": "43500.352",
+      "url": "https://www.trip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "time": 199111.862471,
+      "wallTime": 1793356094.062736,
+      "bodyKeys": [
+        "tuid",
+        "fullDeviceInfo",
+        "timestamp"
+      ],
+      "status": 200,
+      "durationMs": 358,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ]
+    },
+    {
+      "id": "43500.353",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "method": "POST",
+      "time": 199112.046922,
+      "wallTime": 1793356094.24719,
+      "bodyKeys": [
+        "needTodoList",
+        "locale",
+        "head",
+        "startTime"
+      ],
+      "status": 200,
+      "durationMs": 116,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "currentStatus",
+        "lastUpdateTime"
+      ],
+      "arrayLengths": {},
+      "ack": "Success"
+    },
+    {
+      "id": "43500.355",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "method": "POST",
+      "time": 199117.166113,
+      "wallTime": 1793356099.36643,
+      "bodyKeys": [
+        "needTodoList",
+        "locale",
+        "head",
+        "startTime"
+      ],
+      "status": 200,
+      "durationMs": 159,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "currentStatus",
+        "lastUpdateTime"
+      ],
+      "arrayLengths": {},
+      "ack": "Success"
+    },
+    {
+      "id": "43500.357",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "time": 199117.591322,
+      "wallTime": 1793356099.791638,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 118,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "lastMessageTimestamp"
+      ],
+      "arrayLengths": {},
+      "ack": "Success"
+    },
+    {
+      "id": "43500.365",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "method": "POST",
+      "time": 199122.327722,
+      "wallTime": 1793356104.528041,
+      "bodyKeys": [
+        "needTodoList",
+        "locale",
+        "head",
+        "startTime"
+      ],
+      "status": 200,
+      "durationMs": 238,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "conversationList",
+        "currentStatus",
+        "lastUpdateTime",
+        "haveRest"
+      ],
+      "arrayLengths": {
+        "conversationList": 0
+      },
+      "ack": "Success",
+      "haveRest": false
+    },
+    {
+      "id": "43500.370",
+      "url": "https://m.ctrip.com/restapi/soa2/28967/reportInjectFnInfo",
+      "method": "POST",
+      "time": 199126.643102,
+      "wallTime": 1793356108.843452,
+      "bodyKeys": [
+        "buildVersion",
+        "fnInfo",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 176,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 104012
+        }
+      ]
+    },
+    {
+      "id": "43500.373",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "method": "POST",
+      "time": 199127.568006,
+      "wallTime": 1793356109.768357,
+      "bodyKeys": [
+        "needTodoList",
+        "locale",
+        "head",
+        "startTime"
+      ],
+      "status": 200,
+      "durationMs": 251,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "conversationList",
+        "currentStatus",
+        "lastUpdateTime",
+        "haveRest"
+      ],
+      "arrayLengths": {
+        "conversationList": 0
+      },
+      "ack": "Success",
+      "haveRest": false
+    },
+    {
+      "id": "43500.374",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "time": 199127.711678,
+      "wallTime": 1793356109.912026,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 229,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "messages",
+        "lastMessageTimestamp",
+        "localIds"
+      ],
+      "arrayLengths": {
+        "messages": 3,
+        "localIds": 1
+      },
+      "ack": "Success"
+    },
+    {
+      "id": "43500.377",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "method": "POST",
+      "time": 199132.820866,
+      "wallTime": 1793356115.021254,
+      "bodyKeys": [
+        "needTodoList",
+        "locale",
+        "head",
+        "startTime"
+      ],
+      "status": 200,
+      "durationMs": 229,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "conversationList",
+        "currentStatus",
+        "lastUpdateTime",
+        "haveRest"
+      ],
+      "arrayLengths": {
+        "conversationList": 0
+      },
+      "ack": "Success",
+      "haveRest": false
+    },
+    {
+      "id": "43500.380",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "time": 199137.944097,
+      "wallTime": 1793356120.144537,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 210,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "messages",
+        "lastMessageTimestamp",
+        "localIds"
+      ],
+      "arrayLengths": {
+        "messages": 1,
+        "localIds": 1
+      },
+      "ack": "Success"
+    },
+    {
+      "id": "43500.381",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "method": "POST",
+      "time": 199138.051733,
+      "wallTime": 1793356120.252153,
+      "bodyKeys": [
+        "needTodoList",
+        "locale",
+        "head",
+        "startTime"
+      ],
+      "status": 200,
+      "durationMs": 132,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "conversationList",
+        "currentStatus",
+        "lastUpdateTime",
+        "haveRest"
+      ],
+      "arrayLengths": {
+        "conversationList": 0
+      },
+      "ack": "Success",
+      "haveRest": false
+    },
+    {
+      "id": "43500.384",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "method": "POST",
+      "time": 199143.186462,
+      "wallTime": 1793356125.386908,
+      "bodyKeys": [
+        "needTodoList",
+        "locale",
+        "head",
+        "startTime"
+      ],
+      "status": 200,
+      "durationMs": 205,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "conversationList",
+        "currentStatus",
+        "lastUpdateTime",
+        "haveRest"
+      ],
+      "arrayLengths": {
+        "conversationList": 0
+      },
+      "ack": "Success",
+      "haveRest": false
+    },
+    {
+      "id": "43500.387",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "time": 199148.158545,
+      "wallTime": 1793356130.359025,
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "status": 200,
+      "durationMs": 234,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "messages",
+        "lastMessageTimestamp",
+        "localIds"
+      ],
+      "arrayLengths": {
+        "messages": 2,
+        "localIds": 1
+      },
+      "ack": "Success"
+    },
+    {
+      "id": "43500.388",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+      "method": "POST",
+      "time": 199148.393866,
+      "wallTime": 1793356130.594334,
+      "bodyKeys": [
+        "needTodoList",
+        "locale",
+        "head",
+        "startTime"
+      ],
+      "status": 200,
+      "durationMs": 140,
+      "initiatorFrames": [
+        {
+          "name": "",
+          "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/main-aafeaff14ff90099.js",
+          "line": 0,
+          "column": 107225
+        }
+      ],
+      "responseKeys": [
+        "ResponseStatus",
+        "conversationList",
+        "currentStatus",
+        "lastUpdateTime",
+        "haveRest"
+      ],
+      "arrayLengths": {
+        "conversationList": 0
+      },
+      "ack": "Success",
+      "haveRest": false
+    }
+  ],
+  "websocket": [
+    {
+      "event": "Network.webSocketCreated",
+      "id": "43500.279",
+      "url": "wss://im3.ctrip.com/ws-xmpp/"
+    },
+    {
+      "event": "Network.webSocketWillSendHandshakeRequest",
+      "id": "43500.279",
+      "time": 199107.162479
+    },
+    {
+      "event": "Network.webSocketHandshakeResponseReceived",
+      "id": "43500.279",
+      "time": 199107.201119,
+      "status": 101,
+      "protocol": "xmpp"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199107.201253,
+      "root": "open",
+      "bytes": 83,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-framing"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199107.237753,
+      "root": "open",
+      "bytes": 124,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-framing"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199107.240069,
+      "root": "stream:features",
+      "bytes": 177,
+      "namespaces": [
+        "http://etherx.jabber.org/streams",
+        "urn:ietf:params:xml:ns:xmpp-sasl"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199107.240467,
+      "root": "auth",
+      "bytes": 136,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-sasl"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199107.352977,
+      "root": "success",
+      "bytes": 51,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-sasl"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199107.353155,
+      "root": "open",
+      "bytes": 83,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-framing"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199107.395433,
+      "root": "open",
+      "bytes": 124,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-framing"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199107.395947,
+      "root": "stream:features",
+      "bytes": 205,
+      "namespaces": [
+        "http://etherx.jabber.org/streams",
+        "urn:ietf:params:xml:ns:xmpp-bind",
+        "urn:ietf:params:xml:ns:xmpp-session"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199107.396028,
+      "root": "iq",
+      "type": "set",
+      "bytes": 152,
+      "namespaces": [
+        "jabber:client",
+        "urn:ietf:params:xml:ns:xmpp-bind"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199107.445659,
+      "root": "iq",
+      "type": "result",
+      "bytes": 171,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-bind"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199112.065537,
+      "root": "iq",
+      "type": "get",
+      "bytes": 165,
+      "namespaces": [
+        "jabber:client",
+        "urn:xmpp:ping"
+      ],
+      "hasBody": false,
+      "hasPing": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199112.10597,
+      "root": "iq",
+      "type": "result",
+      "bytes": 113,
+      "namespaces": [],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199117.066011,
+      "root": "iq",
+      "type": "get",
+      "bytes": 165,
+      "namespaces": [
+        "jabber:client",
+        "urn:xmpp:ping"
+      ],
+      "hasBody": false,
+      "hasPing": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199117.117214,
+      "root": "iq",
+      "type": "result",
+      "bytes": 113,
+      "namespaces": [],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199118.452871,
+      "root": "message",
+      "type": "chat",
+      "bytes": 1165,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199118.454547,
+      "root": "message",
+      "type": "notify_ack",
+      "bytes": 132,
+      "namespaces": [
+        "jabber:client"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199118.466009,
+      "root": "iq",
+      "type": "set",
+      "bytes": 1117,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199118.467124,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1039,
+      "namespaces": [
+        "jabber:client",
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199118.526392,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1038,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199122.065008,
+      "root": "iq",
+      "type": "get",
+      "bytes": 165,
+      "namespaces": [
+        "jabber:client",
+        "urn:xmpp:ping"
+      ],
+      "hasBody": false,
+      "hasPing": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199122.102471,
+      "root": "iq",
+      "type": "result",
+      "bytes": 113,
+      "namespaces": [],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199123.645387,
+      "root": "message",
+      "type": "chat",
+      "bytes": 1165,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199123.646395,
+      "root": "message",
+      "type": "notify_ack",
+      "bytes": 132,
+      "namespaces": [
+        "jabber:client"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199123.674187,
+      "root": "iq",
+      "type": "set",
+      "bytes": 1117,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199123.67507,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1039,
+      "namespaces": [
+        "jabber:client",
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199123.71315,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1038,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199124.656403,
+      "root": "message",
+      "type": "chat",
+      "bytes": 1165,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199124.657787,
+      "root": "message",
+      "type": "notify_ack",
+      "bytes": 132,
+      "namespaces": [
+        "jabber:client"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199124.658609,
+      "root": "iq",
+      "type": "set",
+      "bytes": 1117,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199124.658926,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1039,
+      "namespaces": [
+        "jabber:client",
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199124.704731,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1038,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199127.065812,
+      "root": "iq",
+      "type": "get",
+      "bytes": 165,
+      "namespaces": [
+        "jabber:client",
+        "urn:xmpp:ping"
+      ],
+      "hasBody": false,
+      "hasPing": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199127.108943,
+      "root": "iq",
+      "type": "result",
+      "bytes": 113,
+      "namespaces": [],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199132.066697,
+      "root": "iq",
+      "type": "get",
+      "bytes": 165,
+      "namespaces": [
+        "jabber:client",
+        "urn:xmpp:ping"
+      ],
+      "hasBody": false,
+      "hasPing": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199132.129314,
+      "root": "iq",
+      "type": "result",
+      "bytes": 113,
+      "namespaces": [],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199133.381965,
+      "root": "message",
+      "type": "chat",
+      "bytes": 1165,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199133.383163,
+      "root": "message",
+      "type": "notify_ack",
+      "bytes": 132,
+      "namespaces": [
+        "jabber:client"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199133.386603,
+      "root": "iq",
+      "type": "set",
+      "bytes": 1117,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199133.387352,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1039,
+      "namespaces": [
+        "jabber:client",
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199133.440736,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1038,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199137.066268,
+      "root": "iq",
+      "type": "get",
+      "bytes": 165,
+      "namespaces": [
+        "jabber:client",
+        "urn:xmpp:ping"
+      ],
+      "hasBody": false,
+      "hasPing": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199137.111936,
+      "root": "iq",
+      "type": "result",
+      "bytes": 113,
+      "namespaces": [],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199139.618783,
+      "root": "message",
+      "type": "chat",
+      "bytes": 1165,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199139.620067,
+      "root": "message",
+      "type": "notify_ack",
+      "bytes": 132,
+      "namespaces": [
+        "jabber:client"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199139.647309,
+      "root": "iq",
+      "type": "set",
+      "bytes": 1117,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199139.647986,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1039,
+      "namespaces": [
+        "jabber:client",
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199139.706623,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1038,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199142.06592,
+      "root": "iq",
+      "type": "get",
+      "bytes": 165,
+      "namespaces": [
+        "jabber:client",
+        "urn:xmpp:ping"
+      ],
+      "hasBody": false,
+      "hasPing": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199142.120828,
+      "root": "iq",
+      "type": "result",
+      "bytes": 113,
+      "namespaces": [],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199146.21692,
+      "root": "message",
+      "type": "chat",
+      "bytes": 1165,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199146.218175,
+      "root": "message",
+      "type": "notify_ack",
+      "bytes": 132,
+      "namespaces": [
+        "jabber:client"
+      ],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199146.218494,
+      "root": "iq",
+      "type": "set",
+      "bytes": 1117,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199146.219434,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1039,
+      "namespaces": [
+        "jabber:client",
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199146.262538,
+      "root": "iq",
+      "type": "error",
+      "bytes": 1038,
+      "namespaces": [
+        "urn:ietf:params:xml:ns:xmpp-stanzas"
+      ],
+      "hasBody": true,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "43500.279",
+      "time": 199147.065799,
+      "root": "iq",
+      "type": "get",
+      "bytes": 165,
+      "namespaces": [
+        "jabber:client",
+        "urn:xmpp:ping"
+      ],
+      "hasBody": false,
+      "hasPing": true
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199147.194527,
+      "root": "iq",
+      "type": "result",
+      "bytes": 113,
+      "namespaces": [],
+      "hasBody": false,
+      "hasPing": false
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "43500.279",
+      "time": 199150.537677,
+      "root": "message",
+      "type": "groupchat",
+      "bytes": 723,
+      "namespaces": [],
+      "hasBody": true,
+      "hasPing": false
+    }
+  ],
+  "redaction": "No credentials, request values, identity values or customer bodies retained. Request/response field names, array lengths, initiator locations and protocol metadata only."
+}

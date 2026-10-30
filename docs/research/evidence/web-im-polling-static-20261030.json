@@ -1,0 +1,76 @@
+{
+  "capturedAt": "2026-10-30T10:30:16.592488+00:00",
+  "page": "https://imvendor.ctrip.com/main?currentTab=BC&lang=zh-CN",
+  "method": "Public script URLs read from live page; downloaded inside ego-browser nodejs; exact excerpts selected from those files. Static paths are not fault-injection results.",
+  "sources": [
+    {
+      "url": "https://bd-s.tripcdn.cn/ares/NFES/100017720/1793085240908/_next/static/chunks/commons-16402123d854e2fd.js",
+      "sha256": "49c6626849795b554e0837207f76f50fb11255c7fc690091bcef1fa64978e6ea",
+      "length": 182531,
+      "snippets": [
+        {
+          "label": "conversation-loop-5s",
+          "offset": 29242,
+          "code": "nreadCount=!!t,e.inited=!0}},{key:\"loop\",value:function(){try{window._n(\"HhL\")}catch(t){}return h.Z.conversationModel.loop({interval:5e3,success:function(t){try{window._n(\"ntC\")}catch(n){}e.checkResponse(t)},fail:function(e){try{window._n(\"Bz0\")}catch(t){}(0,f.y)(e)&&_.Z.logout(e)},params:{needTodoList:1}})}},{key:\"ping\",value:function(t){try{window._n(\"H8J\")}catch(n){}e.onlyUnreadCount=!!t,h.Z.conversationModel.ping().then(function(t){try{window._n(\"Cl1\")}catch(n){}e.checkResponse(t)})}},{key:\"pingSingleChat\",value:function"
+        },
+        {
+          "label": "conversation-list-route",
+          "offset": 146882,
+          "code": "ts);return(0,a.Z)(this,e)});function s(e){var t;try{window._n(\"dQs\")}catch(o){}return(0,r.Z)(this,s),(t=n.call(this,e)).url=\"getConversationList.json\",t.timeout=3e4,t.data={lastUpdateTime:null,convList:[],agentStatus:null},t.conversationExtraModel=new v.Z(e),t}return(0,o.Z)(s,[{key:\"isConvChange\",value:function(e,t){try{window._n(\"7KY\")}catch(n){}for(var o=0;o<E.length;o++){var"
+        },
+        {
+          "label": "conversation-incremental-cursor",
+          "offset": 147620,
+          "code": "key:\"ping\",value:function(e){var t=this;try{window._n(\"QMo\")}catch(n){}e=e||{},this.data.lastUpdateTime&&(e.startTime=this.data.lastUpdateTime);var o=(0,C.m)(location.search||\"\");return e.locale=o&&o.lang||\"zh-CN\",this.post(e).then(function(e){try{window._n(\"RYi\")}catch(n){}return e.lastUpdateTime&&(t.data.lastUpdateTime=e.lastUpdateTime),e.conversationList=e.conversationList||[],e})}},{key:\"loop\",value:function(e){var t=this;try{window._n(\"Tov\")}catch(n){}a=a||{};var o=e.interval,r=e.success,i=e.fail,a=e.params,c=function(){};return r=r||c,i=i||c,this.infinite(o,Z({},a),function(e){try{window._n(\"OC9\")}catch(n){}e.conversationList=e.conversa"
+        },
+        {
+          "label": "conversation-loop-cursor",
+          "offset": 148010,
+          "code": "key:\"loop\",value:function(e){var t=this;try{window._n(\"Tov\")}catch(n){}a=a||{};var o=e.interval,r=e.success,i=e.fail,a=e.params,c=function(){};return r=r||c,i=i||c,this.infinite(o,Z({},a),function(e){try{window._n(\"OC9\")}catch(n){}e.conversationList=e.conversationList||[],e.agentTodoTaskList=e.agentTodoTaskList||[],e.agentTodoTaskList.forEach(function(e){try{window._n(\"woM\")}catch(t){}e.chatType=\"waitlist\",e.id=e.taskKey}),e.conversationList.length>0?t.conversationExtraModel.fetchDynamicGroupNames({list:e.conversationList,gidKey:\"gid\",bizType:\"serviceType\"}).then(function(t){try{window._n(\"MeD\")}catch(n){}e.conversationList=t||[],r(e),M(e.conversationList)}):r(e),e.lastUpdateTime&&(t.data.lastUpdateTime=e.lastUpdateTime)},function(e){try{window._n(\"BJy\")}catch(t){}i(e),(0,g.Z)(f.Z.UBTTypeEnum.CATCHED_ERR,e)},function(e){try{window._n(\"s2A\")}catch(n){}t.data.lastUpdateTime&&(e.startTime=t.data.lastUpdateTime);var o=(0,C.m)(location.search||\"\");return e.locale=o&&o.lang||\"zh-CN\",e})}}]),s}(s.Z);n(13485);var I=function(e){(0,i.Z)(s,e);var t,n=(t=function(){if(\"undefined\"==typeof Reflect||!Reflect.construct||Reflect.construct.sham)return!1;if(\"function\"==typeof Proxy)return!0;try{return Boolean.prototype.valueOf.call(Reflect.construct"
+        },
+        {
+          "label": "response-then-timeout",
+          "offset": 138941,
+          "code": "key:\"infinite\",value:function(e,t,n,o,r){var i=this;try{window._n(\"Uct\")}catch(a){}var c=function(){try{window._n(\"GrD\")}catch(e){}i.infiniteTimerId&&clearTimeout(i.infiniteTimerId)},s=this;return function a(){try{window._n(\"Ijb\")}catch(d){}c(),\"function\"==typeof r&&(t=r(t)),i.post(t).then(function(t){try{window._n(\"uPd\")}catch(o){}n(t),s.infiniteTimerId=setTimeout(a,e)}).catch(function(t){try{window._n(\"cTb\")}catch(n){}o&&o(t),(0,y.y)(t)?m.Z.publish(u.Z.EventEnum.CURRENT_USER_TOKEN_INVALID,[]):s.infiniteTimerId=setTimeout(a,e)})}(),c}},{key:\"untilEnd\",value:function(e,t,n,o,r){var i=this;try{window._n(\"z7u\")}catch(a){}var c=function(){try{window._n(\"nhl\")}catch(e){}i.untilEndTimerId&&clearT"
+        }
+      ]
+    },
+    {
+      "url": "https://webresource.c-ctrip.com/ares2/basebiz.im/nodesdk/1.0.70/default/imsdk.js",
+      "sha256": "ce33a612748c356616d626dbd91a463795ad9b8b7b11a6660d00fe90ce4a3149",
+      "length": 197020,
+      "snippets": [
+        {
+          "label": "sdk-config",
+          "offset": 9612,
+          "code": "wayDomainFromServer:\"\",gatewayInternalDomainFromServer:\"\",wsAddressFromServer:\"\",wsInternalAddressFromServer:\"\",wsProtocol:\"\",disableUBT:!1,compensationInterval:1e4,debug:!1,lastMessageTime:0};e.exports={init:function(e){p.inited=!0,e.env&&"
+        },
+        {
+          "label": "sdk-message-poll-dispatch",
+          "offset": 67506,
+          "code": "n(3),m=!1,y=function(e){u.logConsole(\"------start new api loop\",e),r!=e&&(r=e,i.GetRecentMessages.loop({interval:e||3e3,success:function(e){if(e&&\"success\"==e.ResponseStatus.Ack.toLocaleLowerCase()&&e.messages&&s.isArray(e.messages)){for(var t=[],n=[],r=0;r<e.messages.length;r++)\"chat\"==e.messages[r].type?t.push(e.messages[r]):\"groupchat\"==e.messages[r].type&&n.push(e.messages[r]);if(t.length>0){var o=c.appendLocalId(t,e.localIds);o=c.jsonSerialize(o,null,f.ConversationType.SingleChat),a(o,{errorcode:0,conversationType:f.ConversationType.SingleChat,pollType:\"allChat\",lastMessageTimestamp:e.lastMessageTimestamp,localIds:e.localIds})}if(n.length>0){var i=c.appendLocalId(n,e.localIds);i=c.jsonSerialize(i,null,f.ConversationType.GroupChat),a(i,{errorcode:0,conversationType:f.ConversationType.GroupChat,pollType:\"allChat\",lastMessageTimestamp:e.lastMessageTimestamp,localIds:e.localIds})}}m||(m=!0,l.emitMultiArgs(f.EventType.SIGNAL_EVENT,f.SignalType.MessageCompensate,{result:1}))},fail:function(e){m&&(m=!1,l.emitMultiArgs(f.EventType.SIGNAL_EVENT,f.SignalType.MessageCompensate,{result:0})),u.logConsole(\"------chat message error\",e.response?e.response.status:e)},params:null}))};e.exports={startDemoteLoop:function(){y("
+        },
+        {
+          "label": "sdk-normal-frequent-demote",
+          "offset": 68627,
+          "code": ")},params:null}))};e.exports={startDemoteLoop:function(){y(5e3)},startNormalLoop:function(){var e=this;y(p.getCompensationInterval()),o&&clearTimeout(o),o=setTimeout(function(){e.stopLoop()},3e5)},startFrequentLoop:function(){y(p.getCompensationInterval()/2)},stopLoop:function(){r=null,i.GetRecentMessages.stopInfinte()},updateLoopBeginTime:function(e,t){r&&!t||i.GetRecentMessages.updateLoopBeginTime(e)}}},function(e,t,n){var r=n(26);e.exports=r},function(e,t,n){function r(e){return(r=\"function\"==typeof Symbol&&\"symbol\"==type"
+        },
+        {
+          "label": "sdk-connect-strategy",
+          "offset": 127821,
+          "code": "connect:function(){!p.isInWeb()||\"WebSocket\"in window||\"MozWebSocket\"in window?(l.startFrequentLoop(),s.getUID()?u.connect():i.GetMyInfo.post().then(function(e){var t=e.jid;s.setUID(t),u.connect()})[\"catch\"](function(e){})):(l.startDemoteLoop(),s.getUID()||i.GetMyInfo.post().then(function(e){var t=e.jid;s.setUID(t)})[\"catch\"](function(e){}))},reconnect:function(e){(u.isSocketOffline()||u.isSocketNotConnected()||!0===e)&&(c.logTrace({key:a.TraceLogTypes.SocketReconnect.key,Action:a.TraceLogTypes.SocketReconnect.action,Result:\"manual reconnect xmpp\"}),l.updateLoopBeginTime(Date.now()-12e4,!0),u.connect())},disconnect:function(){c.logTrace({key:a.TraceLogTypes.SocketConnect.key,Action:a.TraceLo"
+        },
+        {
+          "label": "sdk-connected-disconnected",
+          "offset": 138619,
+          "code": "r==g.ConnectionStatus.CONNECTED?(O.startNormalLoop(),E!=g.ConnectionStatus.CONNECTED&&(d.logTrace({key:g.TraceLogTypes.SocketConnect.key,Action:g.TraceLogTypes.SocketConnect.action,Result:\"XMPP client connected success\"}),C.emitMultiArgs(g.EventType.SIGNAL_EVENT,g.SignalType.SocketConnect,{result:1})),E=g.ConnectionStatus.CONNECTED,M=0,j=0):r==g.ConnectionStatus.DISCONNECTED&&(E==g.ConnectionStatus.CONNECTED&&O.updateLoopBeginTime((new Date).getTime()-12e4),O.startFrequentLoop(),E!=g.ConnectionStatus.CONNECTED&&E!=g.ConnectionStatus.NOTCONNECTED||(d.logTrace({key:g.TraceLogTypes.SocketConnect.key,Action:g.TraceLogTypes.SocketConnect.action,Result:\"XMPP client disconnect\"}),C.emitMultiArgs(g.EventType.SIGNAL_EVENT,g.SignalType.SocketConnect,{result:0})),E=g.ConnectionStatus.DISCONNECTED),C.emit(g.EventType.CONNECTION_STATUS_CHANGE,r)}(e,arguments.length>1&&void 0!==arguments[1]?arguments[1]:{})}),c.reconnect.delay=N(),c.start()[\"catch\"](function(e){d.logConsole(\"-------start error\",e)}),\"undefined\"!=typeof window?window.xmppClient=c:r.xmppClient=c})},j=0,N=function(){if(b.isInNode())return P(5e3,1e4);var e=2e4;return++j>6&&(e=6e4),P(.8,1.2)*e};e.exports={connect:function(){this.startConnectionCheck(),I()},isSocketConnected:function"
+        },
+        {
+          "label": "sdk-socket-message-dispatch",
+          "offset": 136983,
+          "code": "g:s})}}(e);break}var r=T.xmppSerialize(e);d.logConsole(\"--------xmpp message\",r);var o={};r.length>0&&r[0].createTime&&(o.conversationType=r[0].conversationType,o.lastMessageTimestamp=r[0].createTime,o.pollType=\"socket\"),S(r,o),function(){for(var e=arguments.length>0&&void 0!==arguments[0]?arguments[0]:[],t=0;t<e.length;t++)if(e[t]&&e[t].messageType<1e3&&e[t].messageType>=0)try{var n=y(\"message\",{id:e[t].messageId,type:\"notify_ack\",from:\"\".concat(h.getUID(),\"@\").concat(h.getWebsocketServiceName(),\"/\").concat(h.resource())});c&&\"online\"==c.status&&c.send(n)[\"catch\"](function(e){d.logConsole(\"------xmpp send ws ack err\",e)})}catch(e){}}(r);break;case\"error\":d.logConsole(\"--------xmpp error message\",e),function(e){var t=function(e){var t=\"\";try{for(var n=0;n<e.getChildElements().length;n++){v"
+        }
+      ]
+    }
+  ]
+}
