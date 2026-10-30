@@ -12,6 +12,7 @@
 //! settings are in `tauri.macos.conf.json`.
 
 pub mod adapter;
+pub mod peripheral_journal;
 pub mod assistant;
 pub mod commands;
 pub mod dto;
@@ -134,6 +135,12 @@ pub fn run() {
             adapter::im_mark_read,
             adapter::im_set_top,
             adapter::im_set_mark,
+            adapter::im_customer_scripts,
+            adapter::im_members,
+            adapter::im_invite_candidates,
+            adapter::im_invite,
+            adapter::im_transfer,
+            adapter::im_finish,
             adapter::notice_categories,
             adapter::notice_list,
             adapter::notice_mark_read,

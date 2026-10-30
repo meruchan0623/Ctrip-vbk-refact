@@ -18,9 +18,10 @@
 
 import type { AdapterFact, AppError, SendDisposition } from '../../ipc/src/contracts.ts';
 import { ErrorCodes } from '../../ipc/src/contracts.ts';
-import type { AgentStatus, MarkAction, UiMessage, UiNoticeCategory } from '../../ipc/src/client.ts';
+import type { AgentStatus, MarkAction, UiMessage, UiNoticeCategory, UiPeripheralWrite } from '../../ipc/src/client.ts';
 import type { AdapterDisplayPayload, AdapterOp, AdapterReplyPayload, AdapterResultMap } from '../../ipc/src/adapterProtocol.ts';
 import type { AdapterDeps } from './deps.ts';
+import { getCustomerScripts, getCurrentMembers, getInviteMemberListBySkillGroup, getLatestConversationState, finishConversation, inviteVenAgent, transferVenMaster, type PeripheralFailure, type PeripheralReadResult, type CurrentMember, type PeripheralConversation } from './peripheral.ts';
 import { Endpoints } from './endpoints.ts';
 import { businessHead } from './heads.ts';
 import type { SoaClient, SoaOutcome } from './soa.ts';
@@ -37,6 +38,12 @@ import { roomJidFromMessage, type ConversationStore, type RoleBook } from './sto
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
 
 export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
+  'im.customer_scripts': 'getCustomerScripts (evidence 51); nonempty entry schema unsupported',
+  'im.members': 'checkMemberStatus (evidence 55), current status and roles',
+  'im.invite_candidates': 'getInviteMemberListBySkillGroup (evidence 24)',
+  'im.invite': 'inviteVenAgent (evidence 29), independent membership read-back',
+  'im.transfer': 'transferVenMaster (evidence 26), targetRoles=[3,4,4] read-back',
+  'im.finish': 'finishConversation (47), status=4/inGroup=-1 read-back (48)',
   'im.messages': 'getMessageList (endpoint doc, evidence 70); checkMemberStatus roles (13500 doc, evidence 55)',
   'im.send_text': 'WS body/send_result (transports.md, evidence 35/40); SDK facade name unverified',
   'im.mark_read': 'PutAdviceOfReadByMsgId.json body (11679 doc, evidence 71)',
@@ -144,6 +151,10 @@ type Handler<K extends AdapterOp> = (ctx: RpcContext, args: unknown, state: RpcS
 interface RpcState {
   readonly sends: Map<string, Promise<SendDisposition>>;
   readonly categories: Map<string, NoticeCategoryInfo>;
+  selections?: Map<string, PeripheralSelection>;
+  peripheralWrites?: Map<string, Promise<UiPeripheralWrite>>;
+  selectionSequence?: number;
+  readonly selectionNamespace: string;
 }
 
 const imMessages: Handler<'im.messages'> = async (ctx, args) => {
@@ -357,7 +368,158 @@ const agentSetStatus: Handler<'agent.set_status'> = async (ctx, args) => {
   return { status: target as AgentStatus, confirmed: false };
 };
 
+function peripheralError(r: PeripheralFailure): never {
+  if (r.kind === 'unsupported') fail(ErrorCodes.HOST_UNSUPPORTED, `unsupported: missing ${r.missing.join(', ')}`);
+  if (r.kind === 'invalid') fail(ErrorCodes.ADAPTER_FAILED, `invalid argument: ${r.field}`);
+  if (r.kind === 'biz_failure') fail(ErrorCodes.ADAPTER_FAILED, 'peripheral operation rejected');
+  throw new RpcError(outcomeError(r.outcome, 'peripheral operation'));
+}
+function readValue<T>(r: PeripheralReadResult<T>): T { return r.kind === 'success' ? r.value : peripheralError(r); }
+function ensureCurrent(current: () => boolean): void {
+  if (!current()) fail(ErrorCodes.ADAPTER_NOT_READY, 'adapter session changed (nothing sent)');
+}
+
+export const PERIPHERAL_SELECTION_TTL_MS = 30_000;
+interface PeripheralSelection {
+  readonly mode: 'invite' | 'members'; readonly identity: string; readonly context: string; readonly expires: number; readonly targets: ReadonlySet<string>; readonly current: () => boolean;
+}
+function peripheralIdentity(view: PeripheralConversation): string {
+  return JSON.stringify([view.gid, view.sessionId, view.conversationKey, view.worksheetId, view.serviceType, view.conversationType, view.customerUid]);
+}
+function contextFingerprint(ctx: RpcContext): string { return JSON.stringify([ctx.roles.selfUid, ctx.deps.context]); }
+function uidKey(uid: string): string { return uid.trim().toLowerCase(); }
+function sameUid(a: string, b: string): boolean { return uidKey(a) === uidKey(b); }
+function memberPresent(m: CurrentMember): boolean { return m.status === '1'; }
+function merchant(m: CurrentMember): boolean { return m.roles[1] === 4 || m.roles[2] === 4; }
+function master(m: CurrentMember): boolean { return m.roles[0] === 3 && m.roles[1] === 4 && m.roles[2] === 4; }
+function memberAvatar(ctx: RpcContext, uid: string, raw: string | undefined): string | null {
+  const cached = ctx.roles.profileOf(uid).avatar;
+  return sameUid(uid, ctx.roles.selfUid) ? cached ?? raw ?? null : raw ?? cached ?? null;
+}
+function companyServiceMember(m: CurrentMember): boolean { return m.rolesv2?.length === 3 && m.rolesv2[0] === 0 && m.rolesv2[1] === 3 && m.rolesv2[2] === 5; }
+function rememberSelection(ctx: RpcContext, state: RpcState, view: PeripheralConversation, mode: 'invite' | 'members', targets: readonly string[], current: () => boolean) {
+  const selections = state.selections ??= new Map();
+  for (const [key, old] of selections) if (old.expires <= ctx.deps.now()) selections.delete(key);
+  if (selections.size >= 256) selections.delete(selections.keys().next().value!);
+  state.selectionSequence = (state.selectionSequence ?? 0) + 1;
+  const token = `selection-${state.selectionNamespace}-${state.selectionSequence}`;
+  const expires = ctx.deps.now() + PERIPHERAL_SELECTION_TTL_MS;
+  selections.set(token, { mode, identity: peripheralIdentity(view), context: contextFingerprint(ctx), expires, targets: new Set(targets), current });
+  return { selection_token: token, expires_at_ms: expires };
+}
+function validateSelection(ctx: RpcContext, state: RpcState, args: unknown, view: PeripheralConversation, mode: 'invite' | 'transfer' | 'finish', targets: readonly string[]): void {
+  const token = requireString(args, 'selection_token');
+  const selected = state.selections?.get(token);
+  if (!selected || !selected.current() || selected.mode !== (mode === 'invite' ? 'invite' : 'members') || selected.context !== contextFingerprint(ctx) || selected.identity !== peripheralIdentity(view) || selected.expires <= ctx.deps.now()) fail(ErrorCodes.ADAPTER_FAILED, 'selection expired or conversation changed; reload candidates');
+  if (mode !== 'finish' && (targets.length === 0 || new Set(targets).size !== targets.length || targets.some(uid => sameUid(uid, ctx.roles.selfUid) || !selected.targets.has(uid)))) fail(ErrorCodes.ADAPTER_FAILED, 'target was not explicitly selected from current candidates');
+}
+
+const imCustomerScripts: Handler<'im.customer_scripts'> = async (ctx, args) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  const content = recordOrNull(args)?.['content'];
+  if (typeof content !== 'string') fail(ErrorCodes.ADAPTER_FAILED, 'invalid argument: content');
+  const r = readValue(await getCustomerScripts(ctx.deps, ctx.soa, { content }));
+  ensureCurrent(current);
+  return r.items.length === 0 ? { kind: 'empty', raw_count: 0 } : { kind: 'unsupported', raw_count: r.items.length, reason: 'nonempty customerScripts fields have no captured schema' };
+};
+const imMembers: Handler<'im.members'> = async (ctx, args, state) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  const gid = requireString(args, 'gid');
+  const view = requireConversation(ctx, gid);
+  const members = readValue(await getCurrentMembers(ctx.deps, ctx.soa, gid));
+  ensureCurrent(current);
+  if (peripheralIdentity(requireConversation(ctx, gid)) !== peripheralIdentity(view)) fail(ErrorCodes.ADAPTER_FAILED, 'conversation changed during member read');
+  const selectable = members.filter(m => memberPresent(m) && merchant(m) && !master(m) && !sameUid(m.uid, ctx.roles.selfUid)).map(m => m.uid);
+  // Official member dialog excludes exactly the company service tuple. This
+  // changes presentation only; raw read-back and write eligibility stay intact.
+  return { members: members.filter(m => sameUid(m.uid, ctx.roles.selfUid) || (!companyServiceMember(m) && Number(m.status) > 0)).map(m => ({ uid: m.uid, nickname: m.nickname, status: m.status, roles: m.roles, avatar: memberAvatar(ctx, m.uid, m.avatar), can_transfer: selectable.includes(m.uid) })), fetched_at_ms: ctx.deps.now(), ...rememberSelection(ctx, state, view, 'members', selectable, current) };
+};
+const imInviteCandidates: Handler<'im.invite_candidates'> = async (ctx, args, state) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  const gid = requireString(args, 'gid');
+  const view = requireConversation(ctx, gid);
+  const parents = recordOrNull(args)?.['parent_skill_group_ids'];
+  if (parents !== undefined && (!Array.isArray(parents) || !parents.every(v => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0))) fail(ErrorCodes.ADAPTER_FAILED, 'invalid argument: parent_skill_group_ids');
+  const r = readValue(await getInviteMemberListBySkillGroup(ctx.deps, ctx.soa, view, parents === undefined ? {} : { parentSkillGroupIds: parents as number[] }));
+  ensureCurrent(current);
+  const members = readValue(await getCurrentMembers(ctx.deps, ctx.soa, gid));
+  ensureCurrent(current);
+  if (peripheralIdentity(requireConversation(ctx, gid)) !== peripheralIdentity(view)) fail(ErrorCodes.ADAPTER_FAILED, 'conversation changed during candidate read');
+  const present = new Set(members.filter(memberPresent).map(m => uidKey(m.uid)));
+  const agents = r.agents.filter(a => !sameUid(a.agentUid, ctx.roles.selfUid) && !present.has(uidKey(a.agentUid))).map(a => ({ uid: a.agentUid, nickname: a.nickname, avatar: memberAvatar(ctx, a.agentUid, a.avatar) }));
+  return { ...rememberSelection(ctx, state, view, 'invite', agents.map(a => a.uid), current), skill_groups: r.skillGroups.map(g => ({ skill_group_id: g.skillGroupId, name: g.skillGroupName })), agents };
+};
+
+async function peripheralWrite(ctx: RpcContext, args: unknown, state: RpcState, action: 'invite' | 'transfer' | 'finish'): Promise<UiPeripheralWrite> {
+  const attempt = { started: false };
+  try { return await peripheralWriteInner(ctx, args, state, action, attempt); }
+  catch (e) {
+    if (!attempt.started && e instanceof RpcError) return { kind: 'not_submitted', confirmed: false, reason: e.appError.message };
+    throw e;
+  }
+}
+
+async function peripheralWriteInner(ctx: RpcContext, args: unknown, state: RpcState, action: 'invite' | 'transfer' | 'finish', attempt: { started: boolean }): Promise<UiPeripheralWrite> {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  ensureCurrent(current);
+  const gid = requireString(args, 'gid');
+  const view = requireConversation(ctx, gid);
+  if (!view.sessionId) fail(ErrorCodes.HOST_UNSUPPORTED, 'unsupported: missing sessionId');
+  const raw = recordOrNull(args)?.['target_uids'];
+  const targets = action === 'transfer' ? [requireString(args, 'target_uid')] : action === 'invite' && Array.isArray(raw) && raw.every(v => typeof v === 'string' && v !== '') ? raw as string[] : [];
+  // Enrichment can change metadata without changing the service session. It
+  // must never turn an unresolved write into a new customer-visible attempt.
+  const key = JSON.stringify([action, view.gid, view.sessionId, [...targets].map(uidKey).sort()]);
+  const writes = state.peripheralWrites ??= new Map();
+  const previous = writes.get(key);
+  if (previous) { attempt.started = true; return previous; }
+  if (writes.size >= 1000) fail(ErrorCodes.ADAPTER_NOT_READY, 'peripheral action safety journal is full; restart the session before further actions');
+  validateSelection(ctx, state, args, view, action, targets);
+  const p = (async (): Promise<UiPeripheralWrite> => {
+    if (action !== 'finish') {
+      const before = readValue(await getCurrentMembers(ctx.deps, ctx.soa, gid));
+      ensureCurrent(current);
+      if (action === 'invite' && targets.some(uid => before.some(m => sameUid(m.uid, uid) && memberPresent(m)))) fail(ErrorCodes.ADAPTER_FAILED, 'target is already a current member; reload candidates');
+      if (action === 'transfer' && !before.some(m => sameUid(m.uid, targets[0]!) && memberPresent(m) && merchant(m) && !master(m))) fail(ErrorCodes.ADAPTER_FAILED, 'transfer target is no longer an eligible current member');
+      validateSelection(ctx, state, args, view, action, targets);
+    }
+    ensureCurrent(current);
+    if (peripheralIdentity(requireConversation(ctx, gid)) !== peripheralIdentity(view)) fail(ErrorCodes.ADAPTER_FAILED, 'conversation changed (nothing sent)');
+    validateSelection(ctx, state, args, view, action, targets);
+    attempt.started = true;
+    const result = action === 'invite' ? await inviteVenAgent(ctx.deps, ctx.soa, view, { venAgentUidList: targets }) : action === 'transfer' ? await transferVenMaster(ctx.deps, ctx.soa, view, { targetVenAgentUid: targets[0]! }) : await finishConversation(ctx.deps, ctx.soa, view);
+    if (result.kind === 'unsupported' || result.kind === 'invalid') attempt.started = false;
+    if (result.kind !== 'accepted' && result.kind !== 'unknown') peripheralError(result);
+    if (!current()) return { kind: 'unknown', confirmed: false, reason: 'session changed after submission; do not resubmit' };
+    let confirmed = false;
+    try {
+      if (action === 'finish') {
+        const read = readValue(await getLatestConversationState(ctx.deps, ctx.soa, gid));
+        confirmed = read.sessionId === view.sessionId && read.status === 4 && read.inGroup === -1;
+      } else {
+        const after = readValue(await getCurrentMembers(ctx.deps, ctx.soa, gid));
+        confirmed = action === 'invite' ? targets.every(uid => after.some(m => sameUid(m.uid, uid) && memberPresent(m))) : after.some(m => sameUid(m.uid, targets[0]!) && memberPresent(m) && master(m));
+      }
+    } catch { /* Read-back failure never replays a write or promotes acceptance. */ }
+    if (!current() || peripheralIdentity(requireConversation(ctx, gid)) !== peripheralIdentity(view)) return { kind: 'unknown', confirmed: false, reason: 'session changed after submission; do not resubmit' };
+    return confirmed ? { kind: 'confirmed', confirmed: true } : { kind: result.kind, confirmed: false, reason: 'independent read-back did not confirm; do not resubmit' };
+  })();
+  // Retain successes and errors: duplicate calls never replay an upstream write.
+  writes.set(key, p);
+  p.catch(() => { if (!attempt.started) writes.delete(key); }); // Proven pre-submit failure only.
+  return p;
+}
+const imInvite: Handler<'im.invite'> = (ctx, args, state) => peripheralWrite(ctx, args, state, 'invite');
+const imTransfer: Handler<'im.transfer'> = (ctx, args, state) => peripheralWrite(ctx, args, state, 'transfer');
+const imFinish: Handler<'im.finish'> = (ctx, args, state) => peripheralWrite(ctx, args, state, 'finish');
+
 const HANDLERS: { readonly [K in AdapterOp]: Handler<K> } = {
+  'im.customer_scripts': imCustomerScripts,
+  'im.members': imMembers,
+  'im.invite_candidates': imInviteCandidates,
+  'im.invite': imInvite,
+  'im.transfer': imTransfer,
+  'im.finish': imFinish,
   'im.messages': imMessages,
   'im.send_text': imSendText,
   'im.mark_read': imMarkRead,
@@ -376,8 +538,9 @@ export interface Rpc {
   handle(request: unknown): Promise<AdapterReplyPayload | null>;
 }
 
+let rpcSequence = 0;
 export function createRpc(ctx: RpcContext): Rpc {
-  const state: RpcState = { sends: new Map(), categories: new Map() };
+  const state: RpcState = { sends: new Map(), categories: new Map(), selectionNamespace: `${ctx.deps.now()}-${ctx.deps.random()}-${++rpcSequence}` };
   return {
     async handle(request) {
       const r = recordOrNull(request);

@@ -492,6 +492,30 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       convFor(ctx, gid);
       return updateConv(gid, (c) => ({ ...c, is_top: !!top }));
     },
+    [UiCommands.IM_CUSTOMER_SCRIPTS]: async (p) => {
+      checkAccount(p);
+      throw appError(ErrorCodes.HOST_UNSUPPORTED, '示例模式未连接官方成员与话术接口');
+    },
+    [UiCommands.IM_MEMBERS]: async (p) => {
+      checkAccount(p);
+      throw appError(ErrorCodes.HOST_UNSUPPORTED, '示例模式未连接官方成员与话术接口');
+    },
+    [UiCommands.IM_INVITE_CANDIDATES]: async (p) => {
+      checkAccount(p);
+      throw appError(ErrorCodes.HOST_UNSUPPORTED, '示例模式未连接官方成员与话术接口');
+    },
+    [UiCommands.IM_INVITE]: async (p) => {
+      checkAccount(p);
+      throw appError(ErrorCodes.HOST_UNSUPPORTED, '示例模式未连接官方成员与话术接口');
+    },
+    [UiCommands.IM_TRANSFER]: async (p) => {
+      checkAccount(p);
+      throw appError(ErrorCodes.HOST_UNSUPPORTED, '示例模式未连接官方成员与话术接口');
+    },
+    [UiCommands.IM_FINISH]: async (p) => {
+      checkAccount(p);
+      throw appError(ErrorCodes.HOST_UNSUPPORTED, '示例模式未连接官方成员与话术接口');
+    },
     [UiCommands.IM_SET_MARK]: async (p) => {
       const ctx = checkAccount(p);
       const { gid, action } = p as { gid: string; action: number };

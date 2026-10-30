@@ -15,7 +15,7 @@
  */
 
 import type { AccountContext, AdapterFactEnvelope, AppError, SendDisposition, TransportState } from './contracts.ts';
-import type { AgentStatus, MarkAction, OrderSearchResult, UiConversation, UiMessage, UiNotice, UiNoticeCategory } from './client.ts';
+import type { AgentStatus, MarkAction, OrderSearchResult, UiConversation, UiMessage, UiNotice, UiNoticeCategory, UiCustomerScripts, UiMembers, UiInviteCandidates, UiPeripheralWrite } from './client.ts';
 
 export const AdapterCommands = {
   /** Page booted on an official IM page; host answers with the bound account (null while identity unknown). */
@@ -86,6 +86,12 @@ export interface MessageProfilePatch {
 export type AdapterRequest =
   | { readonly req_id: string; readonly op: 'im.messages'; readonly args: { readonly gid: string } }
   | { readonly req_id: string; readonly op: 'im.send_text'; readonly args: { readonly gid: string; readonly local_id: string; readonly text: string; readonly original: string | null; readonly quote_id: string | null } }
+  | { readonly req_id: string; readonly op: 'im.customer_scripts'; readonly args: { readonly content: string } }
+  | { readonly req_id: string; readonly op: 'im.members'; readonly args: { readonly gid: string } }
+  | { readonly req_id: string; readonly op: 'im.invite_candidates'; readonly args: { readonly gid: string; readonly parent_skill_group_ids?: readonly number[] } }
+  | { readonly req_id: string; readonly op: 'im.invite'; readonly args: { readonly gid: string; readonly selection_token: string; readonly target_uids: readonly string[] } }
+  | { readonly req_id: string; readonly op: 'im.transfer'; readonly args: { readonly gid: string; readonly selection_token: string; readonly target_uid: string } }
+  | { readonly req_id: string; readonly op: 'im.finish'; readonly args: { readonly gid: string; readonly selection_token: string } }
   | { readonly req_id: string; readonly op: 'im.mark_read'; readonly args: { readonly gid: string } }
   | { readonly req_id: string; readonly op: 'im.set_mark'; readonly args: { readonly gid: string; readonly action: MarkAction } }
   | { readonly req_id: string; readonly op: 'notice.categories'; readonly args: Record<string, never> }
@@ -103,6 +109,12 @@ export interface AdapterResultMap {
   'im.messages': readonly UiMessage[];
   'im.send_text': SendDisposition;
   'im.mark_read': null;
+  'im.customer_scripts': UiCustomerScripts;
+  'im.members': UiMembers;
+  'im.invite_candidates': UiInviteCandidates;
+  'im.invite': UiPeripheralWrite;
+  'im.transfer': UiPeripheralWrite;
+  'im.finish': UiPeripheralWrite;
   'im.set_mark': null;
   'notice.categories': readonly UiNoticeCategory[];
   'notice.list': readonly UiNotice[];

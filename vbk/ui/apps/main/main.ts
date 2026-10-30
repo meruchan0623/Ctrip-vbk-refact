@@ -58,6 +58,7 @@ import {
 } from '../_shared/guards.ts';
 import type { SoundName } from '../_shared/guards.ts';
 import { playSound, stopSound } from './sound.ts';
+import { createPeripheralPanel, type PeripheralKind, type PeripheralPanelState } from './peripheralPanel.ts';
 import { settleAccountSend } from './sendScope.ts';
 import { messageAlignment } from './message-alignment.ts';
 import { mergeMessageProfile, renderMessageAvatar } from './message-profile.ts';
@@ -90,6 +91,7 @@ import {
   orderContactReduce,
   orderDetailUrl,
   previewOf,
+  peripheralWriteView,
   pushBanner,
   resumeBanners,
   roleLabel,
@@ -164,6 +166,8 @@ interface MainState {
   readonly order: OrderContactState;
   readonly orderBusyId: string | null;
   // overlays
+  readonly peripheral: PeripheralPanelState | null;
+  readonly scriptsQuery: string;
   readonly meMenu: boolean;
   readonly logoutDialog: { readonly account: UiAccount; readonly mode: LogoutMode } | null;
   readonly editingTab: { readonly accountId: string; readonly value: string } | null;
@@ -211,6 +215,8 @@ const initial: MainState = {
   orderQuery: '',
   order: { kind: 'idle' },
   orderBusyId: null,
+  peripheral: null,
+  scriptsQuery: '',
   meMenu: false,
   logoutDialog: null,
   editingTab: null,
@@ -224,6 +230,34 @@ const sel = selectIpc();
 const ipc = sel.ipc;
 const root = document.getElementById('app');
 if (!root) throw new Error('#app missing');
+
+const peripheral = createPeripheralPanel({
+  current: () => {
+    const acc = activeAccount();
+    const gid = S().activeGid;
+    return acc?.state === 'online' && gid ? { account: acc.context, gid } : null;
+  },
+  invoke: (command, payload) => ipc.invoke(command, payload),
+  now: Date.now,
+  publish: (state) => {
+    const opening = state !== null && S().peripheral === null;
+    store.patch({ peripheral: state });
+    if (opening) queueMicrotask(() => document.querySelector<HTMLElement>('[data-peripheral-dialog]')?.focus());
+  },
+  refreshConversation: async (scope) => {
+    const rows = await ipc.invoke<unknown>(UiCommands.IM_CONVERSATIONS, { account: scope.account });
+    if (stillActive(scope.account) && S().activeGid === scope.gid && Array.isArray(rows)) {
+      store.patch({ conversations: rows.filter(isUiConversation) });
+    }
+  },
+});
+
+function openPeripheral(kind: PeripheralKind): void {
+  if (activeAccount() && activeConv()) {
+    if (kind === 'scripts') store.patch({ scriptsQuery: '' });
+    void peripheral.open(kind);
+  }
+}
 
 // --------------------------------------------------------------- helpers
 
@@ -381,10 +415,12 @@ async function loadNet(): Promise<void> {
 function applyAccountSnapshot(snap: UiAccountSnapshot): void {
   const prev = S().accounts?.active_account_id ?? null;
   const nextAccount = snap.accounts.find((a) => a.context.account_id === snap.active_account_id);
+  if (nextAccount?.state !== 'online') peripheral.close();
   const attempt = S().loginAttempt;
   // The login attempt is over once no account is logging in any more.
   const loginAttempt = attempt && snap.accounts.some((a) => a.state === 'logging_in') ? attempt : null;
   if (snap.active_account_id !== prev || activeAccount()?.context.environment !== nextAccount?.context.environment || activeAccount()?.context.session_generation !== nextAccount?.context.session_generation) {
+    peripheral.close();
     store.patch({ accounts: snap, accountsError: null, loginAttempt, ...ACCOUNT_SCOPED_RESET });
     void loadForActiveAccount();
   } else {
@@ -471,6 +507,7 @@ async function openConversation(gid: string, reveal = true): Promise<void> {
     store.patch({ view, ctxMenu: null, banners });
     return;
   }
+  peripheral.close();
   store.patch({ activeGid: gid, view, banners, draft: s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
   const list = await invokeQuiet<UiMessage[]>(UiCommands.IM_MESSAGES, { account: acc.context, gid });
   if (list && S().activeGid === gid && stillActive(acc.context)) {
@@ -1270,7 +1307,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
     h(
       'div',
       { class: 'chips' },
-      chip(t('composer.phrases'), IC.chat, 'phrases'),
+      h('button', { class: 'chipbtn', dataset: { chip: 'phrases' }, onclick: () => openPeripheral('scripts') }, icon(IC.chat, 13), t('composer.phrases')),
       chip(t('composer.recommend'), IC.box, 'recommend'),
       h('button', { class: cx('chipbtn', { on: s.hideInboundTr }), dataset: { chip: 'hide-tr' }, title: s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr'), onclick: () => store.patch({ hideInboundTr: !S().hideInboundTr }) }, icon(IC.translate, 13), s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr')),
     ),
@@ -1281,7 +1318,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
       h('button', { class: 'ibtn', 'aria-label': t('composer.screenshot'), title: shotKey ? `${t('composer.screenshot')} ${shotKey}` : t('composer.screenshot'), disabled: finished, dataset: { tool: 'screenshot' }, onclick: () => void attach('screenshot') }, icon(IC.scissors, 18)),
       h('button', { class: 'ibtn', 'aria-label': t('composer.image'), title: t('composer.image'), disabled: finished, dataset: { tool: 'image' }, onclick: () => void attach('image') }, icon(IC.image, 18)),
       h('button', { class: 'ibtn', 'aria-label': t('composer.file'), title: t('composer.file'), disabled: finished, dataset: { tool: 'file' }, onclick: () => void attach('file') }, icon(IC.file, 18)),
-      notWired(h('button', { class: 'ibtn', 'aria-label': t('composer.phrases'), dataset: { tool: 'phrases' } }, icon(IC.chat, 18)), t('composer.notWired', { action: t('composer.phrases') })),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.phrases'), dataset: { tool: 'phrases' }, onclick: () => openPeripheral('scripts') }, icon(IC.chat, 18)),
       conv.lang !== 'zh' && s.prefs?.assistant.enabled && s.prefs.assistant.outbound_translation
         ? h('button', { class: cx('ibtn', { on: !s.trBarOff }), 'aria-label': t('composer.trToggle'), title: t('composer.trToggleTitle'), dataset: { tool: 'translate' }, onclick: () => store.patch({ trBarOff: !S().trBarOff }) }, icon(IC.translate, 18))
         : null,
@@ -1420,9 +1457,10 @@ function chatPane(s: MainState): HTMLElement {
       { class: 'chat-h' },
       h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)),
       h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, conv.title, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null, h('span', { class: 'chip chip-biz' }, type)), h('div', { class: 'chat-sub' }, sub)),
-      notWired(h('button', { class: 'ibtn', 'aria-label': t('chat.transfer'), dataset: { chatAct: 'transfer' } }, icon(IC.swap, 17)), t('chat.notWired', { action: t('chat.transfer') })),
-      notWired(h('button', { class: 'ibtn', 'aria-label': t('chat.invite'), dataset: { chatAct: 'invite' } }, icon(IC.userPlus, 17)), t('chat.notWired', { action: t('chat.invite') })),
-      notWired(h('button', { class: 'btn sm', dataset: { chatAct: 'end' } }, icon(IC.exit, 14), t('chat.end')), t('chat.notWired', { action: t('chat.end') })),
+      h('button', { class: 'ibtn', 'aria-label': t('chat.transfer'), disabled: isDone(conv), dataset: { chatAct: 'transfer' }, onclick: () => openPeripheral('transfer') }, icon(IC.swap, 17)),
+      h('button', { class: 'ibtn', 'aria-label': t('chat.invite'), disabled: isDone(conv), dataset: { chatAct: 'invite' }, onclick: () => openPeripheral('invite') }, icon(IC.userPlus, 17)),
+      h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end' }, onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),
+      h('button', { class: 'ibtn', 'aria-label': '会话成员', title: '会话成员', dataset: { chatAct: 'members' }, onclick: () => openPeripheral('members') }, icon(IC.userPlus, 17)),
       h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side' }, onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     ),
     netView(s.net).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
@@ -1638,6 +1676,71 @@ function logoutDialog(s: MainState): HTMLElement | null {
   );
 }
 
+function peripheralDialog(s: MainState): HTMLElement | null {
+  const d = s.peripheral;
+  if (!d || !stillActive(d.scope.account) || s.activeGid !== d.scope.gid) return null;
+  const titles: Record<PeripheralKind, string> = { members: '会话成员', scripts: '快捷话术', invite: '邀请客服', transfer: '转交主客服', finish: '结束会话' };
+  const title = titles[d.kind];
+  const target = activeConv(s)?.title || d.scope.gid;
+  const writable = d.kind === 'invite' || d.kind === 'transfer' || d.kind === 'finish';
+  const selection = d.kind === 'invite' ? d.candidates : d.members;
+  const selectedExpired = selection?.expires_at_ms ?? 0;
+  const expired = selectedExpired > 0 && selectedExpired <= s.now;
+  const tokenReady = !!selection?.selection_token?.trim() && Number.isFinite(selectedExpired) && selectedExpired > s.now;
+  const result = d.write?.kind === 'not_submitted'
+    ? { title: '尚未提交', message: '未进入上游写入。请只读刷新成员和会话后，再次确认。', confirmed: false }
+    : d.write ? peripheralWriteView(d.write) : null;
+  const memberRows = d.members?.members ?? [];
+  const transferRows = d.kind === 'transfer' ? memberRows.filter((member) => member.can_transfer === true) : memberRows;
+  const submitDisabled = d.busy || d.submitted || !tokenReady || (d.kind !== 'finish' && d.selected.length === 0);
+  let body: Node;
+  if (d.kind === 'scripts') {
+    body = h('div', { class: 'peripheral-body' },
+      h('form', { class: 'peripheral-search', onsubmit: (e: Event) => { e.preventDefault(); void peripheral.refresh(undefined, S().scriptsQuery); } },
+        h('input', { class: 'inp', 'aria-label': '搜索话术', placeholder: '搜索话术', value: s.scriptsQuery, dataset: { fid: 'scripts-search' }, oninput: (e: Event) => store.patch({ scriptsQuery: (e.target as HTMLInputElement).value }) }),
+        h('button', { class: 'btn', type: 'submit', disabled: d.busy }, '搜索')),
+      d.scripts?.kind === 'empty' ? h('p', { class: 'peripheral-empty' }, '暂无可用话术') : null,
+      d.scripts?.kind === 'unsupported' ? h('div', { class: 'notice-box' }, '返回了话术条目，但内容格式尚未验证，暂不支持插入或发送。') : null);
+  } else if (d.kind === 'invite') {
+    body = h('div', { class: 'peripheral-body' },
+      h('p', { class: 'muted' }, '展开技能组，再明确选择需要邀请的客服。'),
+      h('div', { class: 'peripheral-groups' },
+        h('button', { class: 'btn sm', disabled: d.busy, onclick: () => void peripheral.refresh() }, '根技能组'),
+        (d.candidates?.skill_groups ?? []).map((group) => h('button', { class: 'btn sm', disabled: d.busy, onclick: () => void peripheral.refresh([group.skill_group_id]) }, group.name))),
+      h('div', { class: 'peripheral-list', role: 'group', 'aria-label': '可邀请客服' }, (d.candidates?.agents ?? []).map((agent) => h('label', { class: 'peripheral-member' },
+        h('input', { type: 'checkbox', checked: d.selected.includes(agent.uid), disabled: d.busy || d.submitted || expired, onchange: () => peripheral.select(agent.uid) }),
+        h('span', { class: 'ava sm', 'aria-hidden': 'true' }, renderMessageAvatar(document, agent.nickname || agent.uid, agent.avatar)),
+        h('span', null, h('b', null, agent.nickname || agent.uid), h('span', { class: 'peripheral-id' }, agent.uid))))),
+      !d.busy && d.candidates && !d.candidates.agents.length ? h('p', { class: 'peripheral-empty' }, '当前技能组没有可选客服，请选择其他技能组。') : null);
+  } else if (d.kind === 'finish') {
+    body = h('div', { class: 'peripheral-body' },
+      h('p', null, '确认结束当前服务会话？'),
+      h('p', { class: 'muted' }, '请先确认客户已得到回复，并完成必要的主客服交接。结束后以服务器读回的会话状态为准。'));
+  } else {
+    body = h('div', { class: 'peripheral-body' },
+      d.kind === 'transfer' ? h('p', { class: 'muted' }, '选择一位当前可接任的成员。可转交范围由服务器核验。') : null,
+      h('div', { class: 'peripheral-list', role: d.kind === 'transfer' ? 'radiogroup' : 'list', 'aria-label': title }, transferRows.map((member) => h(d.kind === 'transfer' ? 'label' : 'div', { class: 'peripheral-member', ...(d.kind === 'members' ? { role: 'listitem' } : {}) },
+        d.kind === 'transfer' ? h('input', { type: 'radio', name: 'transfer-member', checked: d.selected.includes(member.uid), disabled: d.busy || d.submitted || expired, onchange: () => peripheral.select(member.uid) }) : null,
+        h('span', { class: 'ava sm', 'aria-hidden': 'true' }, renderMessageAvatar(document, member.nickname || member.uid, member.avatar)),
+        h('span', null, h('b', null, member.nickname || member.uid), h('span', { class: 'peripheral-id' }, member.uid)),
+        h('span', { class: 'peripheral-member-status' }, `状态 ${member.status}`)))),
+      !d.busy && d.members && transferRows.length === 0 ? h('p', { class: 'peripheral-empty' }, d.kind === 'transfer' ? '当前没有可转交的成员' : '未返回会话成员') : null);
+  }
+  return h('div', { class: 'shade peripheral-shade', onclick: () => peripheral.close() },
+    h('div', { class: 'dlg peripheral-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'peripheral-title', tabindex: '-1', dataset: { peripheralDialog: d.kind }, onclick: (e: Event) => e.stopPropagation() },
+      h('div', { class: 'dlg-h' }, h('span', { id: 'peripheral-title' }, title), h('button', { class: 'ibtn', 'aria-label': '关闭对话框', onclick: () => peripheral.close() }, icon(IC.close, 16))),
+      h('div', { class: 'peripheral-context' }, target),
+      body,
+      d.busy ? h('div', { class: 'peripheral-note', role: 'status' }, h('span', { class: 'spin' }), d.submitted ? '正在提交，请勿重复操作…' : '正在只读加载…') : null,
+      d.error ? h('div', { class: 'notice-box err peripheral-note', role: 'alert' }, d.error) : null,
+      d.notice || expired ? h('div', { class: 'notice-box peripheral-note', role: 'status' }, d.notice || '候选已过期。请只读刷新后重新选择。') : null,
+      result ? h('div', { class: cx('notice-box', 'peripheral-note', { 'peripheral-confirmed': result.confirmed }), role: 'status' }, h('b', null, result.title), h('p', null, result.message)) : null,
+      h('div', { class: 'dlg-f' },
+        h('button', { class: 'btn', disabled: d.busy, onclick: () => void peripheral.refresh(undefined, S().scriptsQuery) }, d.kind === 'scripts' ? '刷新话术' : '只读刷新成员/会话'),
+        h('button', { class: 'btn', onclick: () => peripheral.close() }, '关闭'),
+        writable && !d.submitted ? h('button', { class: 'btn pri', disabled: submitDisabled, dataset: { action: `peripheral-${d.kind}-confirm` }, onclick: () => void peripheral.submit() }, d.kind === 'finish' ? '确认结束' : d.kind === 'transfer' ? '确认转交' : '确认邀请') : null)));
+}
+
 function render(s: MainState): Node {
   const hasAccount = !!activeAccount(s);
   const view = !hasAccount ? welcomeView(s) : s.view === 'messages' ? messagesView(s) : s.view === 'notifications' ? notificationsView(s) : orderView(s);
@@ -1650,6 +1753,7 @@ function render(s: MainState): Node {
     meMenu(s),
     contextMenu(s),
     logoutDialog(s),
+    peripheralDialog(s),
     bannerStack(s),
     s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast) : null,
   );
@@ -1665,7 +1769,18 @@ document.addEventListener('mousedown', () => {
   if (s.ctxMenu || s.meMenu || s.emoOpen) store.patch({ ctxMenu: null, meMenu: false, emoOpen: false });
 });
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab' && S().peripheral) {
+    const dialog = document.querySelector<HTMLElement>('[data-peripheral-dialog]');
+    const controls = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')] : [];
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (first && last && (e.shiftKey ? document.activeElement === first || document.activeElement === dialog : document.activeElement === last || document.activeElement === dialog)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    }
+  }
   if (e.key === 'Escape') {
+    if (S().peripheral) peripheral.close();
     const s = S();
     if (s.ctxMenu || s.meMenu || s.logoutDialog || s.emoOpen) store.patch({ ctxMenu: null, meMenu: false, logoutDialog: null, emoOpen: false });
   }

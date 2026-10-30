@@ -108,6 +108,12 @@ export const UiCommands = {
   IM_SET_TOP: 'im_set_top', // {account, gid, top}
   IM_SET_MARK: 'im_set_mark', // {account, gid, action: 0..5}  (official setWorkSheetStar)
   IM_MARK_READ: 'im_mark_read', // {account, gid}
+  IM_CUSTOMER_SCRIPTS: 'im_customer_scripts', // {account, content} → UiCustomerScripts
+  IM_MEMBERS: 'im_members', // {account, gid} → UiMembers
+  IM_INVITE_CANDIDATES: 'im_invite_candidates', // {account, gid, parent_skill_group_ids?} → UiInviteCandidates
+  IM_INVITE: 'im_invite', // {account, gid, selection_token, target_uids} → UiPeripheralWrite
+  IM_TRANSFER: 'im_transfer', // {account, gid, selection_token, target_uid} → UiPeripheralWrite
+  IM_FINISH: 'im_finish', // {account, gid, selection_token} → UiPeripheralWrite
   // notification centre (official getIQConversations / getIQMessages / putAdviceofreadIQMessage)
   NOTICE_CATEGORIES: 'notice_categories', // {account} → UiNoticeCategory[]
   NOTICE_LIST: 'notice_list', // {account, category_id} → UiNotice[]
@@ -300,3 +306,16 @@ export interface UiTsimStatus {
   readonly logged_in: boolean;
   readonly user: string | null;
 }
+
+/** Nonempty script entries have no captured field schema; never expose guessed reply text. */
+export interface UiCustomerScripts { readonly kind: 'empty' | 'unsupported'; readonly raw_count: number; readonly reason?: string }
+export interface UiMember { readonly avatar?: string | null; readonly uid: string; readonly nickname: string | null; readonly status: string; readonly roles: readonly number[]; readonly can_transfer: boolean }
+export interface UiMembers { readonly members: readonly UiMember[]; readonly fetched_at_ms: number; readonly selection_token: string; readonly expires_at_ms: number }
+export interface UiInviteCandidates {
+  readonly selection_token: string; readonly expires_at_ms: number;
+  readonly skill_groups: readonly { readonly skill_group_id: number; readonly name: string }[];
+  readonly agents: readonly { readonly uid: string; readonly nickname: string | null; readonly avatar?: string | null }[];
+}
+/** Only a matching independent read-back makes an action confirmed. A repeated
+ * same action in the same session returns the original result without another write. */
+export interface UiPeripheralWrite { readonly kind: 'confirmed' | 'accepted' | 'unknown' | 'not_submitted'; readonly confirmed: boolean; readonly reason?: string }

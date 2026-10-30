@@ -1095,3 +1095,69 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+// Peripheral command results (client.ts). Display-only, never persisted.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiMemberDto {
+    #[serde(default)]
+    pub avatar: Option<String>,
+    pub uid: String,
+    pub nickname: Option<String>,
+    pub status: String,
+    pub roles: Vec<i64>,
+    pub can_transfer: bool,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiMembersDto {
+    pub members: Vec<UiMemberDto>,
+    pub fetched_at_ms: i64,
+    pub selection_token: String,
+    pub expires_at_ms: i64,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiSkillGroupDto {
+    pub skill_group_id: u64,
+    pub name: String,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiInviteAgentDto {
+    #[serde(default)]
+    pub avatar: Option<String>,
+    pub uid: String,
+    pub nickname: Option<String>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiInviteCandidatesDto {
+    pub selection_token: String,
+    pub expires_at_ms: i64,
+    pub skill_groups: Vec<UiSkillGroupDto>,
+    pub agents: Vec<UiInviteAgentDto>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CustomerScriptsKindDto {
+    Empty,
+    Unsupported,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiCustomerScriptsDto {
+    pub kind: CustomerScriptsKindDto,
+    pub raw_count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PeripheralWriteKindDto {
+    Confirmed,
+    Accepted,
+    Unknown,
+    NotSubmitted,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiPeripheralWriteDto {
+    pub kind: PeripheralWriteKindDto,
+    pub confirmed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}

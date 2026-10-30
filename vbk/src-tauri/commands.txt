@@ -36,6 +36,12 @@ im_send_text
 im_mark_read
 im_set_top
 im_set_mark
+im_customer_scripts
+im_members
+im_invite_candidates
+im_invite
+im_transfer
+im_finish
 notice_categories
 notice_list
 notice_mark_read

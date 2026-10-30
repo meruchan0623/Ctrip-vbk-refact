@@ -39,6 +39,7 @@ use crate::dto::{
 };
 use crate::events;
 use crate::login;
+use crate::peripheral_journal;
 use crate::state::HostState;
 
 use display::{
@@ -287,6 +288,7 @@ pub struct AdapterState {
     pending: Mutex<PendingTable>,
     pinned: Mutex<PinnedTable>,
     outbound: Option<Mutex<outbound_journal::OutboundJournal>>,
+    peripheral: Option<Mutex<peripheral_journal::PeripheralJournal>>,
     epoch: AtomicU64,
     /// Account the main shell last addressed (proxy for the active account).
     focus: Mutex<Option<AccountContext>>,
@@ -299,6 +301,7 @@ impl AdapterState {
             pending: Mutex::new(PendingTable::default()),
             pinned: Mutex::new(pinned),
             outbound: None,
+            peripheral: None,
             epoch: AtomicU64::new(0),
             focus: Mutex::new(None),
         }
@@ -321,6 +324,14 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .ok()
         .and_then(|root| {
             outbound_journal::OutboundJournal::open(root.join("state").join("outbound")).ok()
+        })
+        .map(Mutex::new);
+    adapter.peripheral = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .and_then(|root| {
+            peripheral_journal::PeripheralJournal::open(root.join("state").join("peripheral")).ok()
         })
         .map(Mutex::new);
     app.manage(adapter);
@@ -948,6 +959,178 @@ pub async fn im_set_mark(
     Ok(())
 }
 
+// ----------------------------------------------------------- peripheral APIs
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_customer_scripts(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    content: String,
+) -> CmdResult<display::UiCustomerScriptsDto> {
+    guard(&state, webview.label(), "im_customer_scripts")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let result = forward(
+        &app,
+        &ctx,
+        "im.customer_scripts",
+        serde_json::json!({"content": content}),
+        READ_TIMEOUT,
+    )
+    .await
+    .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(result)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_members(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+) -> CmdResult<display::UiMembersDto> {
+    guard(&state, webview.label(), "im_members")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let result = forward(
+        &app,
+        &ctx,
+        "im.members",
+        serde_json::json!({"gid": gid}),
+        READ_TIMEOUT,
+    )
+    .await
+    .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(result)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_invite_candidates(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    parent_skill_group_ids: Option<Vec<u64>>,
+) -> CmdResult<display::UiInviteCandidatesDto> {
+    guard(&state, webview.label(), "im_invite_candidates")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let mut args = serde_json::json!({"gid": gid});
+    if let Some(ids) = parent_skill_group_ids {
+        args["parent_skill_group_ids"] = serde_json::json!(ids);
+    }
+    let result = forward(&app, &ctx, "im.invite_candidates", args, READ_TIMEOUT)
+        .await
+        .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(result)
+}
+
+/// A missing host reply after emit cannot authorize another write. The page's
+/// per-session action journal also returns the first result on duplicate calls.
+fn peripheral_write_outcome(
+    result: Result<Value, RequestFailure>,
+) -> Result<display::UiPeripheralWriteDto, AppError> {
+    match result {
+        Ok(v) => match serde_json::from_value::<display::UiPeripheralWriteDto>(v) {
+            Ok(r) if r.confirmed == (r.kind == display::PeripheralWriteKindDto::Confirmed) => Ok(r),
+            _ => Ok(display::UiPeripheralWriteDto {
+                kind: display::PeripheralWriteKindDto::Unknown,
+                confirmed: false,
+                reason: Some(
+                    "invalid reply after submission; read back and do not resubmit".into(),
+                ),
+            }),
+        },
+        Err(f) if f.emitted && !f.from_page => Ok(display::UiPeripheralWriteDto {
+            kind: display::PeripheralWriteKindDto::Unknown,
+            confirmed: false,
+            reason: Some(
+                "host reply missing after submission; read back and do not resubmit".into(),
+            ),
+        }),
+        Err(f) => Err(f.error),
+    }
+}
+
+/// All three production commands cross this durable admission boundary before
+/// emitting an RPC. A fresh selection token never clears an uncertain room /
+/// action / targets barrier, including after page or account-generation changes.
+async fn request_peripheral_once(
+    app: &AppHandle,
+    state: &HostState,
+    ctx: &AccountContext,
+    intent: &peripheral_journal::Intent,
+) -> Result<display::UiPeripheralWriteDto, AppError> {
+    let module = module(app)?;
+    let journal = module.peripheral.as_ref().ok_or_else(|| {
+        AppError::new("im.peripheral_journal_unavailable", "durable peripheral storage unavailable; nothing submitted")
+    })?;
+    peripheral_journal::dispatch_once(journal, ctx, intent, || async {
+        let (op, args) = match intent.action {
+            peripheral_journal::Action::Invite => ("im.invite", serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token, "target_uids": intent.targets })),
+            peripheral_journal::Action::Transfer => ("im.transfer", serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token, "target_uid": intent.targets.first() })),
+            peripheral_journal::Action::Finish => ("im.finish", serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token })),
+        };
+        let result = request_inner(app, ctx, op, args, WRITE_TIMEOUT).await;
+        state.lock().accounts.validate(ctx)?;
+        peripheral_write_outcome(result)
+    }).await
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_invite(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    selection_token: String,
+    target_uids: Vec<String>,
+) -> CmdResult<display::UiPeripheralWriteDto> {
+    guard(&state, webview.label(), "im_invite")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let result = request_peripheral_once(&app, &state, &ctx, &peripheral_journal::Intent { gid, action: peripheral_journal::Action::Invite, targets: target_uids, selection_token }).await;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    result.map_err(e2dto)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_transfer(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    selection_token: String,
+    target_uid: String,
+) -> CmdResult<display::UiPeripheralWriteDto> {
+    guard(&state, webview.label(), "im_transfer")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let result = request_peripheral_once(&app, &state, &ctx, &peripheral_journal::Intent { gid, action: peripheral_journal::Action::Transfer, targets: vec![target_uid], selection_token }).await;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    result.map_err(e2dto)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_finish(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    selection_token: String,
+) -> CmdResult<display::UiPeripheralWriteDto> {
+    guard(&state, webview.label(), "im_finish")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let result = request_peripheral_once(&app, &state, &ctx, &peripheral_journal::Intent { gid, action: peripheral_journal::Action::Finish, targets: vec![], selection_token }).await;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    result.map_err(e2dto)
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn notice_categories(
     app: AppHandle,
@@ -1319,5 +1502,82 @@ mod tests {
             serde_json::from_value(serde_json::json!({"url": "https://x", "sdk_version": null}))
                 .expect("ready");
         assert!(ready.sdk_version.is_none());
+    }
+}
+
+#[cfg(test)]
+mod peripheral_tests {
+    use super::*;
+    use display::PeripheralWriteKindDto;
+
+    #[test]
+    fn explicit_page_not_submitted_survives_but_inconsistent_confirmation_stays_unknown() {
+        let result = peripheral_write_outcome(Ok(serde_json::json!({
+            "kind": "not_submitted", "confirmed": false, "reason": "missing real key"
+        }))).expect("trusted page stage disposition");
+        assert!(matches!(result.kind, PeripheralWriteKindDto::NotSubmitted));
+        assert!(!result.confirmed);
+        let bad = peripheral_write_outcome(Ok(serde_json::json!({
+            "kind": "not_submitted", "confirmed": true
+        }))).expect("inconsistent reply cannot release no-replay fence");
+        assert!(matches!(bad.kind, PeripheralWriteKindDto::Unknown));
+        assert!(!bad.confirmed);
+    }
+
+    #[test]
+    fn missing_reply_after_peripheral_emit_is_unknown_and_never_retryable_success() {
+        let out = peripheral_write_outcome(Err(RequestFailure {
+            error: AppError::new(codes::ADAPTER_TIMEOUT, "timeout").retryable(),
+            emitted: true,
+            from_page: false,
+        }))
+        .expect("unknown disposition");
+        assert!(matches!(out.kind, PeripheralWriteKindDto::Unknown));
+        assert!(!out.confirmed);
+        assert!(out.reason.unwrap().contains("do not resubmit"));
+    }
+
+    #[test]
+    fn peripheral_pre_emit_and_page_rejections_remain_errors() {
+        let before =
+            peripheral_write_outcome(Err(RequestFailure::before_emit(not_ready("closed"))));
+        assert_eq!(before.err().unwrap().code, codes::ADAPTER_NOT_READY);
+        let page = peripheral_write_outcome(Err(RequestFailure {
+            error: AppError::new(codes::HOST_UNSUPPORTED, "missing real key"),
+            emitted: true,
+            from_page: true,
+        }));
+        assert_eq!(page.err().unwrap().code, codes::HOST_UNSUPPORTED);
+    }
+
+    #[test]
+    fn peripheral_reply_cannot_label_acceptance_or_unknown_as_confirmed() {
+        for value in [
+            serde_json::json!({"kind": "accepted", "confirmed": true}),
+            serde_json::json!({"kind": "unknown", "confirmed": true}),
+            serde_json::json!({"kind": "confirmed", "confirmed": false}),
+            serde_json::json!({"unexpected": true}),
+        ] {
+            let result =
+                peripheral_write_outcome(Ok(value)).expect("write outcome remains unknown");
+            assert!(matches!(result.kind, PeripheralWriteKindDto::Unknown));
+            assert!(!result.confirmed);
+            assert!(result.reason.unwrap().contains("do not resubmit"));
+        }
+        let confirmed = peripheral_write_outcome(Ok(
+            serde_json::json!({"kind": "confirmed", "confirmed": true}),
+        ))
+        .expect("confirmed");
+        assert!(confirmed.confirmed);
+    }
+
+    #[test]
+    fn peripheral_member_ids_preserve_string_precision_and_require_eligibility() {
+        let value = serde_json::json!({"members": [{"uid": "900719925474099312345", "nickname": null, "avatar": null, "status": "1", "roles": [0,3,4], "can_transfer": true}], "fetched_at_ms": 1700000000000i64, "selection_token": "selection", "expires_at_ms": 1700000030000i64});
+        let dto: display::UiMembersDto = serde_json::from_value(value.clone()).expect("members");
+        assert_eq!(dto.members[0].uid, "900719925474099312345");
+        assert_eq!(serde_json::to_value(dto).unwrap(), value);
+        let invalid = serde_json::json!({"uid": 9007199254740993u64, "nickname": null, "status": "1", "roles": [0,3,4], "can_transfer": true});
+        assert!(serde_json::from_value::<display::UiMemberDto>(invalid).is_err());
     }
 }

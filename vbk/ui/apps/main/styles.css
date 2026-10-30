@@ -252,3 +252,26 @@ html[data-platform="macos"] .wbtns { display: none; }
 
 /* Current IM agent portraits in account controls. */
 .tab-ava img, .me > img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+
+/* Peripheral dialogs retain the compact, account-scoped merchant workspace. */
+.peripheral-dialog { width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px); display: flex; flex-direction: column; overflow: hidden; }
+.peripheral-dialog .dlg-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.peripheral-context { padding: 0 20px 12px; color: var(--c-text-muted); overflow-wrap: anywhere; border-bottom: 1px solid var(--c-border); }
+.peripheral-body { padding: 16px 20px; overflow-y: auto; min-height: 0; }
+.peripheral-body p { line-height: 1.65; margin: 0 0 12px; }
+.peripheral-search { display: flex; gap: 8px; }
+.peripheral-search .inp { flex: 1; min-width: 0; }
+.peripheral-groups { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.peripheral-list { display: flex; flex-direction: column; max-height: 280px; overflow-y: auto; }
+.peripheral-member { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--c-divider); }
+.peripheral-member > span { min-width: 0; overflow-wrap: anywhere; }
+.peripheral-member b { font-weight: 600; }
+.peripheral-member input { accent-color: var(--c-primary); }
+.peripheral-id { display: block; font-size: 11px; color: var(--c-text-muted); margin-top: 3px; }
+.peripheral-member-status { margin-left: auto; font-size: 11px; color: var(--c-text-muted); white-space: nowrap; }
+.peripheral-empty { padding: 20px 0; color: var(--c-text-muted); text-align: center; }
+.peripheral-note { margin: 0 20px 12px; line-height: 1.6; }
+.peripheral-note p { margin: 4px 0 0; }
+.peripheral-note .spin { display: inline-block; margin-right: 8px; vertical-align: middle; }
+.peripheral-dialog .dlg-f { flex-wrap: wrap; margin-top: auto; }
+.peripheral-confirmed { color: var(--c-primary); background: var(--c-primary-tint); }

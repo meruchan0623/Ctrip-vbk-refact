@@ -36,7 +36,7 @@ function str(x: unknown): string | null {
 
 function idStr(x: unknown): string | null {
   if (typeof x === 'string' && x !== '') return x;
-  if (typeof x === 'number' && Number.isFinite(x)) return String(x);
+  if (typeof x === 'number' && Number.isSafeInteger(x)) return String(x);
   return null;
 }
 
@@ -71,6 +71,7 @@ export interface ConversationRowView {
   /** `''` stays `''` (send body `threadid`). */
   readonly threadId: string;
   readonly conversationType: string | null;
+  readonly conversationKey: string | null;
   /** Customer uid of the conversation (`row.uid`). */
   readonly customerUid: string | null;
   readonly orderId: string | null;
@@ -108,6 +109,7 @@ export function rowView(row: ConversationListItem): ConversationRowView | null {
     serviceType: typeof st === 'string' ? st : typeof st === 'number' ? String(st) : '',
     threadId: typeof r.threadId === 'string' ? r.threadId : '',
     conversationType: str(r.conversationType),
+    conversationKey: str((r as { conversationKey?: unknown }).conversationKey),
     customerUid: str(r.uid),
     orderId: orderIdOf(row),
     lastMessage: parseLastMessage(row),

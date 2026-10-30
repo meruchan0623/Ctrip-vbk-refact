@@ -57,3 +57,20 @@ for (const [name, next] of [['conversationList', 'contextMenu'], ['chatPane', 'm
     }
   });
 }
+
+for (const kind of ['members', 'invite'] as const) {
+  test(`${kind} dialog binds each API avatar to its own record without changing selection`, () => {
+    const { conv, state } = fixture(null);
+    const people = [
+      { uid: 'synthetic-person-a', nickname: 'Alice', avatar: avatarA, status: '1', roles: [], can_transfer: false },
+      { uid: 'synthetic-person-b', nickname: 'Bob', avatar: avatarB, status: '1', roles: [], can_transfer: true },
+    ];
+    for (const avatarsPresent of [true, false]) {
+      const records = avatarsPresent ? people : people.map((person) => ({ ...person, avatar: null }));
+      const peripheral = { kind, scope: { account: {}, gid: conv.gid }, busy: false, submitted: false, write: null, error: null, notice: null, selected: ['synthetic-person-a'], members: { members: records, expires_at_ms: 1000 }, candidates: { agents: records, skill_groups: [], expires_at_ms: 1000 } };
+      const tree = nodes(render('peripheralDialog', 'render', { ...state, peripheral }, conv));
+      assert.deepEqual(tree.filter((node) => node.tag === 'img').map((image) => [image.src, image.alt]), avatarsPresent ? [[avatarA, 'Alice'], [avatarB, 'Bob']] : []);
+      if (kind === 'invite') assert.deepEqual(tree.filter((node) => node.tag === 'input').map((input) => input.props?.['checked']), [true, false]);
+    }
+  });
+}

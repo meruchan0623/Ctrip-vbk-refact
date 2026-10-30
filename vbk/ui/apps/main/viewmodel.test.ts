@@ -331,3 +331,11 @@ test('official 16-digit orders can be queried and highlighted without matching p
   assert.deepEqual(highlightParts('订单 1359049237105048 / 电话 13800138000').filter(p => p.kind !== 'plain'), [{ kind: 'order', text: '1359049237105048' }]);
   assert.deepEqual(highlightParts('13590492371050481'), [{ kind: 'plain', text: '13590492371050481' }]);
 });
+
+test('peripheral acceptance and contradictory confirmation never imply verified success', async () => {
+  const { peripheralWriteView } = await import('./viewmodel.ts');
+  assert.equal(peripheralWriteView({ kind: 'accepted', confirmed: false }).confirmed, false);
+  assert.equal(peripheralWriteView({ kind: 'unknown', confirmed: false }).confirmed, false);
+  assert.equal(peripheralWriteView({ kind: 'confirmed', confirmed: false }).confirmed, false);
+  assert.equal(peripheralWriteView({ kind: 'confirmed', confirmed: true }).confirmed, true);
+});
