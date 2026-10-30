@@ -99,24 +99,32 @@ test('review/send: a synchronous SDK throw is `unknown` (the frame may have left
 
 test('review/send: rejected acks keep code+reason; non-zero/garbage error codes are never confirmed', async () => {
   const deps = makeDeps();
-  const cases: [unknown, string][] = [
+  const cases: [unknown, string | null][] = [
     [-2, '-2'],
     ['-2', '-2'],
     [1, '1'],
-    ['x', 'unknown_error'],
-    [null, 'unknown_error'],
-    [undefined, 'unknown_error'],
-    [{}, 'unknown_error'],
-    [true, 'unknown_error'],
+    ['x', null],
+    [null, null],
+    [undefined, null],
+    [{}, null],
+    [true, null],
   ];
   for (const [error, code] of cases) {
     const intent = createSendIntent(deps, 'g1', 'hi', { serviceType: '1513', threadId: '' });
     const p = submitIntent(deps, deps.fakeSdk, intent);
     deps.fakeSdk.emit('send_result', { error, reason: 'r', localid: intent.localId } as SdkSendResultEvent);
     const r = await p;
-    assert.deepEqual(r.disposition, { kind: 'rejected', code, reason: 'r' }, String(error));
+    // A malformed error is not evidence of rejection. Keep the exact rejection
+    // contract for explicit codes, and require unknown for ambiguous outcomes.
+    assert.deepEqual(r.disposition, code === null ? { kind: 'unknown' } : { kind: 'rejected', code, reason: 'r' }, String(error));
     assert.equal(r.fact.message_id, null);
+    assert.deepEqual(r.fact.disposition, r.disposition);
+    assert.equal(deps.clock.pendingCount(), 0);
+    assert.equal(deps.fakeSdk.listenerCount('send_result'), 0);
   }
+  await deps.clock.advance(10000);
+  assert.equal(deps.fakeSdk.sent.length, cases.length, 'one SDK submission per intent');
+  assert.equal(deps.fakeFetch.calls.length, 0, 'no HTTP retry of an ambiguous outcome');
 });
 
 test('review/send: product card over HTTP — Ack Failure or missing ids is never confirmed; network error → unknown with one request', async () => {
