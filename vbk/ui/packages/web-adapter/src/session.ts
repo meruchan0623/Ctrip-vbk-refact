@@ -62,8 +62,13 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   let agent: { status: AgentStatus; confirmed: boolean } | null = null;
 
   const pushDisplay = (payload: AdapterDisplayPayload): void => {
+    // Every conversation projection (including history enrichment) shares the
+    // authoritative unread book. Reading history cannot acknowledge messages.
+    const current = payload.kind === 'conversations'
+      ? { ...payload, items: payload.items.map((item) => ({ ...item, unread_count: unread.unreadOf(item.gid) ?? item.unread_count })) }
+      : payload;
     try {
-      opts.pushDisplay(payload).catch(() => log(`display push failed (${payload.kind})`));
+      opts.pushDisplay(current).catch(() => log(`display push failed (${payload.kind})`));
     } catch {
       log(`display push failed (${payload.kind})`);
     }
