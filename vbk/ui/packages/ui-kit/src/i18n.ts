@@ -99,7 +99,7 @@ const zhCN = {
   'list.waiting': '等待 {t}',
   'list.waitingPending': '待核对',
   'list.more': '会话操作',
-  'list.offline': '网络不可用，正在重连…（未发出的消息将排队）',
+  'list.offline': '网络不可用，正在重连…（发送结果请核对，不会自动重发）',
   'list.retryNow': '立即重试',
 
   // context menu
