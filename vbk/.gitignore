@@ -4,3 +4,4 @@ ui/dist/
 src-tauri/target/
 src-tauri/gen/
 *.log
+ui/bundle/

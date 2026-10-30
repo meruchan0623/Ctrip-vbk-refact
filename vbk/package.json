@@ -9,7 +9,8 @@
     "test": "node --test \"ui/**/*.test.ts\"",
     "build:ui": "tsc -p tsconfig.build.json",
     "smoke:ui": "node ui/tests/smoke/run.mjs",
-    "check": "npm run typecheck && npm run test && cargo test --manifest-path Cargo.toml"
+    "check": "npm run typecheck && npm run test && cargo test --manifest-path Cargo.toml",
+    "bundle:ui": "node ui/tools/bundle.mjs"
   },
   "engines": {
     "node": ">=22.18"
