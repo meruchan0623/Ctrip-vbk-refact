@@ -2,6 +2,8 @@
 
 2026-10-30 · 在线版本（含评论）：<https://claude.ai/artifact/QHSVMTyuYE4mE4ZyaEc3bT>
 
+> **更正（2026-10-30）**：下文的 Swift 启动器、IM 伴随进程（companion）和 CDP 调试端口属于用户自己的插件「旅游商家助手」注入包，不是携程官方客户端的组成部分。官方客户端的实际缺陷与复用范围的修正见 [02 现有客户端缺陷分析](02-current-client-defects.md)。
+
 ## 结论：选 Tauri 2 + Rust，Windows 先行
 
 推荐 Tauri 2 + Rust 作为统一架构，先做 Windows，macOS 第二阶段跟进。现有客户端是 Electron 壳，业务界面是 Web（vbooking 商家后台 + IM），Tauri 可以直接复用这些页面；Windows 上 Tauri 用的 WebView2 和现在的 Electron 同为 Chromium 内核，迁移风险最低。
@@ -18,14 +20,14 @@ C# + Swift 双原生意味着两支团队、每个功能做两遍，而业务页
 
 ## 现有客户端拆包结果
 
-上传的 macOS 包是 Electron 27 应用，外面套了一个 Swift 启动器和一个 IM 伴随进程。业务代码（app.asar）不在上传内容里，所以以下结论来自二进制和配置文件。
+上传的 macOS 包是 Electron 27 应用，并已装有插件注入包（Swift 启动器与 IM 伴随进程来自插件）。业务代码（app.asar）不在上传内容里，所以以下结论来自二进制和配置文件。
 
 | 项目 | 发现 | 依据 |
 | --- | --- | --- |
 | 壳框架 | Electron 27.3.11，Chromium 118.0.5993.159 | Electron Framework 二进制内的版本串 |
 | CPU 架构 | Electron 主程序与框架只有 x86_64，只有启动器是 arm64 | file 命令 |
-| 启动器 | TripVendorLauncher，Swift + AppKit 编写，是真正的入口程序 | Info.plist 的 CFBundleExecutable |
-| IM 伴随进程 | 启动器拉起 companion（日志目录 trip_vendor_im_companion），崩溃后自动重启；并给 Electron 开启仅限 127.0.0.1 的 Chromium 远程调试端口 | 启动器字符串 |
+| 启动器（插件） | TripVendorLauncher，Swift + AppKit 编写，由插件注入安装器替换为入口 | Info.plist 的 CFBundleExecutable |
+| IM 伴随进程（插件） | 启动器拉起 companion（日志目录 trip_vendor_im_companion），崩溃后自动重启；并给 Electron 开启仅限 127.0.0.1 的 Chromium 远程调试端口 | 启动器字符串 |
 | 自动更新 | Squirrel.Mac + electron-updater（generic 源，url 为空） | Frameworks、app-update.yml |
 | 标识与版本 | com.ctrip.vbooking，1.2.12，最低 macOS 10.15 | Info.plist |
 | 深链接 | vbookingChat:// URL Scheme，推测用于唤起 IM 会话 | Info.plist |
@@ -37,7 +39,7 @@ C# + Swift 双原生意味着两支团队、每个功能做两遍，而业务页
 
 - Chromium 118 是 2023 年的内核，Electron 27 已不再获得安全更新，客户端又允许任意 HTTP，安全面是重构的强理由。
 - Electron 只有 x86_64 版本，在 Apple Silicon Mac 上靠 Rosetta 转译运行。
-- IM 伴随进程通过 Chromium 远程调试协议（CDP）控制页面，这个设计在 macOS 的 WKWebView 上无法沿用，重构时必须改成正式的进程间通信。
+- 插件的 IM 伴随进程通过 Chromium 远程调试协议（CDP）注入页面；新客户端把这些功能做成内置功能，不再需要 CDP。
 
 要梳理具体页面、功能清单和 Electron API 使用情况，需要补传 app.asar。
 

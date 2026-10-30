@@ -9,10 +9,11 @@
 | 文档 | 内容 |
 | --- | --- |
 | [01 架构选型](docs/01-architecture-selection.md) | 现有客户端拆包结果、Tauri 2 + Rust 与 C# + Swift 对比、目标架构、分阶段计划 |
+| [02 现有客户端缺陷](docs/02-current-client-defects.md) | 官方客户端在 Windows / macOS 上的卡顿与安全缺陷，Electron 去留结论，复用范围修正 |
 
 ## 当前结论
 
-推荐 **Tauri 2 + Rust**：复用现有 Web 业务页面，Electron 专属部分（主进程、启动器、IM 伴随进程）收进一个 Rust 核心；先交付 Windows（WebView2），macOS（WKWebView）第二阶段跟进。
+推荐 **Tauri 2 + Rust**，彻底弃用 Electron：远程加载的 vbooking 业务页原样复用，本地打包的 IM 等窗口重写，主进程能力收进一个 Rust 核心；先交付 Windows（WebView2），macOS（WKWebView）第二阶段跟进。
 
 ## 目录
 
