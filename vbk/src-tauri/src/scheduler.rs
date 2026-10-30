@@ -1,7 +1,9 @@
 //! 1 Hz scheduler thread (strong-alert §5: Rust keeps the deadline queue
 //! and refreshes numbers at 1 Hz only while something is shown). Executes
 //! `core-notify` effects against the host: alarm window show/hide, sounds,
-//! tray flashing, taskbar badge and the alarm snapshot event.
+//! tray flashing, taskbar badge and the alarm snapshot event (to alarm and
+//! main). Also emits `net://clock` to main every tick and mirrors reminder
+//! settings changes into prefs.
 //!
 //! Sleep is not assumed to keep ticking: on wake the wall/monotonic drift
 //! is seen by `ClockService`, which turns the reading `Stale`, which the
@@ -10,10 +12,13 @@
 use std::thread;
 use std::time::Duration;
 
+use contracts::{ClockQuality, ClockReading};
 use core_notify::{Effect, Sound};
 use tauri::{AppHandle, Emitter, Manager, UserAttentionType};
 
 use crate::dto::AlarmSnapshotDto;
+use crate::events;
+use crate::prefs;
 use crate::state::HostState;
 use crate::tray;
 use crate::views;
@@ -21,7 +26,7 @@ use crate::windows::{self, Corner};
 
 pub const TICK: Duration = Duration::from_millis(1000);
 pub const FLASH_PHASE: Duration = Duration::from_millis(500);
-pub const ALARM_SNAPSHOT_EVENT: &str = "notify://alarm-snapshot";
+pub const ALARM_SNAPSHOT_EVENT: &str = events::ALARM_SNAPSHOT;
 
 pub fn start(app: AppHandle) {
     thread::Builder::new()
@@ -38,7 +43,9 @@ fn run(app: AppHandle) {
         if state.quit_requested() {
             return;
         }
-        let effects = state.tick();
+        let mut effects = state.tick();
+        // Effects from settings changed through `prefs_set`.
+        effects.extend(prefs::take_pending_effects(&app));
         let mut snapshot_changed = false;
         for effect in effects {
             match effect {
@@ -83,7 +90,7 @@ fn run(app: AppHandle) {
                 } => {
                     let _ = app.emit_to(
                         views::MAIN,
-                        "notify://banner",
+                        events::NOTIFY_BANNER,
                         serde_json::json!({
                             "account": crate::dto::AccountContextDto::from(&account),
                             "gid": gid, "count": count, "stay_ms": stay_ms
@@ -99,7 +106,7 @@ fn run(app: AppHandle) {
                     // main window shows a plain banner.
                     let _ = app.emit_to(
                         views::MAIN,
-                        "notify://banner",
+                        events::NOTIFY_BANNER,
                         serde_json::json!({
                             "account": crate::dto::AccountContextDto::from(&account),
                             "gid": gid, "count": count, "stay_ms": 6000, "system": true
@@ -110,10 +117,15 @@ fn run(app: AppHandle) {
         }
         if snapshot_changed {
             let snap = AlarmSnapshotDto::from(&state.alarm_snapshot());
-            // Directed emit: only the alarm window (and never a remote
-            // webview) receives customer-adjacent data.
-            let _ = app.emit_to(views::ALARM, ALARM_SNAPSHOT_EVENT, snap);
+            // Directed emit: only local windows (alarm, and main for its
+            // alert counters) receive customer-adjacent data, never a
+            // remote webview.
+            let _ = app.emit_to(views::ALARM, ALARM_SNAPSHOT_EVENT, snap.clone());
+            events::to_main(&app, ALARM_SNAPSHOT_EVENT, snap);
         }
+        // Reminder settings changed via notify_set_* → persist + prefs://changed.
+        prefs::sync_reminder(&app);
+        emit_clock(&app, &state);
         // The 500 ms tray phase is a Windows notification-area effect; macOS
         // keeps the plain 1 Hz tick (its L1 signal is the Dock attention).
         if flashing && cfg!(not(target_os = "macos")) {
@@ -129,6 +141,34 @@ fn run(app: AppHandle) {
     }
 }
 
+/// Wire shape of `ClockReading` (contracts.ts).
+fn clock_json(r: &ClockReading) -> serde_json::Value {
+    let quality = match r.quality {
+        ClockQuality::Anchored {
+            offset_ms,
+            error_ms,
+        } => {
+            serde_json::json!({ "kind": "anchored", "offset_ms": offset_ms, "error_ms": error_ms })
+        }
+        ClockQuality::Stale => serde_json::json!({ "kind": "stale" }),
+        ClockQuality::Unanchored => serde_json::json!({ "kind": "unanchored" }),
+    };
+    serde_json::json!({
+        "server_now_ms": r.server_now_ms,
+        "monotonic_ms": r.monotonic_ms,
+        "quality": quality,
+    })
+}
+
+/// 1 Hz `net://clock` to main (title-bar clock / countdown base).
+fn emit_clock(app: &AppHandle, state: &HostState) {
+    let reading = {
+        let mut cores = state.lock();
+        state.reading(&mut cores)
+    };
+    events::to_main(app, events::NET_CLOCK, clock_json(&reading));
+}
+
 fn play_sound(app: &AppHandle, sound: Sound) {
     // Audio output is a platform concern (MED/NTF-04). The main window
     // plays bundled clips on this event; nothing else is required for the
@@ -138,11 +178,11 @@ fn play_sound(app: &AppHandle, sound: Sound) {
         Sound::Timeout => "timeout",
         Sound::Loop => "loop",
     };
-    let _ = app.emit_to(views::MAIN, "notify://play-sound", name);
+    let _ = app.emit_to(views::MAIN, events::NOTIFY_PLAY_SOUND, name);
 }
 
 fn stop_sound(app: &AppHandle) {
-    let _ = app.emit_to(views::MAIN, "notify://stop-sound", ());
+    let _ = app.emit_to(views::MAIN, events::NOTIFY_STOP_SOUND, ());
 }
 
 /// L1 taskbar/Dock signal. Windows flashes the taskbar button; macOS

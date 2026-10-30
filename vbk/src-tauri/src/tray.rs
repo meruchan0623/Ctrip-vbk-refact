@@ -43,7 +43,10 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             MENU_SHOW => windows::show_main(app),
             MENU_SETTING => {
-                let _ = windows::open_setting(app);
+                // Singleton: shows and focuses an existing setting window.
+                if let Err(e) = windows::open_setting(app) {
+                    log::warn!("tray: open setting failed: {e}");
+                }
             }
             MENU_DND_1H => app.state::<HostState>().set_dnd_hours(1),
             MENU_DND_TOMORROW => app.state::<HostState>().set_dnd_until_tomorrow(),

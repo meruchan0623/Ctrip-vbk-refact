@@ -4,7 +4,8 @@
 //! * `alarm`: singleton, always-on-top, shown without stealing focus,
 //!   hidden (never destroyed) on close, positioned bottom-right of the work
 //!   area and clamped into the visible region after monitor changes.
-//! * `setting`, `update`: singletons.
+//! * `setting`, `update`: singletons; same D1 chrome as `main`
+//!   (macOS overlay title bar + traffic lights, Windows undecorated).
 //!
 //! All windows are created here; other modules only submit policy.
 
@@ -181,14 +182,42 @@ pub fn open_singleton(
 ) -> tauri::Result<()> {
     if let Some(win) = app.get_webview_window(label) {
         win.show()?;
+        let _ = win.unminimize();
         win.set_focus()?;
         return Ok(());
     }
-    WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
+    let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
         .title(title)
-        .inner_size(w, h)
-        .build()?;
+        .inner_size(w, h);
+    with_platform_chrome(builder).build()?;
     Ok(())
+}
+
+/// Traffic-light origin (logical px) that centres the macOS buttons in the
+/// 40 px self-drawn title bar; mirrors `trafficLightPosition` of `main` in
+/// `tauri.macos.conf.json`.
+pub const TRAFFIC_LIGHT_X: f64 = 14.0;
+pub const TRAFFIC_LIGHT_Y: f64 = 14.0;
+
+/// Plan D1 window chrome for local secondary windows (setting / update):
+/// macOS keeps native decorations with an overlay title bar (traffic lights
+/// on the left, no native title text); Windows drops decorations so the page
+/// draws its own minimize / close buttons.
+fn with_platform_chrome<'a, R: tauri::Runtime, M: Manager<R>>(
+    builder: WebviewWindowBuilder<'a, R, M>,
+) -> WebviewWindowBuilder<'a, R, M> {
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .decorations(true)
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(
+            TRAFFIC_LIGHT_X,
+            TRAFFIC_LIGHT_Y,
+        ));
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.decorations(false);
+    builder
 }
 
 pub fn open_setting(app: &AppHandle) -> tauri::Result<()> {
