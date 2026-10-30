@@ -1,0 +1,94 @@
+{
+  "contract_version": "proposal.synthetic.v1",
+  "purpose": "offline_migration_design_only",
+  "implemented_in_tsim": false,
+  "contains_real_customer_data": false,
+  "scope": {
+    "tenant_id": "synthetic-tenant-demo",
+    "platform": "ctrip_vbooking",
+    "platform_account_id": "synthetic-platform-account-demo",
+    "authentication_generation": 7,
+    "credential_reference": null,
+    "capabilities": ["proposed_read_messages", "proposed_send_text"]
+  },
+  "identity_mapping": {
+    "tsim_agent_id": "synthetic-tsim-agent-demo",
+    "platform_agent_id": "synthetic-platform-agent-demo",
+    "local_customer_id": "synthetic-local-customer-demo",
+    "upstream_customer_uid": "synthetic-upstream-customer-demo",
+    "local_conversation_id": "synthetic-local-conversation-demo",
+    "upstream_room_gid": "synthetic-room-gid-demo",
+    "upstream_room_jid": "synthetic-room-jid-demo",
+    "service_session_id": "synthetic-service-session-demo",
+    "worksheet_id": "synthetic-worksheet-demo",
+    "service_type": "synthetic-service-type-demo",
+    "conversation_type": "synthetic-conversation-type-demo",
+    "orders": [{"upstream_order_id": "synthetic-order-demo", "relation_source": "synthetic-authorized-sidebar-observation"}]
+  },
+  "inbound_event": {
+    "event_id": "synthetic-event-demo",
+    "local_message_id": "synthetic-local-message-demo",
+    "upstream_message_id": "synthetic-upstream-message-demo",
+    "source": "history",
+    "direction": "customer_to_merchant",
+    "content": {"type": "text", "text": "SYNTHETIC FIXTURE ONLY"},
+    "unread_effect": "none_for_history",
+    "deduplication_key_fields": ["tenant_id", "platform", "platform_account_id", "upstream_room_gid", "upstream_message_id"],
+    "checkpoint": {
+      "upstream_page_boundary": {"direction": "prev", "end_time_ms": 1800000000000},
+      "boundary_message_ids": ["synthetic-upstream-message-demo"],
+      "completeness": "unverified_same_timestamp_boundary",
+      "advance_only_after_page_transaction_commit": true,
+      "local_sequence": 1
+    }
+  },
+  "outbound_attempt": {
+    "attempt_id": "synthetic-attempt-demo",
+    "client_message_id": "synthetic-client-message-demo",
+    "upstream_local_id": "synthetic-sdk-local-id-demo",
+    "operation": "send_text",
+    "payload": {"type": "text", "text": "SYNTHETIC OUTBOUND FIXTURE ONLY"},
+    "payload_hash": "synthetic-placeholder-not-a-real-digest",
+    "phase": "verification_started",
+    "disposition": "unknown",
+    "write_started_at": "2026-10-31T00:00:00Z",
+    "upstream_message_id": null,
+    "retry_customer_visible_write": false,
+    "idempotency": {
+      "key_fields": ["tenant_id", "platform", "platform_account_id", "tsim_agent_id", "client_message_id"],
+      "same_key_different_payload": "conflict",
+      "upstream_idempotency_guaranteed": false
+    },
+    "reconciliation": {
+      "mode": "read_only",
+      "forbidden_operations": ["send_text", "upload", "send_media", "end_session"],
+      "baseline_message_ids": ["synthetic-baseline-message-demo"],
+      "identity_must_match": ["tenant_id", "platform_account_id", "upstream_room_gid", "platform_agent_id"],
+      "deadline_at": "2026-10-31T00:05:00Z",
+      "deadline_outcome": "manual_review_unknown_no_replay",
+      "no_match_is_proof_of_failure": false
+    }
+  },
+  "disposition_examples": [
+    {"kind": "confirmed", "upstream_message_id": "synthetic-confirmed-message-demo", "evidence": "matching_localid_success_ack_with_nonempty_tid", "means_customer_read": false},
+    {"kind": "rejected", "code": "synthetic-explicit-business-rejection", "evidence": "matching_localid_explicit_rejection"},
+    {"kind": "unknown", "upstream_message_id": null, "reason": "synthetic-ack-timeout", "automatic_resend_allowed": false}
+  ],
+  "attachment_example": {
+    "asset_reference": "synthetic-private-asset-reference-demo",
+    "mime_type": "image/png",
+    "size_bytes": 128,
+    "checksum": "synthetic-placeholder-not-a-real-digest",
+    "upstream_resource_id": "synthetic-upload-resource-demo",
+    "download_url": null,
+    "requires_current_scope_authorization": true,
+    "upload_is_customer_message_confirmation": false,
+    "retention_policy": "pending_business_approval_do_not_treat_as_implemented"
+  },
+  "recovery_policy": {
+    "restart_write_started_attempt": "read_only_reconciliation",
+    "expired_authentication": "pause_writes_reauthenticate_verify_identity",
+    "rollback": "disable_new_writes_preserve_attempts_checkpoints_and_deduplication",
+    "automatic_replay_unknown": false
+  }
+}
