@@ -47,3 +47,27 @@ cd vbk && npm run typecheck && npm test
 4. 提醒消费事实：已读、打开会话、点击发送、发送中、结果未知都不能结束等待轮次；只有服务端确认的有效商家回复、会话结束或转出才清除。
 5. 持久化先于成功事件；先订阅缓冲再取快照重放；跳号/换 epoch 必须重新握手。
 6. 远程页面无通用本机权限；日志与提醒数据不含凭据与客户正文。
+
+## 2026-10-30 落盘状态
+
+| 检查 | 结果 |
+| --- | --- |
+| `cargo test --workspace`（contracts、6 个核心 crate、tests/scenarios） | 297 通过，0 失败 |
+| `cargo clippy --workspace --all-targets` | 0 警告 |
+| `tsc -p tsconfig.json` | 无错误 |
+| `node --test "ui/**/*.test.ts"`（ipc、ui-kit、web-adapter、apps 视图模型） | 148 通过 |
+| `node ui/tests/smoke/run.mjs`（Playwright/Chromium，含截图） | 211 项通过 |
+| `src-tauri`（Tauri 2 宿主） | 仅 `rustfmt` 语法级检查；需在 Windows + WebView2 + crate 注册表环境 `cargo check`/`cargo tauri build` |
+
+对抗性审查记录（含已修正的 P1/P2 与未修正项）：
+
+- Rust 核心与跨模块场景：[tests/scenarios/REVIEW-2026-10-30.md](tests/scenarios/REVIEW-2026-10-30.md)
+- 网页适配器：[ui/packages/web-adapter/REVIEW-2026-10-30.md](ui/packages/web-adapter/REVIEW-2026-10-30.md)
+- 界面：[ui/apps/REVIEW-2026-10-30.md](ui/apps/REVIEW-2026-10-30.md)
+
+### 尚未完成 / 不作承诺
+
+- 代码落盘不等于 G1–G5 运行验收：官方登录页在隔离 Profile 中的接入、Web IM SDK 在宿主内的事件连续性、受控收发/撤回、断线与睡眠恢复、安装与更新均未在目标机验证。
+- 宿主侧占位：系统 Toast、音频播放、截图/OCR、更新与诊断包、维护屏障（退出/更新排空）仅留有接缝或事件，按 NTF-05 / MED / REL 任务补齐。
+- 适配器中的未闭环项（U01–U10）与 UI 契约建议（C-01–C-05）见各自审查记录；`ConversationFact.unread_count` 在列表接口缺字段时为 0 占位。
+- 前端以零依赖 TypeScript 落盘（云检查环境无 npm 注册表）；引入 Vite/React 时按 `tsconfig.build.json` 的 ES 模块输出迁移即可。
