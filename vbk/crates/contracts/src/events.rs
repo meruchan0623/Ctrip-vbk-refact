@@ -32,15 +32,19 @@ impl StreamCursor {
 
     /// Classifies `next` relative to this cursor.
     pub fn classify(&self, next: StreamCursor) -> CursorStep {
+        // Saturating: a stream parked at `u64::MAX` (adapter-controlled
+        // input) can never be continued and must be rebuilt under a new
+        // epoch, so every same-epoch successor reads as a duplicate.
+        let expected = self.seq.saturating_add(1);
         if next.epoch != self.epoch {
             CursorStep::EpochChanged
-        } else if next.seq == self.seq + 1 {
+        } else if next.seq == expected && next.seq != self.seq {
             CursorStep::Next
         } else if next.seq <= self.seq {
             CursorStep::Duplicate
         } else {
             CursorStep::Gap {
-                expected: self.seq + 1,
+                expected,
                 got: next.seq,
             }
         }
@@ -126,5 +130,16 @@ mod tests {
         // look like a fresh start; it is classified as a duplicate and the
         // consumer will notice the stall and re-handshake.
         assert_eq!(c.classify(StreamCursor::new(2, 0)), CursorStep::Duplicate);
+    }
+
+    #[test]
+    fn classify_never_overflows_at_u64_max() {
+        let c = StreamCursor::new(1, u64::MAX);
+        assert_eq!(
+            c.classify(StreamCursor::new(1, u64::MAX)),
+            CursorStep::Duplicate
+        );
+        assert_eq!(c.classify(StreamCursor::new(1, 0)), CursorStep::Duplicate);
+        assert_eq!(c.classify(StreamCursor::new(2, 0)), CursorStep::EpochChanged);
     }
 }
