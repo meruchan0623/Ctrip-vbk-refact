@@ -36,3 +36,8 @@ SDK实时、HTTP历史/补偿及本人发送echo均携带sender_id/sender_name/s
 平台账号昵称与人员资料分开：identity.self_profile 是 GetMyInfo 的 IM UID，经 venAgent.ctripUid 校验后所得本人资料。宿主再次核对 self_profile.uid 与 identity.uid；不匹配或旧客户端无字段时清空，禁止沿用前一个客服。UiAccount.self_profile 仅在线状态输出，登录占位为 null。AccountMeta 的人员字段使用 serde(skip)，头像URL只在内存，不写账号索引；恢复后由真实页面身份重新取得。
 
 账号页签、左侧账号按钮、账号菜单逐账号显示对应人员头像；替代文字优先客服名字，平台账号label仅缺失时占位。两个账号不会共享照片；没有头像不伪造。实际身份链2项失败、宿主DTO缺字段1项失败及UI三个入口失败均留红证据，修后验证；客户侧栏与提醒头像仍另块处理。
+
+
+## 客户侧卡与提醒
+
+客户侧卡只使用选中会话customer_avatar。强提醒只有在当前会话资料同时匹配所属account、generation与gid时显示客户头像；找不到客户资料时中性占位，不用账号客服照片或字母冒充客户。实际main侧卡与banner渲染回归验证同账号同gid及跨账号/跨gid缺失分支；账号3项旧断言保留。原生效果待新包验收。

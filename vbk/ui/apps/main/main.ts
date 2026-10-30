@@ -36,7 +36,7 @@ import { MOCK_ORDER_SAMPLES } from '../../packages/ipc/src/mock.ts';
 import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
-import { badgeText, formatClock, formatDate, formatDuration, formatRelativeTime, initialOf } from '../../packages/ui-kit/src/format.ts';
+import { badgeText, formatClock, formatDate, formatDuration, formatRelativeTime } from '../../packages/ui-kit/src/format.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import {
@@ -67,7 +67,6 @@ import {
   BANNER_VISIBLE,
   MARK_COLORS,
   TRANSLATION_IDLE,
-  accountInitial,
   accountLabel,
   agentStatusColorVar,
   agentStatusDesc,
@@ -1417,7 +1416,7 @@ function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
       h(
         'div',
         { class: cx('ucard', { hot: s.hotOrder }) },
-        h('div', { class: 'ucard-h' }, h('div', { class: 'ava sm', style: { background: conv.color } }, initialOf(conv.title)), h('div', { style: { flex: '1', 'min-width': '0', display: 'flex', 'flex-direction': 'column', gap: '4px' } }, h('b', { style: { 'font-size': '13.5px' } }, conv.title), h('div', { class: 'tagrow' }, tags))),
+        h('div', { class: 'ucard-h' }, h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)), h('div', { style: { flex: '1', 'min-width': '0', display: 'flex', 'flex-direction': 'column', gap: '4px' } }, h('b', { style: { 'font-size': '13.5px' } }, conv.title), h('div', { class: 'tagrow' }, tags))),
         h('div', { class: 'ucard-sep' }),
         o
           ? [
@@ -1606,7 +1605,7 @@ function bannerStack(s: MainState): HTMLElement | null {
     },
     shown.map((b) => {
       const acc = snap?.accounts.find((a) => sameAccount(a.context, b.account));
-      const conv = active && sameAccount(active.context, b.account) ? s.conversations.find((c) => c.gid === b.gid) : undefined;
+      const conv = active && sameAccount(active.context, b.account) && active.context.session_generation === b.account.session_generation ? s.conversations.find((c) => c.gid === b.gid) : undefined;
       // The view is rebuilt on every change: only a banner that just arrived slides in.
       const fresh = Date.now() - b.at < 250;
       const open = () => {
@@ -1624,7 +1623,7 @@ function bannerStack(s: MainState): HTMLElement | null {
       return h(
         'div',
         { class: cx('banner', { enter: fresh }), role: 'alert', dataset: { banner: b.gid }, onclick: open },
-        h('div', { class: 'ava', style: { background: conv?.color ?? acc?.color ?? '#5B6676' } }, conv ? initialOf(conv.title) : acc ? accountInitial(acc) : 'V'),
+        h('div', { class: 'ava', style: { background: conv?.color ?? '#5B6676' } }, conv ? renderMessageAvatar(document, conv.title, conv.customer_avatar) : 'V'),
         h(
           'div',
           { style: { flex: '1', 'min-width': '0', display: 'flex', 'flex-direction': 'column', gap: '2px' } },

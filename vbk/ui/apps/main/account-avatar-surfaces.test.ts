@@ -27,7 +27,7 @@ function account(id: string, name: string, avatar: string | null) {
 function fixture() {
   const a = account('synthetic-a', 'Alice', selfA);
   const b = account('synthetic-b', 'Bob', selfB);
-  const conv = { gid: 'synthetic-room', title: 'Customer', color: '#bbb', customer_avatar: customer, order: null };
+  const conv = { gid: 'synthetic-room', title: 'Customer', color: '#bbb', customer_avatar: customer, lang: 'zh', customer_tags: [], order: null };
   const state = { accounts: { accounts: [a, b], active_account_id: a.context.account_id, max_accounts: 16 }, conversations: [conv], noticeCats: [], view: 'messages', agent: { status: 'online', confirmed: false }, agentBusy: false, meMenu: true, alarmCount: 0, editingTab: null, banners: [] as unknown[] };
   return { a, b, conv, state };
 }
@@ -58,3 +58,18 @@ for (const [name, next] of [['titleBar', 'navBar'], ['navBar', 'meMenu'], ['meMe
     assert.deepEqual(nodes(render(name, next, absent, conv)).filter((node) => node.tag === 'img'), []);
   });
 }
+
+test('customer side card uses only the selected conversation avatar', () => {
+  const { conv, state } = fixture();
+  assert.deepEqual(nodes(render('sidePanel', 'chatPane', state, conv)).filter((node) => node.tag === 'img').map((image) => [image.src, image.alt]), [[customer, 'Customer']]);
+  assert.deepEqual(nodes(render('sidePanel', 'chatPane', state, { ...conv, customer_avatar: null })).filter((node) => node.tag === 'img'), []);
+});
+
+test('banner avatar requires both owning account and gid; absent customer context is neutral', () => {
+  const { a, b, conv, state } = fixture();
+  const banner = { id: 1, account: a.context, gid: conv.gid, system: false, count: 1, at: 0 };
+  assert.deepEqual(nodes(render('bannerStack', 'statusBar', { ...state, banners: [banner] })).filter((node) => node.tag === 'img').map((image) => image.src), [customer]);
+  for (const changed of [{ ...banner, account: b.context }, { ...banner, gid: 'synthetic-other-room' }, { ...banner, account: { ...a.context, session_generation: 0 } }]) {
+    assert.deepEqual(nodes(render('bannerStack', 'statusBar', { ...state, banners: [changed] })).filter((node) => node.tag === 'img'), []);
+  }
+});
