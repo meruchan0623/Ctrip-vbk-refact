@@ -173,6 +173,8 @@ export function createConversationListPoller(deps: AdapterDeps, soa: SoaClient, 
       if (running) return;
       running = true;
       generation += 1;
+      // U02: every run (= every adapter epoch) begins with a full snapshot so the host can rebuild after epoch_changed
+      cursor = null;
       void tick(generation);
     },
     stop(): void {

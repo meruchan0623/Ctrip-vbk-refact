@@ -218,3 +218,57 @@ export function makeDeps(script: FetchScript = () => jsonResponse({ ResponseStat
     },
   };
 }
+
+/** `PageSdk` fake for the page-session / RPC tests (send/read through `FakeSdk`). */
+export class FakePageSdk extends FakeSdk {
+  attached = true;
+  canSend = true;
+  readonly jids = new Map<string, string>();
+
+  sdkVersion(): string | null {
+    return null;
+  }
+
+  partnerJidOf(gid: string): string | null {
+    return this.jids.get(gid) ?? null;
+  }
+
+  rememberPartnerJid(gid: string, jid: string): void {
+    this.jids.set(gid, jid.split('/')[0] ?? jid);
+  }
+
+  waitReady(): Promise<boolean> {
+    return Promise.resolve(this.attached);
+  }
+
+  dispose(): void {
+    // nothing to release
+  }
+}
+
+/** A `conversationList[]` row shaped like the documented sample (placeholders only). */
+export function sampleRow(gid: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    uid: `cust-${gid}`,
+    serviceType: '1513',
+    id: 9001,
+    isOwner: false,
+    gid,
+    threadId: '',
+    conversationKey: '{{key}}',
+    lastMessageTime: 1700000000500,
+    relationOrderId: '1234567890',
+    ext: { orderId: '1234567890' },
+    status: 2,
+    conversationType: 'B2C',
+    groupTitle: `Title ${gid}`,
+    sessionId: `sess-${gid}`,
+    inGroup: 1,
+    star: 2,
+    isRead: 0,
+    lastUpdateTime: 1700000000600,
+    lastMessageJsonString: JSON.stringify({ msgId: `m-${gid}`, messageBody: 'hello  there', fromJid: `cust-${gid}@im.x`, toJid: `${gid}@conf.x`, createTime: 1700000000500, msgtype: 0 }),
+    languageInfo: { lang: 'en_PH' },
+    ...extra,
+  };
+}

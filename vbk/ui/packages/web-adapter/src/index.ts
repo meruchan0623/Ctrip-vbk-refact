@@ -31,13 +31,28 @@ export * from './upload.ts';
 export * from './translation.ts';
 export * from './settings.ts';
 export * from './bridge.ts';
+export * from './display.ts';
+export * from './identity.ts';
+export * from './pageContext.ts';
+export * from './sdkGlue.ts';
+export * from './stores.ts';
+export * from './notice.ts';
+export * from './rpc.ts';
 
 import type { AccountContext, AdapterFact, TransportState } from '../../ipc/src/contracts.ts';
 import type { AdapterDeps, SdkSocketStatus } from './deps.ts';
 import { AdapterBridge } from './bridge.ts';
 import { SoaClient, type ServerTimeSample } from './soa.ts';
-import { createConversationListPoller, type ConversationListPoller, type ConversationListVariant, type UnreadLookup } from './conversationList.ts';
-import { createCompensationLoop, type CompensationLoop } from './compensation.ts';
+import {
+  createConversationListPoller,
+  type ConversationListItem,
+  type ConversationListPoller,
+  type ConversationListResponse,
+  type ConversationListVariant,
+  type UnreadLookup,
+} from './conversationList.ts';
+import { createCompensationLoop, type CompensationLoop, type RecentMessagesResponse } from './compensation.ts';
+import type { SoaOutcome } from './soa.ts';
 import { CursorAllocator, UNKNOWN_ROLES, normalizeSdkMessage, type MemberRoles, type MsgTypeOverrides } from './facts.ts';
 
 export interface AdapterOptions {
@@ -53,6 +68,12 @@ export interface AdapterOptions {
   readonly stopNormalLoopAfterLimit?: boolean;
   readonly onServerTime?: (sample: ServerTimeSample) => void;
   readonly initialEpoch?: number;
+  /** Raw conversation rows per poll (display cache, sessionId/worksheetId lookups). Never logged. */
+  readonly onConversationRows?: (rows: readonly ConversationListItem[], full: boolean, variant: ConversationListVariant) => void;
+  /** Every classified conversation-list outcome (e.g. `currentStatus` read-back, `haveRest`). */
+  readonly onConversationListOutcome?: (outcome: SoaOutcome<ConversationListResponse>, variant: ConversationListVariant) => void;
+  /** Every classified `getRecentMessages` outcome (display bodies of compensated messages). */
+  readonly onCompensationOutcome?: (outcome: SoaOutcome<RecentMessagesResponse>) => void;
 }
 
 export interface Adapter {
@@ -102,6 +123,7 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
     initialBeginMsgTime: opts.initialBeginMsgTime,
     ...(opts.stopNormalLoopAfterLimit !== undefined ? { stopNormalLoopAfterLimit: opts.stopNormalLoopAfterLimit } : {}),
     ...(opts.msgTypeOverrides ? { msgTypeOverrides: opts.msgTypeOverrides } : {}),
+    ...(opts.onCompensationOutcome ? { onOutcome: opts.onCompensationOutcome } : {}),
   });
   const conversationPollers = (opts.conversationListVariants ?? ['plain']).map((variant) =>
     createConversationListPoller(deps, soa, {
@@ -109,6 +131,8 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
       emit,
       includeLocale: opts.includeLocaleInConversationList ?? false,
       ...(opts.unread ? { unread: opts.unread } : {}),
+      ...(opts.onConversationRows ? { onRows: (rows: readonly ConversationListItem[], full: boolean) => opts.onConversationRows?.(rows, full, variant) } : {}),
+      ...(opts.onConversationListOutcome ? { onOutcome: (o: SoaOutcome<ConversationListResponse>) => opts.onConversationListOutcome?.(o, variant) } : {}),
     }),
   );
 

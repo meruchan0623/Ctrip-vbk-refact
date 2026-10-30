@@ -11,6 +11,7 @@
  *   bundle/apps/<app>/index.html, *.css
  *   bundle/packages/ui-kit/src/*.css
  *   bundle/dist/**.js            (no tests, no source maps)
+ *   bundle/adapter/boot.js       (single-file page adapter, see bundle-adapter.mjs)
  *
  * It then checks that every local `href`/`src` in every HTML file resolves
  * inside the bundle, and exits non-zero otherwise, so a broken layout fails
@@ -23,6 +24,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bundleAdapter } from './bundle-adapter.mjs';
 
 const uiRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const vbkRoot = resolve(uiRoot, '..');
@@ -108,3 +110,7 @@ if (missing.length > 0) {
   process.exit(1);
 }
 console.log(`[bundle] ${htmlFiles.length} html entries, ${walk(out).length} files → ${relative(vbkRoot, out)}`);
+
+// 4. Single-file page adapter for the per-account webviews' initialization_script.
+const adapter = bundleAdapter({ distRoot: join(uiRoot, 'dist'), outFile: join(out, 'adapter', 'boot.js') });
+console.log(`[bundle] adapter: ${adapter.modules} modules, ${adapter.bytes} bytes → ${relative(vbkRoot, adapter.outFile)}`);

@@ -41,4 +41,12 @@ export const Endpoints = {
   AGENT_WORKING_SCHEDULE: endpoint('getAgentWorkingSchedule', M, '16037/getAgentWorkingSchedule', 'read'),
   VEN_AGENT_BY_UID: endpoint('getVenAgentByUid', M, '16037/getVenAgentByUid', 'read'),
   CUSTOMER_SCRIPTS: endpoint('getCustomerScripts', M, '16037/getCustomerScripts', 'read'),
+  // agent work status (static call chain: {head, agentStatus}; read back via getConversationList.currentStatus)
+  SET_VEN_AGENT_STATUS: endpoint('setVenAgentStatus', M, '16037/setVenAgentStatus', 'write'),
+  // notice centre (IQ); getIQConversations has a live sample, the other two are static call sites only
+  IQ_CONVERSATIONS: endpoint('getIQConversations', M, '11679/getIQConversations', 'read'),
+  IQ_MESSAGES: endpoint('getIQMessages', M, '11679/getIQMessages', 'read'),
+  PUT_ADVICE_READ_IQ: endpoint('putAdviceofreadIQMessage', M, '11679/putAdviceofreadIQMessage', 'write'),
+  // chat read receipt over HTTP exactly as the SDK sends it (evidence 71)
+  PUT_ADVICE_READ_BY_MSG_ID: endpoint('PutAdviceOfReadByMsgId.json', M, '11679/PutAdviceOfReadByMsgId.json', 'write'),
 } as const;
