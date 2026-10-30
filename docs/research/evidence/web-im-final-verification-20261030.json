@@ -1,0 +1,2127 @@
+{
+  "time": "2026-10-30T07:35:11.924Z",
+  "url": "https://vbooking.ctrip.com/vbk/im/main?currentTab=BC&initChat=3&locale=zh-CN&accountsource=vbk&disNotificationBiztype=118",
+  "scope": "Read-only page reload, no chat selected or business action invoked",
+  "requests": [
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/GetMyInfo.json",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/GetMyInfo.json",
+      "method": "POST",
+      "bodyKeys": [
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getVenAgentByUid",
+      "method": "POST",
+      "bodyKeys": [
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension",
+        "appId"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getVenAgentByUid",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/18088/getAppConfig.json",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "bodyKeys": [
+        "appId",
+        "categoryList",
+        "head"
+      ],
+      "headKeys": [
+        "appid",
+        "cid",
+        "cver",
+        "sid"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getIQConversations",
+      "method": "POST",
+      "bodyKeys": [
+        "head",
+        "lastMsgTime"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension",
+        "appId"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getIQConversations",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/13191/validateTicket",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/13191/validateTicket",
+      "method": "POST",
+      "bodyKeys": [
+        "context",
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/14894/getDoorFunctionGuide",
+      "method": "POST",
+      "bodyKeys": [
+        "pageId",
+        "channel",
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/16881/searchPop",
+      "method": "POST",
+      "bodyKeys": [
+        "source",
+        "readed",
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/14894/getDoorFunctionGuide",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/16881/searchPop",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "method": "POST",
+      "bodyKeys": [
+        "needMenu",
+        "needUserInfo",
+        "needPermission",
+        "needToolBar",
+        "needHeadBar",
+        "applicationCode",
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "method": "POST",
+      "bodyKeys": [
+        "needMenu",
+        "needUserInfo",
+        "needPermission",
+        "needToolBar",
+        "needHeadBar",
+        "applicationCode",
+        "businessLineList",
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/12405/generateWaterMark",
+      "method": "POST",
+      "bodyKeys": [
+        "headers",
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/12405/generateWaterMark",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/22015/getSceneConfig",
+      "method": "POST",
+      "bodyKeys": [
+        "head",
+        "platform",
+        "locale",
+        "pageId"
+      ],
+      "headKeys": [
+        "cid",
+        "cver",
+        "extension",
+        "appid"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/22015/getSceneConfig",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/16566/queryCountByEid",
+      "method": "POST",
+      "bodyKeys": [
+        "pageHead",
+        "filterList",
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/16566/queryCountByEid",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/14894/getProviderBusinessLineList",
+      "method": "POST",
+      "bodyKeys": [
+        "providerId",
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/17092/listNoticeReceiveConfig",
+      "method": "POST",
+      "bodyKeys": [
+        "scene",
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/14894/getProviderBusinessLineList",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/17092/listNoticeReceiveConfig",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getVenAgentByUid.json",
+      "method": "POST",
+      "bodyKeys": [
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getVenAgentByUid.json",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "bodyKeys": [
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension",
+        "appId"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getAgentWorkingSchedule",
+      "method": "POST",
+      "bodyKeys": [
+        "head",
+        "locale",
+        "venAgentUid"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension",
+        "appId"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getConversationList",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getAgentWorkingSchedule",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "method": "POST",
+      "bodyKeys": [
+        "needMenu",
+        "needUserInfo",
+        "needPermission",
+        "needToolBar",
+        "needHeadBar",
+        "applicationCode",
+        "businessLineList",
+        "head"
+      ],
+      "headKeys": [
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/GetMyInfo.json",
+      "method": "POST",
+      "bodyKeys": [
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getConversationList.json",
+      "method": "POST",
+      "bodyKeys": [
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getLatestSingleChat",
+      "method": "POST",
+      "bodyKeys": [
+        "paging",
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getIQConversations",
+      "method": "POST",
+      "bodyKeys": [
+        "lastMsgTime",
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "appId",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getConversationList.json",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getLatestSingleChat",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getIQConversations",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "POST",
+      "bodyKeys": [
+        "gidList",
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "bodyKeys": [
+        "appId",
+        "categoryList",
+        "head"
+      ],
+      "headKeys": [
+        "appid",
+        "cid",
+        "ctok",
+        "cver",
+        "lang",
+        "sid",
+        "syscode",
+        "auth",
+        "xsid",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "bodyKeys": [
+        "tuid",
+        "fullDeviceInfo",
+        "timestamp"
+      ],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/36709/createTUid",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "method": "OPTIONS",
+      "bodyKeys": [],
+      "headKeys": []
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "method": "POST",
+      "bodyKeys": [
+        "beginMsgTime",
+        "pageSize",
+        "head"
+      ],
+      "headKeys": [
+        "cver",
+        "extension"
+      ]
+    }
+  ],
+  "responses": [
+    {
+      "path": "/restapi/soa2/11679/GetMyInfo.json",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getVenAgentByUid",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/18088/getAppConfig.json",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "lastMessageTimestamp"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/GetMyInfo.json",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "name",
+        "avatar",
+        "jid",
+        "extPropertys"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/18088/getAppConfig.json",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "resultCode",
+        "lastCver",
+        "configList",
+        "delCategoryList",
+        "actualSize"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getVenAgentByUid",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "venAgent",
+        "venAgentOption",
+        "hasTodoList",
+        "abTestResult"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": true,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getIQConversations",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/14894/getDoorFunctionGuide",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/13191/validateTicket",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16881/searchPop",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/12405/generateWaterMark",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/13191/validateTicket",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ticketAttributes",
+        "returnCode",
+        "message",
+        "ResponseStatus"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/22015/getSceneConfig",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/14894/getDoorFunctionGuide",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "user",
+        "applicationName",
+        "applicationIcon",
+        "applicationIconUrl",
+        "permissionList",
+        "menuList",
+        "toolBarList",
+        "headBarList"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Build",
+        "Version",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "user",
+        "applicationName",
+        "applicationIcon",
+        "applicationIconUrl",
+        "permissionList",
+        "menuList",
+        "toolBarList",
+        "headBarList"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Build",
+        "Version",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16881/searchPop",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "success",
+        "popInformations"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/12405/generateWaterMark",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "image"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Build",
+        "Version",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getIQConversations",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "latestMsgTime",
+        "haveRest",
+        "categoryList"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16566/queryCountByEid",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/14894/getProviderBusinessLineList",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/17092/listNoticeReceiveConfig",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getVenAgentByUid.json",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/22015/getSceneConfig",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "header",
+        "ResponseStatus",
+        "sceneInfoList"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16566/queryCountByEid",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "count",
+        "isSuccess"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/14894/getProviderBusinessLineList",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "providerId",
+        "providerBusinessLineList"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/17092/listNoticeReceiveConfig",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "configList"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getVenAgentByUid.json",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "venAgent",
+        "venAgentOption",
+        "hasTodoList",
+        "abTestResult"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": true,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "lastMessageTimestamp"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getAgentWorkingSchedule",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getConversationList",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/GetMyInfo.json",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "name",
+        "avatar",
+        "jid",
+        "extPropertys"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getConversationList.json",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getLatestSingleChat",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getIQConversations",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "lastMessageTimestamp"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "user",
+        "applicationName",
+        "applicationIcon",
+        "applicationIconUrl",
+        "permissionList",
+        "menuList",
+        "toolBarList",
+        "headBarList"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Build",
+        "Version",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getAgentWorkingSchedule",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "bizResponseStatus",
+        "workingSchedule"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [
+        "resultCode"
+      ],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getConversationList",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "conversationList",
+        "currentStatus",
+        "lastUpdateTime",
+        "haveRest"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "number"
+    },
+    {
+      "path": "/restapi/soa2/16037/getLatestSingleChat",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "bizResponseStatus",
+        "messages",
+        "haveRest",
+        "lastMessageTime"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [
+        "resultCode"
+      ],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getConversationList.json",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "conversationList",
+        "currentStatus",
+        "lastUpdateTime",
+        "haveRest"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "number"
+    },
+    {
+      "path": "/restapi/soa2/16037/getConversationInfoByGidList",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getIQConversations",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "latestMsgTime",
+        "haveRest",
+        "categoryList"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/16037/getConversationInfoByGidList",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "bizResponseStatus",
+        "conversationInfoList"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [
+        "resultCode"
+      ],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "lastMessageTimestamp"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/18088/getAppConfig.json",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "resultCode",
+        "lastCver",
+        "configList",
+        "delCategoryList",
+        "actualSize"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/36709/createTUid",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/36709/createTUid",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "tuid",
+        "status"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "httpStatus": 200,
+      "bodyKeys": [],
+      "responseStatusKeys": [],
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "messages",
+        "lastMessageTimestamp",
+        "localIds"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    },
+    {
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "httpStatus": 200,
+      "bodyKeys": [
+        "ResponseStatus",
+        "messages",
+        "lastMessageTimestamp",
+        "localIds"
+      ],
+      "responseStatusKeys": [
+        "Timestamp",
+        "Ack",
+        "Errors",
+        "Extension"
+      ],
+      "ack": "Success",
+      "bizStatusKeys": [],
+      "statusKeys": [],
+      "hasVenAgent": false,
+      "hasUserInfo": false,
+      "currentStatusType": "undefined"
+    }
+  ],
+  "ws": [
+    {
+      "event": "created",
+      "url": "wss://im3.ctrip.com/ws-xmpp/"
+    },
+    {
+      "event": "sent",
+      "tag": "open",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "open",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "stream:features",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "auth",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "success",
+      "hasBody": false,
+      "hasSuccess": true
+    },
+    {
+      "event": "sent",
+      "tag": "open",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "open",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "stream:features",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "created",
+      "url": "wss://im.ctrip.com/ws-xmpp/"
+    },
+    {
+      "event": "sent",
+      "tag": "open",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "open",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "stream:features",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "auth",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "success",
+      "hasBody": false,
+      "hasSuccess": true
+    },
+    {
+      "event": "sent",
+      "tag": "open",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "open",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "stream:features",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "message",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "message",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "message",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "message",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "message",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "message",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "message",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "message",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "message",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "message",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "message",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "message",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "message",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "message",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "message",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "message",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": true,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "sent",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    },
+    {
+      "event": "received",
+      "tag": "iq",
+      "hasBody": false,
+      "hasSuccess": false
+    }
+  ],
+  "page": {
+    "title": "供应商客服工作台",
+    "iframeCount": 0,
+    "scripts": [
+      "https://static.tripcdn.com/modules/basebiz.im/web-imclient-core/imsdk.850ee19f2122897fcb3d3d18f17bc8d4.js",
+      "https://webresource.c-ctrip.com/NFES/vbkIm/1792569719501/_next/static/chunks/pages/main-c2bb7fee0d8e9f1b.js"
+    ],
+    "cookieNames": [
+      "BDUID"
+    ],
+    "hasWelcome": true,
+    "hasLogin": false
+  },
+  "verificationLimits": [
+    "No business writes, customer send, read receipt, upload or state switch were deliberately invoked.",
+    "Only response field names and safe status markers retained; bodyKeys=[] includes preflight or body-unavailable, not proof of an empty business response.",
+    "Existing shared browser login session was reused; isolated three-cookie restore was not attempted.",
+    "No per-frame connection or message identifiers retained in final verification; cannot deduplicate the observed frames."
+  ]
+}

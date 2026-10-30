@@ -1,108 +1,69 @@
 # 旅游商家客户端重构架构选型
 
-2026-10-30 · 在线版本（含评论）：<https://claude.ai/artifact/QHSVMTyuYE4mE4ZyaEc3bT>
+2026-10-30 · 最终文档审查修订
 
-> **更正（2026-10-30）**：下文的 Swift 启动器、IM 伴随进程（companion）和 CDP 调试端口属于用户自己的插件「旅游商家助手」注入包，不是携程官方客户端的组成部分。官方客户端的实际缺陷与复用范围的修正见 [02 现有客户端缺陷分析](02-current-client-defects.md)。
+## 决策：Tauri 2 + Rust 为首选，先验证 Windows 关键路径
 
-## 结论：选 Tauri 2 + Rust，Windows 先行
+选择 Tauri 2 + Rust 作为开发候选，Windows 先行、macOS 后续适配。目标是减少不必要的常驻页面、移除远程页面的宽泛本机权限，并把消息一致性和计时放在可恢复的核心服务中。**框架替换本身不保证内存减半、消除卡顿或兼容全部业务页。** 是否正式冻结该选型，取决于本文的 G0 可行性关口。
 
-推荐 Tauri 2 + Rust 作为统一架构，先做 Windows，macOS 第二阶段跟进。现有客户端是 Electron 壳，业务界面是 Web（vbooking 商家后台 + IM），Tauri 可以直接复用这些页面；Windows 上 Tauri 用的 WebView2 和现在的 Electron 同为 Chromium 内核，迁移风险最低。
+C# + WebView2 仍是 Windows 端备选；Swift 原生外壳也是 macOS 备选。双原生会增加界面与系统集成维护面，但并不必然需要两支团队或全部业务逻辑重写。当前优先 Tauri 是工程复用取舍，不是已通过性能对照的事实。
 
-C# + Swift 双原生意味着两支团队、每个功能做两遍，而业务页面大概率仍要嵌入 WebView2 / WKWebView，原生带来的收益抵不上翻倍的成本。
+## 证据边界
 
-只有两种情况我会改推 C#（WinUI 3 或 WPF + WebView2）：决定放弃 macOS 只做 Windows，或决定把商家后台主要界面全部原生重写。
-
-### 复用边界
-
-- **复用**：业务页面（vbooking 后台、IM 界面等 Web 部分），原样在 WebView 中运行。
-- **用 Rust 重写，不复用**：Electron 主进程、preload、ipcRenderer 与 Node API 调用、Swift 启动器、靠 CDP 控制页面的 IM 伴随进程。
-- 边界的具体位置要看 app.asar：页面里调用 Electron/Node 的地方越多，需要改写的前端代码越多。
-
-## 现有客户端拆包结果
-
-上传的 macOS 包是 Electron 27 应用，并已装有插件注入包（Swift 启动器与 IM 伴随进程来自插件）。业务代码（app.asar）不在上传内容里，所以以下结论来自二进制和配置文件。
-
-| 项目 | 发现 | 依据 |
+| 输入 | 可得结论 | 不可外推 |
 | --- | --- | --- |
-| 壳框架 | Electron 27.3.11，Chromium 118.0.5993.159 | Electron Framework 二进制内的版本串 |
-| CPU 架构 | Electron 主程序与框架只有 x86_64，只有启动器是 arm64 | file 命令 |
-| 启动器（插件） | TripVendorLauncher，Swift + AppKit 编写，由插件注入安装器替换为入口 | Info.plist 的 CFBundleExecutable |
-| IM 伴随进程（插件） | 启动器拉起 companion（日志目录 trip_vendor_im_companion），崩溃后自动重启；并给 Electron 开启仅限 127.0.0.1 的 Chromium 远程调试端口 | 启动器字符串 |
-| 自动更新 | Squirrel.Mac + electron-updater（generic 源，url 为空） | Frameworks、app-update.yml |
-| 标识与版本 | com.ctrip.vbooking，1.2.12，最低 macOS 10.15 | Info.plist |
-| 深链接 | vbookingChat:// URL Scheme，推测用于唤起 IM 会话 | Info.plist |
-| 权限声明 | 摄像头、麦克风、蓝牙（文案是 Electron 默认模板） | Info.plist |
-| 网络策略 | ATS 允许任意 HTTP 加载 | Info.plist |
-| 缺失部分 | Resources/app.asar 和 Resources/companion/ | 目录列表 |
+| 上传的 Windows 1.2.12 包及后续源码核对 | 官方主入口、业务外壳、Node IM SDK、预加载桥与静态接口可分析 | 某接口当前必然可用、服务端幂等、全部账号角色相同 |
+| 早期 macOS 包的框架与配置 | 该包为 x64 Electron 27.3.11 / Chromium 118；Swift 启动器与 companion 属于助手插件 | 所有官方发行渠道都只有 x64；Mac 业务逻辑与 Windows 完全一致 |
+| [Windows 实机审查](reviews/2026-10-30-windows-adversarial-review.md) | 双账号、已安装助手的短时进程样本与源码指纹 | 纯官方性能基线、长期泄漏或具体性能瓶颈的因果关系 |
+| [网页 IM 调查](research/2026-10-30-web-im-observation.md) | 官方网页登录与 XMPP over WSS 自然入站有实测 | Tauri 登录已通过、发送闭环已通过、隐藏 WebView 可替代后台进程 |
 
-对重构有直接影响的三点：
+早期“缺少 app.asar、需补传才能分析”的判断仅描述当时输入，现已被 Windows 静态调查补齐；macOS 差异仍须按实际部署包与运行环境验收。旧在线稿 <https://claude.ai/artifact/QHSVMTyuYE4mE4ZyaEc3bT> 只作历史参考，不作为开发契约。
 
-- Chromium 118 是 2023 年的内核，Electron 27 已不再获得安全更新，客户端又允许任意 HTTP，安全面是重构的强理由。
-- Electron 只有 x86_64 版本，在 Apple Silicon Mac 上靠 Rosetta 转译运行。
-- 插件的 IM 伴随进程通过 Chromium 远程调试协议（CDP）注入页面；新客户端把这些功能做成内置功能，不再需要 CDP。
+## 复用边界
 
-要梳理具体页面、功能清单和 Electron API 使用情况，需要补传 app.asar。
+| 组成 | 新方案 |
+| --- | --- |
+| 远程 vbooking 内容 | 尽量复用线上页面与业务接口；顶层子 WebView 承载，逐入口验证导航、登录、上传、下载与兼容桥，不承诺原样运行 |
+| 本地业务外壳 | 重写账号导航与标签；8 个入口为 home、order、product、comment、bulletin、course、event、data（bi 别名） |
+| 本地 IM 界面 | 重写；UI、业务 HTTP 与实时传输分别选型，不照搬旧页面 |
+| 实时传输 | Web SDK 传输 WebView 与 Node sidecar 做同场景原型；Rust 原生 XMPP 为后续候选，见 [IM 决策](decisions/2026-10-30-im-transport.md) |
+| Electron 主进程、preload、Node 特权 API | 由 Rust 核心和窄桥替代；不移植关闭 Web 安全、移除 CSP/X-Frame-Options 或关闭 TLS 验证的做法 |
+| 助手的 Swift 启动器与 CDP 注入 | 相关产品功能内置；不保留生产调试端口。进程监督按最终传输路线决定 |
 
-## 两种方案对比
+## 目标结构与取舍
 
-在“Windows 优先、两端都要、业务是 Web”这三个前提下，Tauri 在成本、复用和 Windows 兼容性上都占优，双原生只在原生体验上更好。
-
-| 维度 | Tauri 2 + Rust | C#（WinUI 3 / WPF）+ Swift |
+| 维度 | Tauri 2 + Rust 方案 | 约束 |
 | --- | --- | --- |
-| 代码份数 | 一套 Web 界面 + 一个 Rust 核心，平台差异代码很少 | 两套完整客户端 |
-| 团队 | 前端 + 少量 Rust 工程师 | .NET 团队 + Swift 团队 |
-| 复用现有 Web 业务页 | 直接复用 | 仍需嵌 WebView，或原生重写 |
-| Windows 内核 | WebView2（Chromium），与现 Electron 同源 | 原生 XAML；嵌网页同样用 WebView2 |
-| macOS 内核 | WKWebView（Safari），需做兼容测试 | 原生 AppKit / SwiftUI；嵌网页同样是 WKWebView |
-| 安装包与内存 | 包体通常只有几 MB 到十几 MB，内存明显低于 Electron | Swift 最小；WinUI 3 自包含发布通常数十 MB |
-| 托盘、通知、深链、单实例、自启动 | 官方插件覆盖；特殊需求用 Rust 直调 Win32 / AppKit | 完全原生 |
-| 自动更新 | tauri-plugin-updater，自带签名校验 | Windows 自研或 MSIX；macOS 用 Sparkle |
-| 现有 IM 伴随进程（依赖 CDP） | Windows 可保留，macOS 须改为 IPC | 同左 |
-| 新功能的长期成本 | 做一次 | 做两次，两端容易功能漂移 |
-| 主要风险 | Rust 招人；WKWebView 兼容性 | 成本翻倍；macOS 端容易长期落后 |
-
-Windows 单端看，两条路的首版工作量接近；差距出现在 macOS：Tauri 是适配，Swift 是从零再写一遍。
-
-## 目标架构
-
-![目标架构：Web 前端、Rust 核心、两个平台](images/target-architecture.png)
+| 页面运行时 | Windows WebView2；macOS WKWebView | Chromium 同源不代表 Cookie、Profile、API、风控或嵌入场景等价；WKWebView另测 |
+| 业务状态 | Rust 统一持有本地业务状态、持久化、提醒与恢复进度 | 上游状态仍以服务端为准；传输 SDK 有独立内部状态，须对账；UI 可保留临时展示状态 |
+| 多账号 | 账号独立浏览器存储与数据库命名空间 | 同环境多 Profile 需适配验证；独立数据目录是可行性兜底，会增加进程组 |
+| 包体与内存 | 不随包分发 Electron；控制页面和传输资源 | Node、WebView2 离线运行时、模型与平台组件另计；≤45 MB/≤30 MB 是目标而非保证 |
+| 发布 | Windows NSIS 首选；macOS 签名与公证 | OCR 的包身份方案、更新链、深链与通知均须在正式安装产物上验证；Tauri 默认 Windows 打包是 NSIS/MSI，MSIX不是无成本默认项 |
 
 ```mermaid
 flowchart TB
-  subgraph Web["Web 前端（运行在系统 WebView 中）"]
-    Biz["现有 vbooking 业务页<br/>远程加载，原样复用"]
-    Shell["新壳界面<br/>多标签、IM 窗口、设置页"]
-  end
-  subgraph Core["Rust 核心（与平台无关的客户端能力）"]
-    Session["登录与会话"]
-    IM["IM 长连接与系统通知"]
-    Deep["深链与单实例<br/>vbookingChat://"]
-    Tray["托盘与自启动"]
-    Update["自动更新"]
-    Guard["进程守护与日志<br/>取代现有 Swift 启动器"]
-  end
-  Web <-- "Tauri IPC：命令与事件，按页面白名单授权" --> Core
-  Core --> Win["Windows（首发）<br/>WebView2，NSIS/MSIX，Toast 通知"]
-  Core --> Mac["macOS（第二阶段）<br/>WKWebView，DMG + 公证"]
+  UI["本地外壳与 IM 视图"] -->|"带账号和视图代次的命令"| Core["Rust 核心与持久状态"]
+  Remote["远程业务 WebView"] -->|"受限兼容桥"| Core
+  Core -->|"授权后的定向快照和增量"| UI
+  Core --> Transport["可替换 IM 传输"]
+  Transport --> Web["候选：账号专用 Web SDK WebView"]
+  Transport --> Node["候选：账号专用 Node sidecar"]
 ```
 
-现在的 Swift 启动器、Electron 主进程和 IM 伴随进程三件事，在新架构里都收进一个 Rust 核心；业务页只通过带白名单的 IPC 调用本地能力，不再暴露调试端口。
+## G0：冻结平台与接口前的可行性关口
 
-## 分阶段计划（本项目做到原型为止）
+| 关口 | 必需证据 | 失败后的处理 |
+| --- | --- | --- |
+| G1 登录与隔离 | 在目标 WebView2 完成官方登录；两账号 Cookie/Profile隔离；登出后旧请求不能复活凭据 | 评估登录接口路线或独立数据目录；不以 Ego 登录成功代替嵌入式验收 |
+| G2 页面与系统集成 | 8 业务入口的兼容桥、microApp 回调、POST 新窗、下载、焦点/DPI；多子 WebView 与恢复 | 子视图失败转独立窗口；冻结所用 Tauri/wry 版本及补丁维护方案 |
+| G3 消息正确性 | 测试会话收发/回执、稳定 localId、未知结果、补拉水位、多账号、锁屏/睡眠/断网恢复 | 保留 unknown；未证明幂等不得自动补发；原型后选择传输 |
+| G4 安装能力 | 普通用户干净机验证 Runtime、OCR、通知激活、深链、监视器和卸载 | 改引擎或安装方式，不以开发机环境代替交付能力 |
+| G5 数据与更新 | 账号隔离恢复、迁移重试保护新数据、可信更新策略、防回滚重放 | 阻断对应发布能力，不通过清库、覆盖安装或关闭验证兜底 |
 
-本项目只产出计划和原型，不落盘真实的前后端代码。
+当前授权仍为文档审查；这轮未实现这些原型。可以进入 G0 验证和不依赖未决项的基础开发，不能将所有关口写成已通过后并行铺开全部模块。实施契约见 [开发总纲](dev/00-architecture.md)，历史风险见 [Windows 审查](reviews/2026-10-30-windows-adversarial-review.md)。
 
-1. 补齐输入：补传 app.asar 和 Resources/companion/，梳理页面清单、Electron API 使用清单、IM 伴随进程的职责。关口：确认业务页是远程加载还是打包在本地。
-2. Windows 技术验证方案：列出 Tauri 壳要验证的能力（登录态与 Cookie、vbookingChat:// 深链、系统通知、托盘、单实例、自动更新）和验收标准。关口：现有业务页在 WebView2 中无需改动即可用。
-3. IM 与伴随进程方案：决定并入 Rust 核心，还是保留独立进程并改用 IPC。
-4. 界面原型：用可点击的 HTML 原型展示新壳的导航、多标签和 IM 窗口，Windows 采用 Fluent 风格。
-5. macOS 兼容性评估：在 WKWebView 下跑同一批页面，列出 Safari 兼容问题清单，决定前端是否需要适配。
+## 平台支持口径
 
-## 风险与待确认问题
+本项目主动不支持 Windows 7/8.1，最低候选 Windows 10 1809，实际发布支持矩阵须结合所选 Runtime/依赖与操作系统维护状态确定。不能写成“Tauri 2 本身不支持 Windows 7”：其官方安装文档仍记录兼容选项；这与采用过期 Runtime 是否可接受是两个问题。[Tauri Windows 安装](https://v2.tauri.app/distribute/windows-installer/)
 
-- 业务页是否依赖 Electron 专有能力（Node 集成、ipcRenderer、remote）。如果依赖多，需要一层兼容桥；要看 app.asar 才能判断。
-- WKWebView 与 Chromium 的差异：文件下载、打印、剪贴板、音视频、第三方 Cookie 策略。
-- WebView2 Runtime：Windows 10/11 基本预装，安装包仍应带引导程序兜底；Tauri 2 不支持 Windows 7，现有 Electron 27 同样不支持，不算新增损失。
-- 伴随进程的 CDP 方案在 macOS 不可行，需要重新设计。
-- 团队里是否有人能写 Rust。如果只有 .NET 背景且短期只做 Windows，WinUI 3 + WebView2 是可靠的备选。
-- 这是携程内部立项还是第三方重做？这决定能否使用其接口、商标和更新通道。
+性能以相同机器、账号数、页面和功能对照实测；正式签名提升发布可信度，但 EV 签名不保证免除 SmartScreen 提示。[Tauri Windows 签名](https://v2.tauri.app/distribute/sign/windows/) 多 WebView 和用户数据目录的进程成本按实际拓扑计入。[Microsoft 进程模型](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/process-model)

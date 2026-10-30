@@ -4,6 +4,8 @@
 
 当前阶段只做重构规划与原型，不包含真实的后端代码或前端 TS/JS 组件代码。
 
+**开发入口：[开发前最终对抗性审查](docs/reviews/2026-10-30-final-adversarial-review.md)**。本轮已将账号隔离、发送未知结果、同步水位、提醒语义、迁移恢复、远程桥与更新安全规则回写全部相关模块。可以进入基础工程和 G0 关键路径原型；G1–G5 尚未运行验收，不应把接口观测当成全功能方案冻结。
+
 ## 文档
 
 | 文档 | 内容 |
@@ -12,7 +14,14 @@
 | [02 现有客户端缺陷](docs/02-current-client-defects.md) | 官方客户端在 Windows / macOS 上的卡顿与安全缺陷，Electron 去留结论，复用范围修正 |
 | [03 副窗口](docs/03-multi-window.md) | 官方副窗口清单（IM 倒计时、横幅、截图等）与 Tauri 实现方式 |
 | [04 模块划分与联动](docs/04-modules-and-integration.md) | 全部组件盘点（含登录）、Rust 核心与前端模块划分、命令/事件联动、开发顺序 |
-| [Windows 对抗性审查（2026-10-30）](docs/reviews/2026-10-30-windows-adversarial-review.md) | 三路独立计划审查、实机进程证据、8 项 P1 / 8 项 P2 与 Windows 验收关口 |
+| [最终对抗性审查（2026-10-30）](docs/reviews/2026-10-30-final-adversarial-review.md) | 全文档审查、修正清单、网页复核与证据复算、开发准入和 G1–G5 验收关口 |
+| [Windows 前轮审查（2026-10-30）](docs/reviews/2026-10-30-windows-adversarial-review.md) | 保留原基线的历史记录；当前契约以最终审查及已修订模块为准 |
+
+新增调查：[IM 网页与客户端接口选型决策](docs/decisions/2026-10-30-im-transport.md)（已完成网页登录、XMPP 连接和130秒自然入站观测，含 SDK/鉴权/重试差异与替换条件）。
+
+[旅游商家客户端实机观测（2026-10-30）](docs/observations/2026-10-30-desktop-runtime.md)：进程、网络连接、启动日志、接口核对及待决策项；已完成两轮 HTTP 应用层抓包，Node 长连接与完整收发链路待补。
+
+[IM 边际功能接口补充](docs/research/2026-10-30-im-peripheral-apis.md)：成员转移/邀请/移除、结束动作、侧栏字段映射、产品推荐查询与卡片发送、分业务线订单入口；区分动态观测、静态契约和待验收项。
 
 ### 各模块开发文档（docs/dev）
 
@@ -28,11 +37,11 @@
 | [07 媒体工具](docs/dev/07-media.md) | 多屏截图、OCR、中文纠错、下载、图片与视频预览 |
 | [08 更新、诊断与偏好](docs/dev/08-update-telemetry.md) | 签名更新、日志与崩溃、埋点、偏好、多语言、诊断包 |
 | [09 商家助手](docs/dev/09-assistant.md) | 插件功能内置：翻译、TSim、订单查询、套餐速览 |
-| [10 IM](docs/dev/10-im.md) | IM 一期 sidecar 与二期 Rust、core-im 状态、ui-im 性能设计 |
+| [10 IM](docs/dev/10-im.md) | Web SDK / Node sidecar 候选、outbox 与未知结果、补拉水位、core-im 状态、ui-im 性能设计 |
 
 ## 当前结论
 
-推荐 **Tauri 2 + Rust**，彻底弃用 Electron：远程加载的 vbooking 业务页原样复用，本地打包的 IM 等窗口重写，主进程能力收进一个 Rust 核心；先交付 Windows（WebView2），macOS（WKWebView）第二阶段跟进。
+以 **Tauri 2 + Rust** 为首选候选，先验证 Windows（WebView2），macOS（WKWebView）第二阶段跟进。新外壳替代 Electron，本地 IM 界面重写，远程 vbooking 内容逐入口验证兼容；消息传输在 Web SDK 与 Node sidecar 完成同场景闭环后选择。内存、包体和性能收益以对照实测为准。
 
 ## 目录
 

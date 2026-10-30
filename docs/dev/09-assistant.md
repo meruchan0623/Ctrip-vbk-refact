@@ -21,8 +21,8 @@
 - **翻译有两个来源，做成可切换的提供方**：
   - 官方：携程 SOA2 服务 `/11679/getMessageTranslate`（输入框实时翻译，停笔 500 ms 触发）和 `/11679/batchTranslateByMsgIds`（客户消息翻译），用携程登录 Cookie。
   - 插件：TSim 服务 `https://csapi.tsim.tech/agent/translate`，用 TSim 账号的 Bearer token，服务端再转给 DeepL、DeepSeek、OpenAI 等上游。
-  - 两者都由 Rust 发请求，前端只负责 500 ms 去抖后发起命令。
-- **订单查询和套餐速览的数据来自 TSim，不来自携程**。插件调用的是 `csapi.tsim.tech/agent/package-query/*`，凭据是 TSim token，不是携程 Cookie。携程 Cookie 只在“从携程会话里拿到订单号”这一步用到。推荐：套餐速览做成原生面板（Rust 调 API）；完整订单查询一期继续内嵌 TSim 远程页 `csagent.tsim.tech`，放在 IM 侧栏的子 WebView 里，见第 5.3 节取舍。
+  - 两者都由 Rust 经固定端点的 typed service 发请求，前端只负责 500 ms 去抖后发起命令；TSim与携程凭据注入归各自服务，UI不传任意Authorization或URL。
+- **订单查询和套餐速览的数据来自 TSim，不来自携程**。插件调用的是 `csapi.tsim.tech/agent/package-query/*`，凭据是 TSim token，不是携程 Cookie。携程 Cookie 只在“从携程会话里拿到订单号”这一步用到。推荐：套餐速览做成原生面板（Rust 调 API）；完整订单查询在登录交接与隔离验收通过后才内嵌 TSim 远程页 `csagent.tsim.tech`，放在 IM 侧栏的子 WebView 里，见第 5.3 节取舍。
 - **会话滚到底部、启动最大化不属于助手的业务逻辑**，分别交给 ui-im 和 core-shell 实现，助手只保留开关。
 
 ## 2. 承接范围
@@ -65,7 +65,7 @@
 | 上游 | 携程内部，接口不暴露供应商（批量结果带 `supplier`） | TSim 服务端转发，枚举里有 deepl、deepseek、openai、google、anthropic、azure、tencent、baidu |
 | 一致性保护 | 只比对会话 ID | 回显请求 ID 和输入框版本，防止旧译文覆盖新草稿 |
 | 去抖 | 前端固定 500 ms | 服务端下发 100–3000 ms |
-| 隐私 | 数据不出携程 | 草稿发往第三方服务及其上游模型 |
+| 隐私 | 请求先到携程；静态代码不能证明携程后端不转发第三方（批量接口带 supplier），保留策略待供应方确认 | 草稿发往 TSim 及其所配置上游；实际供应商/保留策略以服务配置为准 |
 
 结论：两者并存，抽象成 `TranslateProvider`。默认用官方提供方；登录了 TSim 且有翻译权限、并且用户在设置里选择 TSim 时，出站翻译走 TSim。入站消息翻译继续用官方批量接口（它按消息 ID 工作，归 core-im，见第 6 节）。
 
@@ -87,7 +87,7 @@
 
 ### 4.1 状态
 
-模块内部按总纲 4.5 用“一个状态持有任务 + mpsc”的 actor 写法，再拆出三个子任务：`TsimSession`（登录与刷新串行化）、`Translator`（每会话最多一个在途请求）、`OrderService`。
+模块内部按总纲 4.5 用“一个状态持有任务 + mpsc”的 actor 写法，再拆出三个子任务：`TsimSession`（登录与刷新串行化）、`Translator`（每账号、会话、输入框实例最多一个有效在途请求）、`OrderService`。
 
 ```rust
 pub struct AssistantState {
@@ -96,7 +96,7 @@ pub struct AssistantState {
     pub tsim: TsimStatus,                  // SignedOut | Connecting | Ready{account_id, permissions} | Failed{code}
     pub provider: ProviderKind,            // Ctrip | Tsim
     pub outbound_wait: WaitBounds,         // 默认 500 ms；TSim 下发 min/max
-    pub conversations: HashMap<ConvId, ConvAssist>, // 只保存当前账号最近 50 个
+    pub conversations: HashMap<ConversationRef, ConvAssist>, // 按 AccountContext 分区，各账号最近 50 个
 }
 pub struct ConvAssist {
     pub customer_lang: LangGuess,          // {lang, confidence, source: Recognized|Manual|Fallback}
@@ -106,25 +106,25 @@ pub struct ConvAssist {
 }
 ```
 
-TSim 会话沿用插件的“代次”概念：每次登录、刷新、登出、权限变化都让 `auth_generation` 加一，所有在途请求带上发起时的代次，返回时代次不同就作废（插件 `AUTH_CHANGED`）。
+公共请求上下文采用总纲 `AccountContext{account_id, environment, session_generation}`、`ConversationRef{account, gid}`、`ViewContext{webview_label, view_generation}`。TSim 另有 `tsim_session_generation`，每次登录、刷新、登出、权限变化递增；不能用它替代携程会话代次。Rust 从来源 WebView 的绑定校验全部上下文，返回和入缓存前再次校验；迟到结果不得复活凭据、覆盖新权限或误投另一会话。输入框另有 `composer_id` 与单调 `draft_rev`，重建输入框不得复用旧版本空间。
 
 ### 4.2 命令
 
-均为 `plugin:assistant|<命令>`，只授予 `im.json` 与 `shell.json`（设置页）。
+均为 `plugin:assistant|<命令>`，只授予本地 im 与设置 WebView 的具体命令。下表业务参数隐含必须显式携带并校验 AccountContext、ConversationRef（会话操作）、ViewContext；设置页不能因此获得 IM 发送权限。
 
 | 命令 | 参数 → 返回 | 说明 |
 | --- | --- | --- |
 | `state_snapshot` | → `{seq, AssistantState}` | 窗口打开时先调用 |
-| `translate_draft` | `{conv_id, draft_rev, text, target?}` → `TranslationPreview {draft_rev, text, provider, cached}` | 同一会话新请求自动取消旧请求，旧请求返回 `assistant.superseded` |
-| `cancel_translation` | `{conv_id}` | 用户清空输入或关闭翻译 |
-| `set_conversation_options` | `{conv_id, target?, translate_enabled?}` | 手动指定目标语言后不再跟随识别 |
+| `translate_draft` | `{conversation, view, composer_id, draft_rev, request_id, text, target?}` → `TranslationPreview {context, request_id, composer_id, draft_rev, text_hash, target, provider, text, cached}` | 同一账号/会话/输入框新请求作废旧请求，旧请求返回 `assistant.superseded` |
+| `cancel_translation` | `{conversation, view, composer_id}` | 用户清空输入或关闭翻译 |
+| `set_conversation_options` | `{conversation, target?, translate_enabled?}` | 手动指定目标语言后不再跟随识别 |
 | `set_options` | `{provider?, follow_customer_lang?, fallback_target?, outbound_mode?, shortcut_enabled?}` | 写入 core-store 偏好 |
 | `tsim_login` | `{username, password}` → `TsimStatus` | 表单登录，密码不落盘 |
 | `tsim_logout` | — | 本地先清，再通知服务端 |
 | `tsim_session_snapshot` | → `TsimStatus` | 设置页使用 |
 | `order_summary` | `{identifier, kind}` → `OrderSummary {plans[≤5], total}` | 套餐速览；需要 `complaint_records` 权限 |
-| `order_panel_open` | `{conv_id, identifier, kind, bounds}` | 在 im 窗口创建或复用订单查询子 WebView |
-| `order_panel_set_bounds` / `order_panel_close` | `{bounds}` / — | 侧栏拖动、折叠时调用 |
+| `order_panel_open` | `{conversation, view, identifier, kind, bounds}` | 在 im 窗口创建或复用订单查询子 WebView |
+| `order_panel_set_bounds` / `order_panel_close` | `{panel_id, view, bounds}` / `{panel_id, view}` | 侧栏拖动、折叠时调用，校验面板归属 |
 | `log_snapshot` | → 最近 1000 条脱敏记录 | 日志对话框 |
 | `log_export` | → 文件路径 | 打包最近日志，供用户发给支持人员 |
 | `features_snapshot` | → `FeatureSet` + 每项的来源 | 设置页与排障 |
@@ -134,10 +134,12 @@ TSim 会话沿用插件的“代次”概念：每次登录、刷新、登出、
 | 事件 | 载荷 | 接收窗口 |
 | --- | --- | --- |
 | `assistant://state-changed` | `{seq, patch}` | im、setting |
-| `assistant://customer-language-changed` | `{seq, conv_id, guess}` | im |
+| `assistant://customer-language-changed` | `{conversation, guess}` | im |
 | `assistant://tsim-session-changed` | `{seq, status}` | im、setting |
-| `assistant://order-ids-changed` | `{seq, conv_id, order_ids}` | im |
+| `assistant://order-ids-changed` | `{conversation, order_ids}` | im |
 | `assistant://features-changed` | `{seq, features}` | im、setting、main |
+
+事件统一使用总纲 `EventEnvelope{scope,stream,epoch,seq,payload}`，定向发送给对应账号和视图；不广播客户语言、订单标识或会话状态。
 
 翻译结果直接作为 `translate_draft` 的返回值，不另发事件：翻译只服务于发起它的那个输入框，没有多窗口共享的必要。
 
@@ -151,7 +153,9 @@ pub trait TranslateProvider: Send + Sync {
         -> Result<String, AppError>;
 }
 pub struct OutboundRequest {
-    pub conv: ConvContext,     // sessionId、groupId、bizType（官方需要）
+    pub conversation: ConversationRef, // 含账号环境/认证代次；由核心解析对应上游 sessionId/groupId/bizType
+    pub view: ViewContext, pub composer_id: String,
+    pub tsim_session_generation: Option<u64>,
     pub text: String, pub source: Lang, pub target: Lang,
     pub draft_rev: u64,        // TSim 映射为 composer_content_version
     pub request_id: String,    // TSim 映射为 draft_request_id
@@ -161,13 +165,15 @@ pub struct OutboundRequest {
 | 环节 | 做法 |
 | --- | --- |
 | 去抖 | 前端：停笔后等 `outbound_wait`（默认 500 ms，与官方 `uOt=500` 一致），输入法组字中不计时。Rust 不再二次去抖 |
-| 作废 | Rust 每会话保存一个 `CancellationToken`；新请求到达即取消旧请求，并在返回前再比对 `draft_rev` |
-| 缓存 | 内存 LRU（`moka` 或 `lru` crate），键为 `(提供方, 目标语言, 文本 SHA-256)`，上限 500 条、存活 10 分钟。不写磁盘 |
-| 合并 | 相同键的并发请求只发一次（single-flight） |
+| 作废 | Rust 每账号/会话/输入框保存一个取消令牌；取消只是尽力终止，结果回送前仍比较携程与 TSim 代次、视图代次、composer_id、request_id、draft_rev 与文本哈希 |
+| 缓存 | 内存 LRU（`moka` 或 `lru` crate），键至少为 `(environment, account_id, session_generation, TSim身份及代次, 提供方及配置版本, 源语言, 目标语言, 文本 SHA-256, 官方会话上下文)`，上限 500 条、存活 10 分钟。不写磁盘 |
+| 合并 | 一期不跨输入框/请求代次合并请求；TSim 回显绑定 request_id/draft_rev，不能把一个请求回显复用给另一个。缓存只存译文，命中后重新构造当前上下文回执并重验权限 |
 | 限流 | `governor` crate 令牌桶，按提供方设置，初值每秒 2 次、突发 4 次；服务端 429 时按 `Retry-After` 暂停该提供方 |
 | 超时 | 官方 10 s（与请求体 `timeoutInSeconds:10` 对齐），TSim 30 s（插件 `AbortSignal.timeout(3e4)`） |
-| 校验 | TSim：回显的 `draft_request_id`、`composer_content_version` 必须一致，译文非空且 ≤ 50000 字；官方：按 `parseTranslateResponse` 的三层状态判断 |
-| HTTP | 统一经 core-net：官方提供方带当前账号 Cookie；TSim 提供方由 assistant 注入 `Authorization: Bearer`，禁止重定向（插件 `redirect:"error"`），响应体上限 2 MB |
+| 校验 | TSim：回显的 `draft_request_id`、`composer_content_version` 必须一致，译文非空且 ≤ 50000 字；官方：按 `parseTranslateResponse` 的三层状态判断；两者都校验当前上下文且只按纯文本渲染，不把译文当 HTML/命令 |
+| HTTP | 统一经 core-net：官方提供方带请求绑定账号 Cookie；TSim 提供方由 assistant 注入 `Authorization: Bearer`，禁止重定向（插件 `redirect:"error"`），响应体上限 2 MB |
+
+提供方语言契约：UI 用统一语言枚举，适配层显式映射官方 locale（如 en-US）与 TSim target_lang（如 en）。TSim 当前静态契约仅支持源语言 zh、输入 ≤ 20000 字；非中文/超限输入必须明确拒绝或由用户选择已支持提供方，不偷偷截断、切供应商或扩大上传范围。
 
 ### 4.5 特性开关与灰度
 
@@ -181,7 +187,7 @@ pub struct OutboundRequest {
 | `assistant.stick_bottom_on_switch` | 开 | ui-im 实现 |
 | `shell.start_maximized` | 开 | core-shell 实现 |
 
-生效值按“编译默认 → 远程配置 → 账号权限 → 用户设置”叠加，后者覆盖前者，但远程配置可以下发强制关闭（kill switch）。灰度用 `hash(账号 ID) % 100 < 比例` 分桶，结果缓存到下次启动，避免一天内反复切换。远程配置的来源（携程配置中心、TSim `/agent/profile` 扩展字段或自建）待确认。
+生效值为“本构建支持 ∧ 受信远程策略允许 ∧ 当前账号权限允许 ∧ 隐私同意满足 ∧ 用户开启”。用户设置只能进一步关闭，不能覆盖权限拒绝或 kill switch；Rust 每次执行重新检查，UI 隐藏不是授权控制。灰度用 `hash(账号 ID) % 100 < 比例` 分桶，结果缓存到下次启动，避免一天内反复切换。远程配置来源待确认前仅用编译默认与用户设置；配置必须认证、限 schema/有效期，kill switch 到达即取消在途请求、失效旧结果、关闭面板并清相应缓存，不等重启。灰度分桶只控制可用性，不能授予服务端权限。
 
 ### 4.6 错误分类
 
@@ -210,11 +216,11 @@ pub struct OutboundRequest {
 | 项 | 设计 |
 | --- | --- |
 | 登录方式 | 首选表单直连 `POST /agent/login`（与插件 macOS 版一致）。不再读取用户浏览器的配置目录：插件 Windows 版读 Edge/Chrome 的 leveldb，既脆弱又越权 |
-| 保存 | `accessToken`、`sessionRef` 用随机 256 位密钥做 AES-GCM 加密后写入应用数据目录；密钥存在 Windows 凭据管理器（`keyring` crate），目标名 `vbk/assistant/tsim/<TSim 账号>` |
-| 密码 | 默认不保存；勾选“记住密码”时只存凭据管理器 |
+| 保存 | `accessToken`、`sessionRef` 用随机 256 位密钥做 AES-GCM 加密后写入应用数据目录；密钥存在 Windows 凭据管理器（`keyring` crate），目标名包含 environment 与内部 TSim 身份；文件 AAD 绑定产品/环境/身份/格式版本，随机唯一 nonce；权限限当前 OS 用户，密钥不可用时要求重新登录，不回退明文 |
+| 密码 | 一期不保存密码、不提供“记住密码”；仅保存可撤销会话，匹配 `tsim_login` 的密码不落盘契约 |
 | 刷新 | JWT 到期前 5 分钟刷新；非 JWT 每 30 分钟刷新；刷新与登录串行执行 |
 | 失效 | 401、423 立即清本地会话并发 `assistant://tsim-session-changed` |
-| 与携程账号的关系 | TSim 账号与携程账号多对多，按“携程账号 → 绑定的 TSim 会话”保存；切换携程账号时切换对应 TSim 会话，没有绑定则为未登录 |
+| 与携程账号的关系 | 绑定键为 `(environment, Ctrip account_id) → TSim 身份`，多对多须用户明确绑定；切换时取消旧代次任务并清 UI，未绑定保持未登录。TSim 会话退出/吊销影响所有共享该 TSim 会话的绑定，不能只清当前携程账号窗口 |
 
 ### 4.9 平台差异
 
@@ -232,8 +238,8 @@ ui-assistant 只通过 ui-im 公开的槽位接入，ui-im 不依赖 ui-assistan
 
 | 槽位 | 位置 | ui-im 提供 | ui-assistant 提供 |
 | --- | --- | --- | --- |
-| `composer.addon` | 输入框上方一条 | 当前会话、草稿文本与版本号、是否在输入法组字、`replaceDraft(expectedRev, text)`、`sendText(text)` | 翻译条：目标语言、译文预览、替换、复制、发送 |
-| `composer.keymap` | 输入框键盘处理 | 回车与快捷键的拦截钩子，可返回“已处理” | 发送模式下回车先发译文 |
+| `composer.addon` | 输入框上方一条 | 不可变 ConversationRef/ViewContext/composer_id、草稿文本哈希与版本、输入法状态、`replaceDraft(context, expectedRev, expectedHash, text)`、`sendText(context, expectedRev, expectedHash, request_id, text)` | 翻译条：目标语言、译文预览、替换、复制、发送 |
+| `composer.keymap` | 输入框键盘处理 | 回车与快捷键的拦截钩子，可返回“已处理” | 发送模式下回车按快照的账号/会话与草稿 CAS 提交，委托 core-im outbox；不直接调用网络 |
 | `message.decorator` | 消息气泡文本 | 消息纯文本与范围标记接口 | 订单号、ICCID 高亮与点击 |
 | `sidebar.panel` | 会话右侧栏的标签页 | 面板容器、尺寸变化回调 | 套餐速览、订单查询、助手日志 |
 | `conversation.onEnter` | 切入会话 | 列表滚动控制 | 不需要，滚到底由 ui-im 自己完成 |
@@ -244,8 +250,8 @@ ui-assistant 只通过 ui-im 公开的槽位接入，ui-im 不依赖 ui-assistan
 | --- | --- |
 | 停笔 | 去抖结束后调用 `translate_draft`，预览区显示“翻译中” |
 | 继续输入 | 前端丢弃旧预览；Rust 取消旧请求 |
-| 替换模式 | 点击“替换”或快捷键：`replaceDraft(rev, 译文)`；版本不一致就提示“草稿已改动”并重新翻译 |
-| 发送模式 | 回车：预览版本等于当前版本时发送译文；仍在翻译时最多等待 `outbound_wait.max`（≤ 3 s）；失败时不自动发送原文，显示“发送原文 / 重试” |
+| 替换模式 | 默认替换模式；点击“替换”或快捷键：按完整上下文执行 `replaceDraft(context, rev, text_hash, 译文)`；版本不一致就提示“草稿已改动”并重新翻译 |
+| 发送模式 | 回车：预览账号/会话/输入框/文本哈希/版本全部匹配时原子提交一次译文，连续回车由稳定 request_id 与 outbox 去重；仍在翻译时最多等待 `outbound_wait.max`（≤ 3 s）；失败时不自动发送原文，显示“发送原文 / 重试” |
 | 输入法组字 | 组字中不触发翻译，回车交给输入法 |
 | 识别语言为中文或关闭翻译 | 翻译条折叠为一行开关，回车恢复为普通发送 |
 
@@ -254,13 +260,14 @@ ui-assistant 只通过 ui-im 公开的槽位接入，ui-im 不依赖 ui-assistan
 | 方案 | 做法 | 优点 | 缺点 |
 | --- | --- | --- | --- |
 | A 原生面板 | Rust 调 `/agent/package-query/*`，前端画卡片 | 快、样式统一、字段可控、无第三方页面进程 | 只能覆盖已知字段；TSim 运营后台的操作（换卡、充值等，推断）无法复刻 |
-| B 内嵌远程页 | im 窗口内创建子 WebView（Tauri 2 `Window::add_child`，需开启 `unstable` 特性，需验证）加载 `https://csagent.tsim.tech`，按订单号打开 | 功能与 TSim 后台完全一致，TSim 改版不需要我们发版 | 需要把 token 交给远程页；多一个渲染进程（约 60–100 MB，需实测）；子 WebView 定位与 DPI 要处理 |
+| B 内嵌远程页 | im 窗口内创建子 WebView（Tauri 2 `Window::add_child`，需开启 `unstable` 特性，需验证）加载 `https://csagent.tsim.tech`，按订单号打开 | 可复用远程页功能；嵌入登录、导航、上传/弹窗/第三方 Cookie 兼容仍需验收，改版可能破坏交接协议 | 需要把 token 交给远程页；多一个渲染进程（约 60–100 MB，需实测）；子 WebView 定位与 DPI 要处理 |
 
-推荐：**套餐速览用 A，完整订单查询用 B**。B 的约束：
+推荐：**套餐速览用 A；B 通过以下门禁后才能启用，未通过时使用独立网页登录，不传凭据至 URL**。B 的约束：
 
-- 子 WebView 标签 `im-order-panel`，使用独立的 WebView2 Profile，与携程页面的 Cookie 隔离；不授予任何 IPC 权限；只允许 `csagent.tsim.tech` 导航，其余交给系统浏览器。
-- token 交接：插件用 `postMessage` 把 token 发进页面。新客户端优先请 TSim 提供一次性登录码（如 `?code=` 换 token），其次才用初始化脚本传 token。这一项要和 TSim 侧确认。
-- 侧栏折叠 5 分钟后销毁子 WebView，释放内存。
+- 每个面板具有唯一 panel_id，核心登记所属携程上下文、TSim 身份与代次；Profile 按 `(environment, TSim 身份)` 隔离，不能所有账号共用一个 `im-order-panel` 存储。切换/退出时先关闭或隔离旧面板，再建新绑定；远程面板没有任何 Tauri IPC 权限。
+- token 交接仅采用经 TSim 确认的短时、一次性、绑定目标 origin/会话的正式交换协议，或用户在面板内独立登录。未确认前禁用自动免登录；不把长期 Bearer 写入初始化脚本、查询串、localStorage 或通配 postMessage。插件现状不能证明新顶层 WebView 中旧 iframe 握手仍可用。
+- 仅允许已确认的 HTTPS 导航和必要登录跳转，清理 token/code 的日志与历史留存；远程子页不能借 `window.open` 得到另一个账号的 Profile。
+- 面板隐藏 5 分钟仅对无上传/提交/未保存输入者回收；未知脏状态不自动销毁。TSim 登录失效或权限撤销立即遮蔽敏感内容，不能继续显示旧订单。
 
 ### 5.4 性能要求
 
@@ -278,7 +285,7 @@ ui-assistant 只通过 ui-im 公开的槽位接入，ui-im 不依赖 ui-assistan
 | --- | --- |
 | [10 IM](10-im.md) | ui-im 预留 5.1 节的槽位；core-im 在内部总线发布入站消息与会话上下文（sessionId、groupId、bizType、客户订单号字段），供语言识别与订单号识别；官方入站批量翻译 `/11679/batchTranslateByMsgIds` 留在 core-im |
 | [06 网络](06-net.md) | 所有请求经 core-net；需要支持“调用方注入 Authorization、禁止重定向、响应体上限” |
-| [02 账号与登录](02-account-login.md) | 官方提供方取当前账号 Cookie；`account://changed` 时切换 TSim 绑定、清空翻译缓存 |
+| [02 账号与登录](02-account-login.md) | 官方提供方取请求绑定账号 Cookie；`account://changed` 时按公共账号上下文切换 TSim 绑定、清空旧分区缓存并使旧结果失效 |
 | [05 本地存储](05-store.md) | 偏好项（提供方、跟随客户语言、发送模式）与每会话目标语言写入偏好表；不存译文 |
 | [01 壳与窗口管理](01-shell.md) | `shell.start_maximized` 偏好：主窗口首次显示时最大化一次，与窗口状态恢复插件不冲突 |
 | [08 更新、诊断与偏好](08-update-telemetry.md) | 日志写入 `assistant` 通道；远程配置下发开关；埋点只记耗时与结果类别 |
@@ -303,7 +310,7 @@ sequenceDiagram
   S-->>C: 译文
   C->>C: 校验回显与 rev
   C-->>A: TranslationPreview
-  A->>U: replaceDraft(rev, 译文) 或 sendText(译文)
+  A->>U: 上下文 + 草稿 CAS 替换或交 outbox 单次发送
 ```
 
 其他流程：
@@ -312,7 +319,7 @@ sequenceDiagram
 | --- | --- |
 | 客户语言识别 | core-im 入站消息 → assistant 识别 → 结果变化时发 `customer-language-changed` → 翻译条更新目标语言（用户手动设置过的会话不变） |
 | TSim 登录 | 设置页或翻译条表单 → `tsim_login` → `/agent/login` → `/agent/profile` 取账号与权限 → 加密保存 → 发 `tsim-session-changed` → 按权限重算开关 |
-| 套餐速览 | 切入会话 → assistant 从会话信息和最近消息识别订单号 → 侧栏打开时调用 `order_summary` → `perform → dataplan-list → detail（并发 live-detail、cdr-more）` → 裁剪字段后返回 |
+| 套餐速览 | 切入会话 → assistant 从已验证会话字段或消息识别候选订单号（标明来源/消息时间）→ 多候选或仅正则命中须用户选定，不能默认为该会话所有权证据 → 侧栏打开时调用 `order_summary` → `perform → dataplan-list → detail（有界并发 live-detail、cdr-more）` → 每步核验 HTTP/业务权限、限大小/总时限、部分失败显式标记后返回；`perform` 的幂等性未证实前不自动重试，客户端识别订单号不替代服务端授权 |
 | 订单查询 | 点击订单号或侧栏“打开完整查询” → `order_panel_open` → 创建子 WebView → token 交接 → 加载指定订单 |
 | 切换携程账号 | `account://changed` → 取消在途请求、清缓存、切换 TSim 绑定、重发快照 |
 
@@ -326,7 +333,7 @@ sequenceDiagram
   - 只发送商家自己输入的草稿；不发送客户消息原文，也不发送会话上下文（插件请求体同样没有上下文字段）。
   - 日志与埋点只记字数、耗时、语言、结果类别，不记文本（沿用插件的字段白名单思路）；缓存只在内存；登出或切换账号即清空。
   - 草稿中的手机号、邮箱是否先替换为占位符再发送，需要评估对译文质量的影响，列为原型验证项。
-  - 官方提供方的数据不出携程，作为默认值。
+  - 官方提供方作为默认请求入口；不能从请求域名推断后端没有第三方供应商，供应链与保留策略待确认。
 - **代理与 TLS**：企业网络常有代理或 TLS 中间人，统一由 core-net 读取系统代理与证书，不在助手里单独处理。
 - **不再需要的东西**：调试端口、`site-per-process` 开关、产物哈希白名单、`TravelMerchant.WindowHelper.exe`（插件附带的 WPF 窗口辅助程序，推断用于定位官方窗口），新客户端都不带。
 - **滚到底部**：ui-im 用虚拟列表后，切会话应直接以底部为锚点渲染，不要照搬插件“2 s 内每 50 ms 强制滚动”的轮询。
@@ -337,15 +344,15 @@ sequenceDiagram
 | --- | --- | --- |
 | 官方翻译接口可用 | Rust 经 core-net 带 Cookie 调 `/11679/getMessageTranslate` | 返回 `translate.translateText`；生产网关地址与 `head` 结构确认 |
 | TSim 接口可用 | 表单登录 → profile → translate → package-query 全链路 | 与插件结果一致；401、403、422、429 各构造一次，提示正确 |
-| 去抖与作废 | 连续输入 30 秒、随机停顿 | 只有最后一次停笔的结果被显示；旧结果 0 次覆盖新草稿 |
+| 去抖与作废 | 连续输入 30 秒、随机停顿 | 两账号相同 gid/文本、切提供方/目标语言、切会话、输入框重建、迟到回显与权限撤销；旧结果/跨账号缓存命中均 0，连续回车只产生一个 outbox 意图 |
 | 输入延迟 | 开启翻译，按总纲方法测按键到上屏 | P95 ≤ 50 ms |
 | 语言识别准确率 | 用 17 种语言、每种 50 条短消息（≤ 20 字）测试 | 选定的 crate 准确率 ≥ 90%，单条 ≤ 2 ms |
 | 子 WebView | 在 im 窗口侧栏加载 `csagent.tsim.tech`，150% 与 100% 双屏拖动 | 定位无偏移；无 IPC 权限；关闭后内存回落 |
-| token 交接 | 与 TSim 确认的方式实测 | 远程页免二次登录 |
+| token 交接 | 与 TSim 确认的方式实测 | 确认正式交接协议、有效期/复用拒绝/目标 origin 校验；两 TSim 身份互不可见，退出清旧面板；未提供协议时独立登录且不自动传 token |
 | 凭据 | 重启、切换 Windows 用户 | 本用户可恢复会话；其他用户无法解密 |
-| 开关 | 远程下发 `assistant.enabled=false` | 所有槽位为空，IM 正常收发 |
+| 开关 | 远程下发 `assistant.enabled=false` | 在途翻译被作废、订单面板关闭/遮蔽、缓存清理、所有槽位为空，IM 正常收发；用户设置不能重新开启被禁功能 |
 
-M6 验收：第 2.1 节全部功能可用；无调试端口（`netstat` 无 127.0.0.1 监听）；助手异常时 IM 不受影响。
+M6 验收：启用范围内功能通过第 9 节，不满足交接门禁的远程订单面板保持关闭；本应用无 CDP 调试端口（按进程归属检查，不能要求整台机器无 loopback 监听）；助手异常时 IM 不受影响。
 
 ## 10. 开发步骤与工作量估计
 
@@ -377,3 +384,7 @@ M6 验收：第 2.1 节全部功能可用；无调试端口（`netstat` 无 127.
 6. 是否需要同时发送原文和译文（插件与官方都只发一种）。
 7. 远程开关配置放在哪里：携程配置中心、TSim profile 扩展字段，还是自建。
 8. 翻译同意说明的文案与法务要求，以及 TSim 上游供应商清单是否需要向用户展示。
+
+## 12. 实施边界
+
+本文描述目标合同，不等于已验证 TSim 生产接口、新客户端 appId 权限或跨账号面板兼容。发布前记录服务基址、接口/权限 schema 与适配版本；Ctrip 和 TSim 的登录域、账号ID、token、缓存、Profile、同意记录不得混用。接口可调用只证明当前样本，不证明所有商家均有授权。

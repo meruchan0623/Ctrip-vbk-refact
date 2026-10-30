@@ -1,0 +1,185 @@
+{
+  "date": "2026-10-30",
+  "timezone": "Asia/Singapore",
+  "format": "manually curated field-level observation; not HAR",
+  "redaction": "No credential values, customer text or customer/account/order identifiers retained",
+  "page": "https://vbooking.ctrip.com/vbk/im/main",
+  "actions": [
+    "open product recommendation tab",
+    "return to user information",
+    "open user order list and query existing customer filter",
+    "open invitation dialog without selecting or submitting members",
+    "close invitation dialog",
+    "close task-created order tab",
+    "reload workbench and restore original conversation"
+  ],
+  "not_executed": [
+    "send card or message",
+    "transfer agent",
+    "invite agent submission",
+    "remove member",
+    "finish conversation",
+    "change settings"
+  ],
+  "observations": [
+    {
+      "trigger": "product recommendation tab",
+      "request_id": "86559.963",
+      "url": "https://online.ctrip.com/restapi/soa2/15529/queryRecommendProductList",
+      "method": "POST",
+      "http_status": 200,
+      "request_keys": [
+        "contentType",
+        "head",
+        "groupId",
+        "locale",
+        "queryValue",
+        "departureCityId",
+        "destinationCityId",
+        "pageIndex",
+        "pageSize"
+      ],
+      "response_keys": [
+        "ResponseStatus",
+        "hasRecommendProductPrivilege",
+        "bizType",
+        "recommendProductList",
+        "cardTemplateId",
+        "totalNum",
+        "customerRecommendProductList",
+        "imBuType",
+        "currency",
+        "customerLocale",
+        "relatedCustomerUid"
+      ],
+      "list_lengths": {
+        "recommendProductList": 10,
+        "customerRecommendProductList": 10
+      },
+      "product_keys": [
+        "productName",
+        "productId",
+        "providerId",
+        "productImageUrl",
+        "departureCity",
+        "destinationCity",
+        "jumpUrl",
+        "recommendProductExtList",
+        "bookingUrl",
+        "destinationCountry",
+        "subGroupTourInfo"
+      ],
+      "extension_keys": [
+        "extendInfoKey",
+        "extendInfoName",
+        "extendInfoValue",
+        "needShow"
+      ],
+      "ui_result": "10 products visible with Send controls; Send not clicked"
+    },
+    {
+      "trigger": "invitation dialog",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getInviteMemberListBySkillGroup",
+      "method": "POST",
+      "request_shape": {
+        "groupId": "string",
+        "worksheetId": "number",
+        "head": "redacted structure"
+      },
+      "response_shape": {
+        "ResponseStatus": "object",
+        "bizResponseStatus": {
+          "resultCode": "string"
+        },
+        "results": [
+          {
+            "skillGroupList": "array"
+          }
+        ]
+      }
+    },
+    {
+      "trigger": "invitation dialog skill group load",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getInviteMemberListBySkillGroup",
+      "method": "POST",
+      "request_shape": {
+        "groupId": "string",
+        "worksheetId": "number",
+        "parentSkillGroupIds": [
+          "number"
+        ],
+        "head": "redacted structure"
+      },
+      "response_shape": {
+        "ResponseStatus": "object",
+        "bizResponseStatus": {
+          "resultCode": "string"
+        },
+        "results": [
+          {
+            "skillGroupList": "array",
+            "agentInfoList": "array"
+          }
+        ]
+      },
+      "ui_result": "staff tree populated"
+    },
+    {
+      "trigger": "invitation dialog",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getInviteCtripData",
+      "method": "POST",
+      "request_shape": {
+        "serviceType": "string",
+        "vendorId": "number",
+        "head": "redacted structure"
+      },
+      "response_shape": {
+        "ResponseStatus": "object"
+      },
+      "limitation": "No skillgroupList present in this response"
+    },
+    {
+      "trigger": "user order list link then Query",
+      "landing_url_template": "https://vbooking.ctrip.com/ticket_order/order/list?tab=4&fromPage=im&uid=<redacted>",
+      "request_id": "86559.1811",
+      "url": "https://sec-m.ctrip.com/restapi/soa2/14361/searchorderlist",
+      "method": "POST",
+      "request_shape": {
+        "contentType": "string",
+        "head": "redacted structure",
+        "page": "string",
+        "uIds": "string",
+        "pageIndex": "number",
+        "pageSize": "number",
+        "aggSortType": {
+          "property": "string",
+          "direction": "string"
+        },
+        "vbkVer": "number",
+        "datablockType": "number"
+      },
+      "response_shape": {
+        "ResponseStatus": "object",
+        "response": {
+          "errorCode": "number",
+          "errorMsg": "string"
+        },
+        "orderList": [],
+        "pageIndex": "number",
+        "pageSize": "number",
+        "totalCount": "number",
+        "searchType": "number",
+        "actualDisplayCount": "number",
+        "tabButtons": []
+      },
+      "ui_result": "0 orders; no detail record available"
+    },
+    {
+      "trigger": "reload and restore original conversation",
+      "path": "/14735/getOrderDetailsForVbk",
+      "request_id": "86559.2451",
+      "response_captured": false,
+      "limitation": "Raw CDP temporarily unavailable while Browser Use resolves paused document response; no successful orderInfoDto validated"
+    }
+  ]
+}

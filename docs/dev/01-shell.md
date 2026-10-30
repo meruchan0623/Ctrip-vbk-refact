@@ -6,10 +6,10 @@
 
 ## 一、结论与定位
 
-- **core-shell 是唯一能创建、定位、显示、隐藏窗口的模块**。其他模块要开窗口，只能通过 shell 的服务接口（Rust trait）或命令，不自己调用 `WebviewWindowBuilder`。官方客户端里每个 Manager 各自 `new BrowserWindow` 的做法不保留。
+- **core-shell 是唯一能创建、定位、显示、隐藏原生窗口和登记视图生命周期的模块**。其他模块只通过 shell 服务申请；04 提供远程 WebView 配置/bridge 策略，由 shell 执行创建和销毁，不自行建立未登记的窗口。官方客户端里每个 Manager 各自 `new BrowserWindow` 的做法不保留。
 - **窗口注册表**按标签（00 第七节）登记每类窗口的规格与生命周期：常驻、预热、按需、单例。预热在主外壳可交互之后的空闲期进行，不挤占冷启动的 2 秒预算。
 - **主外壳布局沿用官方**：顶部 40 px 账号标签栏、左侧 68 px 导航栏，其余区域是宿主区，放当前页面的子 WebView。导航切换对应官方 `mainViewChanged`。
-- **托盘、单实例、深链、开机自启、全局快捷键全部用 Tauri 2 官方插件**，平台特有的部分（任务栏叠加图标、前台激活）收在 `core-shell/platform/`。
+- **托盘使用 Tauri core API；单实例、深链、开机自启、全局快捷键使用 Tauri 2 官方插件**，平台特有的部分（任务栏叠加图标、前台激活）收在 `core-shell/platform/`。
 - **几处要更正的现状认知**（详见第二节）：官方的 Esc / Enter 只在截图期间临时注册为全局快捷键，常驻的全局快捷键是 `Ctrl+Shift+X`（截图）和 `Ctrl+Shift+V`（显示 / 隐藏主窗口）；官方运行时会调用 `setAsDefaultProtocolClient` 注册深链；setting 在官方是主外壳里的一个页面，不是独立窗口；官方没有窗口位置记忆。
 - **关闭行为改为可选**：默认“关闭即最小化到托盘”，首次关闭时提示一次，设置里可改成“退出程序”，解决 02 文档“用户以为退出、进程仍占内存”的问题。
 
@@ -23,7 +23,7 @@
 | launch | `title:"Launch window"`，`frame:!1,show:!1`；`autoLogin()` 每 200 ms 发 `beginToLogin`，渲染进程回应后打开 login 并关闭自身 | 只是等渲染进程就绪的过渡页 | **取消独立窗口**，见 7.1 |
 | setting | 主进程无独立窗口；`Wo.setting="/pages/setting/index.html"` 作为 main 的 pageType，`createBrowserView` 中仅 setting 页 `webSecurity` 为真 | 主外壳里的一个页面（bundle `settingWindow-*.js` 约 123 KB） | 按总纲改为独立单例窗口 `setting` |
 | web（多标签网页窗口） | `createWebWindow`：每账号一个窗口，`title` 为账号名，子 BrowserView 作为标签；`webViewChanged`、`getWebInfoList`、标签右键“关闭其他” | 远程页多标签容器 | `web-<序号>`，标签管理归本文，页面承载归 04 |
-| extra（附加窗口） | `openExtraWindow(url)`：从 URL 查询参数读 `width/height/top/left/isHideNavBar/navBarStyle/fullscreen`，默认贴在主窗口右侧 8 px | 单个，`closeExtraWindow` 关闭 | `web-extra`，单例（标签名需总纲确认） |
+| extra（附加窗口） | `openExtraWindow(url)`：从 URL 查询参数读 `width/height/top/left/isHideNavBar/navBarStyle/fullscreen`，默认贴在主窗口右侧 8 px | 单个，`closeExtraWindow` 关闭 | `web-extra`，单例；每次打开绑定账号与视图代次 |
 | ai | `nn.openWindow`，贴主窗口右侧，宽 375 | 单例 | 暂归 04（`biz-ai`），定位规则复用本文 7.6 |
 
 ### 2.2 IPC 接口（常量见 `preload/main.js` 与 `index.js` 中的 `y.*`）
@@ -35,7 +35,7 @@
 | `openExtraWindow` / `closeExtraWindow` | `open_extra_window` / `close_extra_window` | URL 须通过 `qe()`、`Ot()` 白名单，否则交系统浏览器 | `plugin:shell\|extra_window_open` / `extra_window_close`；远程页经 bridge 转调 |
 | `popContextMenu` | `pop_context_menu` | 主进程：`mediaType:"image"` 弹“复制图片 / 保存图片”；web 窗口：标签“关闭其他” | `plugin:shell\|context_menu_popup`，只接受预定义菜单种类 |
 | `flashMainWindow` | `flash_main_window` | `win.flashFrame(e)` | 能力在 shell，策略在 03：`TaskbarService::flash` |
-| `windowFullScreen`、`closeWindow`、`showWindow`、`windowLoaded`、`forceFocus` | 同名 snake_case | 外壳页控制自身窗口 | 前端直接用 Tauri core 窗口权限；`window_loaded` 改为 `plugin:shell\|window_ready` |
+| `windowFullScreen`、`closeWindow`、`showWindow`、`windowLoaded`、`forceFocus` | 同名 snake_case | 外壳页控制自身窗口 | 可信本地页面仅获自身拖动/最小化/最大化权限，显示/关闭仍走 shell 以执行策略；`window_loaded` 改为 `plugin:shell\|window_ready` |
 | `webViewChanged`、`getWebInfoList` | `web_view_changed`、`get_web_info_list` | web 窗口标签切换、列表 | `plugin:shell\|tab_*` 与 `tabs_snapshot` |
 
 ### 2.3 系统集成点
@@ -89,7 +89,7 @@ shell 按 00 第 4.5 节用一个 actor 持有状态，只读部分用 `watch` �
 
 | 状态 | 内容 | 持久化 |
 | --- | --- | --- |
-| `WindowRegistry` | 标签 → 规格、当前生命周期阶段（未创建 / 隐藏 / 可见）、所属账号 | 否 |
+| `WindowRegistry` | 标签 → 规格、生命周期（Absent / Creating / ReadyHidden / ReadyVisible / Failed / Destroying）、AccountContext、ViewContext、WebView 环境代次 | 否 |
 | `MainViewState` | `seq`、当前账号、当前页面、各账号已创建的子 WebView 列表、宿主区矩形 | 否 |
 | `TabState` | 每个 web 窗口的 `seq`、标签列表、激活标签 | 否（是否恢复标签见第十一节） |
 | `TrayState` | 图标状态（正常 / 闪烁）、提示文字、菜单项 | 否 |
@@ -117,10 +117,10 @@ pub struct WindowSpec {
 
 | 标签 | 生命周期 | 创建时机 | 关闭按钮 | 记忆位置 |
 | --- | --- | --- | --- | --- |
-| `main` | 常驻 | 有效 ticket 时立即创建；否则登录成功后创建 | 按关闭行为偏好 | 是 |
+| `main` | 常驻 | 本地启动策略就绪后创建；账号连接状态异步显示 | 按关闭行为偏好 | 是 |
 | `login` | 按需 | 无有效 ticket 或“添加账号” | 销毁 | 否（居中，添加账号时以 main 为父窗口模态） |
 | `im` | 首次打开后常驻 | 归 10 | 隐藏 | 是 |
-| `alarm`、`notifier`、`notice`、`tooltip` | 预热 | main 可交互后约 1.5 秒空闲期，归 03 定义规格 | 隐藏 | 否（由 03 按屏幕边缘定位） |
+| `alarm`、`notifier`、`tooltip` | 预热 | main 可交互后约 1.5 秒空闲期，归 03 定义规格 | 隐藏 | 否（由 03 按屏幕边缘定位） |
 | `capture-overlay-<n>` | 预热 | 归 07；shell 在显示器增减时通知 07 重建 | 隐藏 | 否 |
 | `viewer-image`、`viewer-video` | 单例 | 归 07 | 隐藏 | 是 |
 | `web-<序号>` | 按需 | 打开第一个远程标签时；每账号最多一个 | 销毁（连同子 WebView） | 是（所有 web 窗口共用一条记录） |
@@ -130,16 +130,17 @@ pub struct WindowSpec {
 
 复用规则：
 
-1. 单例与常驻窗口再次打开时只 `show + set_focus`，并通过事件把新参数发给窗口，不重建。
+1. 单例与常驻窗口复用前核对环境、视图、账号代次；只有 Ready 状态可复用。通过定向快照/事件下发新参数；提醒窗只不激活显示，只有用户主动打开的交互窗口可请求焦点。
 2. 预热窗口的创建排在一个低优先级队列里，逐个创建，每个之间让出事件循环，避免集中创建造成主外壳卡顿。
-3. 每个窗口创建后必须等前端调用 `plugin:shell|window_ready` 才算就绪；在就绪前收到的“显示 + 内容”请求先排队，就绪后一次性下发，避免白屏闪一下。
-4. 窗口所属账号被登出时，shell 关闭该账号的 `web-<序号>`、`web-extra`，并通知 04 释放子 WebView（对应官方 `closeWebWindow(buid)`、`removeMainViewList(buid)`）。
+3. `window_ready` 绑定实际调用 WebView 与当前 `view_generation`；就绪前请求有界排队（同一对象合并、最长 5 秒），超时转 Failed，禁止无界等待。旧代次 ready/参数回调直接丢弃。
+4. 账号登出先推进 `session_generation`，取消该账号排队操作，关闭账号窗口并释放业务 WebView；共享 im/viewer/弹窗清空该账号内容、撤销对应资源句柄，不能只关闭 web 窗口。
+5. BrowserProcessExited 按 WebView 环境和恢复代次只处理一次：该环境全部控制器（含隐藏提醒、预览、截图）失效，销毁旧句柄；可见窗口按策略重建，隐藏窗口下次使用时重建并重新握手。失败预算按环境计数并带退避，超过预算显示恢复入口，不无限 reload。
 
 ### 4.3 主外壳宿主与页面切换
 
 - 宿主区矩形由 ui-shell 在布局变化时上报（`host_rect_update`，逻辑像素），shell 负责在窗口 resize、最大化、DPI 变化时同步子 WebView 的位置。官方在主进程写死 68 / 40，新做法让布局可以调整而不改 Rust。
-- 每个账号的每个页面对应一个子 WebView，由 04 用 `Window::add_child` 创建（Tauri 2 的多 WebView 需打开 `unstable` 特性，需验证稳定性）。shell 只记录“账号 × 页面 → 子 WebView 标签”，并决定显示哪一个。
-- 子 WebView 数量上限与回收：当前账号的 im、notice 页常驻；其他页面按最近使用保留，单账号最多 4 个、全部账号合计最多 8 个，超出时回收最久未用的（数值需原型实测后定）。后台账号只保留 IM 连接，不保留页面，符合 04 文档“切换账号”场景。
+- 远程业务页按账号/页面对应子 WebView，本地 im 按总纲单例；每个远程页面对应一个子 WebView，由 04 提供配置、shell 用 `Window::add_child` 创建（Tauri 2 的多 WebView 需打开 `unstable` 特性，需验证稳定性）。shell 只记录“账号 × 页面 → 子 WebView 标签”，并决定显示哪一个。
+- 子 WebView 数量上限与回收：当前账号的通知中心业务视图常驻；本地 im 不计入远程页面配额；其他页面按最近使用保留，单账号最多 4 个、全部账号合计最多 8 个，超出时回收最久未用的（数值需原型实测后定）。后台账号只保留 IM 连接，不保留页面，符合 04 文档“切换账号”场景。
 - `scale` 偏好变化时，shell 对所有宿主中的子 WebView 调 `set_zoom`（对应官方 `onPrefrencesChanged` 里的 `setZoomFactor`）。
 - 主窗口获得焦点时，把焦点交给当前子 WebView（官方 `focus` 监听里 `getBrowserView().webContents.focus()`）。
 
@@ -147,15 +148,15 @@ pub struct WindowSpec {
 
 | 命令 | 参数 → 返回 | 调用方 | 说明 |
 | --- | --- | --- | --- |
-| `plugin:shell\|window_ready` | `{}` → `()` | 所有本地窗口 | 就绪握手 |
+| `plugin:shell\|window_ready` | `{view_generation}` → `()` | 所有本地窗口 | 就绪握手 |
 | `plugin:shell\|window_open` | `{kind, params}` → `label` | main、setting | 只能开注册表里的种类 |
 | `plugin:shell\|window_show` / `window_hide` / `window_close` | `{label}` → `()` | main | 本窗口的最小化、最大化、拖动直接用 Tauri core 窗口权限 |
 | `plugin:shell\|main_view_snapshot` | `{}` → `{seq, account, page, created_pages}` | main | |
 | `plugin:shell\|main_view_switch` | `{page, account?, hash?}` → `()` | main；深链内部调用 | 对应 `mainViewChanged` |
 | `plugin:shell\|host_rect_update` | `{x, y, width, height}` → `()` | main | 逻辑像素 |
 | `plugin:shell\|tabs_snapshot` | `{window}` → `{seq, tabs, active}` | web 窗口 | 对应 `getWebInfoList` |
-| `plugin:shell\|tab_open` / `tab_activate` / `tab_close` / `tab_close_others` | `{window?, url \| tab_id}` → `tab_id` 或 `()` | web 窗口；04 bridge | URL 须过 `remote.urls` 白名单，否则交系统浏览器 |
-| `plugin:shell\|extra_window_open` / `extra_window_close` | `{url}` → `()` | 04 bridge | 参数解析规则沿用官方查询参数 |
+| `plugin:shell\|tab_open` / `tab_activate` / `tab_close` / `tab_close_others` | `{window?, url \| tab_id}` → `tab_id` 或 `()` | web 窗口；04 bridge | URL 经 04 的 scheme/origin/redirect 分类；非可信地址仅经用户点击确认后交系统浏览器，不自动外开 |
+| `plugin:shell\|extra_window_open` / `extra_window_close` | `{url}` → `()` | 04 bridge | 仅接受已知参数，尺寸/位置夹紧到目标屏工作区，禁止任意 fullscreen/置顶/隐藏导航扩权 |
 | `plugin:shell\|context_menu_popup` | `{kind, x, y, payload}` → `Option<action_id>` | main、web、im | `kind` 限定为 `image`、`tab`、`text`、`link` |
 | `plugin:shell\|shortcut_snapshot` | `{}` → `[{action, accelerator, registered}]` | setting | |
 | `plugin:shell\|shortcut_update` | `{action, accelerator?}` → `{registered, conflict?}` | setting | 先试注册，成功后才落盘 |
@@ -198,12 +199,12 @@ pub trait TaskbarService {
 | 能力 | 用法 |
 | --- | --- |
 | tauri-plugin-single-instance（开启 `deep-link` 特性） | 必须第一个注册；回调拿到第二实例的 argv |
-| tauri-plugin-deep-link | 安装器注册 `vbookingChat`（开发版 `vbookingChatDev`）；启动时用 `get_current()` 取冷启动 URL；运行时 `is_registered` 自检，未注册则 `register` |
+| tauri-plugin-deep-link | 安装器注册新客户端专属 scheme（暂定 `tsim-vbk`，开发版 `tsim-vbk-dev`）；启动时读冷启动 URL，单实例处理后续 URL；仅修复本应用 scheme，不覆盖官方 `vbookingChat` |
 | `tray-icon` 特性：`TrayIconBuilder`、`TrayIconEvent` | 左键单击、`Enter` / `Move` / `Leave`（代替官方 `mouse-move` 驱动 tooltip） |
 | `tauri::menu` + `Window::popup_menu` | 托盘菜单与右键菜单 |
 | tauri-plugin-global-shortcut | 截图、显示 / 隐藏主窗口两个动作 |
 | tauri-plugin-autostart | Windows 写当前用户 Run 键，启动参数带 `--autostart` |
-| tauri-plugin-window-state | 窗口几何记忆；恢复前由 shell 做多显示器校验 |
+| tauri-plugin-window-state | 窗口几何记忆；关闭插件自动显示/恢复冲突路径，由 shell 先校验再恢复，非交互/敏感窗口不恢复可见状态 |
 | `Window::set_overlay_icon`、`set_badge_count`、`request_user_attention` | 任务栏叠加图标、Dock 角标、任务栏闪烁（叠加图标 API 名称需验证） |
 | windows crate | `AllowSetForegroundWindow`、`WM_QUERYENDSESSION` 处理等补充调用，收在 `platform/win.rs` |
 
@@ -266,14 +267,12 @@ pub trait TaskbarService {
 sequenceDiagram
   participant OS as 系统
   participant SI as single-instance
-  participant Core as 核心模块
   participant Shell as core-shell
   participant Acc as core-account
   participant UI as main / login
-  OS->>SI: 启动 vbk.exe（可能带 vbookingChat:// 或 --autostart）
+  OS->>SI: 启动 vbk.exe（可能带专属深链或 --autostart）
   SI-->>OS: 已有实例则转发 argv 并退出
-  SI->>Core: telemetry → store → net（00 第 4.5 节）
-  Core->>Acc: 读取 ticket
+  SI->>Acc: 初始化核心依赖并读取已存会话
   Acc->>Shell: 有效 / 无效
   Shell->>Shell: 创建托盘、注册快捷键、解析冷启动深链入队
   alt ticket 有效
@@ -282,31 +281,33 @@ sequenceDiagram
     Shell->>UI: 创建 login
   end
   UI->>Shell: window_ready
-  Shell->>Shell: 空闲期预热 alarm / notifier / notice / tooltip
+  Shell->>Shell: 空闲期预热 alarm / notifier / tooltip
   Acc-->>Shell: account://ready → 处理排队的深链
 ```
 
 - **取消 launch 窗口**。官方 launch 的作用只是等渲染进程就绪（每 200 ms 发一次 `beginToLogin`），并在后台做启动时更新检查。新客户端里 main 或 login 页本身就是本地资源，首屏在几百毫秒内可见，再多一个过渡窗口只会多一个 WebView 控制器。main 窗口先以 `visible(false)` 创建，`window_ready` 后再显示，避免白屏。
-- 启动时更新检查改为异步，不阻塞登录（官方 `checkUpdateOnLaunch` 会挡在 autoLogin 前面）；强制更新由 08 在就绪后弹 `update` 窗口。
-- 单实例插件在 Tauri Builder 里第一个注册，早于 00 规定的模块启动顺序；它只是进程级的锁，不依赖 shell 的状态。
+- 启动遵守 08 的可信缓存版本门禁；已知被禁版本先进入更新/受限页。未知远端策略时允许本地壳可见，后台检查有截止时间；运行中发现有效强更后阻断新增业务写入并排空/记录在途操作。不得同时承诺“首屏不等网络”和“未知远端强更时绝不出现 main/login”。
+- 进程入口先区分受约束的内部 crash-monitor 模式；仅普通应用路径把单实例插件作为第一个 Tauri 插件注册，监视器不进入此路径。
 
-### 7.2 深链 `vbookingChat://`
+### 7.2 深链与官方客户端共存
+
+新客户端默认不接管官方 `vbookingChat` / `vbookingChatDev`。专属 scheme 暂定 `tsim-vbk` / `tsim-vbk-dev`，冻结安装标识前确认唯一性；如将来显式提供接管开关，必须显示当前处理程序、说明影响并支持恢复，禁止启动时静默覆盖。远程业务页内识别官方深链可在本应用内部按已核验参数转换，不修改系统归属。
 
 1. 入口有三个：冷启动 argv（`deep_link().get_current()`）、第二实例 argv（single-instance 回调）、macOS `open-url`（第二阶段）。
-2. 校验：协议名不区分大小写地匹配当前环境的 scheme；整串长度 ≤ 2 KB；只接受已知参数（`action`、`account`、`bu`、`initChat` 及 IM 跳转所需参数），其余丢弃并记日志。深链是外部输入，不得直接拼进 URL 或命令。
-3. 解析为 `DeepLink { target: Im \| Notice \| Auth, account, bu, params }`，规则沿用官方 `onProtocolOpen`。官方的 `.slice(0,-1)` 是去掉 argv 末尾多余字符，新实现改为按 URL 规范解析并去掉尾部斜杠。
+2. 校验：协议名不区分大小写地匹配当前环境的 scheme；整串长度 ≤ 2 KB；每种 action 独立参数 schema，拒绝重复键、未知 action、非法编码、路径穿越与多层嵌套 URL；日志只记拒绝类别，不记录原始 URL/凭据。深链是外部输入，不得直接拼进 URL 或命令。
+3. 解析为类型化目标；账号须匹配 environment/account_id 的已登录身份，不按可重名昵称授权。只开放已核验的 IM/通知导航；`action=auth` 参数与认证闭环未证实，默认拒绝。按 URL 规范解析，禁止盲目 `.slice(0,-1)` 或删除可能属于参数值的尾斜杠。
 4. 激活窗口：main 存在则恢复并聚焦，否则聚焦 login 或 update（同官方顺序）。
-5. 若 account 尚未就绪，深链进入队列（只保留最新一条，30 秒过期），收到 `account://ready` 后再执行；账号不在列表中则以模态打开 login。
-6. 执行：`account.switch` → `main_view_switch(im 或 notice, hash=params)` → 10 的 `plugin:im|jump`。
+5. 未就绪目标有界排队并绑定目标身份、创建时间和用户动作 ID；30 秒后显示“请求已过期，可重新打开”，不静默丢失。登录可继续，但不得在后来登录的其他账号中执行旧目标；每次执行重新验证 AccountContext。
+6. 执行：重新授权目标 → 切换已确认账号 → 调类型化 `jump(ConversationRef)` 或通知中心导航；不把外部参数直接拼入 hash。
 
 ### 7.3 关闭、最小化到托盘与退出
 
 | 触发 | 行为 |
 | --- | --- |
-| 点 main 关闭按钮，首次 | 拦截 `CloseRequested`（`api.prevent_close()`），隐藏窗口并发 `shell://close-prompt` 让用户选择 |
+| 点 main 关闭按钮，首次 | 拦截 `CloseRequested`，保持 main 可见并发 `shell://close-prompt`；用户选定后再隐藏或退出 |
 | 点 main 关闭按钮，已选“托盘” | 隐藏；子 WebView 保留，但 04 可在隐藏 10 分钟后回收非 IM 页面（需原型验证内存收益） |
 | 点 main 关闭按钮，已选“退出” | 走有序退出 |
-| 托盘“退出”、setting“退出” | 有序退出：发 `AppQuitting` → 10 断开 IM 与 sidecar、05 刷盘、08 写日志 → 销毁托盘 → `app.exit(0)`；整体超时 3 秒强退 |
+| 托盘“退出”、setting“退出” | 有序退出：发 `AppQuitting` → 10 断开 IM 与 sidecar、05 刷盘、08 写日志 → 销毁托盘 → `app.exit(0)`；退出前即持久化未决发送/下载状态；整体预算 3 秒，超时终止本应用子进程，不把在途发送误标失败；禁止粗暴结束共享 WebView2 进程 |
 | 系统注销 / 关机 | 不弹提示、不阻止，直接走有序退出（需验证 Tauri 在 `WM_QUERYENDSESSION` 时的事件顺序） |
 | 全局快捷键“显示 / 隐藏主窗口” | 同官方 `toogleMainWin`：未聚焦或不可见则恢复并聚焦，否则隐藏 |
 
@@ -348,10 +349,10 @@ sequenceDiagram
 | 托盘图标被折叠 | Windows 11 默认把新托盘图标收进溢出区。首次运行可在提示框里引导用户固定。托盘图标身份与 exe 路径相关，安装目录变化会丢失“固定”状态（需验证 Tauri 是否支持指定 GUID） |
 | 自绘标题栏 | `decorations(false)` 后 Windows 11 的贴靠布局（悬停最大化按钮弹出布局）默认不可用，需要额外处理或接受该限制；窗口阴影与圆角需验证 |
 | DPI | 坐标一律用逻辑像素保存，换屏时由 Tauri 的 Per-Monitor V2 处理；宿主矩形在 `ScaleFactorChanged` 时要重新下发给子 WebView |
-| 深链注册 | 安装器写 `HKCU\Software\Classes\vbookingChat`；运行时自检并修复。便携运行或开发构建使用 `vbookingChatDev`，避免覆盖正式版 |
+| 深链注册 | 仅注册本应用专属 scheme；便携版不静默写默认关联，开发版用独立 scheme；与官方客户端共存及卸载恢复必须验收 |
 | 开机自启 | 写 `HKCU\...\Run`，不需要管理员。自启时带 `--autostart`，启动后不显示主窗口，只有托盘；开发构建不写自启（同官方 `!ke.dev`） |
-| 关闭即隐藏的内存 | 隐藏的 main 仍持有子 WebView。WebView2 对隐藏控制器会自动降低内存（`MemoryUsageTargetLevel`），wry 是否暴露该设置需验证 |
-| 崩溃自愈 | 子 WebView 或外壳渲染进程退出时重载，最多 10 次（同官方）；需验证 wry 能否收到 WebView2 的 `ProcessFailed` 事件 |
+| 关闭即隐藏的内存 | 隐藏不等于暂停/释放；回收规则由 04 执行。`MemoryUsageTargetLevel` 是需显式评估的版本相关能力，不能承诺隐藏自动降内存 |
+| 崩溃自愈 | 按 4.2 环境代次统一恢复，应用层定义有限次数/时间窗与退避；ProcessFailed/BrowserProcessExited 接入及隐藏控制器重建须在原型验证 |
 
 ## 九、原型验证项与验收标准
 
@@ -389,11 +390,19 @@ sequenceDiagram
 
 ## 十一、待确认问题
 
-1. **launch 窗口取消**是否可以接受（产品上是否有启动广告或品牌页的要求）。
-2. **全局快捷键默认值**是否改为 `Ctrl+Alt+V`，老用户是否保留原值。
-3. **关闭行为默认值**：默认最小化到托盘并首次提示，还是默认退出。
-4. **web 窗口标签**是否需要在重启后恢复；单个 web 窗口的标签上限（官方无上限）。
+1. 一期取消独立 launch 窗口；未来启动广告/品牌页属于新增需求。
+2. 一期显示窗口新默认 `Ctrl+Alt+V`；旧用户保留已导入有效值，注册冲突不抢占并即时提示。
+3. 一期默认最小化到托盘并首次提示；“退出”行为必须独立可达。
+4. 一期不自动恢复带鉴权参数的远程标签；页面配额按 04 原型预算执行。
 5. 事件、公告、商服的角标轮询是否下沉到 06 统一调度，还是保留在外壳前端。
-6. 官方偏好里 `isRunOnStart` 与 `isAutoLaunch` 并存，前者未见使用，迁移时是否直接丢弃。
-7. Tauri 多 WebView（`unstable`）若在 P1 中不稳定，退路是“每个页面一个无边框子窗口贴在 main 上”，需要 04 一起评估。
-8. 深链 `action=auth` 的业务含义（官方把全部参数原样带进 im 页），需向业务方确认参数清单，以便做白名单。
+6. 旧 `isRunOnStart` 未发现有效消费点，保留在只读迁移报告中，不擅自改变 `isAutoLaunch`。
+7. Tauri 多 WebView（`unstable`）若在 P1 中不稳定，退路是“每页显式独立业务窗口”，不以贴附无边框子窗口伪装成功的多 WebView，需要 04 一起评估。
+8. 深链 `action=auth` 在业务含义、可信来源与参数清单确认前禁用，不能原样转交 IM。
+
+## 十二、本轮冻结约束与补充验收（2026-10-30）
+
+所有异步窗口操作使用总纲 `AccountContext{account_id,environment,session_generation}` 与 `ViewContext{webview_label,view_generation}`；核心从调用方登记表验证，不信任前端指定 account/label。全局单例跨账号复用先取消旧任务并清空内容；事件使用总纲 EventEnvelope，禁止将账号参数广播。窗口服务实现线程负责 UI 调度，actor 不持锁同步等待 UI 回调。
+
+新增必过：首次关闭提示可见；A 账号操作排队后切到 B 或登出，旧回调不得落入 B；隐藏预热窗口后结束测试 WebView2 环境，重新使用须重建；Explorer 重启后托盘恢复且主窗可唤回；官方客户端共存时专属深链/卸载互不劫持；未就绪窗口失败必须可恢复。上述均为尚未实施的验收，不是已通过的实机结果。
+
+平台依据：[Tauri 深链](https://v2.tauri.app/plugin/deep-linking/)、[WebView2 进程事件](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/process-related-events)。

@@ -1,56 +1,56 @@
-# 副窗口清单与 Tauri 实现方式
+# 副窗口清单与 Tauri 实现边界
 
-2026-10-30
+2026-10-30 · 最终文档审查修订
 
-> **更正（2026-10-30）**：编写各模块开发文档时核对源码，发现本文有几处说法需要更正（登录不调账号 SDK、密码明文已证实、深链与快捷键、业务模块承载方式、notice 窗口性质等），以 [开发总纲第十二节](dev/00-architecture.md#十二编写各模块文档时的新发现) 为准。
+## 结论：有实现路径，平台细节必须验证
 
-## 结论：全部能实现
+普通多窗口、无边框、置顶、托盘和系统通知有 Tauri 或原生接口可用。**不能据此承诺所有原客户端行为等价可用，也不能把全屏覆盖、非激活面板、多屏 DPI 写成“补几行调用即可”。** 独占全屏、安全桌面、系统锁屏、RDP、macOS Spaces 与权限都有独立约束；失败时应明确降级而非抢焦点或绕过系统限制。
 
-官方客户端的副窗口全部能用 Tauri 2 实现。大部分能力有现成 API，有 3 类需要在 Rust 里补几行平台原生调用：浮在全屏应用之上、macOS 不抢焦点的面板、截图遮罩的多屏 DPI。这些都是窗口层面的事，与是否使用 Electron 无关。
+## 官方窗口与页面清单
 
-## 官方客户端的窗口清单
+来源为 Windows 1.2.12 的静态页面和主进程代码；页面不等于独立顶层窗口。
 
-来源：Windows 版 1.2.12 的 `app.asar`（`dist/src/pages/` 目录与 `dist-electron/main/index.js` 中的窗口参数）。
-
-| 窗口 | 用途（据页面名与参数推断） | 关键窗口特性 |
+| 页面 / 类型 | 官方承载与用途 | 新方案 |
 | --- | --- | --- |
-| main、launch、login | 主窗口、启动页、登录 | 常规窗口；每个账号一套 BrowserView 加载远程业务页 |
-| home、order、product、comment、bulletin、course、event、bi | 业务模块窗口 | 常规窗口，多为远程页面 |
-| im、imPlus | IM 会话 | 常规窗口；重写的重点 |
-| alarm | IM 倒计时 / 提醒 | 置顶、无边框 |
-| notifier | 右下角横幅提醒 | 无边框、置顶、不抢焦点（`focusable:false`）、不进任务栏、从屏幕边缘滑入 |
-| notice | 消息对话框 | 无边框、不抢焦点、不进任务栏、预创建后隐藏 |
-| toolTip | 托盘悬浮提示 | `showInactive` 显示不激活、`pop-up-menu` 级置顶、每秒检查鼠标是否移开 |
-| screenshots、screenshotsOverlay | 截图工具 | 每块屏幕一个透明无边框全屏窗口，`screen-saver` 级置顶，在所有桌面与全屏应用上可见，启动时预热 |
-| image、video、web | 图片预览、视频播放、通用网页 | 常规窗口；视频窗口关闭后台节流 |
-| ai、setting、update、archGuide | AI 助手、设置、更新、架构引导 | 常规窗口或小弹窗 |
+| main、launch、login | 主外壳、启动页、本地登录页 | main 与登录外壳重写；登录远程页独立无权限 WebView；删除独立 launch |
+| home、order、product、comment、bulletin、course、event、data（bi） | 8 个业务入口；本地外壳，部分本地内容、部分远程 iframe | 重写外壳，远程内容用顶层子 WebView；兼容性逐入口验证 |
+| imPlus（imWindow bundle） | 主窗口中的 IM BrowserView | 本地 IM 重写；独立窗或嵌入模式须在 G0 冻结 |
+| alarm、notifier | 倒计时与无边框横幅 | 可复用小窗；不抢输入焦点；本地提醒状态来自核心 |
+| notice | 主窗口内预加载的系统通知中心页 | 通知中心归ui-shell内路由，不新增同名确认弹窗 |
+| toolTip | 托盘悬浮提示 | 按平台事件实现；托盘重建、失焦与鼠标离开需验收 |
+| screenshotsOverlay | 每屏透明截图遮罩，截图时显示 | 按预算懒建/预热；物理像素采集与逻辑坐标显示分开 |
+| screenshots | 旧截图页面，V2后是否仍用未完全确认 | 不据文件存在直接承诺迁移 |
+| image、video、web | 图片、视频、通用工作台 | 按明确窗口/标签上限复用；账号与来源视图绑定 |
+| ai、setting、update、archGuide | IM总结侧窗、主窗口设置页、更新与架构引导 | ai形态待定；设置可独立；按目标架构发包，archGuide不照搬 |
 
-## 能力对照
+## 能力对照与边界
 
-| 需要的能力 | Tauri 2 的实现 | 备注 |
+| 需求 | 实现候选 | 必须验证 / 降级 |
 | --- | --- | --- |
-| 多窗口、每个窗口独立页面 | `WebviewWindowBuilder`，每个窗口加载自己的路由 | 窗口间通信走 Rust 事件，不再经主进程转发 |
-| 无边框、圆角、透明 | `decorations(false)`、`transparent(true)` | Windows 上页面背景也要设为透明 |
-| 置顶 | `always_on_top(true)` | 普通置顶足够横幅与倒计时使用 |
-| 浮在全屏应用之上（截图） | Windows：置顶 + 全屏尺寸即可；macOS：通过 objc2 把 NSWindow 层级设到 screen-saver | Tauri 的 `visible_on_all_workspaces` 负责跨桌面 |
-| 显示时不抢焦点（横幅、提示） | `focused(false)` 显示；Windows 再加 `WS_EX_NOACTIVATE`，macOS 用非激活 NSPanel | macOS 这一项最好做原型验证 |
-| 不进任务栏 | `skip_taskbar(true)` | |
-| 鼠标穿透 | `set_ignore_cursor_events(true)` | 官方未用到，横幅半透明区域可用 |
-| 贴屏幕边缘定位、滑入动画 | `primary_monitor()` / `available_monitors()` 取工作区，Rust 设位置；动画在页面内做 | 要按 DPI 换算坐标 |
-| 托盘、悬浮提示、闪烁 | 托盘插件；提示窗用托盘的鼠标进出事件代替每秒轮询 | |
-| 任务栏闪烁提醒（倒计时到期） | `request_user_attention` | |
-| 预热窗口 | 启动时创建隐藏窗口，用时 `show()` | 同官方做法 |
+| 独立 WebView 窗口 | `WebviewWindowBuilder` | 生命周期、账号存储、焦点与崩溃重建 |
+| 同窗多子 WebView | `Window::add_child` | 当前公开文档仍标 `unstable`；失败退回独立窗口 |
+| 无边框、透明、置顶 | `decorations(false)`、`transparent(true)`、`always_on_top(true)` | 高对比度、RDP、GPU降级；透明失败用不透明样式 |
+| 全屏场景截图遮罩 | Windows窗口样式/位置、macOS层级/Spaces原生适配 | 不承诺覆盖独占全屏、安全桌面或锁屏；不支持时退出截图并解释原因 |
+| 显示不激活 | Tauri焦点设置 + Windows `WS_EX_NOACTIVATE` / macOS非激活面板候选 | `focused(false)` 不能独自证明后续show永不激活；测试中文IME、其他应用输入、关闭后焦点恢复 |
+| 多桌面 | 按平台原生能力 | `visible_on_all_workspaces` 不代表Windows虚拟桌面全覆盖；macOS同样验证全屏Space |
+| 鼠标穿透 | `set_ignore_cursor_events` | 整窗穿透不是按CSS透明区域自动命中；需要交互按钮时不能整窗穿透 |
+| 边缘定位 | 监视器枚举 + 工作区API | 监视器尺寸不等于工作区；任务栏、负坐标、混合DPI、热插拔均测 |
+| 托盘、闪烁、Toast | Tauri托盘/通知与平台适配 | Explorer重启、AUMID、冷启动激活、勿扰策略；提示不等于已读或已回复 |
+| 隐藏预热 | 少量复用控制器 | 不把所有遮罩/副窗常驻作为默认；计入完整进程组，浏览器故障后隐藏窗口也须失效重建 |
 
-## Windows 端注意事项
+依据：[Tauri WebviewBuilder](https://docs.rs/tauri/latest/tauri/webview/struct.WebviewBuilder.html)、[Microsoft WebView2 进程模型](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/process-model)。具体 API 以 G0 固定的依赖版本为准。
 
-- **内存**：每个窗口都是一个 WebView2 控制器。所有窗口共用同一个 WebView2 环境（同一个用户数据目录），可以共享浏览器进程与 GPU 进程，单个新窗口的增量远小于 Electron 一个 BrowserWindow。横幅、提示这类小窗口建议常驻一个、复用内容，不要每条消息新建一个。
-- **焦点限制**：Windows 不允许后台程序随意抢前台。横幅只"显示不激活"，需要用户注意时用任务栏闪烁，不要强行 `SetForegroundWindow`。
-- **多屏与 DPI**：截图遮罩要为每块屏幕各建一个窗口，并按各屏缩放比例换算坐标，否则 125%、150% 缩放的副屏会错位。
-- **透明窗口**：WebView2 透明需要同时设置窗口透明和 WebView 默认背景透明；部分远程桌面与老显卡环境下透明可能失效，需要降级为不透明样式。
-- **系统通知 vs 自绘横幅**：简单消息提醒可以直接用 Windows Toast（系统通知中心可回看）；需要倒计时、按钮、自定义样式的保留自绘横幅。
+## 资源与隔离
 
-## 建议原型验证的三项
+一个新 WebView 控制器不等于一个固定大小的新进程，也不保证比 Electron 窗口增量更小。同一环境可共享浏览器进程，但不同域仍可能产生 renderer；独立用户数据目录各有进程组。同环境多账号 Profile 隔离是待验证优化，不得先假定所有窗口共用一个存储目录。
 
-1. macOS 非激活面板：横幅出现时不打断用户正在输入的 IM 输入框。
-2. 截图遮罩：双屏、不同缩放比例、全屏应用之上都能正确覆盖。
-3. 横幅常驻复用：连续 20 条消息提醒时的内存与 CPU，对比官方客户端。
+业务页、IM传输、截图与预览分别设数量和内存上限。窗口注册表记录账号上下文、视图代次、浏览器环境代次；窗口关闭/重建后拒绝旧回调，不能只按复用label发送数据。权限和事件规则见 [开发总纲](dev/00-architecture.md)。
+
+## 开发前原型与验收
+
+1. 非激活提醒：连续20条提醒，中文IME和其他应用输入不被打断；点击跳转与确认使用实际看到的消息版本。
+2. 截图：双屏100%/125%/150%/200%、负坐标、主屏切换、副屏拔插、RDP；框选、标注、保存坐标一致，退出后无残留遮罩。
+3. 生命周期：隐藏到托盘、WebView browser进程故障、锁屏/睡眠恢复；所有可见及隐藏控制器按环境代次重建，提醒先对账再恢复。
+4. 性能：相同账号/页面/功能/预热条件测全进程组内存、CPU、句柄、输入P95及驻留变化；不把小窗页面尺寸当作低内存证据。
+
+本轮为文档与证据审查，以上 Tauri 原型尚未执行。模块级步骤见 [壳](dev/01-shell.md)、[强提醒](dev/03-strong-alert.md)、[媒体工具](dev/07-media.md)。
