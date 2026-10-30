@@ -1,4 +1,3 @@
-<<<<<<< Updated upstream
 # 分计划 03：独立强提醒窗口
 
 2026-10-30。对应[总计划](00-master-development-plan.md) P2。它是本项目自有能力之一。
@@ -14,7 +13,11 @@
 不开发通用业务页。托盘与任务栏未读由[宿主](../dev/01-shell.md)负责。窗口方案为待实现设计，不能引用旧客户端原生窗口作为已通过证据。
 
 原方案见[归档](../archive/desktop-baseline/plan/03-shell-business-notification.md)。
-=======
+
+---
+
+> 以下为多代理派工用的并行开发分片（任务、文件归属与验收细则）。其中超出上文当前范围的任务按[范围决定](../decisions/2026-10-30-web-only-scope.md)不排期；公共契约、不变量、所有权与审查规则继续适用。
+
 # 并行开发分计划：桌面外壳、业务页与提醒
 
 2026-10-30 · Asia/Singapore
@@ -244,4 +247,3 @@ SHL-02 与 ACC-02 是同一 Profile/宿主原型的两个工作包，使用 FND-
 每次模块交接附：任务 ID、使用的 contracts 版本、独占文件列表、输入/输出与错误样本、可运行 mock 入口、未验证能力、验收命令/步骤和脱敏证据、已提的共享文件变更请求。安全反例由独立 reviewer 用相同夹具复算；正常路径与拒绝路径都必须覆盖，避免“全面禁止”假装完成集成。
 
 最低审查交叉：DesktopShell 由基础/身份 reviewer 审视图与 Profile 失效；BusinessHost 由安全 reviewer 审真实调用来源、POST/下载唯一执行者与 dirty 保护；NotificationCore 由 IM reviewer 审首次 T1、unknown 发送、对账屏障与本地 ack 边界。原作者不得将自己写的计划或 mock 通过直接标记为 G2/G4 passed。
->>>>>>> Stashed changes
