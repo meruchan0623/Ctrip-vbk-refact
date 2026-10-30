@@ -72,3 +72,17 @@ SDK 的该 wrapper 没有返回 Promise；void 返回不代表成功。glue 等�
 4. 所有已读完成都经过同一 settle，验证结果类型、当前 facade 与 disposed 状态；超时、异常与畸形不能成为成功。
 
 修复后同矩阵及既有 SDK boundary/lifecycle 测试输出仍为 `round2-sdk-facade-green.tap`；未更改旧测试断言。原生断线原因与新包实机收发仍单独验收。
+
+
+## 入站同步帧
+
+同一已采集官方SDK的 `xmppSerialize` 在字符偏移29322/29495将 `sys_mam` 归入单聊、`sys_muc` 归入群聊；from/to、消息ID、正文保持原字段语义。适配器现将这两个wire type规范为现有chat/groupchat，再走相同事件与展示转换，不能当作未知控制帧忽略。专项真实 `stanzaToEvent → sdkMessageToUi` 两项修复前均以ignore失败，修复后与普通帧投影相等；红日志 `sdk-sync-stanza-red.tap`。
+
+第2轮反向W仅历史加载后出现，但未取得native原始wire type，因此本修复是已证实协议缺口修复，尚不能归结为W实时缺口根因。仍需下轮实机验证。
+
+独立暂存副本另外暴露单聊裸JID发送者被误作unknown（1通过/1失败）；同步修正SDK单聊发送者取from，群聊只允许resource作为发送者，不把裸room识别成客户。新增裸room反向保护，既有断言保留。
+
+
+单聊地址依据同SDK `parseFromJid` 字符偏移32157：显式当前selfUid决定对端，不使用可覆盖的role标签来猜自己。入站peer→self取peer为gid，出站self→peer仍取peer；普通设备resource不能冒充发送者。事实与显示共用 `resolveSdkAddress`，缺self身份时单聊保守不投影。新增chat/sys_mam双向合成回归，旧实现2通过/3失败（self误作gid、device误作发送者），修复后5项通过。群聊继续以room/resource分别识别房间与发送者，裸room不是客户身份。
+
+完整独立index暴露既有facts.review把type=groupchat的裸from误作发送者（289项中1失败）；依据已核实群聊room/resource规则精确迁移为裸身份空值，并新增带resource的正例，未删测试或减少判据。

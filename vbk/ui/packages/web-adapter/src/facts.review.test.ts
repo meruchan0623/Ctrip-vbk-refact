@@ -90,11 +90,16 @@ test('review/facts: SDK/HTTP normalizers tolerate non-object input and never thr
   const typing = normalizeSdkMessage({ type: 'input_state', from: 'g1@conf/c', create_time: 'nope' }, { roles: UNKNOWN_ROLES });
   assert.equal(typing?.kind, 'typing');
   assert.equal(typing?.create_time_ms, 0);
-  // non-groupchat framing: gid from `to`, sender from `from`
+  // A groupchat bare JID is not verified sender identity. Keep the room,
+  // but require a sender resource before attributing the message.
   const f = normalizeSdkMessage({ type: 'groupchat', from: 'cust@x', to: 'g1@conf', create_time: 1700000000555, msgtype: '0' }, { roles: UNKNOWN_ROLES });
   assert.equal(f?.gid, 'g1');
-  assert.equal(f?.sender_id, 'cust');
+  assert.equal(f?.sender_id, '');
   assert.equal(f?.sender_role, 'unknown');
+  const identified = normalizeSdkMessage({ type: 'groupchat', from: 'g1@conf/cust', to: 'self@x', create_time: 1700000000555, msgtype: '0' }, { roles: UNKNOWN_ROLES });
+  assert.equal(identified?.gid, 'g1');
+  assert.equal(identified?.sender_id, 'cust');
+  assert.equal(identified?.sender_role, 'unknown');
 });
 
 test('review/facts: duplicate SDK events get distinct, strictly monotonic seq; no (epoch, seq) pair is ever reused', async () => {

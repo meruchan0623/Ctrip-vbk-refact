@@ -143,6 +143,8 @@ export class RoleBook implements MemberRoles {
     return 'unknown';
   }
 
+  get selfUid(): string { return this.#self; }
+
   addCustomer(uid: string | null): void {
     if (uid && norm(uid) !== this.#self) this.#customers.add(norm(uid));
   }

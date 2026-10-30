@@ -20,6 +20,7 @@
  *   `getConversationList.currentStatus`).
  */
 
+import { resolveSdkAddress } from './facts.ts';
 import type { AgentStatus, MarkAction, UiMessage, UiMessageKind, UiOrderSummary } from '../../ipc/src/client.ts';
 import type { DisplayConversation } from '../../ipc/src/adapterProtocol.ts';
 import type { SdkMessageEvent } from './deps.ts';
@@ -286,19 +287,17 @@ export function sdkMessageToUi(evt: SdkMessageEvent, roles: MemberRoles): UiMess
   if (type !== 'groupchat' && type !== 'chat') return null;
   const kind = uiKindOf(evt.msgtype);
   if (kind === null) return null;
-  const from = str(evt.from);
-  const to = str(evt.to);
-  const gid = from && from.includes('/') ? jidLocal(from) : to ? jidLocal(to) : from ? jidLocal(from) : null;
-  if (!gid) return null;
+  const address = resolveSdkAddress(evt, roles);
+  if (!address) return null;
+  const { gid, senderId: sender } = address;
   const createTime = normalizeTimeMs(evt.create_time) ?? normalizeTimeMs(evt.ts);
   if (createTime === null) return null;
-  const sender = from ? jidSender(from) : '';
   return {
     gid,
     message_id: idStr(evt.id),
     local_id: idStr(evt.localid),
     create_time_ms: createTime,
-    sender_role: sender && from?.includes('/') ? roles.roleOf(sender) : 'unknown',
+    sender_role: sender ? roles.roleOf(sender) : 'unknown',
     kind,
     text: messageText(evt.msgtype, evt.body),
     translation: null,

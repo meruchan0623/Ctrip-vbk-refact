@@ -86,7 +86,9 @@ export function stanzaToEvent(el: unknown): GlueEvent {
   const v = readElement(el);
   if (!v || v.name !== 'message') return { kind: 'ignore' };
   const a = v.attrs;
-  const type = a['type'] ?? '';
+  const wireType = a['type'] ?? '';
+  // Official xmppSerialize normalizes cross-session sync frames (2026-10-31 SDK).
+  const type = wireType === 'sys_muc' ? 'groupchat' : wireType === 'sys_mam' ? 'chat' : wireType;
   if (type === 'send_result') {
     let body: Record<string, unknown> | null = null;
     if (v.body !== null) {

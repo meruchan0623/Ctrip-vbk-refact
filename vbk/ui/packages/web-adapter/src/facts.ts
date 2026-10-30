@@ -26,6 +26,7 @@ import type { SdkMessageEvent } from './deps.ts';
 // ------------------------------------------------------------- member roles
 
 export interface MemberRoles {
+  readonly selfUid?: string;
   roleOf(uid: string): SenderRole;
 }
 
@@ -73,6 +74,7 @@ export function buildMemberRoles(input: MemberRolesInput): MemberRoles {
   map.set(self, 'merchant_self');
   for (const [uid, role] of Object.entries(input.overrides ?? {})) map.set(norm(uid), role);
   return {
+    selfUid: self,
     roleOf(uid: string): SenderRole {
       return map.get(norm(uid)) ?? 'unknown';
     },
@@ -205,16 +207,31 @@ export interface NormalizeSdkOptions {
  * business messages: `notify_ack`/`send_result` return `null`,
  * `input_state` becomes a `typing` fact (no message id).
  */
+/** Address rules from the official SDK parseFromJid; display and facts share them. */
+export function resolveSdkAddress(evt: SdkMessageEvent, roles: MemberRoles): { gid: string; senderId: string } | null {
+  const from = s(evt.from), to = s(evt.to);
+  if (evt.type === 'chat') {
+    const self = roles.selfUid ? norm(roles.selfUid) : '';
+    if (!self || !from || !to) return null;
+    const fromUid = jidLocal(from), toUid = jidLocal(to);
+    const gid = norm(fromUid) !== self ? fromUid : norm(toUid) !== self ? toUid : fromUid;
+    const resource = from.includes('/') ? from.slice(from.indexOf('/') + 1) : '';
+    const senderId = resource && norm(resource) === self ? resource : fromUid;
+    return { gid, senderId };
+  }
+  const gid = from && from.includes('/') ? jidLocal(from) : to ? jidLocal(to) : from ? jidLocal(from) : null;
+  if (!gid) return null;
+  const senderId = from && (evt.type !== 'groupchat' || from.includes('/')) ? jidSender(from) : '';
+  return { gid, senderId };
+}
+
 export function normalizeSdkMessage(evt: SdkMessageEvent, opts: NormalizeSdkOptions): MessageFact | null {
   if (typeof evt !== 'object' || evt === null) return null;
   const type = s(evt.type);
   if (type === 'notify_ack' || type === 'send_result') return null;
-  const from = s(evt.from);
-  const to = s(evt.to);
-  // groupchat: `from` is `gid@conf/sender`; the room is the gid.
-  const gid = from && from.includes('/') ? jidLocal(from) : to ? jidLocal(to) : from ? jidLocal(from) : null;
-  if (!gid) return null;
-  const senderId = from ? jidSender(from) : '';
+  const address = resolveSdkAddress(evt, opts.roles);
+  if (!address) return null;
+  const { gid, senderId } = address;
   const createTime = normalizeTimeMs(evt.create_time) ?? normalizeTimeMs(evt.ts);
   if (type === 'input_state') {
     return {
