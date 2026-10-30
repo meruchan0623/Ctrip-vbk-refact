@@ -292,7 +292,7 @@ const zhCN = {
   'order.web': '网页高级操作',
   'order.webTitle': '在内置网页中打开订单详情',
   'order.imFailed': '获取会话失败：{msg}',
-  'order.invalid': '请输入完整订单号（10 位数字）',
+  'order.invalid': '请输入完整订单号（10 或 16 位数字）',
 
   // alarm window
   'alarm.title': '{n} 个回复超时提醒',

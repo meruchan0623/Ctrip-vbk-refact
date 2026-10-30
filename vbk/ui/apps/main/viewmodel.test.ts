@@ -321,3 +321,13 @@ test('mock login contract: start_login → {attempt_id}, cancel removes the plac
   await assert.rejects(d.invoke(UiCommands.ACCOUNT_SET_AGENT_STATUS, { account: acc, status: 'busy' }));
   d.dispose();
 });
+
+
+test('official 16-digit orders can be queried and highlighted without matching phone numbers', () => {
+  assert.equal(isValidOrderId('1359049237105048'), true);
+  assert.equal(isValidOrderId(' 1359049237105048 '), true);
+  assert.equal(isValidOrderId('13800138000'), false);
+  assert.equal(isValidOrderId('135904923710504'), false);
+  assert.deepEqual(highlightParts('订单 1359049237105048 / 电话 13800138000').filter(p => p.kind !== 'plain'), [{ kind: 'order', text: '1359049237105048' }]);
+  assert.deepEqual(highlightParts('13590492371050481'), [{ kind: 'plain', text: '13590492371050481' }]);
+});

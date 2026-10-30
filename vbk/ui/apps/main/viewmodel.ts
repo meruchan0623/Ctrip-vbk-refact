@@ -236,7 +236,7 @@ export function canContactOrder(state: OrderContactState): state is Extract<Orde
   return state.kind === 'one';
 }
 
-export const ORDER_ID_RE = /^\d{10}$/;
+export const ORDER_ID_RE = /^(?:\d{10}|\d{16})$/;
 
 export function isValidOrderId(s: string): boolean {
   return ORDER_ID_RE.test(s.trim());
@@ -380,9 +380,9 @@ export function netView(n: UiNetStatus | null): { readonly label: string; readon
 
 export type TextPart = { readonly kind: 'plain' | 'order' | 'iccid'; readonly text: string };
 
-const HIGHLIGHT_RE = /(89\d{17,18})|(?<!\d)(\d{10})(?!\d)/g;
+const HIGHLIGHT_RE = /(89\d{17,18})|(?<!\d)(\d{16}|\d{10})(?!\d)/g;
 
-/** Split message text into plain runs, ICCIDs and 10-digit order numbers (prototype: 「消息里的订单号 / ICCID 可点击」). */
+/** Split message text into plain runs, ICCIDs and official 10- or 16-digit order numbers (prototype: 「消息里的订单号 / ICCID 可点击」). */
 export function highlightParts(text: string): TextPart[] {
   const out: TextPart[] = [];
   let last = 0;
