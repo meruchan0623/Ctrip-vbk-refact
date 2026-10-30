@@ -1,6 +1,16 @@
 # VBooking 消息面板对齐（2026-10-31）
 
-## 最新断点：第3轮新包已实际运行，实机未通过（完整轮数3/6）
+## 最新断点：第4轮新包已运行，独立评审发现安全缺口（完整轮数4/6，未通过）
+- 源码cb170df+保留dirty；307文件manifest SHA256 `6e85ba537eb6f3d8f01f3a5372caa7be6b842b11f278df7e5e11569783e142fd`。修复代理后续改动不属于此构建。
+- 第4轮typecheck、TS399/核心301/宿主101（0失败/跳过）、bundle、tauri及diff通过；原始输出/tmp/vbk-goal-20261031/round4-*。
+- 新包PID90073，实际路径src-tauri/target/aarch64-apple-darwin/release/bundle/macos/VBooking 商家客户端.app；binary SHA256 `cbce354dd154199a52810a9ff34f159ead7b26f94d2bbe992fa14c1b5d73f32f`，DMG `de3e8bddb54ef0ad6970500b90c464bac798b0875396763cd77ba57bf64b1018`；已对应进程路径/hash，旧PID80117已退出。
+- 第3、4轮启动均自动恢复Meru及12个会话，无新钥匙串提示；只证明这两次观察。真实账号/列表/标题/消息/侧卡头像现已显示；成员3人头像亦已实机显示，机器人名称仍raw本地化key；视频已实际点击播放，原生Pause与进度0.31可见；此仅既有短片只读播放。
+- 第4轮真实订单/客户及iframe gid已重新双核；05:25:05仅一次C在原生confirmed，官方同ID读回已完成；05:30:21官方W一次，05:31:07诊断刷新后原生同ID可见，不能计自然实时通过。诊断面板可读/复制固定schema，初始计数已留临时证据。
+- 独立评审新增P1发送await身份切换竞态，以及P2撤回引用泄文、local_id历史去重、实时订单摘要及跨订单侧栏错配；已记录BLOCKED，优先修P1与引用，暂停客户端出站，不据构建成功称完成。
+
+- 第4轮后分块：`a0b4416`发送身份重核（独立6tests/typecheck/bundle）；`d1d071d`隐藏账号页调度（独立host101/bundle）；`02d4125`撤回引用完整链（独立11tests/host102/typecheck/bundle，mapper与host漏字段反向红、role冲突红→绿）。各块独立评审通过，PID90073仍旧包；持续补偿34470c1已独立5tests/typecheck/bundle及评审通过；历史与订单块接续中。
+
+## 第3轮及第4轮构建前记录（历史）
 - 冻结源码 `5db15cc7f4cc5fb48e3a2525dafc418f607cc954` + 保留dirty；302文件manifest SHA256 `6cd2ac56dfd89b7e3a393e7270cf62ad1c9314ffc1f1e7233eff93a275181072`。
 - 第3轮完整门禁通过：TS387 / 核心301 / 宿主95，0失败/跳过；typecheck、bundle、diff及Tauri app/dmg通过。原始日志位于 /tmp/vbk-goal-20261031/round3-*。
 - 新包实际PID80117，路径 target/aarch64-apple-darwin/release/bundle/macos；binary `0e5a391588e81d60aeb9a425513df5b2aa8731c92f8b5c7c16be010f265f56c8`，DMG `1e43f751e3cefaa4809b479a79157c827f882a01c8b58d9ac631b7d64e6bf59a`。源码/产物/运行路径已对应。
@@ -10,6 +20,16 @@
 - 头像实机未通过：接口姓名已到达，但账号、列表、标题、消息和侧卡图片均落回文字占位。历史视频仍Invalid；同资源官方页面实测readyState4/error=null可播放。已用ego复现HTML meta CSP阻止dimg04，正在修正；不能称头像完成。
 - 本人及商户同事Sara消息右侧原生均已见，客户订单卡仍在左侧；三端全面对齐尚未实机核验。官方桌面CUA超时、助手认证失败等仍见BLOCKED。
 - 本轮前逐块提交：d3aaaa5列表/标题、d152f66本人资料、eb67560周边安全链、5db15cc客户侧卡/提醒。均经独立暂存验证和独立评审；周边真实动作与unknown只读UI仍未验。
+
+- 接收诊断提交 `cb170df`，独立TS391/宿主100/typecheck/bundle及最终评审通过；focus副作用P2真实红→绿已修。第4轮冻结cb170df+dirty共307文件，manifest SHA256 `6e85ba537eb6f3d8f01f3a5372caa7be6b842b11f278df7e5e11569783e142fd`；运行仍PID80117第3轮，尚未第4轮验收。
+- 第3轮运行证据独立审阅并提交 `cd46021`；两层资源策略修复已完成独立4tests/typecheck/bundle及ego实际头像红→绿并提交 `3b0735a`，第4轮原生仍待验。接收脱敏计数诊断正按真实链路接线。
+
+## 第3轮前分块验证归档
+- `d3aaaa5` 列表/标题头像：独立暂存TS326、host74、typecheck/bundle，独立6项复核；初次325/1因提取的真实main测试环境缺notWired，补齐外部环境后全绿，不削弱断言。
+- `d152f66` 账号本人头像：独立TS329、host76、typecheck/bundle；独立12项及login4项复核。boot精确预期补self_profile；字段仅内存且UID二次核对。
+- `eb67560` 周边安全链：独立TS377、host94、typecheck/bundle，持久journal13项及独立评审；旧结束session确认、零请求前置失败永久锁、变更目标绕过unknown均有故障回归。保留376/1因精确摘取漏安全整数hunk的失败和修正。
+- `5db15cc` 客户侧卡/提醒头像：独立16项、typecheck/bundle及5项评审；旧代次借新客户头像P2真实红→绿。以上源码验收不替代第3轮原生发现的资源策略阻挡。
+- `cd46021` 第3轮运行证据、`3b0735a` 双层资源策略、`f550bec` 持久准入迁移边界已本地提交。新的接收诊断独立TS391通过，评审focus副作用P2已红→绿修复并提交cb170df。
 
 ## 任务0与前两轮过程记录（历史）
 - 已读三份断点文档并完成 7 行开工回执；保留 24 个跟踪改动及 6 个未跟踪文件，HEAD 00efc740。
@@ -103,3 +123,5 @@
 - 每轮按数据→UI→打包→实机读回推进；同一失败三次改路线并记录。
 - 不将凭据、签名URL、客户正文提交到仓库；测试使用脱敏最小样本。
 - 完成时明确已证实、未证实和实际产物路径；继续任务先读本文件。
+
+- 第4轮后P1发送身份竞态修复已独立提交a0b4416，真实微任务及投影异常红→绿，独立暂存typecheck/6tests/bundle及Sol独立评审通过；旧PID90073尚不含修复。后台调度修复/引用安全与订单链在接续，下一次完整轮数为5。
