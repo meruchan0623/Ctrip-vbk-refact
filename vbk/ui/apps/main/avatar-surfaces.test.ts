@@ -1,3 +1,4 @@
+import { personDisplayName } from './person-name.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -27,7 +28,7 @@ function render(name: 'conversationList' | 'chatPane' | 'peripheralDialog', next
     createTextNode: (text: string) => ({ tag: '#text', text }),
     querySelector: () => null,
   };
-  const env = {
+  const env = { personDisplayName,
     document: doc, renderMessageAvatar, initialOf, cx,
     h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
     icon: () => ({ tag: 'icon' }), IC: {}, t: (key: string) => key,

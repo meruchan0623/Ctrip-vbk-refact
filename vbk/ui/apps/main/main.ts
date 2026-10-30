@@ -1,3 +1,4 @@
+import { personDisplayName } from './person-name.ts';
 /**
  * Main window (prototype 02-main): title bar with account tabs, left nav
  * (消息 / 通知 / 订单联系, bottom 设置 / 账号), messages workspace,
@@ -1782,8 +1783,8 @@ function peripheralDialog(s: MainState): HTMLElement | null {
         (d.candidates?.skill_groups ?? []).map((group) => h('button', { class: 'btn sm', disabled: d.busy, onclick: () => void peripheral.refresh([group.skill_group_id]) }, group.name))),
       h('div', { class: 'peripheral-list', role: 'group', 'aria-label': '可邀请客服' }, (d.candidates?.agents ?? []).map((agent) => h('label', { class: 'peripheral-member' },
         h('input', { type: 'checkbox', checked: d.selected.includes(agent.uid), disabled: d.busy || d.submitted || expired, onchange: () => peripheral.select(agent.uid) }),
-        h('span', { class: 'ava sm', 'aria-hidden': 'true' }, renderMessageAvatar(document, agent.nickname || agent.uid, agent.avatar)),
-        h('span', null, h('b', null, agent.nickname || agent.uid), h('span', { class: 'peripheral-id' }, agent.uid))))),
+        h('span', { class: 'ava sm', 'aria-hidden': 'true' }, renderMessageAvatar(document, personDisplayName(agent.nickname, agent.uid), agent.avatar)),
+        h('span', null, h('b', null, personDisplayName(agent.nickname, agent.uid)), h('span', { class: 'peripheral-id' }, agent.uid))))),
       !d.busy && d.candidates && !d.candidates.agents.length ? h('p', { class: 'peripheral-empty' }, '当前技能组没有可选客服，请选择其他技能组。') : null);
   } else if (d.kind === 'finish') {
     body = h('div', { class: 'peripheral-body' },
@@ -1794,8 +1795,8 @@ function peripheralDialog(s: MainState): HTMLElement | null {
       d.kind === 'transfer' ? h('p', { class: 'muted' }, '选择一位当前可接任的成员。可转交范围由服务器核验。') : null,
       h('div', { class: 'peripheral-list', role: d.kind === 'transfer' ? 'radiogroup' : 'list', 'aria-label': title }, transferRows.map((member) => h(d.kind === 'transfer' ? 'label' : 'div', { class: 'peripheral-member', ...(d.kind === 'members' ? { role: 'listitem' } : {}) },
         d.kind === 'transfer' ? h('input', { type: 'radio', name: 'transfer-member', checked: d.selected.includes(member.uid), disabled: d.busy || d.submitted || expired, onchange: () => peripheral.select(member.uid) }) : null,
-        h('span', { class: 'ava sm', 'aria-hidden': 'true' }, renderMessageAvatar(document, member.nickname || member.uid, member.avatar)),
-        h('span', null, h('b', null, member.nickname || member.uid), h('span', { class: 'peripheral-id' }, member.uid)),
+        h('span', { class: 'ava sm', 'aria-hidden': 'true' }, renderMessageAvatar(document, personDisplayName(member.nickname, member.uid), member.avatar)),
+        h('span', null, h('b', null, personDisplayName(member.nickname, member.uid)), h('span', { class: 'peripheral-id' }, member.uid)),
         h('span', { class: 'peripheral-member-status' }, `状态 ${member.status}`)))),
       !d.busy && d.members && transferRows.length === 0 ? h('p', { class: 'peripheral-empty' }, d.kind === 'transfer' ? '当前没有可转交的成员' : '未返回会话成员') : null);
   }

@@ -41,3 +41,7 @@ SDK实时、HTTP历史/补偿及本人发送echo均携带sender_id/sender_name/s
 ## 客户侧卡与提醒
 
 客户侧卡只使用选中会话customer_avatar。强提醒只有在当前会话资料同时匹配所属account、generation与gid时显示客户头像；找不到客户资料时中性占位，不用账号客服照片或字母冒充客户。实际main侧卡与banner渲染回归验证同账号同gid及跨账号/跨gid缺失分支；账号3项旧断言保留。原生效果待新包验收。
+
+## 成员名称的已知本地化键
+
+2026-10-31官方成员面板实测将精确昵称key.im.servicechat.robotnickname显示为“游游机器人”。本地仅在成员/邀请候选显示层映射这个完整键；不改UID、接口原值、含此文本的自由昵称或带空白字符串。真实peripheralDialog回归与既有头像断言保留；红绿证据/tmp/vbk-person-name-*.log。第4轮原生raw key仍可见，新包显示待验。

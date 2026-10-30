@@ -1,0 +1,22 @@
+import { personDisplayName } from './person-name.ts';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
+import { cx } from '../../packages/ui-kit/src/h.ts';
+const key = 'key.im.servicechat.robotnickname';
+const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+test('actual member dialog translates only the exact known robot key and preserves each UID', () => {
+  const a = source.indexOf('function peripheralDialog('); const b = source.indexOf('\nfunction render(', a);
+  const people = [{ uid: 'synthetic-bot', nickname: key, status: '1' }, { uid: 'synthetic-customer', nickname: 'SYNTHETIC ' + key, status: '1' }];
+  const state = { activeGid: 'synthetic-room', peripheral: { kind: 'members', scope: { account: {}, gid: 'synthetic-room' }, busy: false, submitted: false, write: null, error: null, notice: null, selected: [], members: { members: people, expires_at_ms: 1000 } }, now: 100 };
+  const env = { personDisplayName, stillActive: () => true, activeConv: () => ({ gid: 'synthetic-room' }), h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }), cx, document: {}, renderMessageAvatar: (_doc: unknown, name: string) => name, icon: () => null, IC: {}, t: (k: string) => k, S: () => state, peripheralWriteView: () => null };
+  const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn peripheralDialog;')(...Object.values(env));
+  const tree = JSON.stringify(render(state));
+  assert.ok(tree.includes('游游机器人')); assert.ok(tree.includes('synthetic-bot'));
+  assert.ok(tree.includes('SYNTHETIC ' + key));
+  assert.equal(people[0]?.nickname, key);
+  assert.equal(personDisplayName(' ' + key, 'synthetic-id'), ' ' + key);
+  assert.equal(personDisplayName(null, 'synthetic-id'), 'synthetic-id');
+  assert.equal(personDisplayName('SYNTHETIC NAME', 'synthetic-id'), 'SYNTHETIC NAME');
+});
