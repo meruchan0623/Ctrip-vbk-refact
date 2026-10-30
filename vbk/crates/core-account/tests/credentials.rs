@@ -309,3 +309,33 @@ fn logout_lists_pending_staged_secret_for_discard() {
     assert!(store.staged_keys().is_empty());
     assert!(reg.commit_credential(&op.operation_id, &mut store).is_err());
 }
+
+
+#[test]
+fn unavailable_probe_preserves_committed_revision_across_restart() {
+    use core_account::{CredentialRef, StagedRef};
+    use contracts::AppError;
+    struct Unavailable;
+    impl SecretStore for Unavailable {
+        fn stage(&mut self, _: &CredentialRef, _: &Secret) -> Result<StagedRef, AppError> { panic!("no stage during probe") }
+        fn commit(&mut self, _: &StagedRef) -> Result<(), AppError> { panic!("no commit during probe") }
+        fn discard(&mut self, _: &StagedRef) -> Result<(), AppError> { panic!("no discard during probe") }
+        fn delete(&mut self, _: &CredentialRef) -> Result<(), AppError> { panic!("no delete during probe") }
+        fn contains(&self, _: &CredentialRef) -> bool { false }
+        fn probe(&self, _: &CredentialRef) -> Result<bool, AppError> { Err(AppError::new(codes::ACCOUNT_CREDENTIAL_STORE, "synthetic temporarily unavailable")) }
+    }
+    let mut reg = AccountRegistry::new(1);
+    let mut store = MemorySecretStore::new();
+    let ctx = login(&mut reg);
+    let committed = reg.apply_credential_update(&ctx, 0, &mut store, &Secret::new(b"SYNTHETIC MARKER".to_vec())).expect("commit");
+    let mut restarted = AccountRegistry::restore(&reg.to_json(), 50).expect("restore");
+    let report = restarted.recover_credentials(&mut Unavailable);
+    assert!(report.missing_secret.is_empty(), "access error is not missing credential evidence");
+    assert_eq!(report.unavailable_secret, vec![ctx.account_id.clone()]);
+    assert_eq!(restarted.ledger().committed(&ctx.account_id), Some(&committed));
+    assert_eq!(restarted.credential_revision(&ctx.account_id), committed.revision);
+    let retry = restarted.recover_credentials(&mut store);
+    assert!(retry.missing_secret.is_empty());
+    assert!(retry.unavailable_secret.is_empty());
+    assert_eq!(restarted.credential_revision(&ctx.account_id), committed.revision);
+}

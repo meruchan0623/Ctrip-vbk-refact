@@ -70,11 +70,10 @@ impl SecretStore for KeychainStore {
                     .map_err(|e| store_err("commit", e))?;
                 delete_quiet(&staged.handle)
             }
-            Err(keyring::Error::NoEntry) if self.contains(&staged.target) => Ok(()),
-            Err(keyring::Error::NoEntry) => Err(AppError::new(
-                codes::ACCOUNT_CREDENTIAL_STORE,
-                "staged entry missing",
-            )),
+            Err(keyring::Error::NoEntry) => {
+                if self.probe(&staged.target)? { Ok(()) }
+                else { Err(AppError::new(codes::ACCOUNT_CREDENTIAL_STORE, "staged entry missing")) }
+            },
             Err(e) => Err(store_err("read staged", e)),
         }
     }
@@ -89,9 +88,68 @@ impl SecretStore for KeychainStore {
     }
 
     fn contains(&self, target: &CredentialRef) -> bool {
-        match entry(&target.key) {
-            Ok(e) => e.get_secret().is_ok(),
-            Err(_) => false,
-        }
+        self.probe(target).unwrap_or(false)
+    }
+
+    fn probe(&self, target: &CredentialRef) -> Result<bool, AppError> {
+        probe_marker(&target.key)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn probe_marker(account: &str) -> Result<bool, AppError> {
+    use security_framework::item::{ItemClass, ItemSearchOptions};
+    use security_framework::os::macos::keychain::{SecKeychain, SecPreferencesDomain};
+    if account.is_empty() {
+        return Err(AppError::new(codes::ACCOUNT_CREDENTIAL_STORE, "empty marker reference"));
+    }
+    // Match keyring's default User-domain keychain, never a broader search list.
+    let keychain = SecKeychain::default_for_domain(SecPreferencesDomain::User)
+        .map_err(|e| AppError::new(codes::ACCOUNT_CREDENTIAL_STORE, format!("marker keychain unavailable ({})", e.code())))?;
+    // Existence needs metadata only. Do not read the protected marker bytes or
+    // skip authenticated items (which would confuse unavailable with missing).
+    let result = ItemSearchOptions::new()
+        .keychains(&[keychain])
+        .class(ItemClass::generic_password())
+        .service(SERVICE)
+        .account(account)
+        .case_insensitive(Some(false))
+        .load_attributes(true)
+        .load_data(false)
+        .load_refs(false)
+        .limit(1)
+        .search();
+    classify_marker_search(result.map(|items| items.len()).map_err(|e| e.code()))
+}
+
+#[cfg(target_os = "macos")]
+fn classify_marker_search(result: Result<usize, i32>) -> Result<bool, AppError> {
+    match result {
+        Ok(0) => Err(AppError::new(codes::ACCOUNT_CREDENTIAL_STORE, "marker metadata returned no result")),
+        Ok(_) => Ok(true),
+        Err(-25300) => Ok(false),
+        Err(code) => Err(AppError::new(codes::ACCOUNT_CREDENTIAL_STORE, format!("marker metadata unavailable ({code})"))),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn probe_marker(account: &str) -> Result<bool, AppError> {
+    match entry(account)?.get_secret() {
+        Ok(_) => Ok(true),
+        Err(keyring::Error::NoEntry) => Ok(false),
+        Err(e) => Err(store_err("probe", e)),
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::classify_marker_search;
+
+    #[test]
+    fn only_explicit_not_found_means_missing_marker() {
+        assert_eq!(classify_marker_search(Ok(1)).unwrap(), true);
+        assert_eq!(classify_marker_search(Err(-25300)).unwrap(), false);
+        assert!(classify_marker_search(Err(-25293)).is_err());
+        assert!(classify_marker_search(Ok(0)).is_err());
     }
 }

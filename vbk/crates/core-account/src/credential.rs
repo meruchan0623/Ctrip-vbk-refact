@@ -99,6 +99,11 @@ pub trait SecretStore {
     fn delete(&mut self, target: &CredentialRef) -> Result<(), AppError>;
     /// Whether a committed entry exists for `target`.
     fn contains(&self, target: &CredentialRef) -> bool;
+    /// Existence without reading secret data when the backend supports metadata.
+    /// Errors mean unavailable, never proof that a committed credential is gone.
+    fn probe(&self, target: &CredentialRef) -> Result<bool, AppError> {
+        Ok(self.contains(target))
+    }
 }
 
 /// In-memory store for tests and prototypes. Mirrors the Windows credential
@@ -269,6 +274,8 @@ pub struct RecoveryReport {
     /// Accounts whose committed entry is missing from the store: the
     /// account must re-authenticate; it must not become online.
     pub missing_secret: Vec<AccountId>,
+    /// Metadata probe failed; retain references and defer automatic restoration.
+    pub unavailable_secret: Vec<AccountId>,
 }
 
 /// Index + journal. One instance per registry.
@@ -478,8 +485,10 @@ impl CredentialLedger {
             }
         }
         for (account_id, cref) in &self.index {
-            if !store.contains(cref) {
-                report.missing_secret.push(account_id.clone());
+            match store.probe(cref) {
+                Ok(true) => {},
+                Ok(false) => report.missing_secret.push(account_id.clone()),
+                Err(_) => report.unavailable_secret.push(account_id.clone()),
             }
         }
         report

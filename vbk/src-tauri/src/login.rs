@@ -745,6 +745,9 @@ fn restore(app: &AppHandle, doc: PersistDoc) {
             report.missing_secret.len()
         );
     }
+    if !report.unavailable_secret.is_empty() {
+        log::warn!("{} account marker probe(s) unavailable; preserving profiles and deferring restoration", report.unavailable_secret.len());
+    }
     let resumable: Vec<(String, String)> = {
         let host = app.state::<HostState>();
         let mut cores = host.lock();
@@ -761,6 +764,7 @@ fn restore(app: &AppHandle, doc: PersistDoc) {
                     Some(AccountStateKind::Suspended)
                 )
             })
+            .filter(|id| !report.unavailable_secret.contains(id))
             .filter_map(|id| {
                 let meta = doc.accounts.get(id.as_str())?;
                 if meta.suspended_by_user {
