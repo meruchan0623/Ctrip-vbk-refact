@@ -15,7 +15,11 @@
 - 宿主不再ACK强清零，独立行为提交 `ab0b751`；独立快照bundle+宿主58通过，当前新增cache回归通过。TSim迁移材料/合成契约提交 `c91e72d`。
 - 周边新数据/宿主已接通，UI实现与独立复核中；额外修复畸形host回执unknown、metadata补全导致journal重放（先2次!=1次失败，再绿30/30），尚未整体提交/实机。
 - 16位订单校验与高亮已提交 `dde2d0b`；暂存快照typecheck/18tests/bundle通过，临时旧实现反证红→绿。
-- 任务0已完成复核，准确保留原生/认证阻塞；完整轮数0/6，第1轮已完成typecheck、TS242/核心300/宿主63（0fail/skip）、bundle和diff检查；tauri build进行中。冻结源码HEAD dde2d0b + dirty manifest SHA256 0014cb6de1ff67f255f45e156810b37a990a7a620a67a8cfa79adc38a3e6f60d，清单/tmp/vbk-goal-20261031/round1-source-manifest.json。
+- 任务0已完成复核，准确保留原生/认证阻塞；完整轮数1/6（实机受阻，不能称通过），第1轮已完成typecheck、TS242/核心300/宿主63（0fail/skip）、bundle和diff检查；tauri app/dmg构建完成，新包已从target/bundle启动PID33871，二进制hash6c5da79b…3a811b、DMG hash79ef5d28…047ef9；钥匙串经用户处理后账号已恢复，第1轮实机未通过，已记录断点。冻结源码HEAD dde2d0b + dirty manifest SHA256 0014cb6de1ff67f255f45e156810b37a990a7a620a67a8cfa79adc38a3e6f60d，清单/tmp/vbk-goal-20261031/round1-source-manifest.json。
+
+- 02:52受控双核及真实gid复核完成；新包发送一次合成测试标记C后transport断开，超时转unknown，网页刷新仍不可见。未重发。官方发W后原生加载旧页可见同正文/发送者/时间，服务端ID尚未跨端核对；旧页补全订单来源，滚动停留历史位置。网络反复断开与误导排队文案进入下一轮修复。
+
+- 官方当前SDK源码经ego只读核实发送字段/回调及已读回调与桥接错配；第2轮准备先补真实边界红绿修复。成员官方过滤/机器人本地化规则亦已取得源码证据，待接续。
 
 ## 上轮状态（历史）：用户要求重勘并重写 leader 目标
 - 已停止上一轮新代码实施；当前进行任务书交付，保留未提交改动。
