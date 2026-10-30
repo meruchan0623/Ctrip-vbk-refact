@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>VBK 商家工作台 · 启动与登录</title>
+<script src="93ea3faa-843c-4de8-8743-e86ee2e4a2b5"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1F5FD6}a:hover{color:#174AA8}
+.desk{position:relative;width:1440px;height:900px;overflow:hidden;background:#B9C7D8;font-family:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;font-size:13px;color:#1A2433;line-height:1.45;user-select:none}
+.desk *{box-sizing:border-box}
+.desk button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:inherit}
+.desk input{font:inherit;color:inherit}
+.ic{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.wm{position:absolute;right:16px;top:12px;font-size:12px;color:#33445C;text-align:right;line-height:1.5}
+.wm b{display:block;font-size:13px;color:#14243A}
+.logo{width:26px;height:26px;border-radius:7px;background:#1F5FD6;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff}
+.splash{position:absolute;left:520px;top:290px;width:400px;height:260px;border-radius:12px;background:#0A254C;color:#fff;box-shadow:0 24px 64px rgba(10,30,60,.4);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+.win{position:absolute;left:510px;top:200px;width:420px;min-height:460px;border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 24px 64px rgba(10,30,60,.35),0 0 0 1px rgba(10,37,76,.4);display:flex;animation:pop .18s ease-out}
+@keyframes pop{from{transform:scale(.97);opacity:0}to{transform:none;opacity:1}}
+@keyframes sp{to{transform:rotate(360deg)}}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid rgba(127,140,160,.4);border-top-color:#5B95FF;animation:sp .8s linear infinite;flex:none}
+.side{width:300px;flex:none;background:#0A254C;color:#fff;padding:22px;display:flex;flex-direction:column;gap:14px}
+.side small{color:#AFC0D8;font-size:12px}
+.acc{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid rgba(255,255,255,.18);border-radius:8px;width:100%;color:#fff}
+.acc:hover{background:rgba(255,255,255,.08)}
+.ava{width:30px;height:30px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;color:#fff}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.bar{height:36px;flex:none;display:flex;align-items:center;gap:8px;padding-left:14px;background:#F3F5F8;border-bottom:1px solid #E3E7ED;font-size:12px;color:#4A5565}
+.wbtn{width:46px;height:36px;display:flex;align-items:center;justify-content:center;color:#4A5565;margin-left:auto}
+.wbtn:hover{background:#C42B1C;color:#fff}
+.stage{flex:1;display:flex;align-items:center;justify-content:center;padding:20px 0;background:#fff}
+.card{width:360px;background:#fff;display:flex;flex-direction:column;gap:14px}
+.seg{display:flex;background:#EEF1F5;border-radius:7px;padding:2px}
+.seg-b{flex:1;height:30px;border-radius:5px;font-size:12.5px;color:#4A5565;text-align:center}
+.seg-b.on{background:#fff;color:#1A2433;font-weight:600;box-shadow:0 1px 2px rgba(20,36,58,.12)}
+.inp{height:38px;border:1px solid #CDD4DE;border-radius:6px;background:#fff;padding:0 12px;outline:none;font-size:13px;width:100%}
+.inp:focus{border-color:#1F5FD6;box-shadow:0 0 0 2px rgba(31,95,214,.15)}
+.btn{height:38px;padding:0 16px;border-radius:6px;border:1px solid #CDD4DE;background:#fff;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13px;text-decoration:none;color:#1A2433}
+.btn.pri{background:#1F5FD6;border-color:#1F5FD6;color:#fff}
+.btn.pri:hover{background:#174AA8;color:#fff}
+.chk{display:flex;align-items:center;gap:8px;font-size:12px;color:#4A5565}
+.cbx{width:16px;height:16px;border-radius:4px;border:1.5px solid #9AA4B2;display:flex;align-items:center;justify-content:center;color:#fff;flex:none}
+.cbx.on{background:#1F5FD6;border-color:#1F5FD6}
+.err{color:#AE2330;font-size:12px}
+.mig{position:absolute;right:24px;bottom:72px;width:360px;background:#fff;border-radius:10px;box-shadow:0 12px 32px rgba(10,30,60,.28);padding:14px 16px;display:flex;flex-direction:column;gap:8px;animation:pop .18s ease-out}
+.taskbar{position:absolute;left:0;right:0;bottom:0;height:48px;background:rgba(232,237,244,.94);border-top:1px solid rgba(10,37,76,.12);display:flex;align-items:center;justify-content:center;gap:4px}
+.tbi{width:40px;height:40px;border-radius:6px;display:flex;align-items:center;justify-content:center;position:relative}
+.tbi.act::after{content:"";position:absolute;bottom:2px;width:16px;height:3px;border-radius:2px;background:#1F5FD6}
+.clock{position:absolute;right:16px;font-size:12px;text-align:right;line-height:1.3}
+.ok{width:56px;height:56px;border-radius:50%;background:#E3F5EA;color:#176B3E;display:flex;align-items:center;justify-content:center}
+.note{font-size:12px;color:#5B6676;line-height:1.6}
+.k{background:#14243A}
+</style>
+</helmet>
+<div class="desk">
+  <div class="wm" aria-hidden="true"><b>VBK 商家工作台 · Windows 原型</b>启动 → 免密校验 → 网页登录</div>
+
+  <sc-if value="{{isSplash}}" hint-placeholder-val="{{false}}">
+    <div class="splash" role="status">
+      <div class="logo" style="width: 56px; height: 56px; font-size: 28px; border-radius: 14px">V</div>
+      <b style="font-size: 16px">VBK 商家工作台</b>
+      <div style="display: flex; align-items: center; gap: 8px; color: #C9D6EA; font-size: 12.5px"><span class="spin"></span>{{splashText}}</div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isWin}}" hint-placeholder-val="{{true}}">
+    <div class="win">
+      <div class="main">
+        <div class="bar"><div class="logo" style="width: 18px; height: 18px; font-size: 10px; border-radius: 5px">V</div>登录 VBK 商家工作台<span style="flex: 1"></span><button class="wbtn" aria-label="关闭"><svg class="ic" sc-camel-view-box="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
+        <div style="height: 32px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px; background: #F7F9FC; border-bottom: 1px solid #E3E7ED; font-size: 11.5px; color: #4A5565"><svg class="ic" sc-camel-view-box="0 0 24 24" width="12" height="12" style="color: #176B3E" aria-hidden="true"><path d="M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3"></path></svg><span style="flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis">https://vbooking.ctrip.com/ivbk/accountV2/login</span><span style="flex: none; padding: 1px 6px; border-radius: 4px; background: #E8F0FE; color: #1A4FB0">内嵌官方网页</span></div>
+        <div class="stage">
+          <sc-if value="{{isForm}}" hint-placeholder-val="{{true}}">
+            <div class="card">
+              <div class="seg"><sc-for list="{{tabs}}" as="t" hint-placeholder-count="3"><button class="seg-b {{t.cls}}" sc-camel-on-click="{{t.pick}}">{{t.label}}</button></sc-for></div>
+              <sc-if value="{{isQr}}" hint-placeholder-val="{{false}}">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 0">
+                  <div style="width: 170px; height: 170px; display: flex; flex-wrap: wrap; border: 8px solid #fff; box-shadow: 0 0 0 1px #E3E7ED; border-radius: 6px"><sc-for list="{{qr}}" as="q" hint-placeholder-count="30"><span class="{{q}}" style="width: 7.33px; height: 7.33px"></span></sc-for></div>
+                  <span class="note">请使用商家 App 扫码 · 二维码每秒刷新状态</span>
+                  <button class="btn" sc-camel-on-click="{{scan}}">模拟：手机已确认</button>
+                </div>
+              </sc-if>
+              <sc-if value="{{notQr}}" hint-placeholder-val="{{true}}">
+                <input class="inp" placeholder="{{userPh}}" value="{{user}}" sc-camel-on-change="{{onUser}}" aria-label="{{userPh}}">
+                <sc-if value="{{isPwd}}" hint-placeholder-val="{{true}}"><input class="inp" type="password" placeholder="密码" value="{{pass}}" sc-camel-on-change="{{onPass}}" aria-label="密码"></sc-if>
+                <sc-if value="{{isSms}}" hint-placeholder-val="{{false}}"><div style="display: flex; gap: 8px"><input class="inp" placeholder="短信验证码" value="{{code}}" sc-camel-on-change="{{onCode}}" aria-label="短信验证码"><button class="btn" style="flex: none" sc-camel-on-click="{{sendSms}}">{{smsLabel}}</button></div></sc-if>
+                <button class="chk" sc-camel-on-click="{{toggleAgree}}"><span class="cbx {{agreeCls}}"><svg class="ic" sc-camel-view-box="0 0 24 24" width="12" height="12" style="stroke-width: 3" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg></span>我已阅读并同意《用户服务协议》与《隐私政策》</button>
+                <sc-if value="{{hasErr}}" hint-placeholder-val="{{false}}"><div class="err">{{err}}</div></sc-if>
+                <button class="btn pri" sc-camel-on-click="{{submit}}">登录</button>
+                <div class="note">登录遇到问题？可切换「使用其他方式登录」，或联系管理员重置。</div>
+              </sc-if>
+            </div>
+          </sc-if>
+          <sc-if value="{{isSlider}}" hint-placeholder-val="{{false}}">
+            <div class="card" style="width: 348px" sc-camel-on-mouse-move="{{move}}" sc-camel-on-mouse-up="{{up}}" sc-camel-on-mouse-leave="{{up}}">
+              <b>安全验证</b><span class="note">拖动滑块，使拼图块对齐缺口</span>
+              <div style="position: relative; width: 300px; height: 150px; border-radius: 6px; overflow: hidden; background: #5B7FB8">
+                <div style="position: absolute; top: 24px; right: 42px; width: 36px; height: 36px; border-radius: 50%; background: #F7D774"></div>
+                <div style="position: absolute; bottom: 0; left: -20px; right: -20px; height: 70px; background: #3E6A47; border-radius: 50% 50% 0 0"></div>
+                <div style="position: absolute; top: 56px; left: 196px; width: 42px; height: 42px; border-radius: 6px; background: rgba(0,0,0,.45); box-shadow: inset 0 0 0 2px rgba(255,255,255,.7)"></div>
+                <div style="position: absolute; top: 56px; left: {{pieceX}}px; width: 42px; height: 42px; border-radius: 6px; background: #6F93C9; box-shadow: 0 0 0 2px #fff, 0 4px 10px rgba(0,0,0,.4)"></div>
+              </div>
+              <div style="position: relative; width: 300px; height: 40px; border-radius: 20px; background: #EEF1F5; border: 1px solid #D3DAE4">
+                <div style="position: absolute; left: 0; top: 0; bottom: 0; width: {{fillW}}px; border-radius: 20px; background: #D6E4FC"></div>
+                <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12.5px; color: #5B6676; pointer-events: none">{{sliderText}}</div>
+                <div role="slider" aria-label="拖动完成验证" aria-valuenow="{{knobX}}" sc-camel-on-mouse-down="{{down}}" style="position: absolute; top: -1px; left: {{knobX}}px; width: 48px; height: 40px; border-radius: 20px; background: #fff; border: 1px solid #1F5FD6; display: flex; align-items: center; justify-content: center; color: #1F5FD6; cursor: grab"><svg class="ic" sc-camel-view-box="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></div>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{isBusy}}" hint-placeholder-val="{{false}}"><div style="display: flex; flex-direction: column; align-items: center; gap: 12px; color: #5B6676"><span class="spin" style="width: 28px; height: 28px; border-width: 3px; border-color: #D3DAE4; border-top-color: #1F5FD6"></span>{{busyText}}</div></sc-if>
+          <sc-if value="{{isPwdTip}}" hint-placeholder-val="{{false}}">
+            <div class="card"><b>登录密码修改提示</b><span style="line-height: 1.6">您的账号已超过 180 天未修改密码，为了账号安全，建议尽快修改。</span><div style="display: flex; justify-content: flex-end; gap: 8px"><button class="btn" sc-camel-on-click="{{skipPwd}}">暂不修改</button><button class="btn pri" sc-camel-on-click="{{skipPwd}}">去修改</button></div></div>
+          </sc-if>
+          <sc-if value="{{isDone}}" hint-placeholder-val="{{false}}">
+            <div class="card" style="align-items: center; text-align: center">
+              <div class="ok"><svg class="ic" sc-camel-view-box="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg></div>
+              <b style="font-size: 16px">登录成功</b>
+              <div class="note">{{doneText}}<br>IM 连接中，业务页将在主窗口按需加载。</div>
+              <a class="btn pri" href="Main.dc.html" style="align-self: stretch">进入工作台</a>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{showMig}}" hint-placeholder-val="{{false}}">
+    <div class="mig" role="status">
+      <b>已从旧版客户端 1.2.12 导入账号</b>
+      <div class="note">导入 3 个账号的登录票据（不迁移密码）。「云游·小王」「云游·夜班组」可免密登录；「畅行租车·Lily」票据已过期，需重新验证。</div>
+      <div style="display: flex; justify-content: flex-end"><button class="btn" style="height: 30px" sc-camel-on-click="{{hideMig}}">知道了</button></div>
+    </div>
+  </sc-if>
+
+  <div class="taskbar">
+    <div class="tbi"><svg sc-camel-view-box="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="3" y="3" width="8.5" height="8.5" rx="1" fill="#1F6FD8"></rect><rect x="12.5" y="3" width="8.5" height="8.5" rx="1" fill="#1F6FD8"></rect><rect x="3" y="12.5" width="8.5" height="8.5" rx="1" fill="#1F6FD8"></rect><rect x="12.5" y="12.5" width="8.5" height="8.5" rx="1" fill="#1F6FD8"></rect></svg></div>
+    <div class="tbi act"><div class="logo" style="width: 24px; height: 24px; font-size: 13px">V</div></div>
+    <div class="clock">{{clock}}</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900}}">
+function qrPattern() {
+  var n = 21, out = [], seed = 11;
+  function finder(r, c, r0, c0) { var y = r - r0, x = c - c0; if (y < 0 || x < 0 || y > 6 || x > 6) return null; if (y === 0 || y === 6 || x === 0 || x === 6) return true; return y >= 2 && y <= 4 && x >= 2 && x <= 4; }
+  for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) {
+    var f = finder(r, c, 0, 0); if (f === null) f = finder(r, c, 0, 14); if (f === null) f = finder(r, c, 14, 0);
+    if (f === null) { seed = (seed * 1103515245 + 12345) % 2147483648; f = (seed >> 16) % 3 === 0; }
+    out.push(f ? 'k' : '');
+  }
+  return out;
+}
+var QR = qrPattern().map(function (k) { return k ? 'k' : 'w'; });
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { step: 'splash', splash: 0, tab: 'pwd', user: '', pass: '', code: '', agree: false, err: '', x: 0, drag: false, busy: '', done: '', mig: false, smsAt: 0, now: Date.now() };
+    this.timers = [];
+  }
+  componentDidMount() {
+    var self = this;
+    this.later(function () { self.setState({ splash: 1 }); }, 900);
+    this.later(function () { self.setState({ step: 'form', mig: true }); }, 2100);
+    this.iv = setInterval(function () { self.setState({ now: Date.now() }); }, 1000);
+  }
+  componentWillUnmount() { clearInterval(this.iv); this.timers.forEach(function (t) { clearTimeout(t); }); }
+  later(fn, ms) { this.timers.push(setTimeout(fn, ms)); }
+  busy(text, next, ms) { var self = this; this.setState({ step: 'busy', busy: text }); this.later(next, ms || 1000); }
+  renderVals() {
+    var s = this.state, self = this, k = s.x || 0, now = s.now;
+    var smsLeft = s.smsAt ? Math.ceil((60000 - (now - s.smsAt)) / 1000) : 0;
+    var d = new Date(now), pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return {
+      isSplash: s.step === 'splash', isWin: s.step !== 'splash',
+      splashText: s.splash ? '在线校验免密凭据（不只依据本地票据）…' : '正在启动…',
+      isForm: s.step === 'form', isSlider: s.step === 'slider', isBusy: s.step === 'busy', isPwdTip: s.step === 'pwdtip', isDone: s.step === 'done',
+      busyText: s.busy, doneText: s.done,
+      tabs: [['pwd', '账号密码'], ['sms', '短信登录'], ['qr', '扫码登录']].map(function (t) { return { label: t[1], cls: s.tab === t[0] ? 'on' : '', pick: function () { self.setState({ tab: t[0], err: '' }); } }; }),
+      isQr: s.tab === 'qr', notQr: s.tab !== 'qr', isPwd: s.tab === 'pwd', isSms: s.tab === 'sms',
+      userPh: s.tab === 'sms' ? '手机号' : '账号 / 手机号', user: s.user, pass: s.pass, code: s.code,
+      smsLabel: smsLeft > 0 ? smsLeft + ' 秒后重发' : '获取验证码',
+      agreeCls: s.agree ? 'on' : '', hasErr: !!s.err, err: s.err, qr: QR,
+      pieceX: 14 + k * (196 - 14) / 252, knobX: k, fillW: k + 24, sliderText: k > 0 ? '' : '向右拖动滑块完成拼图',
+      showMig: s.mig,
+      clock: pad(d.getHours()) + ':' + pad(d.getMinutes()),
+      accs: [
+        { nick: '云游·小王', init: '王', color: '#3D7BE0', hint: '免密凭据有效 · 上次 10-29 21:40', pick: function () { self.busy('正在在线校验免密凭据…', function () { self.setState({ step: 'done', done: '「云游·小王」已恢复登录，凭据存于 Windows 凭据管理器。' }); }, 1200); } },
+        { nick: '云游·夜班组', init: '夜', color: '#8A5CD6', hint: '免密凭据有效', pick: function () { self.busy('正在在线校验免密凭据…', function () { self.setState({ step: 'done', done: '「云游·夜班组」已恢复登录。' }); }, 1200); } },
+        { nick: '畅行租车·Lily', init: 'L', color: '#E07A2E', hint: '票据已过期，需重新验证', pick: function () { self.setState({ step: 'form', tab: 'pwd', user: 'lily@changxing', pass: '', err: '登录已过期，请输入密码重新验证' }); } }
+      ],
+      onUser: function (e) { self.setState({ user: e.target.value }); },
+      onPass: function (e) { self.setState({ pass: e.target.value }); },
+      onCode: function (e) { self.setState({ code: e.target.value }); },
+      sendSms: function () { if (smsLeft > 0) return; if (!s.user) { self.setState({ err: '请输入手机号' }); return; } self.setState({ smsAt: Date.now(), err: '' }); },
+      toggleAgree: function () { self.setState({ agree: !s.agree }); },
+      hideMig: function () { self.setState({ mig: false }); },
+      scan: function () { self.busy('手机已确认，正在获取登录凭据…', function () { self.setState({ step: 'done', done: '扫码登录成功，已创建独立的账号上下文。' }); }); },
+      submit: function () {
+        if (!s.user) { self.setState({ err: s.tab === 'sms' ? '请输入手机号' : '请输入账号' }); return; }
+        if (s.tab === 'pwd' && !s.pass) { self.setState({ err: '请输入密码' }); return; }
+        if (s.tab === 'sms' && !s.code) { self.setState({ err: '请输入短信验证码' }); return; }
+        if (!s.agree) { self.setState({ err: '请先阅读并勾选同意协议' }); return; }
+        self.setState({ step: 'slider', x: 0, err: '' });
+      },
+      down: function (e) { e.preventDefault(); self.drag = { cx: e.clientX, x: s.x || 0, k: (e.currentTarget.parentElement.getBoundingClientRect().width / 300) || 1 }; },
+      move: function (e) { if (!self.drag) return; self.setState({ x: Math.max(0, Math.min(252, self.drag.x + (e.clientX - self.drag.cx) / self.drag.k)) }); },
+      up: function () {
+        if (!self.drag) return; self.drag = null;
+        var px = 14 + (self.state.x || 0) * (196 - 14) / 252;
+        if (Math.abs(px - 196) < 9) self.busy('验证通过，正在登录…', function () { if (self.state.tab === 'pwd') self.setState({ step: 'pwdtip' }); else self.setState({ step: 'done', done: '短信验证登录成功。' }); }, 900);
+        else self.setState({ x: 0 });
+      },
+      skipPwd: function () { self.busy('正在建立账号上下文（独立 WebView2 Profile）…', function () { self.setState({ step: 'done', done: '账号已登录，Cookie 与缓存独立存放。' }); }, 900); }
+    };
+  }
+}
+</script>
+
+
+</body></html>

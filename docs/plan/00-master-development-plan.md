@@ -35,6 +35,7 @@
 - [04 媒体工具与商家助手](04-media-and-assistant.md)
 - [05 当前验收](05-release-validation.md)
 - [前端原型删减清单](2026-10-30-frontend-prototype-pruning.md)
+- [原型还原与端到端接线计划](2026-10-30-prototype-restoration-plan.md)：2026-10-30 起的执行顺序，取代第 2 节 P0 之后的排序
 
 任务完成须有代码、具体网页版本、受控样本和实际结果，不能把本计划或既有自然流量观测当成验收。调度由执行时决定，不要求创建固定数量代理。
 

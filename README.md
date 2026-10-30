@@ -17,7 +17,8 @@
 | [逐接口请求契约与开发准入](docs/api/README.md) | 完整 Header、Authentication、方法、嵌套参数、脱敏样本与未闭环项；全部必要要素齐备后才开发 |
 | [范围决定](docs/decisions/2026-10-30-web-only-scope.md) | 携程业务以网页为基准、只删左侧栏业务模块；自有功能保留 |
 | [开发总纲](docs/dev/00-architecture.md) | 当前架构、职责与实现边界 |
-| [收敛后的开发计划](docs/plan/00-master-development-plan.md) | 当前任务与验收顺序 |
+| [原型还原与端到端接线计划](docs/plan/2026-10-30-prototype-restoration-plan.md) | 当前执行顺序：macOS 外观、契约统一、登录、IM 数据接线 |
+| [收敛后的开发计划](docs/plan/00-master-development-plan.md) | 范围、不变量与任务正文 |
 | [独立强提醒窗口](docs/dev/03-strong-alert.md) | 消息来源、等待轮次、独立窗口、恢复和验收 |
 | [订单联系客人](docs/research/2026-10-30-web-order-conversation.md) | 已实测的订单详情与 IM 联系流程 |
 | [网页提醒调查](docs/research/2026-10-30-web-reminders.md) | 网页实际行为，区别于新扩展 |

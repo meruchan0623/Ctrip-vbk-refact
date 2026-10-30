@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>强提醒与副窗口规格</title>
+<script src="5e7b9923-9921-4993-bb90-fa757ae0a32f"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1F5FD6}a:hover{color:#174AA8}
+.ic{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; padding: 40px 48px; background: #F4F6F9; font-family: 'Segoe UI Variable Text','Segoe UI','Microsoft YaHei UI','Microsoft YaHei','PingFang SC',system-ui,sans-serif; color: #1A2433; display: flex; flex-direction: column; gap: 22px">
+  <div style="display: flex; align-items: baseline; gap: 16px">
+    <h1 style="margin: 0; font-size: 28px; font-weight: 700">强提醒五级与副窗口</h1>
+    <span style="font-size: 14px; color: #5B6676">提醒不等于已读或已回复；L3 只在服务端确认商家回复、会话结束或转移后退出</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px">
+    <sc-for list="{{levels}}" as="l" hint-placeholder-count="5">
+      <div style="background: #fff; border: 1px solid #E3E7ED; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: center; gap: 8px"><span style="height: 24px; padding: 0 8px; border-radius: 6px; font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; color: #fff; background: {{l.color}}">{{l.k}}</span><b style="font-size: 15px">{{l.name}}</b></div>
+        <div style="font-size: 12px; color: #5B6676">触发</div><div style="font-size: 13px; line-height: 1.5">{{l.trigger}}</div>
+        <div style="font-size: 12px; color: #5B6676">表现</div><div style="font-size: 13px; line-height: 1.5">{{l.show}}</div>
+        <div style="font-size: 12px; color: #5B6676">退出</div><div style="font-size: 13px; line-height: 1.5">{{l.exit}}</div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; gap: 20px; align-items: flex-start; flex: 1; min-height: 0">
+    <div style="display: flex; flex-direction: column; gap: 10px; width: 360px; flex: none">
+      <div style="font-size: 12px; font-weight: 600; color: #4A5565">notifier 横幅 · 宽 360 · 最多 3 张 · 停留 6 秒</div>
+      <div style="background: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(10,30,60,.16), 0 0 0 1px rgba(10,37,76,.1); display: flex; gap: 10px; padding: 12px">
+        <div style="width: 36px; height: 36px; border-radius: 50%; background: #8A4FA3; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; flex: none">陈</div>
+        <div style="flex: 1; min-width: 0"><div style="font-size: 11.5px; color: #5B6676">云游·小王 · 14:32</div><div style="font-weight: 600; display: flex; gap: 6px; align-items: center">陈女士<span style="min-width: 18px; height: 18px; border-radius: 9px; background: #E5484D; color: #fff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center">2</span></div><div style="font-size: 12.5px; color: #5B6676">对了，1.2米以下的小朋友需要买票吗？</div></div>
+      </div>
+      <div style="height: 32px; border-radius: 8px; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 12.5px; color: #1F5FD6; box-shadow: 0 4px 12px rgba(10,30,60,.1)">还有 2 条新消息</div>
+      <div style="font-size: 12px; font-weight: 600; color: #4A5565; margin-top: 8px">alarm 强提醒窗 · 置顶不抢焦点 · 高 ≤ 工作区 60%</div>
+      <div style="background: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(10,30,60,.16), 0 0 0 2px #E5484D; overflow: hidden">
+        <div style="height: 40px; background: #C8323C; color: #fff; display: flex; align-items: center; padding: 0 12px; font-weight: 600; gap: 8px">3 个回复超时提醒<span style="margin-left: auto; font-weight: 400; font-size: 11.5px">阈值 30 秒</span></div>
+        <div style="padding: 12px; display: flex; gap: 10px; border-bottom: 1px solid #F0F2F5"><div style="width: 36px; height: 36px; border-radius: 50%; background: #2C7F8F; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; flex: none">佐</div><div style="flex: 1; min-width: 0"><b>佐藤 健</b><div style="font-size: 12.5px; color: #5B6676; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">注文したSIMカードがまだ使えません…</div></div><div style="text-align: right"><div style="font-size: 22px; font-weight: 700; color: #C8323C">1分42秒</div><div style="font-size: 11px; color: #5B6676">已等待（&gt;90 秒标红）</div></div></div>
+        <div style="display: flex; gap: 6px; justify-content: flex-end; padding: 10px 12px"><span style="height: 26px; padding: 0 10px; border: 1px solid #CDD4DE; border-radius: 6px; font-size: 12px; display: inline-flex; align-items: center">清除</span><span style="height: 26px; padding: 0 10px; border: 1px solid #CDD4DE; border-radius: 6px; font-size: 12px; display: inline-flex; align-items: center">全部清除</span><span style="height: 26px; padding: 0 10px; border-radius: 6px; font-size: 12px; display: inline-flex; align-items: center; background: #1F5FD6; color: #fff">稍后提醒 5/10/30 分</span></div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px; width: 300px; flex: none">
+      <div style="font-size: 12px; font-weight: 600; color: #4A5565">托盘悬浮 tooltip · 宽 300 · ≤ 560 高</div>
+      <div style="background: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(10,30,60,.16), 0 0 0 1px rgba(10,37,76,.1); overflow: hidden">
+        <div style="padding: 10px 12px; font-weight: 600; border-bottom: 1px solid #EEF1F5">旅游商家桌面版 · 未读 6</div>
+        <div style="padding: 8px 12px 4px; font-size: 11.5px; font-weight: 600; color: #4A5565; background: #F7F9FC">云游·小王（3）</div>
+        <div style="padding: 7px 12px; font-size: 12.5px">Emma Wilson · 佐藤 健 · 陈女士</div>
+        <div style="padding: 8px 12px 4px; font-size: 11.5px; font-weight: 600; color: #4A5565; background: #F7F9FC">云游·夜班组（3）</div>
+        <div style="padding: 7px 12px 10px; font-size: 12.5px">周女士 · Tom Becker</div>
+      </div>
+      <div style="font-size: 12px; font-weight: 600; color: #4A5565; margin-top: 8px">托盘菜单</div>
+      <div style="background: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(10,30,60,.16), 0 0 0 1px rgba(10,37,76,.1); padding: 6px; font-size: 12.5px; display: flex; flex-direction: column">
+        <span style="padding: 7px 10px">显示主窗口</span><span style="padding: 7px 10px">设置</span><span style="padding: 7px 10px; border-top: 1px solid #EEF1F5">勿扰 ▸ 1 小时 / 直到明天</span><span style="padding: 7px 10px; border-top: 1px solid #EEF1F5; color: #C8323C">退出</span>
+      </div>
+      <div style="font-size: 12px; color: #5B6676; line-height: 1.6">托盘图标每 500 ms 闪烁；任务栏叠加数字 1–99，超过显示 99+；悬停 300 ms 内出现、离开 300 ms 后隐藏。</div>
+    </div>
+
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+      <div style="font-size: 12px; font-weight: 600; color: #4A5565">系统状态降级</div>
+      <div style="background: #fff; border: 1px solid #E3E7ED; border-radius: 12px; overflow: hidden">
+        <div style="display: grid; grid-template-columns: 1.3fr 1fr 1fr .9fr; gap: 10px; padding: 10px 14px; background: #F7F9FC; font-size: 12px; font-weight: 600; color: #4A5565"><span>系统状态</span><span>L2 横幅</span><span>L3 / L4 强提醒</span><span>声音</span></div>
+        <sc-for list="{{states}}" as="r" hint-placeholder-count="5">
+          <div style="display: grid; grid-template-columns: 1.3fr 1fr 1fr .9fr; gap: 10px; padding: 10px 14px; border-top: 1px solid #F0F2F5; font-size: 12.5px"><b style="font-weight: 600">{{r.a}}</b><span>{{r.b}}</span><span>{{r.c}}</span><span>{{r.d}}</span></div>
+        </sc-for>
+      </div>
+      <div style="background: #fff; border: 1px solid #E3E7ED; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.6">
+        <b style="font-size: 13px">节流与时长</b>
+        <span>新消息提示音最多 1 次 / 1.5 秒；同一会话横幅合并计数并重置 6 秒。</span>
+        <span>L4 默认关闭：T1 后再等 60 秒，每 15 秒响一次，最长 10 分钟，之后只闪烁。</span>
+        <span>阈值 30/60/90/120/180 秒，默认 30；本地计时以服务端会话事实为锚点，不代表平台考核口径。</span>
+        <span>勿扰 22:00–08:00 可选；「勿扰时仍提醒回复超时」默认开启。</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      levels: [
+        { k: 'L0', name: '静默计数', color: '#5B6676', trigger: '任何未读数变化', show: '托盘提示文字、任务栏数字、托盘悬浮窗', exit: '未读归零' },
+        { k: 'L1', name: '闪烁', color: '#D98A00', trigger: '新消息且主窗口不在前台', show: '托盘 500 ms 闪烁，任务栏橙色闪烁', exit: '主窗口获得焦点' },
+        { k: 'L2', name: '横幅', color: '#1F5FD6', trigger: '新消息，除非正在看该会话', show: '右下角横幅 + 一次提示音，悬停暂停计时', exit: '6 秒自动隐藏；点击跳转' },
+        { k: 'L3', name: '强提醒窗', color: '#C8323C', trigger: '首条未回复超过 T1（默认 30 秒）', show: 'alarm 窗置顶不抢焦点，超时音一次，任务栏持续闪烁', exit: '回复被服务端确认 / 结束 / 转移' },
+        { k: 'L4', name: '持续强提醒', color: '#8A1C24', trigger: '主动开启；T1 后再等 60 秒', show: '每次升级重新置顶，提示音每 15 秒循环', exit: '同 L3，或「稍后提醒」' }
+      ],
+      states: [
+        { a: '正常', b: '自绘横幅', c: '自绘强提醒窗', d: '按设置' },
+        { a: '全屏应用 / 游戏', b: '改为系统通知', c: '仍显示（可关闭）', d: '仅 L3/L4' },
+        { a: '演示模式', b: '隐藏', c: '隐藏，仅闪烁', d: '静音' },
+        { a: '锁屏 / 屏保', b: '暂存', c: '解锁后显示', d: 'L4 按「锁屏时仍响铃」' },
+        { a: '系统专注时段', b: '隐藏', c: '延后', d: '静音（仅 L0）' }
+      ]
+    };
+  }
+}
+</script>
+
+
+</body></html>
