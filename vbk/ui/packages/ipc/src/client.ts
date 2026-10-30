@@ -188,6 +188,8 @@ export interface UiOrderSummary {
 }
 
 export interface UiConversation extends ConversationFact {
+  /** Avatar of the verified conversation customer uid; never the account agent. */
+  readonly customer_avatar?: string | null;
   readonly account: AccountContext;
   readonly title: string;
   readonly color: string;

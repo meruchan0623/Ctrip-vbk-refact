@@ -65,10 +65,26 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   let agent: { status: AgentStatus; confirmed: boolean } | null = null;
 
   const pushDisplay = (payload: AdapterDisplayPayload): void => {
+    if (payload.kind === 'conversations' && !running) return;
     // Every conversation projection (including history enrichment) shares the
     // authoritative unread book. Reading history cannot acknowledge messages.
     const current = payload.kind === 'conversations'
-      ? { ...payload, items: payload.items.map((item) => ({ ...item, unread_count: unread.unreadOf(item.gid) ?? item.unread_count })) }
+      ? { ...payload, items: payload.items.map((item) => {
+          const previous = displays.get(item.gid);
+          const uid = store.view(item.gid)?.customerUid;
+          const next = {
+            ...item,
+            // The row's customer uid is the only association for this surface.
+            // RoleBook preserves known profile fields on incomplete refreshes.
+            customer_avatar: uid ? roles.profileOf(uid).avatar : null,
+            ...(previous && (previous.last_message_time_ms ?? 0) > (item.last_message_time_ms ?? 0)
+              ? { preview: previous.preview, last_message_time_ms: previous.last_message_time_ms }
+              : {}),
+            unread_count: unread.unreadOf(item.gid) ?? item.unread_count,
+          };
+          displays.set(item.gid, next);
+          return next;
+        }) }
       : payload;
     try {
       opts.pushDisplay(current).catch(() => log(`display push failed (${payload.kind})`));
@@ -92,25 +108,28 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   let running = false;
   let runGeneration = 0;
   const flushUnread = async (): Promise<void> => {
+    const generation = runGeneration;
     unreadTimer = null;
     const gids = [...pendingUnread];
     pendingUnread.clear();
     if (gids.length === 0 || !running) return;
     const changed = await unread.refresh(deps, soa, gids, (gid, msg) => {
+      if (!running || generation !== runGeneration) return;
       store.noteMessage(gid, msg.msgId, msg.createTime);
       const jid = roomJidFromMessage(gid, msg);
       if (jid) opts.sdk.rememberPartnerJid(gid, jid);
     });
-    if (!running) return;
+    if (!running || generation !== runGeneration) return;
     const items: DisplayConversation[] = [];
     for (const gid of changed) {
       const row = store.row(gid);
       if (!row) continue;
       const fact = toConversationFact(row, false, unread);
       if (fact) adapter.bridge.push({ kind: 'conversation', fact });
-      const d = toDisplayConversation(row, false, unread);
+      const base = toDisplayConversation(row, false, unread);
+      const uid = store.view(gid)?.customerUid;
+      const d = base ? { ...base, title: uid ? roles.profileOf(uid).name ?? base.title : base.title } : null;
       if (d) {
-        displays.set(gid, d);
         items.push(d);
       }
     }
@@ -123,6 +142,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
 
   // ---- conversation list → display
   const onListOutcome = (outcome: SoaOutcome<ConversationListResponse>, variant: ConversationListVariant): void => {
+    if (!running) return;
+    const generation = runGeneration;
     // called by the poller before it advances its cursor: a null cursor means this response is a full snapshot
     const poller = adapter.conversationPollers[(opts.variants ?? ['plain']).indexOf(variant)];
     const full = (poller?.cursor ?? null) === null;
@@ -134,12 +155,13 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     const gids = store.update(rows);
     const items: DisplayConversation[] = [];
     for (const raw of rows) {
-      const d = toDisplayConversation(raw as ConversationListItem, full, unread);
-      if (!d) continue;
+      const base = toDisplayConversation(raw as ConversationListItem, full, unread);
+      if (!base) continue;
+      const uid = store.view(base.gid)?.customerUid;
+      const d = { ...base, title: uid ? roles.profileOf(uid).name ?? base.title : base.title };
       const prev = displays.get(d.gid);
       // a realtime preview newer than the row stays until the list catches up
       const merged = prev && prev.last_message_time_ms !== null && (d.last_message_time_ms ?? 0) < prev.last_message_time_ms ? { ...d, preview: prev.preview, last_message_time_ms: prev.last_message_time_ms } : d;
-      displays.set(d.gid, merged);
       items.push(merged);
       roles.addCustomer(store.view(d.gid)?.customerUid ?? null);
     }
@@ -154,6 +176,19 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       }
     }
     if (items.length > 0 || complete) pushDisplay({ kind: 'conversations', full: complete, items, removed_gids: removed });
+    // List groupTitle is the product title. The customer's display nick comes from the member API.
+    for (const gid of gids) {
+      const expectedUid = store.view(gid)?.customerUid;
+      void roles.ensure(deps, soa, gid).then(() => {
+        if (!running || generation !== runGeneration || store.view(gid)?.customerUid !== expectedUid) return;
+        const display = displays.get(gid);
+        const uid = store.view(gid)?.customerUid;
+        const profile = uid ? roles.profileOf(uid) : null;
+        if (!display || (!profile?.name && !profile?.avatar)) return;
+        const next = { ...display, title: profile?.name ?? display.title, is_full_snapshot: false };
+        pushDisplay({ kind: 'conversations', full: false, items: [next], removed_gids: [] });
+      }).catch(() => undefined);
+    }
     if (gids.length > 0) scheduleUnread(gids);
   };
 
@@ -174,7 +209,6 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (last && d && (d.last_message_time_ms ?? 0) <= last.create_time_ms) {
         const preview = previewOfUi(last);
         const next = { ...d, preview, last_message_time_ms: last.create_time_ms, is_full_snapshot: false };
-        displays.set(gid, next);
         convs.push(next);
       }
     }
@@ -243,6 +277,10 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     pushFact,
     pushDisplay,
     agent: agentBox,
+    captureWriteGuard: () => {
+      const generation = runGeneration;
+      return () => running && generation === runGeneration;
+    },
     ...(opts.sendAckTimeoutMs !== undefined ? { sendAckTimeoutMs: opts.sendAckTimeoutMs } : {}),
     ...(opts.orderGidWaitMs !== undefined ? { orderGidWaitMs: opts.orderGidWaitMs } : {}),
   });

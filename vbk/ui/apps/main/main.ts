@@ -1022,7 +1022,7 @@ function conversationList(s: MainState): HTMLElement {
         },
       },
       mark ? h('span', { class: 'cmark', style: { background: `var(${mark.cssVar})` }, 'aria-label': t('ctx.markAs', { color: t(mark.nameKey) }) }) : null,
-      h('div', { class: 'ava', style: { background: c.color } }, initialOf(c.title)),
+      h('div', { class: 'ava', style: { background: c.color } }, renderMessageAvatar(document, c.title, c.customer_avatar)),
       h(
         'div',
         { class: 'conv-main' },
@@ -1414,7 +1414,7 @@ function chatPane(s: MainState): HTMLElement {
     h(
       'div',
       { class: 'chat-h' },
-      h('div', { class: 'ava sm', style: { background: conv.color } }, initialOf(conv.title)),
+      h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)),
       h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, conv.title, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null, h('span', { class: 'chip chip-biz' }, type)), h('div', { class: 'chat-sub' }, sub)),
       notWired(h('button', { class: 'ibtn', 'aria-label': t('chat.transfer'), dataset: { chatAct: 'transfer' } }, icon(IC.swap, 17)), t('chat.notWired', { action: t('chat.transfer') })),
       notWired(h('button', { class: 'ibtn', 'aria-label': t('chat.invite'), dataset: { chatAct: 'invite' } }, icon(IC.userPlus, 17)), t('chat.notWired', { action: t('chat.invite') })),

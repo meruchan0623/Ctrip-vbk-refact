@@ -51,6 +51,8 @@ pub struct UiOrderSummaryDto {
 /// `draft`.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DisplayConversationDto {
+    #[serde(default)]
+    pub customer_avatar: Option<String>,
     #[serde(flatten)]
     pub fact: ConversationFactDto,
     pub title: String,

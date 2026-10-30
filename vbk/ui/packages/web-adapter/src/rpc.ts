@@ -31,7 +31,7 @@ import { createSendIntent, submitIntent, type SendIntent } from './send.ts';
 import { markRead } from './markRead.ts';
 import { numericGid, setWorkSheetStar } from './worksheetStar.ts';
 import { createImChat, isValidOrderId, validateImUrl } from './order.ts';
-import { AGENT_STATUS_CODES, agentStatusOf, byCreateTime, httpMessageToUi } from './display.ts';
+import { AGENT_STATUS_CODES, agentStatusOf, byCreateTime, httpMessageToUi, toDisplayConversation } from './display.ts';
 import type { PageSdk } from './sdkGlue.ts';
 import { roomJidFromMessage, type ConversationStore, type RoleBook } from './stores.ts';
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
@@ -71,6 +71,8 @@ export interface RpcContext {
   readonly agent: AgentStatusBox;
   readonly sendAckTimeoutMs?: number;
   readonly orderGidWaitMs?: number;
+  /** Captures the current lifecycle generation; old awaited work must never write. */
+  readonly captureWriteGuard?: () => (() => boolean);
 }
 
 export class RpcError extends Error {
@@ -145,11 +147,19 @@ interface RpcState {
 }
 
 const imMessages: Handler<'im.messages'> = async (ctx, args) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
   const gid = requireString(args, 'gid');
   const view = requireConversation(ctx, gid);
   if (!view.conversationType) fail(ErrorCodes.ADAPTER_FAILED, 'conversationType unknown for this conversation');
+  const checkHistoryContext = (): void => {
+    const live = requireConversation(ctx, gid);
+    if (!current() || live.sessionId !== view.sessionId || live.customerUid !== view.customerUid || live.conversationType !== view.conversationType) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation changed during history read');
+  };
+  checkHistoryContext();
   await ctx.roles.ensure(ctx.deps, ctx.soa, gid);
+  checkHistoryContext();
   const res = await fetchHistoryPage(ctx.deps, ctx.soa, { gid, conversationType: view.conversationType, pageSize: HISTORY_PAGE_SIZE }, ctx.roles);
+  checkHistoryContext();
   if (res.kind === 'invalid_cursor') fail(ErrorCodes.ADAPTER_FAILED, 'invalid history cursor');
   if (res.kind === 'failed') throw new RpcError(outcomeError(res.outcome, 'history'));
   for (const fact of res.page.facts) ctx.pushFact({ kind: 'message', fact });
@@ -164,6 +174,12 @@ const imMessages: Handler<'im.messages'> = async (ctx, args) => {
     }
   }
   items.sort(byCreateTime);
+  const row = ctx.store.row(gid);
+  const display = row ? toDisplayConversation(row, false) : null;
+  if (display) {
+    const profile = view.customerUid ? ctx.roles.profileOf(view.customerUid) : null;
+    ctx.pushDisplay({ kind: 'conversations', full: false, items: [{ ...display, customer_avatar: profile?.avatar ?? null, title: profile?.name ?? display.title }], removed_gids: [] });
+  }
   ctx.pushDisplay({ kind: 'messages', gid, replace: true, items });
   return items;
 };

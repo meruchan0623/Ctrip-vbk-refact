@@ -22,3 +22,10 @@ SDK实时、HTTP历史/补偿及本人发送echo均携带sender_id/sender_name/s
 消息行显示API姓名/UID及对应头像，仅允许无用户名密码的https URL，缺失或图片错误回退当前人文字占位。五个不同UID同昵称的SDK/HTTP投影仍逐项对应各自头像；成员异步加载补全已到达消息，stop/restart后迟到结果不得再投影（实际停止回归先2通过1失败，修复后含restart共4通过）。布局仍按角色靠左右，头像不决定身份或出站权限。列表、成员选择器及账号菜单头像尚未在本块完成，下一轮原生验证不能省略。
 
 独立评审实际复现迟到头像全消息重放会把confirmed覆盖为null；修复为message_profiles专用增量，只含消息关联ID、sender_id/name/avatar。宿主仅更新已存在且消息/发送者均匹配的资料，不新建消息，保留正文、original、quote、时间和disposition；DTO拒绝额外text字段。真实session+RPC回归旧行为3通过2失败（完整消息3次而非2次），修复5通过；宿主另验证confirmed全内容不变和跨身份/冲突消息ID拒绝。
+
+
+## 会话列表与聊天标题
+
+会话头像只用当前列表行 customerUid 关联人员资料，禁止使用平台账号头像、公司头像或上一客户头像。成员补全、同值轮询、历史读取共同输出 customer_avatar；缺少对应 UID 或该人没有头像时明确为 null。资料读取晚于 stop/restart 或同房间客户切换时不得投影旧结果。
+
+列表和聊天标题复用消息头像的 HTTPS 校验、无 referrer 与加载失败文字占位。头像补全保留较新的实时预览及排序时间，不能因重新投影列表行恢复撤回前摘要。真实 PageSession→SoaClient→RPC 3 项以及实际 main 渲染 2 项覆盖正常/缺失/危险地址/换客户/停启。新包视觉证据仍待第3轮；成员与邀请头像单独接线。
