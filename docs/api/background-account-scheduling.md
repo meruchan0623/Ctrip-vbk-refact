@@ -7,3 +7,5 @@
 本仓库锁定Tauri2.12.5/Wry0.57.1，本机macOS27.2。对应[官方API文档](https://docs.rs/tauri/2.12.5/tauri/webview/struct.WebviewWindowBuilder.html#method.background_throttling)说明macOS14+支持该策略，默认隐藏页面可暂停任务；Windows/Linux/Android不支持，不能宣称本改动跨平台解决接收。代价是保持已登录账号页面活动，可能增加后台资源消耗。
 
 策略选择回归先保留系统默认None失败，再设置Disabled通过；同时检查详情、登录、无boot与空boot均不获得例外。它只验证策略选择和真实builder调用，不能代替实机自然接收。第5轮须不刷新诊断、不加载历史、不重连，观察官方受控消息是否自行进入，再读计数核对。
+
+生产PageSession同时显式关闭SDK镜像的“connected满300秒停止补偿”选项，保持正常10秒、断线5秒的只读补偿。底层镜像策略及其原有测试保留，账号停止和认证失效仍停止循环。真实PageSession在301秒后放入新消息，旧实现无入站而失败；开启持续补偿后无RPC/重连/SDK消息仍进入展示，stop后零请求和零计时器。该修复提供持续读取兜底，不声称修复WebSocket本身。

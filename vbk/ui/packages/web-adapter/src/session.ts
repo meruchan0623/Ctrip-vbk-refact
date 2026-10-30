@@ -277,6 +277,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     initialBeginMsgTime: opts.beginMsgTime,
     initialEpoch: opts.initialEpoch,
     conversationListVariants: variants,
+    // A hidden account is long-lived; keep the read-only recovery path active.
+    stopNormalLoopAfterLimit: false,
     roles,
     unread,
     onConversationListOutcome: onListOutcome,
