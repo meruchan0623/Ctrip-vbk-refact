@@ -1,0 +1,3132 @@
+{
+  "date": "2026-10-30",
+  "timezone": "Asia/Singapore",
+  "tool": "ego-browser 2.2.0",
+  "redaction": "No cookies, tokens, identifiers, message contents or response scalar values; schemas and allowlisted business result codes only.",
+  "attribution": "Phase page is the event-drain point; task-wide CDP queue can include other open pages/iframe sessions. Do not infer per-page cadence from phase labels. Response bodies unavailable at capture time or for other sessions retain captureError.",
+  "uiChecks": {
+    "exactOrderQuerySingleResult": true,
+    "orderDetailIMContactOpensWebConversation": true,
+    "orderSearchHistoryStartChatOpensComposer": true,
+    "manualMessageSent": false,
+    "manualReminderSettingsChanged": false,
+    "noticeCategoryCanAutoMarkRead": true,
+    "workStatusChangedBy": "user"
+  },
+  "format": "Curated endpoint contract evidence and action-phase counts; deduplicated from sanitized observations, not raw HAR or runtime logs. OPTIONS and unrelated endpoints omitted.",
+  "contracts": {
+    "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "beginMsgTime": "number",
+          "pageSize": "number",
+          "head": {
+            "cver": "string",
+            "extension": {
+              "type": "array",
+              "length": 7,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "messages": {
+            "type": "array",
+            "length": 3,
+            "items": [
+              {
+                "msgId": "string",
+                "messageBody": "string",
+                "fromJid": "string",
+                "toJid": "string",
+                "threadId": "string",
+                "subject": "string",
+                "createTime": "number",
+                "bizType": "string",
+                "partner": "string",
+                "type": "string",
+                "status": "number",
+                "msgtype": "number",
+                "isread": "boolean"
+              }
+            ]
+          },
+          "lastMessageTimestamp": "number",
+          "localIds": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "partnerJid": "string",
+                "idInfos": {
+                  "type": "array",
+                  "length": 3,
+                  "items": [
+                    {
+                      "tid": "string",
+                      "localid": "string"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "messages": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "msgId": "string",
+                "messageBody": "string",
+                "fromJid": "string",
+                "toJid": "string",
+                "threadId": "string",
+                "subject": "string",
+                "createTime": "number",
+                "bizType": "string",
+                "partner": "string",
+                "type": "string",
+                "status": "number",
+                "msgtype": "number",
+                "isread": "boolean"
+              }
+            ]
+          },
+          "lastMessageTimestamp": "number",
+          "localIds": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "partnerJid": "string",
+                "idInfos": {
+                  "type": "array",
+                  "length": 1,
+                  "items": [
+                    {
+                      "tid": "string",
+                      "localid": "string"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "lastMessageTimestamp": "number"
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "messages": {
+            "type": "array",
+            "length": 7,
+            "items": [
+              {
+                "msgId": "string",
+                "messageBody": "string",
+                "fromJid": "string",
+                "toJid": "string",
+                "threadId": "string",
+                "subject": "string",
+                "createTime": "number",
+                "bizType": "string",
+                "partner": "string",
+                "type": "string",
+                "status": "number",
+                "msgtype": "number",
+                "isread": "boolean"
+              }
+            ]
+          },
+          "lastMessageTimestamp": "number",
+          "localIds": {
+            "type": "array",
+            "length": 2,
+            "items": [
+              {
+                "partnerJid": "string",
+                "idInfos": {
+                  "type": "array",
+                  "length": 3,
+                  "items": [
+                    {
+                      "tid": "string",
+                      "localid": "string"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "messages": {
+            "type": "array",
+            "length": 3,
+            "items": [
+              {
+                "msgId": "string",
+                "messageBody": "string",
+                "fromJid": "string",
+                "toJid": "string",
+                "threadId": "string",
+                "subject": "string",
+                "createTime": "number",
+                "bizType": "string",
+                "partner": "string",
+                "type": "string",
+                "status": "number",
+                "msgtype": "number",
+                "isread": "boolean"
+              }
+            ]
+          },
+          "lastMessageTimestamp": "number",
+          "localIds": {
+            "type": "array",
+            "length": 2,
+            "items": [
+              {
+                "partnerJid": "string",
+                "idInfos": {
+                  "type": "array",
+                  "length": 1,
+                  "items": [
+                    {
+                      "tid": "string",
+                      "localid": "string"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "messages": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "msgId": "string",
+                "messageBody": "string",
+                "fromJid": "string",
+                "toJid": "string",
+                "threadId": "string",
+                "subject": "string",
+                "createTime": "number",
+                "bizType": "string",
+                "partner": "string",
+                "type": "string",
+                "status": "number",
+                "msgtype": "number",
+                "isread": "boolean",
+                "source": "string",
+                "receiptRange": "number"
+              }
+            ]
+          },
+          "lastMessageTimestamp": "number",
+          "localIds": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "partnerJid": "string",
+                "idInfos": {
+                  "type": "array",
+                  "length": 1,
+                  "items": [
+                    {
+                      "tid": "string",
+                      "localid": "string"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "messages": {
+            "type": "array",
+            "length": 2,
+            "items": [
+              {
+                "msgId": "string",
+                "messageBody": "string",
+                "fromJid": "string",
+                "toJid": "string",
+                "threadId": "string",
+                "subject": "string",
+                "createTime": "number",
+                "bizType": "string",
+                "partner": "string",
+                "type": "string",
+                "status": "number",
+                "msgtype": "number",
+                "isread": "boolean",
+                "source": "string",
+                "receiptRange": "number"
+              }
+            ]
+          },
+          "lastMessageTimestamp": "number",
+          "localIds": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "partnerJid": "string",
+                "idInfos": {
+                  "type": "array",
+                  "length": 1,
+                  "items": [
+                    {
+                      "tid": "string",
+                      "localid": "string"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "messages": {
+            "type": "array",
+            "length": 2,
+            "items": [
+              {
+                "msgId": "string",
+                "messageBody": "string",
+                "fromJid": "string",
+                "toJid": "string",
+                "threadId": "string",
+                "subject": "string",
+                "createTime": "number",
+                "bizType": "string",
+                "partner": "string",
+                "type": "string",
+                "status": "number",
+                "msgtype": "number",
+                "isread": "boolean",
+                "source": "string",
+                "receiptRange": "number"
+              }
+            ]
+          },
+          "lastMessageTimestamp": "number",
+          "localIds": {
+            "type": "array",
+            "length": 2,
+            "items": [
+              {
+                "partnerJid": "string",
+                "idInfos": {
+                  "type": "array",
+                  "length": 0,
+                  "items": []
+                }
+              }
+            ]
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "messages": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "msgId": "string",
+                "messageBody": "string",
+                "fromJid": "string",
+                "toJid": "string",
+                "threadId": "string",
+                "subject": "string",
+                "createTime": "number",
+                "bizType": "string",
+                "partner": "string",
+                "type": "string",
+                "status": "number",
+                "msgtype": "number",
+                "isread": "boolean",
+                "source": "string",
+                "receiptRange": "number"
+              }
+            ]
+          },
+          "lastMessageTimestamp": "number",
+          "localIds": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "partnerJid": "string",
+                "idInfos": {
+                  "type": "array",
+                  "length": 0,
+                  "items": []
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 5,
+      "queryNames": []
+    },
+    "https://m.ctrip.com/restapi/soa2/16037/getConversationList": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          },
+          "needTodoList": "number"
+        },
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          }
+        },
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          },
+          "startTime": "number",
+          "needTodoList": "number"
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "conversationList": {
+            "type": "array",
+            "length": 9,
+            "items": [
+              {
+                "uid": "string",
+                "venAgentId": "string",
+                "serviceType": "string",
+                "id": "number",
+                "isOwner": "boolean",
+                "gid": "string",
+                "threadId": "string",
+                "conversationKey": "string",
+                "lastMessageTime": "number",
+                "skillGroupCode": "string",
+                "refId": "string",
+                "vendorRole": "string",
+                "vendorId": "number",
+                "vendorName": "string",
+                "relationOrderId": "string",
+                "ext": {
+                  "relationOrderId": "string",
+                  "orderId": "string",
+                  "vendorUid": "string",
+                  "token": "string"
+                },
+                "status": "number",
+                "originStatus": "number",
+                "conversationType": "string",
+                "groupTitle": "string",
+                "groupAvatar": "string",
+                "sessionId": "string",
+                "customerInGroup": "number",
+                "inGroup": "number",
+                "isHide": "number",
+                "star": "number",
+                "isRead": "number",
+                "lastUpdateTime": "number",
+                "currentConversationRole": "number",
+                "lastMessageJsonString": "string",
+                "languageInfo": {
+                  "lang": "string"
+                },
+                "inQueueStatus": "number"
+              }
+            ]
+          },
+          "currentStatus": "number",
+          "lastUpdateTime": "number",
+          "haveRest": "boolean"
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "conversationList": {
+            "type": "array",
+            "length": 0,
+            "items": []
+          },
+          "currentStatus": "number",
+          "lastUpdateTime": "number",
+          "haveRest": "boolean"
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "conversationList": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "uid": "string",
+                "venAgentId": "string",
+                "serviceType": "string",
+                "id": "number",
+                "isOwner": "boolean",
+                "gid": "string",
+                "threadId": "string",
+                "conversationKey": "string",
+                "firstMessageTime": "number",
+                "refId": "string",
+                "vendorRole": "string",
+                "vendorId": "number",
+                "vendorName": "string",
+                "relationOrderId": "string",
+                "ext": {
+                  "title": "string",
+                  "pageid": "string",
+                  "imassignscene": "string",
+                  "cityid": "string",
+                  "parentsid": "string",
+                  "cid": "string",
+                  "bu": "string",
+                  "locale": "string",
+                  "longitude": "string",
+                  "relationorderid": "string",
+                  "pagefrom": "string",
+                  "channel": "string",
+                  "ibuclientversion": "string",
+                  "supplierid": "string",
+                  "supplierpid": "string",
+                  "imclientip": "string",
+                  "clientversion": "string",
+                  "token": "string",
+                  "clientid": "string",
+                  "coordinate": "string",
+                  "orderid": "string",
+                  "aitoken": "string",
+                  "cityname": "string",
+                  "vtoken": "string",
+                  "appversion": "string",
+                  "biz": "string",
+                  "imreqmsgid": "string",
+                  "ctype": "string",
+                  "tag": "string",
+                  "latitude": "string",
+                  "thirdpartytoken": "string"
+                },
+                "status": "number",
+                "originStatus": "number",
+                "conversationType": "string",
+                "groupTitle": "string",
+                "groupAvatar": "string",
+                "sessionId": "string",
+                "customerInGroup": "number",
+                "inGroup": "number",
+                "isHide": "number",
+                "star": "number",
+                "isRead": "number",
+                "lastUpdateTime": "number",
+                "currentConversationRole": "number",
+                "languageInfo": {
+                  "lang": "string"
+                },
+                "inQueueStatus": "number"
+              }
+            ]
+          },
+          "currentStatus": "number",
+          "lastUpdateTime": "number",
+          "haveRest": "boolean"
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 12,
+      "queryNames": [
+        "_fxpcqlniredt",
+        "x-traceID"
+      ]
+    },
+    "https://m.ctrip.com/restapi/soa2/16037/getRemarkList": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          },
+          "uidList": {
+            "type": "array",
+            "length": 9,
+            "items": [
+              "string"
+            ]
+          }
+        },
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          },
+          "gid": "string"
+        },
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          },
+          "uidList": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              "string"
+            ]
+          }
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "bizResponseStatus": {
+            "resultCode": "string"
+          },
+          "remarkList": {
+            "type": "array",
+            "length": 9,
+            "items": [
+              {
+                "avatar": "string",
+                "nickName": "string",
+                "username": "string"
+              }
+            ]
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "bizResponseStatus": {
+            "resultCode": "string"
+          },
+          "remarkList": {
+            "type": "array",
+            "length": 4,
+            "items": [
+              {
+                "avatar": "string",
+                "nickName": "string",
+                "userJid": "string",
+                "username": "string",
+                "gender": "string",
+                "roles": {
+                  "type": "array",
+                  "length": 3,
+                  "items": [
+                    "number"
+                  ]
+                },
+                "rolesV2Map": {
+                  "identity": "string",
+                  "right": "string",
+                  "type": "string"
+                },
+                "sortNo": "number",
+                "createAt": "number",
+                "isBlock": "boolean",
+                "status": "number",
+                "extPropertys": {
+                  "title": "string",
+                  "type": "string"
+                },
+                "rolesV2": {
+                  "type": "array",
+                  "length": 3,
+                  "items": [
+                    "number"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "bizResponseStatus": {
+            "resultCode": "string"
+          },
+          "remarkList": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "avatar": "string",
+                "nickName": "string",
+                "username": "string"
+              }
+            ]
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "bizResponseStatus": {
+            "resultCode": "string"
+          },
+          "remarkList": {
+            "type": "array",
+            "length": 6,
+            "items": [
+              {
+                "avatar": "string",
+                "nickName": "string",
+                "userJid": "string",
+                "username": "string",
+                "gender": "string",
+                "roles": {
+                  "type": "array",
+                  "length": 3,
+                  "items": [
+                    "number"
+                  ]
+                },
+                "rolesV2Map": {
+                  "identity": "string",
+                  "right": "string",
+                  "type": "string"
+                },
+                "sortNo": "number",
+                "createAt": "number",
+                "isBlock": "boolean",
+                "status": "number",
+                "extPropertys": {
+                  "title": "string",
+                  "type": "string"
+                },
+                "rolesV2": {
+                  "type": "array",
+                  "length": 3,
+                  "items": [
+                    "number"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 6,
+      "queryNames": [
+        "_fxpcqlniredt",
+        "x-traceID"
+      ]
+    },
+    "https://m.ctrip.com/restapi/soa2/16037/getMessageList": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          },
+          "showTargetIsRead": "boolean",
+          "groupId": "string",
+          "conversationType": "string",
+          "pageSize": "number"
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "rangeMessage": {
+            "isDone": "boolean",
+            "lastMessageTime": "number",
+            "messages": {
+              "type": "array",
+              "length": 20,
+              "items": [
+                {
+                  "msgId": "string",
+                  "messageBody": "string",
+                  "fromJid": "string",
+                  "toJid": "string",
+                  "threadId": "string",
+                  "subject": "string",
+                  "createTime": "number",
+                  "bizType": "string",
+                  "status": "number",
+                  "msgtype": "number",
+                  "isread": "boolean",
+                  "source": "string",
+                  "receiptRange": "number"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "rangeMessage": {
+            "isDone": "boolean",
+            "lastMessageTime": "number",
+            "messages": {
+              "type": "array",
+              "length": 16,
+              "items": [
+                {
+                  "msgId": "string",
+                  "messageBody": "string",
+                  "fromJid": "string",
+                  "toJid": "string",
+                  "threadId": "string",
+                  "subject": "string",
+                  "createTime": "number",
+                  "bizType": "string",
+                  "status": "number",
+                  "msgtype": "number",
+                  "isread": "boolean",
+                  "source": "string",
+                  "receiptRange": "number"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "rangeMessage": {
+            "isDone": "boolean",
+            "lastMessageTime": "number",
+            "messages": {
+              "type": "array",
+              "length": 9,
+              "items": [
+                {
+                  "msgId": "string",
+                  "messageBody": "string",
+                  "fromJid": "string",
+                  "toJid": "string",
+                  "threadId": "string",
+                  "subject": "string",
+                  "createTime": "number",
+                  "bizType": "string",
+                  "status": "number",
+                  "msgtype": "number",
+                  "isread": "boolean",
+                  "source": "string",
+                  "receiptRange": "number"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "rangeMessage": {
+            "isDone": "boolean",
+            "lastMessageTime": "number",
+            "messages": {
+              "type": "array",
+              "length": 10,
+              "items": [
+                {
+                  "msgId": "string",
+                  "messageBody": "string",
+                  "fromJid": "string",
+                  "toJid": "string",
+                  "threadId": "string",
+                  "subject": "string",
+                  "createTime": "number",
+                  "bizType": "string",
+                  "status": "number",
+                  "msgtype": "number",
+                  "isread": "boolean",
+                  "source": "string",
+                  "receiptRange": "number"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "rangeMessage": {
+            "isDone": "boolean",
+            "lastMessageTime": "number",
+            "messages": {
+              "type": "array",
+              "length": 12,
+              "items": [
+                {
+                  "msgId": "string",
+                  "messageBody": "string",
+                  "fromJid": "string",
+                  "toJid": "string",
+                  "threadId": "string",
+                  "subject": "string",
+                  "createTime": "number",
+                  "bizType": "string",
+                  "status": "number",
+                  "msgtype": "number",
+                  "isread": "boolean",
+                  "source": "string",
+                  "receiptRange": "number"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 9,
+      "queryNames": [
+        "_fxpcqlniredt",
+        "x-traceID"
+      ]
+    },
+    "https://sec-m.ctrip.com/restapi/soa2/14361/searchorderlist": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "contentType": "string",
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            }
+          },
+          "page": "string",
+          "pageIndex": "number",
+          "pageSize": "number",
+          "aggSortType": {
+            "property": "string",
+            "direction": "string"
+          },
+          "vbkVer": "number",
+          "datablockType": "number"
+        },
+        {
+          "contentType": "string",
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            }
+          },
+          "page": "string",
+          "ttdOrderId": "string",
+          "pageIndex": "number",
+          "pageSize": "number",
+          "aggSortType": {
+            "property": "string",
+            "direction": "string"
+          },
+          "vbkVer": "number",
+          "datablockType": "number"
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "response": {
+            "errorCode": "number",
+            "errorMsg": "string"
+          },
+          "orderList": {
+            "type": "array",
+            "length": 20,
+            "items": [
+              {
+                "ttdOrderId": "number",
+                "orderInfoList": {
+                  "type": "array",
+                  "length": 1,
+                  "items": [
+                    {
+                      "vbkOrderId": "number",
+                      "ttdOrderId": "number",
+                      "orderStatus": "string",
+                      "resourceName": "string",
+                      "quantity": "number",
+                      "realQuantity": "number",
+                      "useDate": "string",
+                      "useEndDate": "string",
+                      "totalCost": "number",
+                      "productLine": "number",
+                      "orderType": "number",
+                      "channelId": "number",
+                      "channelType": "number",
+                      "channelName": "string",
+                      "categoryId": "number",
+                      "ouName": "string",
+                      "totalPrice": "number",
+                      "unitQuantity": "number",
+                      "unitRealQuantity": "number",
+                      "unitCancelQuantity": "number",
+                      "currency": "string",
+                      "useDateDisp": "string",
+                      "useEndDateDisp": "string",
+                      "orderMark": "string",
+                      "orderMarkStatus": "number",
+                      "passingTemplate": "number",
+                      "customerName": "string",
+                      "customerMobile": "string",
+                      "customerMobileMask": "string",
+                      "isDiscount": "number",
+                      "isLossy": "number",
+                      "depositAmount": "number",
+                      "discountQuantity": "number",
+                      "verifyDateDisp": "string",
+                      "priceCurrency": "string",
+                      "refundCurrency": "string",
+                      "serviceProvider": "number",
+                      "quotationWay": "number",
+                      "serviceMode": "number",
+                      "dispatchState": "number",
+                      "orderDate": "string",
+                      "orderDateDisp": "string",
+                      "abroadMobileMask": "string",
+                      "customerMobileIntlCode": "string",
+                      "operationList": {
+                        "type": "array",
+                        "length": 11,
+                        "items": [
+                          {
+                            "code": "string",
+                            "name": "string"
+                          }
+                        ]
+                      },
+                      "serviceFee": "number",
+                      "serviceFeeCurrency": "string",
+                      "serviceFeeExchangeRate": "number",
+                      "maxServiceFee": "number",
+                      "orderFlag": "number",
+                      "canRealQuantity": "number",
+                      "vendorProductId": "string",
+                      "vendorProductName": "string",
+                      "destinationType": "number",
+                      "resourceId": "number",
+                      "productId": "number",
+                      "productName": "string",
+                      "payMode": "string",
+                      "uId": "string",
+                      "confirmBookEid": "string",
+                      "confirmBookTime": "string",
+                      "confirmedEid": "string",
+                      "confirmDocStatus": "string",
+                      "refundAmount": "number",
+                      "isDelivery": "number",
+                      "vendorRemarkContent": "string",
+                      "customerEmail": "string",
+                      "customerEmailMask": "string",
+                      "sourceProductName": "string",
+                      "sourcePackageName": "string",
+                      "sourceResourceName": "string",
+                      "categoryGroup": "number",
+                      "operateRefundSource": "number",
+                      "operateCancelSource": "number",
+                      "cancelQuantity": "number",
+                      "purchaseType": "number",
+                      "vendorConfirmModeId": "number",
+                      "useDateShow": "string",
+                      "validityPeriod": {
+                        "priceMode": "string",
+                        "useType": "number",
+                        "effectiveDays": "number",
+                        "startDate": "string",
+                        "endDate": "string",
+                        "limitCount": "number",
+                        "usedDateRuleList": {
+                          "type": "array",
+                          "length": 7,
+                          "items": [
+                            "number"
+                          ]
+                        },
+                        "notUsedDateList": {
+                          "type": "array",
+                          "length": 0,
+                          "items": []
+                        },
+                        "holidayCanUse": "number",
+                        "effectTime": "number"
+                      },
+                      "unUsePeridDesc": "string",
+                      "useMethodDesc": "string",
+                      "directorDispatchState": "number",
+                      "vehicleDispatchState": "number",
+                      "locale": "string",
+                      "lastConfirmTime": "string",
+                      "confirmWillTimeOut": "boolean",
+                      "isBooking": "boolean",
+                      "bookingDate": "string",
+                      "customerVirtualEmail": "string",
+                      "voucherUpload": "number",
+                      "travelInfoDocFlag": "boolean",
+                      "packageName": "string",
+                      "channelSource": "number",
+                      "sessionInfo": {
+                        "sessionTime": "string"
+                      },
+                      "viewSpotId": "number",
+                      "viewSpotName": "string",
+                      "confirmBookNickname": "string",
+                      "confirmedNickname": "string",
+                      "peopleName": "string",
+                      "pointQuantityList": {
+                        "type": "array",
+                        "length": 0,
+                        "items": []
+                      },
+                      "orderProperty": {
+                        "smallGroup": "boolean",
+                        "groupMode": "number",
+                        "selfOwned": "boolean",
+                        "includeCar": "boolean",
+                        "serviceStaff": "number"
+                      },
+                      "consumeHotelDistrictId": "number",
+                      "clientList": {
+                        "type": "array",
+                        "length": 0,
+                        "items": []
+                      },
+                      "newContract": "boolean",
+                      "destDomestic": "number",
+                      "orderModifyApply": {},
+                      "clientStructureList": {
+                        "type": "array",
+                        "length": 0,
+                        "items": []
+                      },
+                      "customerLevel": "string",
+                      "lastConfirmTimeInterval": "number",
+                      "lastCancelConfirmTimeInterval": "number",
+                      "lastRefundConfirmTimeInterval": "number",
+                      "origin": "number",
+                      "travelReceiptType": "number",
+                      "emergencySwitchFlag": "boolean"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "pageIndex": "number",
+          "pageSize": "number",
+          "totalCount": "number",
+          "searchType": "number",
+          "actualDisplayCount": "number",
+          "tabButtons": {
+            "type": "array",
+            "length": 0,
+            "items": []
+          }
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "response": {
+            "errorCode": "number",
+            "errorMsg": "string"
+          },
+          "orderList": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "ttdOrderId": "number",
+                "orderInfoList": {
+                  "type": "array",
+                  "length": 1,
+                  "items": [
+                    {
+                      "vbkOrderId": "number",
+                      "ttdOrderId": "number",
+                      "orderStatus": "string",
+                      "resourceName": "string",
+                      "quantity": "number",
+                      "realQuantity": "number",
+                      "useDate": "string",
+                      "useEndDate": "string",
+                      "totalCost": "number",
+                      "productLine": "number",
+                      "orderType": "number",
+                      "channelId": "number",
+                      "channelType": "number",
+                      "channelName": "string",
+                      "categoryId": "number",
+                      "ouName": "string",
+                      "totalPrice": "number",
+                      "unitQuantity": "number",
+                      "unitRealQuantity": "number",
+                      "unitCancelQuantity": "number",
+                      "currency": "string",
+                      "useDateDisp": "string",
+                      "useEndDateDisp": "string",
+                      "orderMark": "string",
+                      "orderMarkStatus": "number",
+                      "passingTemplate": "number",
+                      "customerName": "string",
+                      "customerMobile": "string",
+                      "customerMobileMask": "string",
+                      "isDiscount": "number",
+                      "isLossy": "number",
+                      "depositAmount": "number",
+                      "discountQuantity": "number",
+                      "verifyDateDisp": "string",
+                      "priceCurrency": "string",
+                      "refundCurrency": "string",
+                      "serviceProvider": "number",
+                      "quotationWay": "number",
+                      "serviceMode": "number",
+                      "dispatchState": "number",
+                      "orderDate": "string",
+                      "orderDateDisp": "string",
+                      "abroadMobileMask": "string",
+                      "customerMobileIntlCode": "string",
+                      "operationList": {
+                        "type": "array",
+                        "length": 11,
+                        "items": [
+                          {
+                            "code": "string",
+                            "name": "string"
+                          }
+                        ]
+                      },
+                      "serviceFee": "number",
+                      "serviceFeeCurrency": "string",
+                      "serviceFeeExchangeRate": "number",
+                      "maxServiceFee": "number",
+                      "orderFlag": "number",
+                      "canRealQuantity": "number",
+                      "vendorProductId": "string",
+                      "vendorProductName": "string",
+                      "destinationType": "number",
+                      "resourceId": "number",
+                      "productId": "number",
+                      "productName": "string",
+                      "payMode": "string",
+                      "uId": "string",
+                      "confirmBookEid": "string",
+                      "confirmBookTime": "string",
+                      "confirmedEid": "string",
+                      "confirmDocStatus": "string",
+                      "refundAmount": "number",
+                      "isDelivery": "number",
+                      "vendorRemarkContent": "string",
+                      "customerEmail": "string",
+                      "customerEmailMask": "string",
+                      "sourceProductName": "string",
+                      "sourcePackageName": "string",
+                      "sourceResourceName": "string",
+                      "categoryGroup": "number",
+                      "operateRefundSource": "number",
+                      "operateCancelSource": "number",
+                      "cancelQuantity": "number",
+                      "purchaseType": "number",
+                      "vendorConfirmModeId": "number",
+                      "useDateShow": "string",
+                      "validityPeriod": {
+                        "priceMode": "string",
+                        "useType": "number",
+                        "effectiveDays": "number",
+                        "startDate": "string",
+                        "endDate": "string",
+                        "limitCount": "number",
+                        "usedDateRuleList": {
+                          "type": "array",
+                          "length": 7,
+                          "items": [
+                            "number"
+                          ]
+                        },
+                        "notUsedDateList": {
+                          "type": "array",
+                          "length": 0,
+                          "items": []
+                        },
+                        "holidayCanUse": "number",
+                        "effectTime": "number"
+                      },
+                      "unUsePeridDesc": "string",
+                      "useMethodDesc": "string",
+                      "directorDispatchState": "number",
+                      "vehicleDispatchState": "number",
+                      "locale": "string",
+                      "lastConfirmTime": "string",
+                      "confirmWillTimeOut": "boolean",
+                      "isBooking": "boolean",
+                      "bookingDate": "string",
+                      "customerVirtualEmail": "string",
+                      "voucherUpload": "number",
+                      "travelInfoDocFlag": "boolean",
+                      "packageName": "string",
+                      "channelSource": "number",
+                      "sessionInfo": {
+                        "sessionTime": "string"
+                      },
+                      "viewSpotId": "number",
+                      "viewSpotName": "string",
+                      "confirmBookNickname": "string",
+                      "confirmedNickname": "string",
+                      "peopleName": "string",
+                      "pointQuantityList": {
+                        "type": "array",
+                        "length": 0,
+                        "items": []
+                      },
+                      "orderProperty": {
+                        "smallGroup": "boolean",
+                        "groupMode": "number",
+                        "selfOwned": "boolean",
+                        "includeCar": "boolean",
+                        "serviceStaff": "number"
+                      },
+                      "consumeHotelDistrictId": "number",
+                      "clientList": {
+                        "type": "array",
+                        "length": 0,
+                        "items": []
+                      },
+                      "newContract": "boolean",
+                      "destDomestic": "number",
+                      "orderModifyApply": {},
+                      "clientStructureList": {
+                        "type": "array",
+                        "length": 0,
+                        "items": []
+                      },
+                      "customerLevel": "string",
+                      "lastConfirmTimeInterval": "number",
+                      "lastCancelConfirmTimeInterval": "number",
+                      "lastRefundConfirmTimeInterval": "number",
+                      "origin": "number",
+                      "travelReceiptType": "number",
+                      "emergencySwitchFlag": "boolean"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "pageIndex": "number",
+          "pageSize": "number",
+          "totalCount": "number",
+          "searchType": "number",
+          "actualDisplayCount": "number",
+          "tabButtons": {
+            "type": "array",
+            "length": 0,
+            "items": []
+          }
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 2,
+      "queryNames": [
+        "_fxpcqlniredt",
+        "_fxpcqlniredt",
+        "x-traceID"
+      ]
+    },
+    "https://sec-m.ctrip.com/restapi/soa2/14361/createimchat": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "contentType": "string",
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            }
+          },
+          "ttdOrderId": "string"
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "response": {
+            "errorCode": "number",
+            "errorMsg": "string"
+          },
+          "url": "string"
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 1,
+      "queryNames": [
+        "_fxpcqlniredt",
+        "_fxpcqlniredt",
+        "x-traceID"
+      ]
+    },
+    "https://m.ctrip.com/restapi/soa2/16037/searchConversation": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          },
+          "searchType": "number",
+          "searchValue": "string",
+          "pageNo": "number"
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "bizResponseStatus": {
+            "resultCode": "string"
+          },
+          "orderSearchList": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "conversation": {
+                  "uid": "string",
+                  "displayUid": "string",
+                  "displayAvatar": "string",
+                  "venAgentId": "string",
+                  "ctripAgentId": "string",
+                  "serviceType": "string",
+                  "id": "number",
+                  "gid": "string",
+                  "threadId": "string",
+                  "conversationKey": "string",
+                  "firstMessageTime": "number",
+                  "lastMessageTime": "number",
+                  "skillGroupCode": "string",
+                  "refId": "string",
+                  "vendorRole": "string",
+                  "relationOrderId": "string",
+                  "ext": {
+                    "relationOrderId": "string",
+                    "orderId": "string",
+                    "vendorUid": "string",
+                    "token": "string"
+                  },
+                  "status": "number",
+                  "conversationType": "string",
+                  "groupTitle": "string",
+                  "groupAvatar": "string",
+                  "sessionId": "string",
+                  "customerInGroup": "number",
+                  "inGroup": "number",
+                  "isHide": "number",
+                  "star": "number",
+                  "isRead": "number",
+                  "lastUpdateTime": "number",
+                  "currentConversationRole": "number",
+                  "languageInfo": {
+                    "lang": "string",
+                    "terminalChannel": "string",
+                    "terminalChannelUid": "string",
+                    "timeZone": "string",
+                    "customerSource": "string"
+                  },
+                  "inQueueStatus": "number"
+                },
+                "message": {
+                  "msgId": "string",
+                  "messageBody": "string",
+                  "fromJid": "string",
+                  "toJid": "string",
+                  "threadId": "string",
+                  "subject": "string",
+                  "createTime": "number",
+                  "bizType": "string",
+                  "status": "number",
+                  "msgtype": "number",
+                  "isread": "boolean",
+                  "source": "string",
+                  "receiptRange": "number"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 1,
+      "queryNames": [
+        "_fxpcqlniredt",
+        "x-traceID"
+      ]
+    },
+    "https://m.ctrip.com/restapi/soa2/15529/queryGroupInfo": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          },
+          "orderId": "string"
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Build": "null",
+            "Version": "string",
+            "Extension": {
+              "type": "array",
+              "length": 4,
+              "items": [
+                {
+                  "Id": "null",
+                  "Version": "null",
+                  "ContentType": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "gid": "null"
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 1,
+      "queryNames": [
+        "_fxpcqlniredt",
+        "x-traceID"
+      ]
+    },
+    "https://m.ctrip.com/restapi/soa2/11679/getIQMessages": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            }
+          },
+          "categoryId": "number",
+          "categorySubId": "number",
+          "lastMsgTime": "number",
+          "pageSize": "number"
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "iqMessages": {
+            "type": "array",
+            "length": 100,
+            "items": [
+              {
+                "msgId": "string",
+                "messageBody": "string",
+                "msgType": "number",
+                "bizType": "number",
+                "messageCode": "number",
+                "createTime": "number",
+                "status": "number"
+              }
+            ]
+          }
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 4,
+      "queryNames": [
+        "_fxpcqlniredt",
+        "x-traceID"
+      ]
+    },
+    "https://m.ctrip.com/restapi/soa2/11679/getIQConversations": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          },
+          "lastMsgTime": "number"
+        },
+        {
+          "lastMsgTime": "number",
+          "head": {
+            "cver": "string",
+            "appId": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Errors": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            },
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "latestMsgTime": "number",
+          "haveRest": "boolean",
+          "categoryList": {
+            "type": "array",
+            "length": 6,
+            "items": [
+              {
+                "categoryId": "number",
+                "categoryName": "string",
+                "categoryIcon": "string",
+                "categoryNameShark": "string",
+                "unreadCount": "number",
+                "categorySubList": {
+                  "type": "array",
+                  "length": 5,
+                  "items": [
+                    {
+                      "categoryId": "number",
+                      "categoryName": "string",
+                      "categoryIcon": "string",
+                      "categoryNameShark": "string",
+                      "unreadCount": "number",
+                      "unreadTimeline": "number",
+                      "categorySubList": {
+                        "type": "array",
+                        "length": 0,
+                        "items": []
+                      },
+                      "lastMsg": "string",
+                      "lastMsgTime": "number",
+                      "msgType": "number",
+                      "lastMsgId": "string"
+                    }
+                  ]
+                },
+                "lastMsgTime": "number"
+              }
+            ]
+          }
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 4,
+      "queryNames": []
+    },
+    "https://m.ctrip.com/restapi/soa2/11679/putAdviceofreadIQMessage": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 0,
+              "items": []
+            }
+          },
+          "categoryId": "number",
+          "categorySubId": "number",
+          "msgId": "string"
+        }
+      ],
+      "observedResponseSchemas": [],
+      "observedBusinessCodes": [],
+      "responseBodyReadFailures": 0,
+      "queryNames": [
+        "_fxpcqlniredt",
+        "x-traceID"
+      ]
+    },
+    "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "startTime": "number",
+          "head": {
+            "cver": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "conversationList": {
+            "type": "array",
+            "length": 0,
+            "items": []
+          },
+          "currentStatus": "number",
+          "lastUpdateTime": "number",
+          "haveRest": "boolean"
+        },
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "conversationList": {
+            "type": "array",
+            "length": 1,
+            "items": [
+              {
+                "uid": "string",
+                "venAgentId": "string",
+                "serviceType": "string",
+                "id": "number",
+                "isOwner": "boolean",
+                "gid": "string",
+                "threadId": "string",
+                "conversationKey": "string",
+                "firstMessageTime": "number",
+                "refId": "string",
+                "vendorRole": "string",
+                "vendorId": "number",
+                "vendorName": "string",
+                "relationOrderId": "string",
+                "ext": {
+                  "title": "string",
+                  "pageid": "string",
+                  "imassignscene": "string",
+                  "cityid": "string",
+                  "parentsid": "string",
+                  "cid": "string",
+                  "bu": "string",
+                  "locale": "string",
+                  "longitude": "string",
+                  "relationorderid": "string",
+                  "pagefrom": "string",
+                  "channel": "string",
+                  "ibuclientversion": "string",
+                  "supplierid": "string",
+                  "supplierpid": "string",
+                  "imclientip": "string",
+                  "clientversion": "string",
+                  "token": "string",
+                  "clientid": "string",
+                  "coordinate": "string",
+                  "orderid": "string",
+                  "aitoken": "string",
+                  "cityname": "string",
+                  "vtoken": "string",
+                  "appversion": "string",
+                  "biz": "string",
+                  "imreqmsgid": "string",
+                  "ctype": "string",
+                  "tag": "string",
+                  "latitude": "string",
+                  "thirdpartytoken": "string"
+                },
+                "status": "number",
+                "originStatus": "number",
+                "conversationType": "string",
+                "groupTitle": "string",
+                "groupAvatar": "string",
+                "sessionId": "string",
+                "customerInGroup": "number",
+                "inGroup": "number",
+                "isHide": "number",
+                "star": "number",
+                "isRead": "number",
+                "lastUpdateTime": "number",
+                "currentConversationRole": "number",
+                "languageInfo": {
+                  "lang": "string"
+                },
+                "inQueueStatus": "number"
+              }
+            ]
+          },
+          "currentStatus": "number",
+          "lastUpdateTime": "number",
+          "haveRest": "boolean"
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 2,
+      "queryNames": []
+    },
+    "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid": {
+      "method": "POST",
+      "observedRequestSchemas": [
+        {
+          "head": {
+            "cid": "string",
+            "ctok": "string",
+            "cver": "string",
+            "lang": "string",
+            "sid": "string",
+            "syscode": "string",
+            "auth": "string",
+            "xsid": "string",
+            "extension": {
+              "type": "array",
+              "length": 6,
+              "items": [
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            },
+            "appId": "string"
+          },
+          "gid": "string"
+        }
+      ],
+      "observedResponseSchemas": [
+        {
+          "ResponseStatus": {
+            "Timestamp": "string",
+            "Ack": "string",
+            "Extension": {
+              "type": "array",
+              "length": 2,
+              "items": [
+                {
+                  "Id": "string",
+                  "Value": "string"
+                }
+              ]
+            }
+          },
+          "bizResponseStatus": {
+            "resultCode": "string"
+          },
+          "conversation": {
+            "uid": "string",
+            "venAgentId": "string",
+            "serviceType": "string",
+            "id": "number",
+            "gid": "string",
+            "threadId": "string",
+            "conversationKey": "string",
+            "firstMessageTime": "number",
+            "lastMessageTime": "number",
+            "skillGroupCode": "string",
+            "refId": "string",
+            "vendorRole": "string",
+            "vendorId": "number",
+            "vendorName": "string",
+            "relationOrderId": "string",
+            "ext": {
+              "parentsid": "string",
+              "clientid": "string",
+              "imreqmsgid": "string",
+              "latitude": "string",
+              "channel": "string",
+              "ibuclientversion": "string",
+              "title": "string",
+              "pageid": "string",
+              "locale": "string",
+              "aitoken": "string",
+              "biz": "string",
+              "bu": "string",
+              "thirdpartytoken": "string",
+              "tag": "string",
+              "longitude": "string",
+              "imassignscene": "string",
+              "supplierid": "string",
+              "coordinate": "string",
+              "clientversion": "string",
+              "orderid": "string",
+              "cityname": "string",
+              "relationorderid": "string",
+              "appversion": "string",
+              "cityid": "string",
+              "supplierpid": "string",
+              "token": "string",
+              "imclientip": "string",
+              "vtoken": "string",
+              "ctype": "string",
+              "pagefrom": "string",
+              "cid": "string"
+            },
+            "status": "number",
+            "conversationType": "string",
+            "groupTitle": "string",
+            "groupAvatar": "string",
+            "sessionId": "string",
+            "customerInGroup": "number",
+            "inGroup": "number",
+            "isHide": "number",
+            "star": "number",
+            "isRead": "number",
+            "lastUpdateTime": "number",
+            "currentConversationRole": "number",
+            "languageInfo": {
+              "lang": "string",
+              "terminalChannel": "string",
+              "terminalChannelUid": "string",
+              "timeZone": "string",
+              "customerSource": "string"
+            },
+            "inQueueStatus": "number"
+          }
+        }
+      ],
+      "observedBusinessCodes": [
+        {
+          "Ack": "Success"
+        }
+      ],
+      "responseBodyReadFailures": 2,
+      "queryNames": [
+        "_fxpcqlniredt",
+        "x-traceID"
+      ]
+    }
+  },
+  "phases": [
+    {
+      "phase": "switch-message",
+      "time": "2026-10-30T09:03:32.872Z",
+      "eventDrainPage": "p2",
+      "requests": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "count": 1
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "count": 2
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+          "count": 1
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+          "count": 6
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "status": 200,
+          "count": 1
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "status": 200,
+          "count": 4
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+          "status": 200,
+          "count": 2
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+          "status": 200,
+          "count": 12
+        }
+      ],
+      "bodyReadFailures": {
+        "https://m.ctrip.com/restapi/soa2/16037/getConversationList": 2,
+        "https://m.ctrip.com/restapi/soa2/16037/getRemarkList": 1,
+        "https://m.ctrip.com/restapi/soa2/16037/getMessageList": 6
+      }
+    },
+    {
+      "phase": "open-ticket-order-list",
+      "time": "2026-10-30T09:03:35.109Z",
+      "eventDrainPage": "p1",
+      "requests": [],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "order-list-initialized",
+      "time": "2026-10-30T09:03:43.664Z",
+      "eventDrainPage": "p1",
+      "requests": [],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "search-exact-order-all-status",
+      "time": "2026-10-30T09:03:53.054Z",
+      "eventDrainPage": "p1",
+      "requests": [
+        {
+          "url": "https://sec-m.ctrip.com/restapi/soa2/14361/searchorderlist",
+          "count": 1
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://sec-m.ctrip.com/restapi/soa2/14361/searchorderlist",
+          "status": 200,
+          "count": 2
+        }
+      ],
+      "bodyReadFailures": {
+        "https://sec-m.ctrip.com/restapi/soa2/14361/searchorderlist": 1
+      }
+    },
+    {
+      "phase": "exact-order-result-confirmed",
+      "time": "2026-10-30T09:03:59.623Z",
+      "eventDrainPage": "p1",
+      "requests": [],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "open-order-detail",
+      "time": "2026-10-30T09:04:02.847Z",
+      "eventDrainPage": "p1",
+      "requests": [],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "order-detail-initialized",
+      "time": "2026-10-30T09:04:06.787Z",
+      "eventDrainPage": "p3",
+      "requests": [],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "click-order-im-contact",
+      "time": "2026-10-30T09:04:22.608Z",
+      "eventDrainPage": "p3",
+      "requests": [
+        {
+          "url": "https://sec-m.ctrip.com/restapi/soa2/14361/createimchat",
+          "count": 1
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://sec-m.ctrip.com/restapi/soa2/14361/createimchat",
+          "status": 200,
+          "count": 2
+        }
+      ],
+      "bodyReadFailures": {
+        "https://sec-m.ctrip.com/restapi/soa2/14361/createimchat": 1
+      }
+    },
+    {
+      "phase": "order-im-popup",
+      "time": "2026-10-30T09:04:22.610Z",
+      "eventDrainPage": "p4",
+      "requests": [],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "order-im-destination-after-user-permission",
+      "time": "2026-10-30T09:05:48.302Z",
+      "eventDrainPage": "p4",
+      "requests": [],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "im-search-by-existing-order-number",
+      "time": "2026-10-30T09:06:06.155Z",
+      "eventDrainPage": "p2",
+      "requests": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/searchConversation",
+          "count": 1
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/15529/queryGroupInfo",
+          "count": 1
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/searchConversation",
+          "status": 200,
+          "count": 2
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/15529/queryGroupInfo",
+          "status": 200,
+          "count": 2
+        }
+      ],
+      "bodyReadFailures": {
+        "https://m.ctrip.com/restapi/soa2/16037/searchConversation": 1,
+        "https://m.ctrip.com/restapi/soa2/15529/queryGroupInfo": 1
+      }
+    },
+    {
+      "phase": "click-order-conversation-search-result",
+      "time": "2026-10-30T09:06:11.678Z",
+      "eventDrainPage": "p2",
+      "requests": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+          "count": 1
+        }
+      ],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "conversation-search-preview-ready",
+      "time": "2026-10-30T09:06:23.368Z",
+      "eventDrainPage": "p2",
+      "requests": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "count": 1
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "count": 2
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "status": 200,
+          "count": 2
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "status": 200,
+          "count": 3
+        }
+      ],
+      "bodyReadFailures": {
+        "https://m.ctrip.com/restapi/soa2/16037/getConversationList": 1,
+        "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages": 1
+      }
+    },
+    {
+      "phase": "after-start-chat-search-result",
+      "time": "2026-10-30T09:06:50.850Z",
+      "eventDrainPage": "p2",
+      "requests": [],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "switch-notifications",
+      "time": "2026-10-30T09:07:31.437Z",
+      "eventDrainPage": "p2",
+      "requests": [],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "open-ticket-order-notification-category",
+      "time": "2026-10-30T09:08:07.400Z",
+      "eventDrainPage": "p2",
+      "requests": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getIQMessages",
+          "count": 2
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getIQMessages",
+          "status": 200,
+          "count": 2
+        }
+      ],
+      "bodyReadFailures": {
+        "https://m.ctrip.com/restapi/soa2/11679/getIQMessages": 2
+      }
+    },
+    {
+      "phase": "notification-cards-ready",
+      "time": "2026-10-30T09:08:15.322Z",
+      "eventDrainPage": "p2",
+      "requests": [],
+      "responses": [],
+      "bodyReadFailures": {}
+    },
+    {
+      "phase": "notification-reload-init",
+      "time": "2026-10-30T09:08:42.967Z",
+      "eventDrainPage": "p2",
+      "requests": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "count": 1
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getIQConversations",
+          "count": 1
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "count": 1
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "status": 200,
+          "count": 1
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getIQConversations",
+          "status": 200,
+          "count": 2
+        }
+      ],
+      "bodyReadFailures": {
+        "https://m.ctrip.com/restapi/soa2/11679/getIQConversations": 1
+      }
+    },
+    {
+      "phase": "notification-category-read",
+      "time": "2026-10-30T09:08:50.235Z",
+      "eventDrainPage": "p2",
+      "requests": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getIQMessages",
+          "count": 3
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/putAdviceofreadIQMessage",
+          "count": 2
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getIQMessages",
+          "status": 200,
+          "count": 4
+        }
+      ],
+      "bodyReadFailures": {
+        "https://m.ctrip.com/restapi/soa2/11679/getIQMessages": 2
+      }
+    },
+    {
+      "phase": "online-natural-traffic-15s",
+      "time": "2026-10-30T09:12:01.960Z",
+      "eventDrainPage": "p2",
+      "requests": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+          "count": 3
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getIQConversations",
+          "count": 3
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+          "count": 2
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+          "count": 4
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+          "count": 3
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "count": 3
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "count": 2
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+          "status": 200,
+          "count": 4
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+          "status": 200,
+          "count": 4
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getIQConversations",
+          "status": 200,
+          "count": 5
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+          "status": 200,
+          "count": 8
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+          "status": 200,
+          "count": 6
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "status": 200,
+          "count": 6
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "status": 200,
+          "count": 3
+        }
+      ],
+      "bodyReadFailures": {
+        "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json": 1,
+        "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid": 2,
+        "https://m.ctrip.com/restapi/soa2/11679/getIQConversations": 2,
+        "https://m.ctrip.com/restapi/soa2/16037/getRemarkList": 4,
+        "https://m.ctrip.com/restapi/soa2/16037/getMessageList": 3,
+        "https://m.ctrip.com/restapi/soa2/16037/getConversationList": 3,
+        "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages": 1
+      }
+    },
+    {
+      "phase": "online-natural-traffic-30s",
+      "time": "2026-10-30T09:12:17.137Z",
+      "eventDrainPage": "p2",
+      "requests": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "count": 4
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "count": 3
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+          "count": 1
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "status": 200,
+          "count": 6
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "status": 200,
+          "count": 6
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+          "status": 200,
+          "count": 2
+        }
+      ],
+      "bodyReadFailures": {
+        "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages": 2,
+        "https://m.ctrip.com/restapi/soa2/16037/getConversationList": 3,
+        "https://m.ctrip.com/restapi/soa2/16037/getRemarkList": 1
+      }
+    },
+    {
+      "phase": "online-natural-traffic-45s",
+      "time": "2026-10-30T09:12:32.202Z",
+      "eventDrainPage": "p2",
+      "requests": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "count": 3
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+          "count": 1
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getIQConversations",
+          "count": 1
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "count": 2
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+          "status": 200,
+          "count": 6
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json",
+          "status": 200,
+          "count": 2
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getIQConversations",
+          "status": 200,
+          "count": 2
+        },
+        {
+          "url": "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages",
+          "status": 200,
+          "count": 3
+        }
+      ],
+      "bodyReadFailures": {
+        "https://m.ctrip.com/restapi/soa2/16037/getConversationList": 3,
+        "https://m.ctrip.com/restapi/soa2/16037/getConversationList.json": 1,
+        "https://m.ctrip.com/restapi/soa2/11679/getIQConversations": 1,
+        "https://m.ctrip.com/restapi/soa2/11679/getRecentMessages": 1
+      }
+    },
+    {
+      "phase": "exact-order-query-contract",
+      "time": "2026-10-30T09:12:59.028Z",
+      "eventDrainPage": "p1",
+      "requests": [
+        {
+          "url": "https://sec-m.ctrip.com/restapi/soa2/14361/searchorderlist",
+          "count": 1
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://sec-m.ctrip.com/restapi/soa2/14361/searchorderlist",
+          "status": 200,
+          "count": 2
+        }
+      ],
+      "bodyReadFailures": {
+        "https://sec-m.ctrip.com/restapi/soa2/14361/searchorderlist": 1
+      }
+    }
+  ]
+}

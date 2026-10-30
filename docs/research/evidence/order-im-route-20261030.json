@@ -1,0 +1,29 @@
+{
+  "path": "https://imvendor.ctrip.com/main",
+  "queryNames": [
+    "initChat",
+    "vendorRefId",
+    "serviceType",
+    "threadId",
+    "orderNo",
+    "vendorRole",
+    "currentTab",
+    "lang",
+    "accountsource",
+    "client-source",
+    "extParams",
+    "targetGid"
+  ],
+  "nonPersonalValues": {
+    "initChat": "2",
+    "serviceType": "1513",
+    "vendorRole": "VBK",
+    "currentTab": "BC",
+    "lang": "",
+    "accountsource": "VBK",
+    "client-source": "pc-1001"
+  },
+  "extParamNames": [],
+  "targetGidPresent": false,
+  "noIdentifiersSaved": true
+}

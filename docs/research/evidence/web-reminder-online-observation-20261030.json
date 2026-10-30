@@ -1,0 +1,70 @@
+{
+  "timezone": "Asia/Singapore",
+  "started": "2026-10-30T09:11:46.793Z",
+  "scenario": "User manually switched agent online; natural traffic only; no injected messages or preference changes",
+  "samples": [
+    {
+      "time": "2026-10-30T09:12:01.812Z",
+      "titleIsNewMessage": false,
+      "dialogCount": 0,
+      "timeoutTextPresent": false,
+      "browserVisible": "visible",
+      "hasFocus": true,
+      "notificationPermission": "granted",
+      "audio": [
+        {
+          "loop": false,
+          "paused": true,
+          "hasSource": true
+        },
+        {
+          "loop": false,
+          "paused": true,
+          "hasSource": true
+        }
+      ]
+    },
+    {
+      "time": "2026-10-30T09:12:16.968Z",
+      "titleIsNewMessage": false,
+      "dialogCount": 0,
+      "timeoutTextPresent": false,
+      "browserVisible": "visible",
+      "hasFocus": true,
+      "notificationPermission": "granted",
+      "audio": [
+        {
+          "loop": false,
+          "paused": true,
+          "hasSource": true
+        },
+        {
+          "loop": false,
+          "paused": true,
+          "hasSource": true
+        }
+      ]
+    },
+    {
+      "time": "2026-10-30T09:12:32.141Z",
+      "titleIsNewMessage": false,
+      "dialogCount": 0,
+      "timeoutTextPresent": false,
+      "browserVisible": "visible",
+      "hasFocus": true,
+      "notificationPermission": "granted",
+      "audio": [
+        {
+          "loop": false,
+          "paused": true,
+          "hasSource": true
+        },
+        {
+          "loop": false,
+          "paused": true,
+          "hasSource": true
+        }
+      ]
+    }
+  ]
+}

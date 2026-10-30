@@ -1,5 +1,7 @@
 # 04 业务页承载：ui-business 与 bridge 插件
 
+> **范围已变更（2026-10-30）**：以[网页版范围决定](../decisions/2026-10-30-web-only-scope.md)为准。只做目标网页已有的消息、通知和订单联系入口；网页没有的功能不做。本文超出该范围的桌面对齐、扩展功能与验收要求均作为历史参考，不再执行。
+
 2026-10-30
 
 本文是 [开发总纲](00-architecture.md) 下的模块文档，负责 home、order、product、comment、bulletin、course、event、bi（data）、ai、web 这些窗口，以及远程 vbooking 页面在 Tauri 2 里的承载方式和 bridge 插件。上游依据见 [04 模块划分与联动](../04-modules-and-integration.md)、[03 副窗口](../03-multi-window.md)、[02 现有客户端缺陷](../02-current-client-defects.md)。

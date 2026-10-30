@@ -1,5 +1,7 @@
 # 02 账号与登录：core-account + ui-login
 
+> **范围已变更（2026-10-30）**：以[网页版范围决定](../decisions/2026-10-30-web-only-scope.md)为准。只做目标网页已有的消息、通知和订单联系入口；网页没有的功能不做。本文超出该范围的桌面对齐、扩展功能与验收要求均作为历史参考，不再执行。
+
 2026-10-30
 
 本文是 [开发总纲](00-architecture.md) 下的模块文档，负责 Rust 核心模块 core-account 与前端模块 ui-login。上游依据见 [04 模块划分与联动](../04-modules-and-integration.md) 第三节、[02 现有客户端缺陷](../02-current-client-defects.md)。文中接口都是示意。
