@@ -10,6 +10,7 @@
 | --- | --- |
 | [01 架构选型](docs/01-architecture-selection.md) | 现有客户端拆包结果、Tauri 2 + Rust 与 C# + Swift 对比、目标架构、分阶段计划 |
 | [02 现有客户端缺陷](docs/02-current-client-defects.md) | 官方客户端在 Windows / macOS 上的卡顿与安全缺陷，Electron 去留结论，复用范围修正 |
+| [03 副窗口](docs/03-multi-window.md) | 官方副窗口清单（IM 倒计时、横幅、截图等）与 Tauri 实现方式 |
 
 ## 当前结论
 
