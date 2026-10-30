@@ -1,0 +1,18 @@
+{
+  "installed": {
+    "path": "C:\\Program Files\\vbk-electron\\resources\\app.asar",
+    "packageVersion": "1.2.12",
+    "entry": "trip-vendor-bootstrap.cjs",
+    "mainSha256": "9c41a6f099b1ec4068b059c5dca56ba8bf16fd6452b07d648cd40113aad3dd5e",
+    "asarSha256": "f3f600073291340b6000a61d2c27b2a3836e29e81099cfaec58b4611ab64614e"
+  },
+  "installerRetainedOriginal": {
+    "path": "C:\\Program Files\\vbk-electron\\resources\\TripVendorCompanion.Install\\original.asar",
+    "packageVersion": "1.2.12",
+    "entry": "dist-electron/main/index.js",
+    "mainSha256": "9c41a6f099b1ec4068b059c5dca56ba8bf16fd6452b07d648cd40113aad3dd5e",
+    "asarSha256": "e1cd32d35e9526cc29f1878532bcbdae8284e522a4d8c588b6214801a145bc49"
+  },
+  "vendorMainMatchesRetainedOriginal": true,
+  "warning": "Installer-retained original, not independently downloaded or signature-attested official release. No account data read."
+}
