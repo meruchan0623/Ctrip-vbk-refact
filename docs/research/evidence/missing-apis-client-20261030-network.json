@@ -1,0 +1,3809 @@
+{
+  "started": "2026-10-30",
+  "ended": "2026-10-30T08:51:45.508Z",
+  "records": [
+    {
+      "time": "2026-10-30T08:50:48.444Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "requestShape": {
+        "appId": "string",
+        "categoryList": [
+          "string"
+        ],
+        "head": {
+          "appid": "string",
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": []
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:48.444Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/10290/createclientid",
+      "method": "POST",
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:48.409Z",
+      "target": "index.html",
+      "path": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "requestShape": {
+        "appId": "string",
+        "categoryList": [
+          "string"
+        ],
+        "head": {
+          "appid": "string",
+          "cid": "string",
+          "cver": "string",
+          "sid": "string"
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:49.765Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/20016/checkVBKRealNameAuthStatus",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": []
+        },
+        "page": "string",
+        "deviceType": "string",
+        "deviceInfo": "string",
+        "deviceIp": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.615Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "requestShape": {
+        "appId": "string",
+        "categoryList": [
+          "string"
+        ],
+        "head": {
+          "appid": "string",
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": []
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.615Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/10290/createclientid",
+      "method": "POST",
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:48.928Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:50.833Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "uidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:50.833Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:50.834Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/11419/getLoginAdvisorOpenInfo",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": []
+        },
+        "sourceFrom": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:50.834Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/syncVenAgentInfo",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:51.794Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:51.794Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getAgentWorkingSchedule",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "locale": "string",
+        "venAgentUid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.272Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.272Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.272Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.272Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.272Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.272Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.769Z",
+      "target": "index.html",
+      "path": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "requestShape": {
+        "appId": "string",
+        "categoryList": [
+          "string"
+        ],
+        "head": {
+          "appid": "string",
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": []
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.056Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.769Z",
+      "target": "index.html",
+      "path": "https://m.ctrip.com/restapi/soa2/10290/createclientid",
+      "method": "POST",
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:51.283Z",
+      "target": "Vbooking",
+      "path": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "requestShape": {
+        "appId": "string",
+        "categoryList": [
+          "string"
+        ],
+        "head": {
+          "appid": "string",
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": []
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:51.285Z",
+      "target": "Vbooking",
+      "path": "https://m.ctrip.com/restapi/soa2/10290/createclientid",
+      "method": "POST",
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:51.618Z",
+      "target": "Vbooking",
+      "path": "https://m.ctrip.com/restapi/soa2/11679/getIQConversations",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "lastMsgTime": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.305Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.981Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "requestShape": {
+        "appId": "string",
+        "categoryList": [
+          "string"
+        ],
+        "head": {
+          "appid": "string",
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": []
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.982Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/10290/createclientid",
+      "method": "POST",
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.535Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.696Z",
+      "target": "Home",
+      "path": "https://vbooking.ctrip.com/qconfig/jsonp",
+      "method": "GET",
+      "status": 200,
+      "mime": "text/javascript"
+    },
+    {
+      "time": "2026-10-30T08:50:55.080Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.696Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getVenAgentByUid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.696Z",
+      "target": "Home",
+      "path": "https://vbooking.ctrip.com/qconfig/jsonp",
+      "method": "GET",
+      "status": 200,
+      "mime": "text/javascript"
+    },
+    {
+      "time": "2026-10-30T08:50:53.534Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.534Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.534Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.535Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:53.535Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:55.997Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:49.838Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:49.907Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:49.985Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:59.719Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:57.878Z",
+      "target": "Vbooking",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:57.880Z",
+      "target": "Vbooking",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getAgentWorkingSchedule",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "locale": "string",
+        "venAgentUid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:51.252Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getVenAgentByUid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:51.655Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:51.988Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.305Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:52.393Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:55.696Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:03.152Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:03.673Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:05.677Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:05.855Z",
+      "target": "Vbooking",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:57.619Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:56.755Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:59.755Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/18088/getAppConfig.json",
+      "method": "POST",
+      "requestShape": {
+        "appId": "string",
+        "categoryList": [
+          "string"
+        ],
+        "head": {
+          "appid": "string",
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": []
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:59.755Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/10290/createclientid",
+      "method": "POST",
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:50:51.571Z",
+      "target": "Home",
+      "path": "https://vbooking.ctrip.com/qconfig/jsonp",
+      "method": "GET",
+      "status": 200,
+      "mime": "text/javascript"
+    },
+    {
+      "time": "2026-10-30T08:51:01.592Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "uidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:01.593Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:01.070Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:06.414Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:06.417Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:02.032Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "uidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:02.032Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:08.907Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:11.022Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:06.549Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:08.006Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:12.515Z",
+      "target": "index.html",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:12.838Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:09.712Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "uidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:09.720Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:09.807Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:09.801Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:09.959Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/20016/checkVBKRealNameAuthStatus",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": []
+        },
+        "page": "string",
+        "deviceType": "string",
+        "deviceInfo": "string",
+        "deviceIp": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:09.801Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:15.446Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:06.856Z",
+      "target": "Notifier",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:18.495Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:12.473Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:21.086Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:21.421Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:14.944Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:21.437Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:22.289Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:21.925Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "uidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:21.925Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:21.925Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/11419/getLoginAdvisorOpenInfo",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": []
+        },
+        "sourceFrom": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:21.925Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/syncVenAgentInfo",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:25.395Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.463Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.464Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.464Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.464Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.464Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.465Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.465Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.465Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.465Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.465Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.465Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.465Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.465Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.466Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.466Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.466Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.466Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:23.466Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:24.328Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:24.329Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getAgentWorkingSchedule",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "locale": "string",
+        "venAgentUid": "string"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:30.408Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:32.295Z",
+      "target": "Vbooking",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:25.532Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getRemarkList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "uidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:25.532Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationInfoByGidList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "gidList": [
+          "string"
+        ]
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.705Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.705Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.705Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.705Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.705Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.705Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.706Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.706Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.706Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.706Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.706Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.706Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.707Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.707Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.707Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.707Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.707Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.707Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.730Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getVenAgentByUid",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        }
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:26.730Z",
+      "target": "Home",
+      "path": "https://vbooking.ctrip.com/qconfig/jsonp",
+      "method": "GET",
+      "status": 200,
+      "mime": "text/javascript"
+    },
+    {
+      "time": "2026-10-30T08:51:26.729Z",
+      "target": "Home",
+      "path": "https://vbooking.ctrip.com/qconfig/jsonp",
+      "method": "GET",
+      "status": 200,
+      "mime": "text/javascript"
+    },
+    {
+      "time": "2026-10-30T08:51:26.742Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:32.622Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:32.889Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getMessageList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "showTargetIsRead": "boolean",
+        "groupId": "string",
+        "conversationType": "string",
+        "pageSize": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:35.388Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:36.650Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:40.409Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:41.673Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/16037/getConversationList",
+      "method": "POST",
+      "requestShape": {
+        "head": {
+          "cid": "string",
+          "ctok": "string",
+          "cver": "string",
+          "lang": "string",
+          "sid": "string",
+          "syscode": "string",
+          "auth": "string",
+          "xsid": "string",
+          "extension": [
+            {
+              "name": "string",
+              "value": "string"
+            }
+          ],
+          "appId": "string"
+        },
+        "startTime": "number",
+        "needTodoList": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    },
+    {
+      "time": "2026-10-30T08:51:43.391Z",
+      "target": "Home",
+      "path": "https://m.ctrip.com/restapi/soa2/36709/createTUid",
+      "method": "POST",
+      "requestShape": {
+        "tuid": "string",
+        "fullDeviceInfo": "string",
+        "timestamp": "number"
+      },
+      "status": 200,
+      "mime": "application/json"
+    }
+  ]
+}

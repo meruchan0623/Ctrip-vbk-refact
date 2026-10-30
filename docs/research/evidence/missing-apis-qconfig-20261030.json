@@ -1,0 +1,33 @@
+{
+  "time": "2026-10-30T16:52:18.797044+08:00",
+  "evidence": "direct unauthenticated GET of statically identified URL; not client UI capture",
+  "url": "https://vbooking.ctrip.com/qconfig/jsonp?fileName=100036288%3AbusinessMenu.properties&callback=_missing_api_probe",
+  "method": "GET",
+  "credentials": "none",
+  "httpStatus": 200,
+  "contentType": "text/javascript; charset=utf-8",
+  "bodySha256": "82be69678cea3fa3cb535c830699a7d3c0fe58550bde4f08c72c964d4492f109",
+  "ack": "Success",
+  "rootKeys": [
+    "ResponseStatus",
+    "data"
+  ],
+  "dataKeys": [
+    "product",
+    "order",
+    "data",
+    "comment"
+  ],
+  "dataValueTypes": {
+    "product": "str",
+    "order": "str",
+    "data": "str",
+    "comment": "str"
+  },
+  "menuCounts": {
+    "product": 6,
+    "order": 6,
+    "data": 2,
+    "comment": 7
+  }
+}
