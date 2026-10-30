@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/contracts",
+  "crates/core-account",
+  "crates/core-store",
+  "crates/core-net",
+  "crates/core-im",
+  "crates/core-notify",
+  "crates/core-assistant",
+]
+# `src-tauri` is a standalone package (its own Cargo.toml / lockfile) that
+# depends on these crates by path. It needs the Tauri 2 toolchain, a crate
+# registry and WebView2; the cloud check environment has none of those, so it
+# is excluded here to keep the std-only cores resolvable offline.
+exclude = ["src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "UNLICENSED"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
