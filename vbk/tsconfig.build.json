@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "noEmit": false, "outDir": "ui/dist", "rootDir": "ui", "sourceMap": true },
+  "include": ["ui/**/*.ts"],
+  "exclude": ["ui/**/*.test.ts", "ui/**/dist/**", "ui/tests/**", "node_modules"]
+}

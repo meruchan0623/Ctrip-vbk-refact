@@ -1,0 +1,17 @@
+{
+  "name": "vbk",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "VBooking web-IM desktop client (Tauri 2 host + std-only Rust cores + dependency-free TypeScript UI/adapters).",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"ui/**/*.test.ts\"",
+    "build:ui": "tsc -p tsconfig.build.json",
+    "smoke:ui": "node ui/tests/smoke/run.mjs",
+    "check": "npm run typecheck && npm run test && cargo test --manifest-path Cargo.toml"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}
