@@ -1177,7 +1177,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
           )
         : null,
     ),
-    h('div', { class: 'macts' }, h('button', { onclick: () => store.patch({ quote: m }) }, t('chat.quote')), h('button', { onclick: () => copyText(m.text) }, t('chat.copy'))),
+    h('div', { class: 'macts' }, h('button', { onclick: () => store.patch({ quote: m }) }, t('chat.quote')), h('button', { onclick: () => copyText(m.text) }, t('chat.copy')), h('button', { onclick: () => toast(m.message_id ? `服务端消息ID：${m.message_id}` : '尚无服务端消息ID，请核对发送结果'), 'aria-label': '查看服务端消息ID' }, '消息ID')),
   );
 }
 
