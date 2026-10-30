@@ -145,7 +145,11 @@ export const UiEvents = {
 
 export type AccountState = 'online' | 'logging_in' | 'expired' | 'suspended';
 
+export interface UiPersonProfile { readonly uid: string; readonly name: string | null; readonly avatar: string | null }
+
 export interface UiAccount {
+  /** Current verified IM agent; never substitute the platform account nickname. */
+  readonly self_profile?: UiPersonProfile | null;
   readonly context: AccountContext;
   readonly nick: string;
   readonly remark: string | null;

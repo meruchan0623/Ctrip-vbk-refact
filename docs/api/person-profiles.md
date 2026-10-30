@@ -29,3 +29,10 @@ SDK实时、HTTP历史/补偿及本人发送echo均携带sender_id/sender_name/s
 会话头像只用当前列表行 customerUid 关联人员资料，禁止使用平台账号头像、公司头像或上一客户头像。成员补全、同值轮询、历史读取共同输出 customer_avatar；缺少对应 UID 或该人没有头像时明确为 null。资料读取晚于 stop/restart 或同房间客户切换时不得投影旧结果。
 
 列表和聊天标题复用消息头像的 HTTPS 校验、无 referrer 与加载失败文字占位。头像补全保留较新的实时预览及排序时间，不能因重新投影列表行恢复撤回前摘要。真实 PageSession→SoaClient→RPC 3 项以及实际 main 渲染 2 项覆盖正常/缺失/危险地址/换客户/停启。新包视觉证据仍待第3轮；成员与邀请头像单独接线。
+
+
+## 账号区域的当前客服
+
+平台账号昵称与人员资料分开：identity.self_profile 是 GetMyInfo 的 IM UID，经 venAgent.ctripUid 校验后所得本人资料。宿主再次核对 self_profile.uid 与 identity.uid；不匹配或旧客户端无字段时清空，禁止沿用前一个客服。UiAccount.self_profile 仅在线状态输出，登录占位为 null。AccountMeta 的人员字段使用 serde(skip)，头像URL只在内存，不写账号索引；恢复后由真实页面身份重新取得。
+
+账号页签、左侧账号按钮、账号菜单逐账号显示对应人员头像；替代文字优先客服名字，平台账号label仅缺失时占位。两个账号不会共享照片；没有头像不伪造。实际身份链2项失败、宿主DTO缺字段1项失败及UI三个入口失败均留红证据，修后验证；客户侧栏与提醒头像仍另块处理。

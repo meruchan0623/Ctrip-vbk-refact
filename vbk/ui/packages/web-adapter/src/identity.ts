@@ -124,6 +124,7 @@ export async function readIdentity(deps: AdapterDeps, soa: SoaClient, opts: Iden
     kind: 'ok',
     selfProfile: { uid, name: selfName, avatar: selfAvatar },
     identity: {
+      self_profile: { uid, name: selfName, avatar: selfAvatar },
       buid,
       uid,
       agent_id: agentId,

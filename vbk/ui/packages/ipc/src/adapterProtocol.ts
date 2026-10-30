@@ -49,6 +49,7 @@ export interface AdapterReadyAck {
 
 /** Upstream identity as read on the official page (getCurrentUserInfo / GetMyInfo per docs/api). */
 export interface AdapterIdentityPayload {
+  readonly self_profile?: import('./client.ts').UiPersonProfile | null;
   readonly buid: string;
   readonly uid: string;
   readonly agent_id: string | null;

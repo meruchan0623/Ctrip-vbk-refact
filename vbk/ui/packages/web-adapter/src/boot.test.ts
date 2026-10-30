@@ -147,7 +147,7 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
   if (r.kind !== 'started') throw new Error('session must start');
   assert.deepEqual(r.session.roles.profileOf('me-1'), { name: 'n', avatar: 'https://example.invalid/agent-self.png' });
   const identity = invoked.find((i) => i.cmd === 'adapter_identity');
-  assert.deepEqual(identity?.args, { payload: { buid: 'B-1', uid: 'me-1', agent_id: '77', nick: '昵称', party: '供应商', environment: 'production' } });
+  assert.deepEqual(identity?.args, { payload: { buid: 'B-1', uid: 'me-1', agent_id: '77', nick: '昵称', party: '供应商', environment: 'production', self_profile: { uid: 'me-1', name: 'n', avatar: 'https://example.invalid/agent-self.png' } } });
   const ready = invoked.find((i) => i.cmd === 'adapter_ready');
   assert.deepEqual(ready?.args, { payload: { url: 'https://vbooking.ctrip.com/vbk/im/main', sdk_version: null } });
   assert.ok(fetchCalls.some((u) => u.includes('_fxpcqlniredt=T-1') && u.includes('getConversationList')));

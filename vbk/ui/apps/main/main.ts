@@ -238,6 +238,10 @@ function activeAccount(s: MainState = S()): UiAccount | null {
   return snap.accounts.find((a) => a.context.account_id === snap.active_account_id) ?? null;
 }
 
+function accountAvatarName(account: UiAccount): string {
+  return account.self_profile?.name ?? accountLabel(account);
+}
+
 function activeConv(s: MainState = S()): UiConversation | null {
   return s.conversations.find((c) => c.gid === s.activeGid) ?? null;
 }
@@ -824,7 +828,7 @@ function titleBar(s: MainState): HTMLElement {
           store.patch({ editingTab: { accountId: a.context.account_id, value: a.remark ?? a.nick } });
         },
       },
-      h('span', { class: 'tab-ava', style: { background: a.color } }, accountInitial(a)),
+      h('span', { class: 'tab-ava', style: { background: a.color } }, renderMessageAvatar(document, accountAvatarName(a), a.self_profile?.avatar)),
       editing
         ? h('input', {
             class: 'tab-edit',
@@ -924,7 +928,7 @@ function navBar(s: MainState): HTMLElement {
           store.patch({ meMenu: !s.meMenu, ctxMenu: null });
         },
       },
-      acc ? accountInitial(acc) : '?',
+      acc ? renderMessageAvatar(document, accountAvatarName(acc), acc.self_profile?.avatar) : '?',
       acc ? h('span', { class: 'me-dot', style: { background: `var(${av.colorVar})` } }) : null,
     ),
   );
@@ -938,7 +942,7 @@ function meMenu(s: MainState): HTMLElement | null {
   return h(
     'div',
     { class: 'menu me-menu', role: 'menu', onmousedown: (e: Event) => e.stopPropagation() },
-    h('div', { class: 'me-head' }, h('div', { class: 'ava', style: { background: acc.color } }, accountInitial(acc)), h('div', { class: 'me-head-t' }, h('div', { style: { 'font-weight': '600' } }, accountLabel(acc)), h('div', { class: 'muted', style: { 'font-size': '12px' } }, acc.party))),
+    h('div', { class: 'me-head' }, h('div', { class: 'ava', style: { background: acc.color } }, renderMessageAvatar(document, accountAvatarName(acc), acc.self_profile?.avatar)), h('div', { class: 'me-head-t' }, h('div', { style: { 'font-weight': '600' } }, accountLabel(acc)), h('div', { class: 'muted', style: { 'font-size': '12px' } }, acc.party))),
     h('div', { class: 'msep' }),
     h('div', { class: 'mhead' }, t('me.statusHead')),
     AGENT_STATUS_ORDER.map((st) =>

@@ -16,6 +16,7 @@ for (const match of [true, false]) {
     assert.equal(result.kind, 'ok');
     if (result.kind !== 'ok') throw Error('synthetic identity must load');
     assert.deepEqual(result.selfProfile, { uid: 'self', name: match ? 'Agent Display' : 'IM Display', avatar: `https://example.invalid/${match ? 'agent' : 'im'}-avatar.png` });
+    assert.deepEqual(result.identity.self_profile, result.selfProfile, 'host account profile must carry the same UID-verified person');
     assert.equal(result.identity.uid, 'self');
     assert.equal(result.identity.buid, 'synthetic-platform');
   });

@@ -98,6 +98,9 @@ struct AttemptRec {
 /// Host-side display metadata of an account (no secret, no customer data).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct AccountMeta {
+    /// Runtime-only person data; signed avatar URLs never enter account persistence.
+    #[serde(skip)]
+    self_profile: Option<PersonProfileDto>,
     nick: String,
     party: String,
     color: String,
@@ -257,6 +260,7 @@ fn snapshot(app: &AppHandle) -> serde_json::Value {
                 "environment": s.environment.as_str(),
                 "session_generation": s.session_generation.unwrap_or(*last_gen),
             },
+            "self_profile": meta.and_then(|m| m.self_profile.as_ref()).filter(|_| matches!(s.state, AccountStateKind::Online)),
             "nick": meta.map(|m| m.nick.as_str()).filter(|n| !n.is_empty()).unwrap_or("账号"),
             "remark": s.remark,
             "party": meta.map(|m| m.party.as_str()).unwrap_or(""),
@@ -274,6 +278,7 @@ fn snapshot(app: &AppHandle) -> serde_json::Value {
                 "environment": Environment::PRODUCTION,
                 "session_generation": 0,
             },
+            "self_profile": null,
             "nick": "正在登录",
             "remark": null,
             "party": "",
@@ -1162,9 +1167,29 @@ pub async fn shell_open_webview(
 // ------------------------------------------------------------------
 // Cross-module interface (FROZEN signatures; bodies owned by host-login).
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct PersonProfileDto {
+    pub uid: String,
+    pub name: Option<String>,
+    pub avatar: Option<String>,
+}
+
+impl AccountMeta {
+    fn update_identity(&mut self, identity: &UpstreamIdentityDto) {
+        self.nick = identity.nick.clone();
+        self.party = identity.party.clone();
+        // Platform account, agentId and display name cannot identify an IM person.
+        self.self_profile = identity.self_profile.as_ref().filter(|p| {
+            !identity.uid.trim().is_empty() && p.uid.trim().eq_ignore_ascii_case(identity.uid.trim())
+        }).cloned();
+    }
+}
+
 /// Identity read on the official page (mirrors `AdapterIdentityPayload`).
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct UpstreamIdentityDto {
+    #[serde(default)]
+    pub self_profile: Option<PersonProfileDto>,
     pub buid: String,
     pub uid: String,
     pub agent_id: Option<String>,
@@ -1274,8 +1299,7 @@ pub fn on_identity(
                     color: color_for(&id),
                     ..AccountMeta::default()
                 });
-                meta.nick = identity.nick.clone();
-                meta.party = identity.party.clone();
+                meta.update_identity(&identity);
                 meta.suspended_by_user = false;
                 meta.profile_id.replace(profile_id.clone())
             };
@@ -1351,8 +1375,7 @@ pub fn on_identity(
                 let mut inner = ls.lock();
                 inner.validating.remove(&id);
                 if let Some(m) = inner.meta.get_mut(&id) {
-                    m.nick = identity.nick.clone();
-                    m.party = identity.party.clone();
+                    m.update_identity(&identity);
                 }
             }
             persist_and_emit(app);
@@ -1448,4 +1471,38 @@ mod tests {
         assert_eq!(ui_state(AccountStateKind::Invalid, false), "expired");
         assert_eq!(ui_state(AccountStateKind::LoggedOut, false), "expired");
     }
+
+    #[test]
+    fn identity_dto_keeps_person_profile_distinct_from_platform_nick() {
+        let input = json!({"buid":"platform", "uid":"self", "agent_id":null, "nick":"Platform", "party":"Merchant", "environment":"production", "self_profile":{"uid":"self","name":"Agent","avatar":"https://example.invalid/self.png"}});
+        let dto: UpstreamIdentityDto = serde_json::from_value(input.clone()).unwrap();
+        let serialized = serde_json::to_value(dto).unwrap();
+        assert_eq!(serialized["self_profile"], input["self_profile"]);
+        assert_eq!(serialized["nick"], "Platform");
+    }
+
+
+    #[test]
+    fn account_person_profile_requires_matching_uid_and_never_persists() {
+        let mut dto: UpstreamIdentityDto = serde_json::from_value(json!({"buid":"platform", "uid":"self", "agent_id":null, "nick":"Platform", "party":"Merchant", "environment":"production", "self_profile":{"uid":"SELF","name":"Agent","avatar":"https://example.invalid/self.png?auth=synthetic"}})).unwrap();
+        let mut meta = AccountMeta::default();
+        meta.update_identity(&dto);
+        assert_eq!(meta.self_profile.as_ref().unwrap().uid, "SELF");
+        assert_eq!(meta.nick, "Platform");
+        let serialized = serde_json::to_string(&meta).unwrap();
+        assert!(!serialized.contains("self_profile"));
+        assert!(!serialized.contains("synthetic"));
+        assert!(serde_json::from_str::<AccountMeta>(&serialized).unwrap().self_profile.is_none());
+        let mut other = AccountMeta::default();
+        dto.uid = "other-person".into();
+        other.update_identity(&dto);
+        assert!(other.self_profile.is_none());
+        assert!(meta.self_profile.is_some(), "accounts do not share mutable profiles");
+        meta.update_identity(&dto);
+        assert!(meta.self_profile.is_none(), "changed IM identity must clear the previous image");
+        dto.self_profile = None;
+        meta.update_identity(&dto);
+        assert!(meta.self_profile.is_none(), "legacy identity input has no person picture");
+    }
+
 }
