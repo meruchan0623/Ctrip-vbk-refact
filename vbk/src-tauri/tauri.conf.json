@@ -11,7 +11,7 @@
   "app": {
     "withGlobalTauri": true,
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; frame-src 'none'; object-src 'none'",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.c-ctrip.com https://*.tripcdn.com https://*.ctrip.com; media-src 'self' https://*.c-ctrip.com https://*.tripcdn.com https://*.ctrip.com; connect-src 'self' ipc: http://ipc.localhost; frame-src 'none'; object-src 'none'",
       "dangerousDisableAssetCspModification": false,
       "freezePrototype": false
     },
