@@ -6,8 +6,7 @@
 //! No command sends a customer message, finishes a conversation or opens an
 //! arbitrary URL. The alarm window can only act on `(round_id, version)`.
 
-use contracts::{AlarmCommand, AppError, Environment};
-use core_account::LogoutMode;
+use contracts::{AlarmCommand, AppError};
 use core_net::url::{validate_official_im_url, UrlPolicy};
 use core_notify::{CommandAck, CommandSource};
 use serde::Serialize;
@@ -166,7 +165,8 @@ pub fn notify_set_enabled(
         .map_err(err)
 }
 
-#[tauri::command]
+// JS sends snake_case keys (`{t1_seconds}` / `{attempt_id}`), not camelCase.
+#[tauri::command(rename_all = "snake_case")]
 pub fn notify_set_threshold(
     window: Window,
     state: State<'_, HostState>,
@@ -195,132 +195,7 @@ pub fn notify_set_sound_enabled(
         .map_err(err)
 }
 
-// ----------------------------------------------------------------- account
-
-#[derive(Debug, Serialize)]
-pub struct AccountSummaryDto {
-    pub account_id: String,
-    pub environment: String,
-    pub state: String,
-    pub session_generation: Option<u64>,
-    pub remark: Option<String>,
-    pub work_status: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AccountListDto {
-    pub epoch: u64,
-    pub seq: u64,
-    pub accounts: Vec<AccountSummaryDto>,
-}
-
-#[tauri::command]
-pub fn account_snapshot(window: Window, state: State<'_, HostState>) -> CmdResult<AccountListDto> {
-    guard(&state, &window, "account_snapshot")?;
-    let cores = state.lock();
-    let snap = cores.accounts.account_snapshot();
-    let accounts = snap
-        .data
-        .accounts
-        .iter()
-        .map(|a| AccountSummaryDto {
-            account_id: a.account_id.to_string(),
-            environment: a.environment.as_str().to_string(),
-            state: a.state.as_str().to_string(),
-            session_generation: a.session_generation,
-            remark: a.remark.clone(),
-            work_status: format!("{:?}", a.work_status).to_lowercase(),
-        })
-        .collect();
-    Ok(AccountListDto {
-        epoch: snap.epoch,
-        seq: snap.seq,
-        accounts,
-    })
-}
-
-#[derive(Debug, Serialize)]
-pub struct LoginAttemptDto {
-    pub attempt_id: String,
-    pub environment: String,
-    /// The official login page the host navigates the isolated profile
-    /// webview to. The page itself gets no IPC capability.
-    pub login_url: String,
-}
-
-#[tauri::command]
-pub fn account_start_login(
-    window: Window,
-    state: State<'_, HostState>,
-) -> CmdResult<LoginAttemptDto> {
-    guard(&state, &window, "account_start_login")?;
-    let mut cores = state.lock();
-    let handle = cores.accounts.start_login(Environment::production());
-    Ok(LoginAttemptDto {
-        attempt_id: handle.attempt_id.to_string(),
-        environment: handle.environment.as_str().to_string(),
-        login_url: core_net::url::LOGIN_PAGE_URL.to_string(),
-    })
-}
-
-#[tauri::command]
-pub fn account_switch(
-    window: Window,
-    state: State<'_, HostState>,
-    account_id: String,
-) -> CmdResult<()> {
-    guard(&state, &window, "account_switch")?;
-    // Switching only changes navigation; in-flight work stays bound to its
-    // own AccountContext (archive §4.0). The main shell keeps the current
-    // selection; the host validates the id exists.
-    let cores = state.lock();
-    let id = contracts::AccountId::new(account_id);
-    cores.accounts.state(&id).map(|_| ()).ok_or_else(|| {
-        AppErrorDto::from(AppError::new(
-            contracts::codes::ACCOUNT_UNKNOWN,
-            "no such account",
-        ))
-    })
-}
-
-#[tauri::command]
-pub fn account_suspend(
-    window: Window,
-    state: State<'_, HostState>,
-    account_id: String,
-) -> CmdResult<()> {
-    guard(&state, &window, "account_suspend")?;
-    state
-        .logout(&account_id, LogoutMode::ExitOnline)
-        .map(|_| ())
-        .map_err(err)
-}
-
-#[tauri::command]
-pub fn account_logout(
-    window: Window,
-    state: State<'_, HostState>,
-    account_id: String,
-) -> CmdResult<()> {
-    guard(&state, &window, "account_logout")?;
-    state
-        .logout(&account_id, LogoutMode::Logout)
-        .map(|_| ())
-        .map_err(err)
-}
-
-#[tauri::command]
-pub fn account_forget(
-    window: Window,
-    state: State<'_, HostState>,
-    account_id: String,
-) -> CmdResult<()> {
-    guard(&state, &window, "account_forget")?;
-    state
-        .logout(&account_id, LogoutMode::Forget)
-        .map(|_| ())
-        .map_err(err)
-}
+// Account commands moved to `login.rs` (2026-10-30).
 
 // ---------------------------------------------------------------------- im
 
@@ -384,21 +259,28 @@ pub fn im_conversation_snapshot(
 
 #[tauri::command]
 pub fn im_locate_conversation(
+    app: AppHandle,
     window: Window,
     state: State<'_, HostState>,
     account: crate::dto::AccountContextDto,
     gid: String,
 ) -> CmdResult<bool> {
     guard(&state, &window, "im_locate_conversation")?;
-    let mut cores = state.lock();
-    let ctx: contracts::AccountContext = account.into();
-    cores.accounts.validate(&ctx).map_err(err)?;
-    // Opening a conversation clears unread but never a waiting round.
-    Ok(cores
-        .im
-        .get_mut(&ctx)
-        .map(|c| c.on_open_conversation(&gid))
-        .unwrap_or(false))
+    let ctx: contracts::AccountContext = account.clone().into();
+    let cleared = {
+        let mut cores = state.lock();
+        cores.accounts.validate(&ctx).map_err(err)?;
+        // Opening a conversation clears unread but never a waiting round.
+        cores
+            .im
+            .get_mut(&ctx)
+            .map(|c| c.on_open_conversation(&gid))
+            .unwrap_or(false)
+    };
+    // Main selects the conversation through its own identity.
+    let payload = serde_json::json!({ "account": account, "gid": gid });
+    let _ = app.emit_to(views::MAIN, crate::events::IM_LOCATE_CONVERSATION, payload);
+    Ok(cleared)
 }
 
 // ------------------------------------------------------------------- order
@@ -439,19 +321,4 @@ pub fn order_validate_im_url(
     })
 }
 
-// ------------------------------------------------------------------- prefs
-
-#[derive(Debug, Serialize)]
-pub struct PrefsDto {
-    pub reminder: ReminderSettingsDto,
-    pub locale: String,
-}
-
-#[tauri::command]
-pub fn prefs_snapshot(window: Window, state: State<'_, HostState>) -> CmdResult<PrefsDto> {
-    guard(&state, &window, "prefs_snapshot")?;
-    Ok(PrefsDto {
-        reminder: (&state.settings()).into(),
-        locale: "zh-CN".to_string(),
-    })
-}
+// `prefs_snapshot` moved to `prefs.rs` (2026-10-30).

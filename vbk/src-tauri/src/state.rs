@@ -20,7 +20,7 @@ use core_notify::{
     mask_label, CommandAck, CommandSource, DndMode, Effect, NotifyCore, Now, RestoredRound,
     SystemState,
 };
-use core_store::{FileStore, Namespace, ReminderStateRepo, RoundRecord, Store};
+use core_store::{FileStore, Namespace, ReminderStateRepo, RoundRecord, Store, SyncWatermarkRepo};
 use tauri::AppHandle;
 
 use crate::dto::{AdapterFactDto, AdapterFactEnvelopeDto};
@@ -166,6 +166,7 @@ impl HostState {
             )
         })?;
         let fact = convert_fact(dto.fact)?;
+        let is_compensation = matches!(fact, Fact::CompensationSync { .. });
         if cores.im.get(&account).is_none() {
             cores.im.insert(ImCore::new(account.clone()));
             // First facts after (re-)login: rounds persisted under this
@@ -181,6 +182,9 @@ impl HostState {
             fact,
         };
         let report = cores.im.ingest(env)?;
+        if is_compensation && report.applied {
+            Self::persist_compensation(&cores, &account);
+        }
         if report.auth_invalid {
             // core-account decides the generation change; the host just
             // records the signal and revokes.
@@ -213,6 +217,45 @@ impl HostState {
         }
         self.pump_rounds(&mut cores);
         Ok(report)
+    }
+
+    /// Writes the account's compensation watermark (`beginMsgTime` for the
+    /// next page boot). Only a timestamp; no message content.
+    fn persist_compensation(cores: &Cores, account: &AccountContext) {
+        let (Some(store), Some(core)) = (cores.store.as_ref(), cores.im.get(account)) else {
+            return;
+        };
+        let Some(ms) = core.watermarks().compensation_cursor_ms() else {
+            return;
+        };
+        let ns = Namespace::from_context(account);
+        let mut txn = match store.begin(&ns) {
+            Ok(t) => t,
+            Err(e) => {
+                log::warn!("compensation watermark skipped for {}: {e}", ns.key());
+                return;
+            }
+        };
+        SyncWatermarkRepo::set_compensation_cursor(&mut txn, ms);
+        if let Err(e) = store.commit(txn) {
+            log::warn!("compensation watermark failed for {}: {e}", ns.key());
+        }
+    }
+
+    /// Compensation watermark for `account` (Unix ms, 0 when unknown): the
+    /// newer of the in-memory core cursor and the persisted one.
+    pub fn compensation_watermark(&self, account: &AccountContext) -> i64 {
+        let cores = self.lock();
+        let live = cores
+            .im
+            .get(account)
+            .and_then(|c| c.watermarks().compensation_cursor_ms());
+        let stored = cores.store.as_ref().and_then(|s| {
+            SyncWatermarkRepo::compensation_cursor(s, &Namespace::from_context(account))
+                .ok()
+                .flatten()
+        });
+        live.into_iter().chain(stored).max().unwrap_or(0).max(0)
     }
 
     /// Moves round events and reconcile state from core-im into
