@@ -16,6 +16,8 @@
 
 #[path = "display.rs"]
 pub mod display;
+#[path = "outbound_journal.rs"]
+pub mod outbound_journal;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -284,6 +286,7 @@ pub struct AdapterState {
     display: Mutex<DisplayCache>,
     pending: Mutex<PendingTable>,
     pinned: Mutex<PinnedTable>,
+    outbound: Option<Mutex<outbound_journal::OutboundJournal>>,
     epoch: AtomicU64,
     /// Account the main shell last addressed (proxy for the active account).
     focus: Mutex<Option<AccountContext>>,
@@ -295,6 +298,7 @@ impl AdapterState {
             display: Mutex::new(DisplayCache::new()),
             pending: Mutex::new(PendingTable::default()),
             pinned: Mutex::new(pinned),
+            outbound: None,
             epoch: AtomicU64::new(0),
             focus: Mutex::new(None),
         }
@@ -310,7 +314,16 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             PinnedTable::default()
         }
     };
-    app.manage(AdapterState::new(pinned));
+    let mut adapter = AdapterState::new(pinned);
+    adapter.outbound = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .and_then(|root| {
+            outbound_journal::OutboundJournal::open(root.join("state").join("outbound")).ok()
+        })
+        .map(Mutex::new);
+    app.manage(adapter);
     Ok(())
 }
 
@@ -510,6 +523,24 @@ async fn forward<T: DeserializeOwned>(
 ) -> Result<T, AppError> {
     let v = request(app, ctx, op, args, timeout).await?;
     serde_json::from_value(v).map_err(|_| bad_reply())
+}
+
+/// Read-only recovery seam for the UI's future reconciliation entry point.
+/// This exposes no payload and cannot dispatch or create an attempt.
+pub fn unknown_outbound_attempts(
+    app: &AppHandle,
+    account: &AccountContext,
+) -> Result<Vec<outbound_journal::UnknownAttemptMetadata>, AppError> {
+    app.state::<HostState>().lock().accounts.validate(account)?;
+    let module = module(app)?;
+    let journal = module.outbound.as_ref().ok_or_else(|| {
+        AppError::new(
+            "im.journal_unavailable",
+            "durable outbound storage is unavailable",
+        )
+    })?;
+    let result = lock(journal).unknown_metadata(account);
+    result
 }
 
 // ------------------------------------------------------------------ page → host
@@ -814,8 +845,25 @@ pub async fn im_send_text(
     let args = serde_json::json!({
         "gid": gid, "local_id": local_id, "text": text, "original": original, "quote_id": quote_id,
     });
-    let result = request_inner(&app, &ctx, "im.send_text", args, WRITE_TIMEOUT).await;
-    send_outcome(result).map_err(e2dto)
+    let module = module(&app).map_err(e2dto)?;
+    let journal = module.outbound.as_ref().ok_or_else(|| {
+        e2dto(AppError::new(
+            "im.journal_unavailable",
+            "durable outbound storage is unavailable (nothing sent)",
+        ))
+    })?;
+    let payload = outbound_journal::SendPayload {
+        gid,
+        text,
+        original,
+        quote_id,
+    };
+    outbound_journal::send_once(journal, &ctx, &local_id, &payload, || async {
+        let result = request_inner(&app, &ctx, "im.send_text", args, WRITE_TIMEOUT).await;
+        send_outcome(result)
+    })
+    .await
+    .map_err(e2dto)
 }
 
 #[tauri::command(rename_all = "snake_case")]

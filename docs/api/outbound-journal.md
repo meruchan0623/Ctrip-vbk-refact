@@ -1,0 +1,13 @@
+# 宿主发送持久屏障
+
+2026-10-31。实际im_send_text调用outbound_journal::send_once，账本位于app_data/state/outbound，按environment/account命名空间隔离。同local_id跨登录代次仍是同一意图，generation只作审计；gid/text/original/quote_id按固定结构算SHA256用于冲突校验，正文不落盘。不同payload重复local_id拒绝。
+
+调用链先持久write_started并完成文件及父目录fsync，之后才允许单次dispatch。fs2文件锁串行化读/CAS/commit/barrier，不跨await持有。恢复看到write_started或unknown只能读回unknown，不能重新dispatch；已持久confirmed/rejected读回终态。提交前存储失败不调用dispatch，发起后的任何回执或持久化失败保守unknown。同一进程及重新打开FileStore均不能解除屏障。
+
+write_started是宿主准入屏障，不能证明网络包已真正发出：dispatch内若在发起前报错也保守unknown。禁止以此自动重试。账本不包含正文或original；拒绝reason可能回显正文，因此磁盘只保留code及固定通用说明，原reason仅当次返回UI，重启读回通用说明。
+
+unknown_outbound_attempts仅为内部只读Rust接口，先验证当前AccountContext再列metadata；尚无完整IPC/核验界面，不能冒充reconciler。不会猜测无ID消息已送达。历史第1轮unknown未事先入此账本，不能追溯补造发送证据。
+
+验证：真实宿主helper+真实FileStore六项初始全红，修复后13项全绿；覆盖重建/换代次去重、payload各字段冲突、崩溃write_started、终态回放、真实文件系统前后故障、损坏fail-closed、两线程独立实例竞争、metadata无正文、Rejected回显text/original脱敏。回显故障另有红→绿。原始输出/tmp/vbk-goal-20261031/outbound-journal-{red,reason-red,green}.log；独立评审实际13/13通过。并发测试为双线程，跨进程flock机制已源码审查，未做真实双子进程验收。
+
+范围：本轮macOS；Windows目录fsync尚未实测，不支持时会阻止发送，不能声称跨平台持久化已验收。新包真实重启和端到端读回待第3轮。记录按账号保留直到明确设计留存清理；当前无自动删账本或清除unknown入口。
