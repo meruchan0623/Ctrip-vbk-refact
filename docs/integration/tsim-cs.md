@@ -90,3 +90,10 @@
 9. 演练回滚：先禁写与自动化触发，停止新命令，保留原 attempt/水位/映射和资产；回退前端/adapter，官方客户端可继续人工使用，晚到事件仍以原 ID 去重。数据库采用兼容的增量迁移，未解决命令不能删除表/审计或倒退成 pending。人工继续操作要记录防双发交接，回滚不撤销已发生的上游消息。
 
 示例 JSON 无网络目标与可执行路由，所有 ID 明显合成；只描述未来边界。校验 JSON 可解析只证明格式，不是 JSON Schema、线上兼容或 TSim 接入测试。
+
+
+## 可离线运行的 adapter 契约演示
+
+仓库根目录运行 `node --experimental-strip-types tools/contracts/run-vbooking-contract-demo.mts`。该入口直接执行当前真实 SDK glue 与 submitIntent，用合成 callback facade/时钟重现精度完整的 confirmed、明确 rejected、无回执/不安全 ID/销毁后的 unknown，以及 void 返回不确认已读。无浏览器和网络依赖；所有结果只写终端，不调用 TSim 或上游。
+
+发送断言是应用层一次 facade 调用及零宿主额外 HTTP，不代表官方 SDK 内部 exactly-once；示例没有持久化或重启 reconciler，不能当成迁移第6步完成。JSON 映射仍为未实施提案，运行说明见 [契约工具](../../tools/contracts/README.md)。
