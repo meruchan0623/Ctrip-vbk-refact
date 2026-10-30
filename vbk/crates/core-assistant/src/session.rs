@@ -28,8 +28,13 @@ pub mod codes {
     pub const TRANSLATION_MISMATCH: &str = "assistant.translation_mismatch";
     /// Result belongs to another conversation / draft version / generation.
     pub const STALE_BINDING: &str = "assistant.stale_binding";
-    /// No active TSim session.
-    pub const NOT_LOGGED_IN: &str = "assistant.not_logged_in";
+    /// No active TSim session. The value matches the code the UI already
+    /// branches on (`ui/apps/main/main.ts` shows "需先登录 TSim").
+    pub const NOT_LOGGED_IN: &str = "assistant.tsim_unauthenticated";
+    /// Login rejected (401 on `/agent/login`): wrong user name or password.
+    pub const BAD_CREDENTIALS: &str = "assistant.tsim_bad_credentials";
+    /// The package chain returned no data plan for the identifier.
+    pub const PACKAGE_NOT_FOUND: &str = "assistant.package_not_found";
     /// Local permission gate failed.
     pub const PERMISSION_DENIED: &str = "assistant.permission_denied";
 }
@@ -218,7 +223,15 @@ fn parse_token_data(data: &JsonValue, require_expires: bool) -> Result<TokenData
 }
 
 /// `success:true, data:{access_token, token_type:"bearer", session_ref}`.
+/// A 401 on the login route means rejected credentials (there is no session
+/// to clear yet), so it maps to [`codes::BAD_CREDENTIALS`].
 pub fn parse_login_response(status: u16, body: &str) -> Result<TokenData, AppError> {
+    if status == 401 {
+        return Err(
+            AppError::new(codes::BAD_CREDENTIALS, "tsim rejected the credentials")
+                .with_detail("401"),
+        );
+    }
     let data = parse_envelope(status, body)?;
     parse_token_data(&data, false)
 }
@@ -515,6 +528,9 @@ mod tests {
         assert!(parse_login_response(200, "nope").is_err());
         assert!(parse_login_response(401, ok)
             .expect_err("401")
+            .is(codes::BAD_CREDENTIALS));
+        assert!(parse_login_response(423, ok)
+            .expect_err("423")
             .is(codes::SESSION_CLEARED));
         // Refresh requires expires_at.
         let refresh_ok = r#"{"success":true,"data":{"access_token":"t2","token_type":"bearer","expires_at":"2026-10-30T12:00:00Z","session_ref":"s2"}}"#;

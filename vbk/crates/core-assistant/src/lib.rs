@@ -19,6 +19,7 @@
 //!   cdr-more)` with the raw `code/result` envelope, id validation and
 //!   percent-encoding, the 60 s reuse cache, ICCID/EID recognition and the
 //!   separate server/client permission rules.
+//! * [`summary`] — dataplan pick and `detail` → quick-view summary.
 //! * [`language`] — script-based customer language suggestion.
 //! * [`request`], [`codec`] — request model, redacting `Debug`, percent
 //!   encoding, Base64url and ISO-8601 helpers.
@@ -31,6 +32,7 @@ pub mod language;
 pub mod package;
 pub mod request;
 pub mod session;
+pub mod summary;
 pub mod translate;
 
 pub use codec::{base64url_decode, encode_query, parse_iso8601_ms, percent_encode};
@@ -50,6 +52,7 @@ pub use session::{
     parse_logout_response, parse_profile_response, parse_refresh_response, profile, refresh,
     LoginForm, Profile, StatusError, TokenData, TsimSession,
 };
+pub use summary::{pick_dataplan, summarize, PackageSummary};
 pub use translate::{
     accept_result, on_send_pressed, parse_translate_response, translate_request, CacheClaim, Draft,
     OutboundMode, SendPlan, TranslateParams, TranslationBinding, TranslationCache,
