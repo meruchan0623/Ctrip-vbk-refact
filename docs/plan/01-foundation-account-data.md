@@ -8,4 +8,4 @@
 4. 定义网页事实到本地等待计算的有界事件契约，处理重复、跳号、乱序与旧身份回调。
 5. 只持久化必要消息状态和提醒 round/version/隐藏记录；恢复先对账。
 
-完成依据：[登录](../dev/02-account-login.md)、[最小存储](../dev/05-store.md)、[网络](../dev/06-net.md)。不建设多账号迁移、通用数据库/网络产品或旧 Electron 兼容层。原计划见[归档](../archive/desktop-baseline/plan/01-foundation-account-data.md)。
+完成依据：[登录](../dev/02-account-login.md)、[最小存储](../dev/05-store.md)、[网络](../dev/06-net.md)。多账号与每账号隔离属于本分计划；旧 Electron 数据只读导入票据，不迁移密码。原计划见[归档](../archive/desktop-baseline/plan/01-foundation-account-data.md)。

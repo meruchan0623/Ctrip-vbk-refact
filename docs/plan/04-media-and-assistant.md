@@ -1,7 +1,8 @@
-# 分计划 04：额外媒体工具与外部助手已取消
+# 分计划 04：媒体工具与商家助手
 
-2026-10-30。此分计划不再含开发任务。独立截图/OCR/纠错、TSim 接入、外部翻译、套餐速览和外部订单面板均退出范围。
+2026-10-30。本项目自有能力，保留并排期（总计划 P5）。
 
-网页本身已有的附件、官方翻译等归入[网页 IM 分计划](02-im-and-service-operations.md)；唯一额外功能是[独立强提醒](03-shell-business-notification.md)。
+- 媒体：截图遮罩与标注、图片/视频查看、OCR、中文纠错，见[07 媒体](../dev/07-media.md)。
+- 商家助手：TSim 登录、出站翻译、套餐速览、订单查询面板，见[09 商家助手](../dev/09-assistant.md)。
 
-保留此路径只为旧链接兼容，旧任务正文见[历史归档](../archive/desktop-baseline/plan/04-media-and-assistant.md)，不得据此恢复 MED/AST 工作包。
+任务拆分与验收沿用[归档分计划](../archive/desktop-baseline/plan/04-media-and-assistant.md)。
