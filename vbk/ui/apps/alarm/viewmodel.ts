@@ -117,3 +117,25 @@ export const SNOOZE_OPTIONS: readonly { minutes: SnoozeMinutes; labelKey: 'alarm
   { minutes: 10, labelKey: 'alarm.snooze10' },
   { minutes: 30, labelKey: 'alarm.snooze30' },
 ];
+
+/**
+ * The row the top block and the footer act on (prototype `alarmSel`): the
+ * picked row while it is still listed, otherwise the first row — rows are
+ * sorted active-first by waited time, so that is the longest-waiting one.
+ */
+export function selectedRow(rows: readonly AlarmRow[], pickedKey: string | null): AlarmRow | null {
+  if (pickedKey !== null) {
+    const picked = rows.find((r) => r.key === pickedKey);
+    if (picked) return picked;
+  }
+  return rows[0] ?? null;
+}
+
+/** Prototype avatar palette; the colour is a stable function of the conversation id. */
+export const AVATAR_COLORS: readonly string[] = ['#2C7F8F', '#3A6FD8', '#8A5CD6', '#C7672B', '#2FA36B', '#B8487A', '#5B7FB8', '#A07A1E'];
+
+export function avatarColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i += 1) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length] ?? '#5B7FB8';
+}

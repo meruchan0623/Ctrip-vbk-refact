@@ -25,6 +25,13 @@ a { color: var(--c-primary); }
 .selectable { user-select: text; }
 .sp { flex: 1; }
 
+/* platform-only elements (window chrome) */
+html[data-platform="macos"] .win-only { display: none !important; }
+html:not([data-platform="macos"]) .mac-only { display: none !important; }
+/* Windows-style caption close button (prototype .wbtn.x); hidden on macOS where the traffic lights own it */
+.cap-x { width: 46px; height: 100%; display: inline-flex; align-items: center; justify-content: center; color: var(--c-text-2); flex: none; margin-left: auto; }
+.cap-x:hover { background: var(--c-win-close); color: #fff; }
+
 /* buttons */
 .btn { height: 30px; padding: 0 14px; border-radius: var(--radius); border: 1px solid var(--c-border-strong); background: var(--c-surface); display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: var(--fs-md); white-space: nowrap; flex: none; }
 .btn:hover { border-color: var(--c-primary); color: var(--c-primary); }

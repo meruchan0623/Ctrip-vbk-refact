@@ -1,0 +1,16 @@
+/* Update window (prototype 02-main 「软件更新」 .fwin). */
+html, body { background: #fff; }
+.updwin { position: absolute; inset: 0; display: flex; flex-direction: column; background: #fff; }
+/* Windows: prototype .fwin-h, 36px, own close button */
+.fwin-h { height: var(--fwin-h); flex: none; display: flex; align-items: center; padding-left: 12px; gap: 8px; background: #F3F5F8; border-bottom: 1px solid var(--c-border); font-size: 12.5px; }
+.fwin-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fwin-h .cap-x { height: var(--fwin-h); }
+.mock-tag { font-size: 11px; padding-right: 10px; }
+/* macOS: overlay title bar — 40px drag strip, traffic lights in the left 78px */
+html[data-platform="macos"] .fwin-h { height: var(--titlebar-h); padding-left: var(--mac-traffic-w); padding-right: 4px; }
+.upd-b { flex: 1; padding: 18px 22px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.upd-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.upd-title b { font-size: var(--fs-xl); }
+.upd-title .muted { font-size: var(--fs-sm); }
+.upd-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; color: var(--c-text-2); line-height: 1.7; }
+.upd-body .notice-box { display: flex; flex-direction: column; gap: 2px; }

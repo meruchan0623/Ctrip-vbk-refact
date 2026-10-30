@@ -74,4 +74,23 @@
   --shadow-menu: 0 12px 32px rgba(20, 36, 58, 0.2);
   --shadow-pop: 0 8px 24px rgba(20, 36, 58, 0.16);
   --shadow-dlg: 0 24px 64px rgba(10, 30, 60, 0.3);
+
+  /* window chrome (platform shells; see html[data-platform] below) */
+  --mac-traffic-w: 78px;
+  --fwin-h: 36px;
+}
+
+/*
+ * Platform font stacks. `applyPlatform()` (apps/_shared/platform.ts) sets
+ * `<html data-platform="macos|windows">` before first render. Windows keeps
+ * the prototype stack verbatim; macOS only swaps the shell font (PingFang SC
+ * first), colours and metrics stay identical.
+ */
+html[data-platform="windows"] {
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  --font-mono: Consolas, "Cascadia Mono", "SFMono-Regular", Menlo, monospace;
+}
+html[data-platform="macos"] {
+  --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, Menlo, Monaco, monospace;
 }

@@ -118,3 +118,19 @@ test('mock notify: version mismatch rejected, snooze bumps version, subscribe-fi
   off();
   ipc.dispose();
 });
+
+test('selected row: picked row while listed, else the first (longest-waiting active) row', async () => {
+  const { selectedRow } = await import('./viewmodel.ts');
+  const rows = deriveAlarmRows(snap([entry('a', 45), entry('b', 120), entry('c', 300, { snoozed_until_ms: now + 60_000 })]), now);
+  assert.equal(selectedRow(rows, null)?.entry.gid, 'b');
+  assert.equal(selectedRow(rows, rows[1]?.key ?? null)?.entry.gid, 'a');
+  assert.equal(selectedRow(rows, 'gone')?.entry.gid, 'b');
+  assert.equal(selectedRow([], null), null);
+});
+
+test('avatar colour is stable per conversation and from the palette', async () => {
+  const { avatarColor, AVATAR_COLORS } = await import('./viewmodel.ts');
+  assert.equal(avatarColor('g-1'), avatarColor('g-1'));
+  assert.ok(AVATAR_COLORS.includes(avatarColor('anything')));
+  assert.ok(AVATAR_COLORS.includes(avatarColor('')));
+});

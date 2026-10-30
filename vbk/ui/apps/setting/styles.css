@@ -1,11 +1,17 @@
-/* Settings window (prototype .fwin / .setnav / .setbody). */
-body { background: #fff; }
+/* Settings window (prototype 02-main .fwin / .setnav / .setbody). */
+html, body { background: #fff; }
 .setwin { position: absolute; inset: 0; display: flex; flex-direction: column; background: #fff; }
-.fwin-h { height: 36px; flex: none; display: flex; align-items: center; padding-left: 12px; gap: 8px; background: #F3F5F8; border-bottom: 1px solid var(--c-border); font-size: 12.5px; }
+/* Windows: prototype .fwin-h, 36px, own close button on the right */
+.fwin-h { height: var(--fwin-h); flex: none; display: flex; align-items: center; padding-left: 12px; gap: 8px; background: #F3F5F8; border-bottom: 1px solid var(--c-border); font-size: 12.5px; }
+.fwin-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fwin-h .cap-x { height: var(--fwin-h); }
+.mock-tag { font-size: 11px; padding-right: 10px; }
+/* macOS: overlay title bar — 40px drag strip, traffic lights in the left 78px */
+html[data-platform="macos"] .fwin-h { height: var(--titlebar-h); padding-left: var(--mac-traffic-w); padding-right: 4px; }
 .setbody-wrap { flex: 1; display: flex; min-height: 0; }
 .setnav { width: 190px; flex: none; background: var(--c-surface-2); border-right: 1px solid var(--c-border); padding: 10px 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 .setnav-g { font-size: 11.5px; color: var(--c-text-faint); padding: 10px 10px 4px; font-weight: 600; }
-.setnav button { height: 32px; border-radius: 6px; padding: 0 10px; font-size: 13px; width: 100%; display: flex; align-items: center; }
+.setnav button { height: 32px; border-radius: 6px; padding: 0 10px; font-size: 13px; width: 100%; display: flex; align-items: center; flex: none; }
 .setnav button:hover { background: #ECF0F5; }
 .setnav button.on { background: #E3ECFD; color: var(--c-info-text); font-weight: 600; }
 .setbody { flex: 1; overflow-y: auto; padding: 6px 24px 24px; }

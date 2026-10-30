@@ -7,10 +7,12 @@ import type { PrefsSection, PrefsSnapshot, SendMode } from '../../packages/ipc/s
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { I18nKey } from '../../packages/ui-kit/src/i18n.ts';
+import { SETTING_STRINGS } from './strings.ts';
 
-export type SectionId = 'general' | 'display' | 'notify' | 'keys' | 'assistant' | 'network' | 'storage' | 'privacy';
+export type SectionId = 'general' | 'display' | 'notify' | 'keys' | 'assistant' | 'network' | 'storage' | 'privacy' | 'about';
 
-export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
+/** Nav entries (prototype 「桌面偏好（本机）」 group); `label` is window-local copy where i18n has no key. */
+export const SECTIONS: readonly ({ id: SectionId; labelKey: I18nKey; label?: undefined } | { id: SectionId; labelKey?: undefined; label: string })[] = [
   { id: 'general', labelKey: 'set.general' },
   { id: 'display', labelKey: 'set.display' },
   { id: 'notify', labelKey: 'set.notify' },
@@ -19,7 +21,12 @@ export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
   { id: 'network', labelKey: 'set.network' },
   { id: 'storage', labelKey: 'set.storage' },
   { id: 'privacy', labelKey: 'set.privacy' },
+  { id: 'about', label: SETTING_STRINGS.about },
 ];
+
+export function sectionLabel(sec: (typeof SECTIONS)[number]): string {
+  return sec.labelKey !== undefined ? t(sec.labelKey) : sec.label;
+}
 
 export function isSectionId(s: string | null): s is SectionId {
   return SECTIONS.some((x) => x.id === s);

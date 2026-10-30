@@ -1,9 +1,16 @@
-body { background: #fff; }
-.login { position: absolute; inset: 0; display: flex; flex-direction: column; background: #fff; }
-.bar { height: 36px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #F3F5F8; border-bottom: 1px solid var(--c-border); font-size: 12px; color: var(--c-text-2); }
-.logo { width: 18px; height: 18px; border-radius: 5px; background: var(--c-primary); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+/*
+ * Login window local header: exactly 68px (36 title row + 32 URL row), per
+ * prototype 01-login `.bar` / URL row. The official login page is a separate
+ * child webview placed by the host directly below this header.
+ */
+html, body { background: #fff; }
+.lhead { position: absolute; left: 0; right: 0; top: 0; height: 68px; display: flex; flex-direction: column; background: #fff; overflow: hidden; }
+.bar { height: 36px; flex: none; display: flex; align-items: center; gap: 8px; padding-left: 14px; background: #F3F5F8; border-bottom: 1px solid var(--c-border); font-size: 12px; color: var(--c-text-2); }
+.bar .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar .cap-x { height: 36px; }
+.logo { width: 18px; height: 18px; border-radius: 5px; background: var(--c-primary); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; }
 .urlbar { height: 32px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px; background: var(--c-surface-2); border-bottom: 1px solid var(--c-border); font-size: 11.5px; color: var(--c-text-2); }
-.url { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
-.stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; }
-.adding { font-size: 14px; }
-.note { max-width: 360px; font-size: 12.5px; line-height: 1.6; color: var(--c-text-muted); margin: 0; }
+.url { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.embed { flex: none; padding: 1px 6px; border-radius: 4px; background: var(--c-primary-soft); color: var(--c-info-text); }
+/* macOS: traffic lights (titleBarStyle Overlay) occupy the left of row 1 */
+html[data-platform="macos"] .bar { padding-left: var(--mac-traffic-w); padding-right: 14px; }

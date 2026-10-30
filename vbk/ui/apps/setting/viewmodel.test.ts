@@ -23,7 +23,8 @@ test('reminder settings map to notify commands; others to prefs', () => {
   assert.deepEqual(reminderCommand('timeout_sound', true), { cmd: NotifyCommands.SET_SOUND_ENABLED, payload: { enabled: true } });
   assert.deepEqual(reminderCommand('continuous_l4', true), { cmd: UiCommands.PREFS_SET, payload: { section: 'reminder', key: 'continuous_l4', value: true } });
   assert.deepEqual(prefsCommand('assistant', 'send_mode', 'send_direct'), { cmd: UiCommands.PREFS_SET, payload: { section: 'assistant', key: 'send_mode', value: 'send_direct' } });
-  assert.equal(SECTIONS.length, 8);
+  assert.equal(SECTIONS.length, 9);
+  assert.equal(SECTIONS[SECTIONS.length - 1]?.id, 'about');
   assert.match(sendModeDescription('replace_draft'), /替换草稿/);
   assert.match(sendModeDescription('send_direct'), /直接发送/);
   assert.equal(tsimFormValid(EMPTY_TSIM_FORM), false);

@@ -1,12 +1,21 @@
 /**
- * Settings window: 通用 / 显示 / 通知与提醒 / 快捷键 / 商家助手 / 网络 / 存储 / 隐私.
- * Reminder fields go through `NotifyCommands.*`; everything else through prefs.
+ * Settings window (prototype 02-main `.fwin` 设置): 通用 / 显示 / 通知与提醒 /
+ * 快捷键 / 商家助手 / 网络 / 存储 / 隐私 / 关于与更新.
+ * Reminder fields go through `NotifyCommands.*`; everything else through prefs;
+ * TSim through `assistant_tsim_*`.
+ *
+ * Window chrome: macOS uses the overlay title bar (traffic lights in the left
+ * 78px of a 40px drag strip, no close button); Windows draws the prototype's
+ * 36px `.fwin-h` with its own close button.
  */
+
+import { applyPlatform } from '../_shared/platform.ts';
+const platform = applyPlatform();
 
 import type { ReminderSettings } from '../../packages/ipc/src/contracts.ts';
 import { ALLOWED_T1_SECONDS, isAppError } from '../../packages/ipc/src/contracts.ts';
-import { Events, PrefsCommands } from '../../packages/ipc/src/commands.ts';
-import type { PrefsSection, PrefsSnapshot, UiNetStatus, UiTsimStatus } from '../../packages/ipc/src/client.ts';
+import { AccountCommands, Events, PrefsCommands } from '../../packages/ipc/src/commands.ts';
+import type { PrefsSection, PrefsSnapshot, UiAccountSnapshot, UiNetStatus, UiTsimStatus } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import type { Child } from '../../packages/ui-kit/src/h.ts';
@@ -14,8 +23,9 @@ import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.t
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
-import { guarded, isPrefsSnapshot } from '../_shared/guards.ts';
-import { CACHE_DAY_OPTIONS, EMPTY_TSIM_FORM, SECTIONS, ZOOM_OPTIONS, isSectionId, prefsCommand, reminderCommand, sendModeDescription, tsimFormValid, tsimStatusText } from './viewmodel.ts';
+import { guarded, isPrefsSnapshot, isUiAccountSnapshot } from '../_shared/guards.ts';
+import { CACHE_DAY_OPTIONS, EMPTY_TSIM_FORM, SECTIONS, ZOOM_OPTIONS, isSectionId, prefsCommand, reminderCommand, sectionLabel, sendModeDescription, tsimFormValid, tsimStatusText } from './viewmodel.ts';
+import { SETTING_STRINGS as S, fmt } from './strings.ts';
 import type { SectionId, TsimForm } from './viewmodel.ts';
 
 interface SettingState {
@@ -26,10 +36,13 @@ interface SettingState {
   readonly tsimError: string | null;
   readonly net: UiNetStatus | null;
   readonly toast: string | null;
+  /** Nick of the active account for the title (prototype 「设置 · 昵称」). */
+  readonly nick: string | null;
+  readonly version: string | null;
 }
 
 const params = new URLSearchParams(location.search).get('section');
-const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'notify', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, net: null, toast: null });
+const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'notify', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, net: null, toast: null, nick: null, version: null });
 const sel = selectIpc();
 const ipc = sel.ipc;
 const root = document.getElementById('app');
@@ -253,6 +266,14 @@ function privacySection(p: PrefsSnapshot): Child[] {
   ];
 }
 
+function aboutSection(s: SettingState): Child[] {
+  return [
+    head(S.aboutHead),
+    text(S.version, s.version ?? S.versionUnknown, null),
+    row(S.checkUpdate, S.checkUpdateDesc, h('button', { class: 'btn sm pri', dataset: { action: 'check-update' }, onclick: () => void ipc.invoke(UiCommands.SHELL_OPEN_WINDOW, { label: 'update' }).catch((e: unknown) => toast(msg(e))) }, S.checkUpdate)),
+  ];
+}
+
 function body(s: SettingState, p: PrefsSnapshot): Child[] {
   switch (s.section) {
     case 'general':
@@ -271,30 +292,70 @@ function body(s: SettingState, p: PrefsSnapshot): Child[] {
       return storageSection(p);
     case 'privacy':
       return privacySection(p);
+    case 'about':
+      return aboutSection(s);
     default:
       return [];
   }
+}
+
+function closeWindow(): void {
+  void ipc.invoke(UiCommands.SHELL_WINDOW, { action: 'close' }).catch((e: unknown) => toast(msg(e)));
+}
+
+function titleBar(s: SettingState): HTMLElement {
+  const title = s.nick ? fmt(S.titleWithAccount, { nick: s.nick }) : t('set.title');
+  return h(
+    'div',
+    { class: 'fwin-h', 'data-tauri-drag-region': 'deep' },
+    icon(IC.gear, 14),
+    h('span', { class: 'fwin-title' }, title),
+    h('span', { class: 'sp' }),
+    sel.mock ? h('span', { class: 'muted mock-tag' }, t('app.mockMode')) : null,
+    platform === 'windows' ? h('button', { class: 'cap-x', 'aria-label': S.close, title: S.close, dataset: { action: 'close' }, onclick: closeWindow }, icon(IC.close, 14)) : null,
+  );
 }
 
 function render(s: SettingState): Node {
   return h(
     'div',
     { class: 'setwin' },
-    h('div', { class: 'fwin-h' }, icon(IC.gear, 14), t('set.title'), h('span', { class: 'sp' }), sel.mock ? h('span', { class: 'muted', style: { 'font-size': '11px', 'padding-right': '10px' } }, t('app.mockMode')) : null),
+    titleBar(s),
     h(
       'div',
       { class: 'setbody-wrap' },
-      h('div', { class: 'setnav', role: 'tablist' }, h('div', { class: 'setnav-g' }, t('set.group.desktop')), SECTIONS.map((sec) => h('button', { class: cx({ on: s.section === sec.id }), role: 'tab', 'aria-selected': String(s.section === sec.id), dataset: { section: sec.id }, onclick: () => store.patch({ section: sec.id }) }, t(sec.labelKey)))),
+      h('div', { class: 'setnav', role: 'tablist' }, h('div', { class: 'setnav-g' }, t('set.group.desktop')), SECTIONS.map((sec) => h('button', { class: cx({ on: s.section === sec.id }), role: 'tab', 'aria-selected': String(s.section === sec.id), dataset: { section: sec.id }, onclick: () => store.patch({ section: sec.id }) }, sectionLabel(sec)))),
       h('div', { class: 'setbody', dataset: { keepScroll: 'set' } }, s.prefs ? body(s, s.prefs) : h('div', { class: 'muted' }, t('app.loading'))),
     ),
     s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast) : null,
   );
 }
 
+function activeNick(snap: UiAccountSnapshot): string | null {
+  const a = snap.accounts.find((x) => x.context.account_id === snap.active_account_id) ?? null;
+  return a ? (a.remark ?? a.nick) : null;
+}
+
 subscribeBatched(store, (s) => rerender(root, () => render(s)));
 rerender(root, () => render(store.get()));
 
 ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, (p) => store.patch({ prefs: p })));
+ipc.listen<unknown>(Events.ACCOUNT_CHANGED, guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, (snap) => store.patch({ nick: activeNick(snap) })));
+void ipc
+  .invoke<unknown>(AccountCommands.SNAPSHOT)
+  .then((snap) => {
+    if (isUiAccountSnapshot(snap)) store.patch({ nick: activeNick(snap) });
+  })
+  .catch(() => undefined);
+// Tauri core `app` plugin (granted by core:default); the mock has no version.
+if (!sel.mock) {
+  void ipc
+    .invoke<unknown>('plugin:app|version')
+    .then((v) => {
+      if (typeof v === 'string' && v) store.patch({ version: v });
+    })
+    .catch(() => undefined);
+}
 void (async () => {
   try {
     const [p, net] = await Promise.all([ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT), ipc.invoke<UiNetStatus>(UiCommands.NET_STATUS, {}).catch(() => null)]);
