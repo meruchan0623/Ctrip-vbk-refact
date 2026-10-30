@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VBooking 商家客户端",
+  "version": "0.1.0",
+  "identifier": "tech.tsim.vbk.client",
+  "build": {
+    "frontendDist": "../ui/dist",
+    "devUrl": "http://localhost:5174"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; frame-src 'none'; object-src 'none'",
+      "dangerousDisableAssetCspModification": false,
+      "freezePrototype": true
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "VBooking 商家客户端",
+        "url": "apps/main/index.html",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 980,
+        "minHeight": 640,
+        "visible": false,
+        "decorations": true
+      }
+    ],
+    "trayIcon": {
+      "id": "main",
+      "iconPath": "icons/tray.png",
+      "iconAsTemplate": false,
+      "tooltip": "VBooking 商家客户端"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "nsis": { "installMode": "currentUser" }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "setting",
+  "description": "setting window: prefs and reminder settings",
+  "windows": ["setting"],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-prefs-snapshot",
+    "allow-account-snapshot",
+    "allow-notify-set-enabled",
+    "allow-notify-set-threshold",
+    "allow-notify-set-sound-enabled"
+  ]
+}

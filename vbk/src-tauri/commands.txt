@@ -1,0 +1,20 @@
+# One command per line; mirrors ui/packages/ipc/src/commands.ts.
+notify_snapshot
+notify_open_conversation
+notify_hide_round
+notify_hide_all
+notify_snooze
+notify_set_enabled
+notify_set_threshold
+notify_set_sound_enabled
+account_snapshot
+account_start_login
+account_switch
+account_suspend
+account_logout
+account_forget
+im_push_fact
+im_conversation_snapshot
+im_locate_conversation
+order_validate_im_url
+prefs_snapshot

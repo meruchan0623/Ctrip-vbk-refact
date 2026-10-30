@@ -1,0 +1,44 @@
+[package]
+name = "vbk-host"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "UNLICENSED"
+publish = false
+description = "Tauri 2 host for the VBooking web-IM client: windows, tray, command ACL, 1 Hz scheduler. Standalone package (not in the std-only workspace); build on Windows with `cargo tauri build`."
+
+# This package is intentionally NOT a member of `vbk/Cargo.toml`'s workspace:
+# it needs a crate registry and WebView2, which the cloud check environment
+# does not have. Core crates are consumed by path.
+[workspace]
+
+[lib]
+name = "vbk_host"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+contracts = { path = "../crates/contracts" }
+core-account = { path = "../crates/core-account" }
+core-store = { path = "../crates/core-store" }
+core-net = { path = "../crates/core-net" }
+core-im = { path = "../crates/core-im" }
+core-notify = { path = "../crates/core-notify" }
+core-assistant = { path = "../crates/core-assistant" }
+
+# FND-01 locks exact versions on the first Windows build; these are the
+# minimum majors the code is written against (Tauri 2.x with work_area()).
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+[features]
+default = []
+# Dev builds may open devtools; release builds never do (archive §5).
+devtools = ["tauri/devtools"]
