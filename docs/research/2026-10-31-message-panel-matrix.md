@@ -1,6 +1,21 @@
 # 消息面板可见字段与按钮对照矩阵
 
-核对日期：2026-10-31（Asia/Singapore）。本文件由已有脱敏采证材料及当前工作区源码只读编制；编制者没有操作浏览器、官方桌面、助手或自制客户端，也没有发出任何生产请求。所有例子为合成展示值，不能发送到真实接口；示例字段省略不代表真实请求可省略 head、鉴权或上下文。
+核对日期：2026-10-31（Asia/Singapore）。初版由已有脱敏采证材料及源码只读编制；后续主代理已追加ego和原生实测。下列第3轮更新优先于初版源码快照，未取得的端证据仍明确保留。所有例子为合成展示值，不能发送到真实接口；示例字段省略不代表真实请求可省略 head、鉴权或上下文。
+
+## 第3轮实测更新（2026-10-31）
+
+| 本次范围 | 官方网页/真实字段 | 项目代码与脱敏样例 | 当前状态及证据 |
+|---|---|---|---|
+| 本人/商户成员消息靠右 | 用户明确覆盖默认布局；sender_role仍按真实身份确定 | main.messageRow → messageAlignment；synthetic-self/colleague | fa45301已提交，独立7项与真实messageRow评审通过；第3轮原生本人和Sara商户同事均在右侧、客户卡在左侧。其他商户消息没有本人重试/发送状态权限 |
+| 每人头像与姓名 | members[].uid/nick/avatar；remarkList[].username/nickName/avatar；本人GetMyInfo.jid与venAgent.ctripUid相等才用agent头像 | RoleBook.profileOf、identity.selfProfile、boot→session；https://example.invalid/person.png | foundation 2b73b74独立12项通过；10-31 ego成员4条均有头像，self/customer DOM已对应，消息d41e5fd、列表/标题d3aaaa5、账号d152f66、成员/邀请eb67560均已提交并独立离线通过；客户侧卡/提醒5db15cc已提交；第3轮新包全部回退文字占位，ego实际meta CSP拦截dimg04，修复/复验进行中。见[人员资料](../api/person-profiles.md)，不称三端头像通过 |
+| 常规启动密钥读取 | 标记存在查询不是获取登录密码 | KeychainStore.probe、CredentialLedger.recover；synthetic marker | e49ca90元数据查询+不可用保留引用已提交，核心301/host59通过；第3轮启动自动恢复账号且无需再次点提示，仅证明一次启动 |
+| 文本客户端→官方 | callback confirmed有效消息ID；官方stanza同字符串ID | sdkFacade/send、主UI消息ID；合成R3-C标记 | 第3轮04:56:10单次原生发送，官方可见且服务端ID逐字匹配；官方显示未读，不能记客户已读 |
+| 官方→客户端实时 | stanza groupchat与HTTP历史 | sdkGlue/session/DisplayCache；合成R3-W标记 | 第3轮05:02:03官方发送，49秒未自动到达；加载历史后正文/发送者/服务端ID对应。连续三轮实时失败，转脱敏链路计数诊断，不倒推根因 |
+| 同步帧/单聊路由 | 官方sys_muc→groupchat、sys_mam→chat；本人uid与room/peer区分 | resolveSdkAddress、createAdapter动态rolesProxy | 58f46fd与65117a8已提交，含动态身份突变红→绿，SDK健康重绑c73f5ad已提交并离线验证。并非native实时已经通过 |
+| unknown重启屏障 | 上游缺少已验证幂等保证，local_id仅关联键 | im_send_text→send_once→FileStore；synthetic local_id | 79e5e50已提交，写前fsync与stable account/local_id去重，独立host72/专项13通过；新包重启及专用只读核验UI未验，首轮unknown不可补造历史账本 |
+| 媒体/引用撤回/重连 | 分别需要真实资源/引用ID及状态读回 | 现有media/upload函数及UI | 第3轮视频仍Invalid；10-31 ego同历史视频已加载readyState4/error=null，不能归因素材失效。媒体发送仍阻断伪文本；引用撤回/可靠重连未完成 |
+
+本表真实运行依据：[第3轮记录](2026-10-31-round3-runtime.md)。新包为target/bundle、PID80117、binary hash0e5a3915…65f56c8，TS387/核心301/宿主95及完整构建门禁通过，实机未通过。官方桌面CUA超时、助手认证失败继续生效，网页证据不能代替对应端视觉。
 
 ## 证据层级与三个界面边界
 

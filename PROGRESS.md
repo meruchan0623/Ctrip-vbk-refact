@@ -1,6 +1,17 @@
 # VBooking 消息面板对齐（2026-10-31）
 
-## 当前执行断点：2026-10-31 /goal 任务 0
+## 最新断点：第3轮新包已实际运行，实机未通过（完整轮数3/6）
+- 冻结源码 `5db15cc7f4cc5fb48e3a2525dafc418f607cc954` + 保留dirty；302文件manifest SHA256 `6cd2ac56dfd89b7e3a393e7270cf62ad1c9314ffc1f1e7233eff93a275181072`。
+- 第3轮完整门禁通过：TS387 / 核心301 / 宿主95，0失败/跳过；typecheck、bundle、diff及Tauri app/dmg通过。原始日志位于 /tmp/vbk-goal-20261031/round3-*。
+- 新包实际PID80117，路径 target/aarch64-apple-darwin/release/bundle/macos；binary `0e5a391588e81d60aeb9a425513df5b2aa8731c92f8b5c7c16be010f265f56c8`，DMG `1e43f751e3cefaa4809b479a79157c827f882a01c8b58d9ac631b7d64e6bf59a`。源码/产物/运行路径已对应。
+- 本次启动自动恢复Meru及12个会话，未再需要用户处理钥匙串提示；仅证明本次启动，不保证永不弹窗。
+- 受控客户/订单在网页和原生重新双核，真实iframe gid与原记录一致。04:56:10原生C仅发一次，confirmed、官方可见，双方服务端ID逐字一致；官方仍显示未读，无客户已读证据。
+- 05:02:03官方W仅发一次，49秒后原生仍无；05:05加载旧页后可见，服务端ID逐字一致，实时第三次失败。已改用脱敏链路诊断路线，不再推测根因。
+- 头像实机未通过：接口姓名已到达，但账号、列表、标题、消息和侧卡图片均落回文字占位。历史视频仍Invalid；同资源官方页面实测readyState4/error=null可播放。已用ego复现HTML meta CSP阻止dimg04，正在修正；不能称头像完成。
+- 本人及商户同事Sara消息右侧原生均已见，客户订单卡仍在左侧；三端全面对齐尚未实机核验。官方桌面CUA超时、助手认证失败等仍见BLOCKED。
+- 本轮前逐块提交：d3aaaa5列表/标题、d152f66本人资料、eb67560周边安全链、5db15cc客户侧卡/提醒。均经独立暂存验证和独立评审；周边真实动作与unknown只读UI仍未验。
+
+## 任务0与前两轮过程记录（历史）
 - 已读三份断点文档并完成 7 行开工回执；保留 24 个跟踪改动及 6 个未跟踪文件，HEAD 00efc740。
 - 基线复核：TS 202、核心 Rust 300、宿主 58，失败/跳过均 0；typecheck、diff 检查通过。TS 原始输出 /tmp/vbk-goal-baseline-ts.tap。
 - ego-browser 复用 TaskSpace 1/p1，网页登录有效，标题客户与侧栏订单双核成功；本轮已由真实iframe解析gid（见下），尚未出站。
@@ -47,6 +58,8 @@
 - 用户新增每个人接口头像：已ego重读成员接口HTTP200/AckSuccess并与DOM比对，正补本人UID校验/资料优先级及UI回执不擦除/加载失败占位；未称整体完成。
 
 - 接口人员资料foundation提交 `2b73b74`：独立12tests/typecheck/bundle与只读评审通过；当前正在补齐消息DTO/UI头像显示及同sender合并防串人。
+
+- 消息接口头像与专用profile增量提交 `d41e5fd`：独立TS313/host74/typecheck/bundle通过；评审捕获迟到头像覆盖confirmed的P2已修复，资料patch不重放正文/回执。列表/成员等另块进行，第3轮未构建。
 
 ## 上轮状态（历史）：用户要求重勘并重写 leader 目标
 - 已停止上一轮新代码实施；当前进行任务书交付，保留未提交改动。
