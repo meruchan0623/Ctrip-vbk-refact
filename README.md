@@ -18,6 +18,7 @@
 | [网页提醒调查](docs/research/2026-10-30-web-reminders.md) | 网页实际行为，区别于新扩展 |
 | [网页 IM 调查](docs/research/2026-10-30-web-im-observation.md) | 消息、鉴权与传输证据及其边界 |
 | [接口复查](docs/research/2026-10-30-missing-apis.md) | 网页必要契约的已知项与剩余验证 |
+| [后端接口支持对照](docs/research/2026-10-30-backend-support-matrix.md) | 每个功能按“已观测 / 仅静态 / 无携程接口”三类分列 |
 
 ## 文档状态
 
