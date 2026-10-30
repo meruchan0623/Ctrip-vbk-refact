@@ -136,6 +136,12 @@ function partnerJidOf(ctx: RpcContext, gid: string): string | null {
   return ctx.sdk.partnerJidOf(gid) ?? roomJidFromMessage(gid, ctx.store.view(gid)?.lastMessage ?? null);
 }
 
+/** Bind a send to the captured service and sender context, never a later row
+ * with the same gid. Volatile message/order enrichment is not a target field. */
+function sendIdentity(ctx: RpcContext, view: ReturnType<typeof requireConversation>): string {
+  return JSON.stringify([view.gid, view.sessionId, view.customerUid, view.conversationType, view.serviceType, view.threadId, view.conversationKey ?? null, view.worksheetId, contextFingerprint(ctx)]);
+}
+
 // ------------------------------------------------------------- agent status read-back
 
 export async function readCurrentStatus(ctx: RpcContext): Promise<AgentStatus | null> {
@@ -197,14 +203,32 @@ const imMessages: Handler<'im.messages'> = async (ctx, args) => {
   return items;
 };
 
-function sendOnce(ctx: RpcContext, gid: string, localId: string, text: string, original: string | null, quoteId: string | null): Promise<SendDisposition> {
+async function sendOnce(ctx: RpcContext, gid: string, localId: string, text: string, original: string | null, quoteId: string | null, attempt: { started: boolean }): Promise<SendDisposition> {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  ensureCurrent(current);
   const view = requireConversation(ctx, gid);
+  const identity = sendIdentity(ctx, view);
+  let targetJid = partnerJidOf(ctx, gid);
+  const checkTarget = (): string | null => {
+    ensureCurrent(current);
+    if (sendIdentity(ctx, requireConversation(ctx, gid)) !== identity) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation identity changed before submission (nothing sent)');
+    const liveTarget = partnerJidOf(ctx, gid);
+    if (targetJid !== null && liveTarget !== targetJid) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation target changed before submission (nothing sent)');
+    return liveTarget;
+  };
   if (view.serviceType === '') fail(ErrorCodes.ADAPTER_FAILED, 'serviceType unknown for this conversation');
   if (!ctx.sdk.canSend) fail(ErrorCodes.HOST_UNSUPPORTED, 'official SDK send entry not found on the page (nothing sent)');
-  if (!partnerJidOf(ctx, gid)) fail(ErrorCodes.ADAPTER_NOT_READY, 'target jid not known yet (nothing sent)', true);
+  checkTarget();
+  if (!partnerJidOf(ctx, gid)) await imMessages(ctx, { gid }, { sends: new Map(), categories: new Map(), selectionNamespace: '' });
+  // A history read may learn the original room. It cannot authorize replacing
+  // the service/customer/thread captured before awaiting that read.
+  targetJid = checkTarget();
+  if (!targetJid) fail(ErrorCodes.ADAPTER_NOT_READY, 'target jid not known yet (nothing sent)', true);
   const base = createSendIntent(ctx.deps, gid, text, { serviceType: view.serviceType, threadId: view.threadId }, quoteId ? { citemsgid: quoteId } : undefined);
   // the host's local_id is the correlation key end to end
   const intent: SendIntent = { ...base, localId, body: { ...base.body, localid: localId } };
+  checkTarget();
+  attempt.started = true;
   return submitIntent(ctx.deps, ctx.sdk, intent, ctx.sendAckTimeoutMs ?? SEND_ACK_TIMEOUT_MS).then((result) => {
     ctx.pushFact({ kind: 'message', fact: result.fact });
     const d = result.disposition;
@@ -240,9 +264,13 @@ const imSendText: Handler<'im.send_text'> = async (ctx, args, state) => {
   const quoteId = typeof a['quote_id'] === 'string' && a['quote_id'] !== '' ? a['quote_id'] : null;
   const existing = state.sends.get(localId);
   if (existing) return existing; // same local_id: never a second submission
-  const p = sendOnce(ctx, gid, localId, text, original, quoteId);
+  const attempt = { started: false };
+  const p = sendOnce(ctx, gid, localId, text, original, quoteId, attempt).catch((error: unknown): SendDisposition => {
+    if (attempt.started) return { kind: 'unknown' };
+    throw error;
+  });
   state.sends.set(localId, p);
-  p.catch(() => state.sends.delete(localId)); // a pre-send validation error sent nothing; a retry may submit
+  p.catch(() => { if (!attempt.started) state.sends.delete(localId); }); // Only proven pre-submit failures can release this page-local memo.
   return p;
 };
 
