@@ -358,6 +358,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
       return (client as { status?: unknown } | null)?.status === 'online';
     },
     sendMessage(req: SdkSendRequest) {
+      if (disposed) throw new Error('sdk disposed (nothing sent)');
       const f = facade();
       if (typeof f?.sendMessageInSocket !== 'function') throw new Error('sdk send unavailable');
       const partnerJid = partnerJids.get(req.gid);
@@ -395,6 +396,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
       }
     },
     async putAdviceOfReadByMsgId(req: SdkReadReceiptRequest): Promise<SdkCallOutcome> {
+      if (disposed) throw new Error('sdk disposed (nothing sent)');
       const f = facade();
       if (typeof f?.putAdviceOfReadByMsgId === 'function') {
         const raw = await f.putAdviceOfReadByMsgId.call(f, { partnerJid: req.partnerJid, msgId: req.msgId, conversationType: req.conversationType });
