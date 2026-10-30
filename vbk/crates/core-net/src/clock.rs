@@ -118,8 +118,8 @@ impl ClockService {
     pub fn reading(&mut self, local_wall_ms: i64, monotonic_ms: u64) -> ClockReading {
         if let Some((w0, m0)) = self.last_seen {
             let d_wall = local_wall_ms.saturating_sub(w0);
-            let d_mono = monotonic_ms.saturating_sub(m0) as i64;
-            if (d_wall - d_mono).unsigned_abs() > self.jump_threshold_ms {
+            let d_mono = i64::try_from(monotonic_ms.saturating_sub(m0)).unwrap_or(i64::MAX);
+            if d_wall.saturating_sub(d_mono).unsigned_abs() > self.jump_threshold_ms {
                 self.jump_detected = true;
             }
         }
@@ -133,7 +133,9 @@ impl ClockService {
             },
             Some(a) => {
                 let elapsed = monotonic_ms.saturating_sub(a.monotonic_at_anchor_ms);
-                let server_now_ms = a.server_at_anchor_ms.saturating_add(elapsed as i64);
+                let server_now_ms = a
+                    .server_at_anchor_ms
+                    .saturating_add(i64::try_from(elapsed).unwrap_or(i64::MAX));
                 let expired = elapsed > self.validity_ms;
                 let quality = if expired || self.jump_detected || self.invalidated {
                     ClockQuality::Stale
@@ -369,5 +371,25 @@ mod tests {
         assert_eq!(r.state(), ReconcileState::Normal);
         assert!(!r.complete(g2));
         assert_eq!(r.current_generation(), g2);
+    }
+
+    #[test]
+    fn extreme_wall_and_monotonic_values_never_overflow() {
+        // QA regression: `|Δwall − Δmonotonic|` used plain subtraction and
+        // overflowed when the wall clock jumped from i64::MAX to i64::MIN.
+        let mut c = ClockService::default();
+        c.anchor_from_server(i64::MAX, i64::MAX, 0, u64::MAX);
+        let r = c.reading(i64::MIN, 1);
+        assert_eq!(r.quality, ClockQuality::Stale);
+        let r = c.reading(i64::MAX, u64::MAX);
+        assert_eq!(r.monotonic_ms, u64::MAX);
+        // Elapsed beyond i64::MAX saturates instead of running backwards.
+        let mut s = ClockService::new(u64::MAX);
+        s.anchor_from_server(0, 0, 0, 0);
+        assert_eq!(s.reading(0, u64::MAX).server_now_ms, i64::MAX);
+        let mut n = ClockService::default();
+        n.anchor_from_server(i64::MIN, i64::MIN, u64::MAX, 0);
+        let _ = n.reading(i64::MAX, 0);
+        let _ = n.reading(i64::MIN, u64::MAX);
     }
 }

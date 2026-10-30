@@ -528,3 +528,73 @@ fn settings_disable_hides_and_enable_raises_again() {
     assert_eq!(raises(&fx), 1);
     assert_eq!(sounds(&fx, Sound::Timeout), 0, "sound already played for this round");
 }
+
+// ------------------------------------------------------- QA regressions
+
+#[test]
+fn round_that_becomes_unpresentable_and_presentable_again_is_shown_again() {
+    // A shown L3 round is demoted to 待核对 by core-im (window hidden) and
+    // later confirmed again: the window must come back, without a second
+    // timeout sound.
+    let mut core = NotifyCore::new();
+    let a = acc("a", 1);
+    let base = t0();
+    open_round(&mut core, &a, "g1", &base);
+    let fx = drive(&mut core, &base, 0, 31);
+    assert_eq!(raises(&fx), 1);
+    assert_eq!(sounds(&fx, Sound::Timeout), 1);
+    let fx = core.apply_round_event(
+        RoundEvent::Started {
+            round: rref(&a, "g1", "r-g1", 2),
+            start_message_id: Some("m1".into()),
+            start_time_ms: Some(base.server_now_ms),
+            start_confirmed: false,
+            label: "c***r".into(),
+        },
+        &base.plus_ms(40_000),
+    );
+    assert!(has(&fx, &Effect::HideAlarm));
+    assert!(!core.alarm_visible());
+    let mut fx = core.apply_round_event(
+        RoundEvent::StartConfirmed {
+            round: rref(&a, "g1", "r-g1", 3),
+            start_message_id: "m1".into(),
+            start_time_ms: base.server_now_ms,
+        },
+        &base.plus_ms(41_000),
+    );
+    fx.extend(drive(&mut core, &base.plus_ms(41_000), 0, 2));
+    assert_eq!(shows(&fx), 1, "{fx:?}");
+    assert!(core.alarm_visible());
+    assert_eq!(sounds(&fx, Sound::Timeout), 0);
+    // Same through a clock re-anchor that moves the deadline later.
+    let mut core = NotifyCore::new();
+    let stale = Now::new(0, 1_000_000, false);
+    let mut fx = core.apply_round_event(started(rref(&a, "g2", "r-g2", 1), Some(1_000_000 - 40_000), true), &stale);
+    fx.extend(core.tick(&stale));
+    assert_eq!(raises(&fx), 1, "estimate is overdue");
+    // Trusted anchor says the server is 50 s *behind* the estimate.
+    core.apply_clock(ClockReading {
+        server_now_ms: 1_000_000 - 50_000,
+        monotonic_ms: 1_000,
+        quality: ClockQuality::Anchored { offset_ms: 0, error_ms: 10 },
+    });
+    let fx = core.tick(&Now::new(1_000, 1_000_000 - 50_000, true));
+    assert!(has(&fx, &Effect::HideAlarm), "not due any more on the trusted axis");
+    let fx = drive(&mut core, &Now::new(1_000, 1_000_000 - 50_000, true), 0, 41);
+    assert_eq!(raises(&fx), 1, "due again → shown again");
+}
+
+#[test]
+fn invalidated_at_max_generation_does_not_overflow() {
+    let mut core = NotifyCore::new();
+    let a = acc("a", u64::MAX);
+    let base = t0();
+    open_round(&mut core, &a, "g1", &base);
+    let fx = core.apply_round_event(RoundEvent::Invalidated { round: rref(&a, "g1", "r-g1", 1) }, &base);
+    assert!(core.rounds().is_empty());
+    assert!(!has(&fx, &Effect::ShowAlarm { raise: true }));
+    // u64::MAX has no successor: the identity simply cannot be re-published
+    // under a newer generation; the point is that nothing panicked.
+    assert!(core.rounds().is_empty());
+}

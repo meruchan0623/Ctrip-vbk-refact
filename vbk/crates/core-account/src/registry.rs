@@ -625,7 +625,7 @@ impl AccountRegistry {
         self.accounts
             .values()
             .filter(|r| &r.environment == environment)
-            .map(|r| r.order + 1)
+            .map(|r| r.order.saturating_add(1))
             .max()
             .unwrap_or(0)
     }
@@ -1301,7 +1301,8 @@ impl AccountRegistry {
                     agent_id: s("agent_id"),
                     profile_id,
                     remark: s("remark"),
-                    order: row.get("order").and_then(JsonValue::as_i64).unwrap_or(0).max(0) as u32,
+                    order: u32::try_from(row.get("order").and_then(JsonValue::as_i64).unwrap_or(0).max(0))
+                        .unwrap_or(u32::MAX),
                     work_status: WorkStatus::Unknown,
                     transport_connected: false,
                 },

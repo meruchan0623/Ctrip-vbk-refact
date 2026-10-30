@@ -346,3 +346,28 @@ fn restart_restores_accounts_and_never_reaccepts_old_generations() {
     assert!(again.session_generation >= 200);
     assert!(from_backup.validate(&ctx).is_err());
 }
+
+#[test]
+fn restored_order_at_u32_max_does_not_overflow_when_adding_an_account() {
+    // QA regression: `next_order` computed `order + 1`; a restored row with
+    // order u32::MAX (hostile or truncated document) made the next
+    // `publish_identity` panic.
+    let mut reg = AccountRegistry::new(BOOT);
+    let ctx = login(&mut reg, "buid-a");
+    let mut doc = reg.to_json();
+    let mut accounts = doc.get("accounts").and_then(|v| v.as_array().cloned()).expect("accounts");
+    accounts[0].insert("order", contracts::json::JsonValue::number_from_i64(i64::from(u32::MAX)));
+    doc.insert("accounts", contracts::json::JsonValue::Array(accounts));
+    let mut reg = AccountRegistry::restore(&doc, BOOT + 1).expect("restore");
+    let other = login(&mut reg, "buid-b");
+    assert_ne!(other.account_id, ctx.account_id);
+    let snap = reg.account_snapshot();
+    assert_eq!(snap.data.accounts.len(), 2);
+    // Out-of-range orders saturate instead of truncating to a small value.
+    let mut doc = reg.to_json();
+    let mut accounts = doc.get("accounts").and_then(|v| v.as_array().cloned()).expect("accounts");
+    accounts[0].insert("order", contracts::json::JsonValue::number_from_i64(1 << 40));
+    doc.insert("accounts", contracts::json::JsonValue::Array(accounts));
+    let reg = AccountRegistry::restore(&doc, BOOT + 2).expect("restore");
+    assert!(reg.account_snapshot().data.accounts.iter().any(|a| a.order == u32::MAX));
+}

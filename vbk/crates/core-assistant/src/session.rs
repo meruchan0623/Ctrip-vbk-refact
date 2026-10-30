@@ -328,9 +328,10 @@ impl TsimSession {
     /// Instant at which a refresh should run: `exp − 5 min`, or
     /// `issued_at + 30 min` when the expiry is unknown.
     pub fn refresh_deadline_ms(&self) -> i64 {
+        // `exp` comes from an untrusted JWT payload: saturate at the limits.
         match self.expires_at_ms {
-            Some(exp) => exp - REFRESH_LEAD_MS,
-            None => self.issued_at_ms + FALLBACK_REFRESH_CYCLE_MS,
+            Some(exp) => exp.saturating_sub(REFRESH_LEAD_MS),
+            None => self.issued_at_ms.saturating_add(FALLBACK_REFRESH_CYCLE_MS),
         }
     }
 
@@ -547,5 +548,50 @@ mod tests {
         assert_eq!(s.issued_at_ms, 10);
         assert_eq!(s.expires_at_ms, Some(99));
         assert!(!format!("{s:?}").contains("t2"));
+    }
+
+    #[test]
+    fn hostile_exp_values_saturate_the_refresh_deadline() {
+        // QA regression: `exp - REFRESH_LEAD_MS` overflowed for a JWT whose
+        // `exp` is near i64::MIN / 1000.
+        for exp in [i64::MIN, i64::MIN + 1, -1, 0, i64::MAX] {
+            let s = TsimSession::from_token(
+                TokenData {
+                    access_token: SecretString::new("opaque"),
+                    token_type: "bearer".into(),
+                    session_ref: "s".into(),
+                    expires_at_ms: Some(exp),
+                },
+                i64::MAX,
+                1,
+            );
+            let d = s.refresh_deadline_ms();
+            assert!(d <= exp);
+            assert!(s.refresh_due(i64::MAX));
+        }
+        let s = TsimSession::from_token(
+            TokenData {
+                access_token: SecretString::new("opaque"),
+                token_type: "bearer".into(),
+                session_ref: "s".into(),
+                expires_at_ms: None,
+            },
+            i64::MAX,
+            1,
+        );
+        assert_eq!(s.refresh_deadline_ms(), i64::MAX);
+        let token = jwt_with_exp(-9_223_372_036_854_775);
+        assert_eq!(jwt_exp_ms(&token), Some(-9_223_372_036_854_775_000));
+        let s = TsimSession::from_token(
+            TokenData {
+                access_token: SecretString::new(token),
+                token_type: "bearer".into(),
+                session_ref: "s".into(),
+                expires_at_ms: None,
+            },
+            0,
+            1,
+        );
+        assert_eq!(s.refresh_deadline_ms(), i64::MIN);
     }
 }

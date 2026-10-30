@@ -1344,3 +1344,121 @@ fn auth_invalid_is_reported_not_acted_on() {
     h.waiting();
     assert!(h.events().is_empty());
 }
+
+// ------------------------------------------------------- QA regressions
+
+#[test]
+fn echo_after_local_rejection_confirms_outbox_and_index_and_clears_round() {
+    // The SDK reported a failure, but the server echoes the message back
+    // with our local id: the customer received it. Outbox and index must
+    // both say confirmed and the round ends.
+    let mut h = Harness::new();
+    h.message(customer("c1", 10_000));
+    h.events();
+    let intent = h.core.create_send_intent(GID, 11_000).unwrap();
+    h.core.mark_submitted(&intent.local_id).unwrap();
+    h.core
+        .apply_send_result(
+            &intent.local_id,
+            SendDisposition::Rejected {
+                code: "E".into(),
+                reason: "sdk".into(),
+            },
+        )
+        .unwrap();
+    h.waiting();
+    let mut echo = msg("t1", 12_000, SenderRole::MerchantSelf, MessageSource::Realtime);
+    echo.local_id = Some(intent.local_id.clone());
+    assert!(matches!(h.message(echo).message, Some(MergeOutcome::Linked { .. })));
+    assert!(h
+        .core
+        .index()
+        .find_by_message_id(GID, "t1")
+        .unwrap()
+        .is_confirmed_merchant_reply());
+    assert_eq!(
+        h.core.outbox().get(&intent.local_id).unwrap().state,
+        SendState::Confirmed {
+            server_message_id: "t1".into(),
+            server_time_ms: 12_000
+        }
+    );
+    assert!(h.core.round_state(GID).is_idle());
+    assert_eq!(
+        ended_reason(&h.events()),
+        Some(RoundEndReason::MerchantReplyConfirmed)
+    );
+    // Still no path to a resend afterwards.
+    assert!(h.core.mark_submitted(&intent.local_id).is_err());
+}
+
+#[test]
+fn sequence_exhaustion_at_u64_max_breaks_the_stream_instead_of_overflowing() {
+    let mut h = Harness::new();
+    let mut env = h.envelope(StreamId::Message, Fact::Message(customer("c1", 1)));
+    env.seq = u64::MAX;
+    assert!(h.core.ingest(env.clone()).unwrap().applied);
+    env.fact = Fact::Message(customer("c2", 2));
+    let rep = h.core.ingest(env.clone()).unwrap();
+    assert!(!rep.applied);
+    assert_eq!(
+        rep.dropped,
+        Some(DropReason::Gap {
+            expected: u64::MAX,
+            got: u64::MAX
+        })
+    );
+    assert_eq!(rep.needs_resync, Some(StreamId::Message));
+    assert!(h.core.is_reconciling());
+    // Only a new epoch brings the stream back.
+    h.core
+        .resync_complete(StreamId::Message, StreamCursor::new(2, 0));
+    env.epoch = 2;
+    env.seq = 1;
+    assert!(h.core.ingest(env).unwrap().applied);
+    assert_eq!(h.core.reconcile_state(), ReconcileState::Normal);
+}
+
+#[test]
+fn reply_sent_before_the_customer_message_was_indexed_is_judged_by_server_order() {
+    // Restart: the index is empty, the agent answers from the web page at
+    // once (intent without a customer boundary), then compensation brings
+    // the customer message that was stamped *before* the reply.
+    let mut h = Harness::new();
+    let intent = h.core.create_send_intent(GID, 20_000).unwrap();
+    assert_eq!(intent.customer_boundary_message_id, None);
+    h.core.mark_submitted(&intent.local_id).unwrap();
+    h.core
+        .apply_send_result(
+            &intent.local_id,
+            SendDisposition::Confirmed {
+                server_message_id: "t1".into(),
+                server_time_ms: 20_000,
+            },
+        )
+        .unwrap();
+    h.message(msg("c1", 10_000, SenderRole::Customer, MessageSource::Compensation));
+    assert!(h.core.round_state(GID).is_idle(), "c1 was answered: no false alarm");
+    assert!(h.events().is_empty());
+    // Proactive message, then a customer message stamped *after* it: a
+    // round starts (the reply cannot have answered it).
+    h.message(customer("c2", 30_000));
+    assert_eq!(h.waiting().start_message_id.as_deref(), Some("c2"));
+    assert_eq!(h.events().len(), 1);
+    // Equal stamps stay ambiguous (待核对), never cleared.
+    let mut h2 = Harness::new();
+    let i2 = h2.core.create_send_intent(GID, 5_000).unwrap();
+    h2.core.mark_submitted(&i2.local_id).unwrap();
+    h2.core
+        .apply_send_result(
+            &i2.local_id,
+            SendDisposition::Confirmed {
+                server_message_id: "t2".into(),
+                server_time_ms: 5_000,
+            },
+        )
+        .unwrap();
+    h2.message(customer("c3", 5_000));
+    assert!(!h2.pending().start_confirmed);
+}
+

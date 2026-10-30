@@ -265,7 +265,12 @@ impl NotifyCore {
                 let gen = round.account.session_generation;
                 let key = persistent_key(&round.account);
                 out.extend(self.purge_account(&key, Some(gen)));
-                let next = self.generations.get(&key).copied().unwrap_or(0).max(gen + 1);
+                let next = self
+                    .generations
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(0)
+                    .max(gen.saturating_add(1));
                 self.generations.insert(key, next);
             }
             RoundEvent::Started {
@@ -708,6 +713,11 @@ impl NotifyCore {
             r.expire_snooze(now);
             r.advance(now, &settings);
             if !settings.enabled || !r.is_presentable(now, t1_ms, barrier) {
+                // Not presentable right now (待核对, below T1 again after a
+                // re-anchor, snoozed, pending restore…): forget how it was
+                // presented so that it is shown again when it becomes
+                // presentable. The one-shot sound flag is untouched.
+                r.clear_presentation();
                 continue;
             }
             any_presentable = true;

@@ -107,7 +107,9 @@ fn num(s: &str) -> Option<i64> {
 /// TSim `expires_at`).
 pub fn parse_iso8601_ms(s: &str) -> Option<i64> {
     let s = s.trim();
-    if s.len() < 16 {
+    // Every slice below is by byte offset; a multi-byte character anywhere
+    // would make `&s[a..b]` panic. The format is ASCII only.
+    if s.len() < 16 || !s.is_ascii() {
         return None;
     }
     let b = s.as_bytes();
@@ -213,5 +215,22 @@ mod tests {
         assert_eq!(parse_iso8601_ms("garbage"), None);
         assert_eq!(parse_iso8601_ms("2026-10-30T12:00:00+8"), None);
         assert_eq!(parse_iso8601_ms("2026-10-30T12:00:00.Z"), None);
+    }
+
+    #[test]
+    fn iso8601_multibyte_input_is_rejected_not_a_panic() {
+        // QA regression: byte-offset slices landed inside a multi-byte
+        // character (`&s[14..16]` with "é" at bytes 15..17).
+        for s in [
+            "2026-10-30T12:0é",
+            "2026-10-30T12:00:0é",
+            "2026-10-30T12:00:00+aéb",
+            "2026-10-30T12:00:00+é:00",
+            "2026-10-30T12:00:00.5é",
+            "2026-10-30T12:00:00Z中",
+            "éééé-10-30T12:00",
+        ] {
+            assert_eq!(parse_iso8601_ms(s), None, "{s}");
+        }
     }
 }

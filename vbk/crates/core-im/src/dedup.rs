@@ -134,7 +134,7 @@ impl MessageRecord {
                 // local rejection.
                 self.take_confirmed(fact)
             }
-            (Some(SendDisposition::Rejected { .. }), _) => false,
+            (Some(SendDisposition::Rejected { .. }), Some(_)) => false,
             (_, Some(SendDisposition::Confirmed { .. })) => self.take_confirmed(fact),
             (_, Some(SendDisposition::Rejected { .. })) => {
                 self.disposition = fact.disposition.clone();
@@ -144,9 +144,10 @@ impl MessageRecord {
                 self.disposition = Some(SendDisposition::Unknown);
                 true
             }
-            (Some(SendDisposition::Unknown), None) => {
+            (Some(SendDisposition::Unknown), None) | (Some(SendDisposition::Rejected { .. }), None) => {
                 // Inbound echo of our own outbound message (回推先于 ACK):
-                // a server id is server evidence of acceptance.
+                // a server id is server evidence of acceptance, even after
+                // the SDK reported a local rejection.
                 match &fact.message_id {
                     Some(mid) => {
                         self.disposition = Some(SendDisposition::Confirmed {

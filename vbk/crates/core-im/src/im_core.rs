@@ -273,6 +273,19 @@ impl ImCore {
             return Ok(report);
         }
         if let Some(cur) = self.cursors.get(&stream).copied() {
+            if next.epoch == cur.epoch && cur.seq == u64::MAX {
+                // The stream exhausted its sequence space; nothing after
+                // `u64::MAX` can be "the next envelope" (and `classify`
+                // would overflow). The adapter must rebuild the stream
+                // under a new epoch.
+                self.break_stream(stream);
+                report.dropped = Some(DropReason::Gap {
+                    expected: u64::MAX,
+                    got: next.seq,
+                });
+                report.needs_resync = Some(stream);
+                return Ok(report);
+            }
             match cur.classify(next) {
                 CursorStep::Next => {}
                 CursorStep::Duplicate => {
@@ -541,19 +554,16 @@ impl ImCore {
         let (Some(lid), Some(mid)) = (&fact.local_id, &fact.message_id) else {
             return;
         };
-        let Some(entry) = self.outbox.get(lid) else {
+        if self.outbox.get(lid).is_none() {
             return;
-        };
-        if matches!(entry.state, SendState::Submitted | SendState::Unknown) {
-            // Cannot fail: the entry exists and is not final.
-            let _ = self.outbox.apply_send_result(
-                lid,
-                SendDisposition::Confirmed {
-                    server_message_id: mid.clone(),
-                    server_time_ms: fact.create_time_ms,
-                },
-            );
         }
+        // Server evidence also overrides a local rejection (the SDK said
+        // "failed" but the server has the message): otherwise the outbox
+        // would offer a retry of a message the customer already received.
+        // A conflicting confirmed server id is left alone (error ignored).
+        let _ = self
+            .outbox
+            .confirm_from_server_evidence(lid, mid.clone(), fact.create_time_ms);
     }
 
     // ------------------------------------------------------- user actions
@@ -678,7 +688,14 @@ impl ImCore {
             // Own send with a frozen boundary: covers only customer messages
             // the agent could have seen when composing.
             let Some(boundary) = intent.intent.customer_boundary_message_id.as_deref() else {
-                return Coverage::NotCovered;
+                // No customer message was known when the intent was created
+                // (proactive message, or the index was empty right after a
+                // restart / re-auth). There is no boundary to compare, so the
+                // server order decides: a customer message stamped before the
+                // reply is covered, a later one is not, equal stamps stay
+                // ambiguous. Returning NotCovered here turned every reply
+                // sent before the history read-back into a false alarm.
+                return by_time;
             };
             let (Some(bpos), Some(cpos)) = (
                 positions.get(boundary),

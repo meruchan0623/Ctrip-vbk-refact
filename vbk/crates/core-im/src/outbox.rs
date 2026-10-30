@@ -207,6 +207,44 @@ impl Outbox {
         Ok(next)
     }
 
+    /// An inbound server fact carried this intent's `local_id` together
+    /// with a server id: the server accepted the send. Unlike
+    /// [`Self::apply_send_result`] this also overrides a local `Rejected`
+    /// (server evidence wins over an SDK error, mirroring the dedup index).
+    /// A `Confirmed` entry with another server id is a conflict; a never
+    /// submitted intent cannot have been echoed.
+    pub fn confirm_from_server_evidence(
+        &mut self,
+        local_id: &str,
+        server_message_id: String,
+        server_time_ms: i64,
+    ) -> Result<SendState, AppError> {
+        let entry = self.entry_mut(local_id)?;
+        match &entry.state {
+            SendState::Confirmed {
+                server_message_id: mid,
+                ..
+            } if *mid == server_message_id => Ok(entry.state.clone()),
+            SendState::Confirmed { .. } => Err(AppError::new(
+                codes::IM_INTENT_STATE,
+                "server evidence names another message id",
+            )
+            .with_detail(format!("local_id={local_id}"))),
+            SendState::Pending => Err(AppError::new(
+                codes::IM_INTENT_STATE,
+                "intent was never submitted",
+            )
+            .with_detail(format!("local_id={local_id}"))),
+            SendState::Submitted | SendState::Unknown | SendState::Rejected { .. } => {
+                entry.state = SendState::Confirmed {
+                    server_message_id,
+                    server_time_ms,
+                };
+                Ok(entry.state.clone())
+            }
+        }
+    }
+
     /// Reconcile an unknown (or still submitted) intent against server
     /// facts read back for its conversation. Only evidence changes the
     /// state; absence keeps it unknown.
@@ -430,5 +468,46 @@ mod tests {
             .reconcile_unknown("l2", &[server_fact(Some("l2"), None, Some(rej))])
             .unwrap();
         assert!(matches!(out, ReconcileOutcome::Rejected { .. }));
+    }
+
+    #[test]
+    fn server_evidence_overrides_local_rejection_but_not_another_server_id() {
+        // QA regression: a server echo carrying our local id after an SDK
+        // rejection left the outbox at Rejected (a retry offer for a
+        // message the customer already has).
+        let mut ob = Outbox::new();
+        ob.insert(intent("l1")).unwrap();
+        assert!(ob
+            .confirm_from_server_evidence("l1", "t1".into(), 5)
+            .unwrap_err()
+            .is(codes::IM_INTENT_STATE));
+        ob.mark_submitted("l1").unwrap();
+        ob.apply_send_result(
+            "l1",
+            SendDisposition::Rejected {
+                code: "E".into(),
+                reason: "sdk".into(),
+            },
+        )
+        .unwrap();
+        let st = ob.confirm_from_server_evidence("l1", "t1".into(), 5).unwrap();
+        assert_eq!(
+            st,
+            SendState::Confirmed {
+                server_message_id: "t1".into(),
+                server_time_ms: 5
+            }
+        );
+        // Idempotent for the same id, a conflict for another.
+        assert_eq!(ob.confirm_from_server_evidence("l1", "t1".into(), 9).unwrap(), st);
+        assert!(ob
+            .confirm_from_server_evidence("l1", "t2".into(), 9)
+            .unwrap_err()
+            .is(codes::IM_INTENT_STATE));
+        assert_eq!(ob.get("l1").unwrap().state, st);
+        assert!(ob
+            .confirm_from_server_evidence("zz", "t".into(), 1)
+            .unwrap_err()
+            .is(codes::IM_UNKNOWN_INTENT));
     }
 }
