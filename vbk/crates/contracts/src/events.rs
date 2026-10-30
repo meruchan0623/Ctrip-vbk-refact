@@ -140,6 +140,9 @@ mod tests {
             CursorStep::Duplicate
         );
         assert_eq!(c.classify(StreamCursor::new(1, 0)), CursorStep::Duplicate);
-        assert_eq!(c.classify(StreamCursor::new(2, 0)), CursorStep::EpochChanged);
+        assert_eq!(
+            c.classify(StreamCursor::new(2, 0)),
+            CursorStep::EpochChanged
+        );
     }
 }
