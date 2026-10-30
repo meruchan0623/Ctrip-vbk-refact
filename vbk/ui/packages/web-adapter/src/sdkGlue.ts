@@ -14,12 +14,11 @@
  * localid,tid,create_time,ts,threadid,present}</body>`; typing is `type="input_state"`
  * with `msgtype="9901"`; `notify_ack` frames are protocol acks.
  *
- * What is NOT evidenced: the global name of the SDK's `IMClient` facade.
- * The glue probes a short list of candidates for `sendMessageInSocket` /
- * `putAdviceOfReadByMsgId` / `getSocketStatus`; without one, sending is
- * reported as unsupported (nothing is sent) and read receipts use the
- * HTTP call the SDK itself makes (`11679/PutAdviceOfReadByMsgId.json`,
- * evidence 71). The glue never builds or sends XML itself.
+ * The facade contract was verified from the currently loaded official SDK and
+ * application source on 2026-10-31; see docs/api/sdk-facade.md. The public
+ * send model is distinct from the SDK's generated HTTP/XMPP payload. Facade
+ * writes are callback-based, and a void return never acknowledges a write.
+ * Candidate global names remain feature-detected; no generic XML sender is used.
  */
 
 import type { ImSdkHandle, SdkCallOutcome, SdkEventMap, SdkMessageEvent, SdkReadReceiptRequest, SdkSendRequest, SdkSendResultEvent, SdkSocketStatus, TimerDeps } from './deps.ts';
@@ -156,8 +155,8 @@ function isEmitter(x: unknown): x is EmitterLike {
 }
 
 export interface ImClientLike {
-  sendMessageInSocket?: (message: unknown) => unknown;
-  putAdviceOfReadByMsgId?: (req: unknown) => unknown;
+  sendMessageInSocket?: (message: unknown, success: (raw: unknown) => void, failure: (raw: unknown) => void) => unknown;
+  putAdviceOfReadByMsgId?: (req: unknown, success: (raw: unknown) => void, failure: (raw: unknown) => void) => unknown;
   getSocketStatus?: () => unknown;
   sdkVersion?: unknown;
 }
@@ -220,6 +219,8 @@ export interface PageSdkOptions extends TimerDeps {
   /** HTTP read receipt used when no SDK facade exposes `putAdviceOfReadByMsgId`. */
   readonly httpReadReceipt?: (req: SdkReadReceiptRequest) => Promise<SdkCallOutcome>;
   readonly probeIntervalMs?: number;
+  readonly readReceiptTimeoutMs?: number;
+  readonly facadeSendTimeoutMs?: number;
   readonly log?: (msg: string) => void;
 }
 
@@ -231,17 +232,26 @@ function idStr(x: unknown): string | null {
   return null;
 }
 
+function integerCode(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && /^-?\d+$/.test(value) ? Number(value) : null;
+  return n !== null && Number.isSafeInteger(n) ? n : null;
+}
+
 export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions): PageSdk {
   const listeners: { [K in keyof SdkEventMap]: Listener<K>[] } = { message: [], send_result: [], socket_status: [] };
   const partnerJids = new Map<string, string>();
   const readyWaiters: (() => void)[] = [];
+  const pendingReadReceipts = new Set<() => void>();
+  const pendingFacadeSends = new Map<string, () => void>();
   let client: EmitterLike | null = null;
   let detach: (() => void) | null = null;
   let probeTimer: unknown = null;
   let disposed = false;
+  let bindingGeneration = 0;
   const log = opts.log ?? (() => undefined);
 
   const emit = <K extends keyof SdkEventMap>(event: K, payload: SdkEventMap[K]): void => {
+    if (disposed) return;
     for (const cb of [...(listeners[event] as Listener<K>[])]) {
       try {
         cb(payload);
@@ -252,6 +262,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
   };
 
   const onStanza = (el: unknown): void => {
+    if (disposed) return;
     const g = stanzaToEvent(el);
     if (g.kind === 'message') {
       if (g.roomJid) {
@@ -260,6 +271,9 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
       }
       emit('message', g.event);
     } else if (g.kind === 'send_result') {
+      // The SDK may still be performing its own HTTP fallback after raw -2.
+      // Only this local call's final facade callback/Promise decides its result.
+      if (typeof g.event.localid === 'string' && pendingFacadeSends.has(g.event.localid)) return;
       emit('send_result', g.event);
     }
   };
@@ -269,10 +283,19 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
   const attach = (c: EmitterLike): void => {
     detach?.();
     client = c;
-    c.on('stanza', onStanza);
-    c.on('status', onStatus);
+    const generation = ++bindingGeneration;
+    const current = (): boolean => {
+      try { return !disposed && generation === bindingGeneration && client === c && win['xmppClient'] === c; }
+      catch { return false; }
+    };
+    // Removing a listener does not cancel an event already queued by its source.
+    const boundStanza = (el: unknown): void => { if (current()) onStanza(el); };
+    const boundStatus = (status: unknown): void => { if (current()) onStatus(status); };
+    const boundReconnecting = (): void => { if (current()) onReconnecting(); };
+    c.on('stanza', boundStanza);
+    c.on('status', boundStatus);
     const reconnect = (c as { reconnect?: unknown }).reconnect;
-    if (isEmitter(reconnect)) reconnect.on('reconnecting', onReconnecting);
+    if (isEmitter(reconnect)) reconnect.on('reconnecting', boundReconnecting);
     detach = () => {
       const off = (e: EmitterLike, name: string, cb: (...a: unknown[]) => void): void => {
         try {
@@ -282,9 +305,9 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
           // ignore
         }
       };
-      off(c, 'stanza', onStanza);
-      off(c, 'status', onStatus);
-      if (isEmitter(reconnect)) off(reconnect, 'reconnecting', onReconnecting);
+      off(c, 'stanza', boundStanza);
+      off(c, 'status', boundStatus);
+      if (isEmitter(reconnect)) off(reconnect, 'reconnecting', boundReconnecting);
       if (client === c) client = null;
     };
     log('xmpp client attached');
@@ -312,7 +335,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
       return client !== null;
     },
     get canSend() {
-      return typeof facade()?.sendMessageInSocket === 'function';
+      return !disposed && typeof facade()?.sendMessageInSocket === 'function';
     },
     sdkVersion() {
       const v = facade()?.sdkVersion;
@@ -364,49 +387,111 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
       const partnerJid = partnerJids.get(req.gid);
       if (!partnerJid) throw new Error('partner jid unknown');
       const b = req.body;
-      // Field names/types as the SDK's own HTTP fallback sends them (evidence 51) — the facade signature itself is unverified.
+      if (b.msgtype !== '0') throw new Error('sdk media facade unsupported (nothing sent)');
+      // The verified facade accepts a public message model, not the HTTP/XMPP
+      // payload it later builds. The SDK itself expands this bare gid into a JID.
       const message: Record<string, unknown> = {
         localId: b.localid,
         bizType: /^\d+$/.test(b.biztype) ? Number(b.biztype) : b.biztype,
-        localTimeStamp: opts.now(),
-        partnerJid,
-        toJid: partnerJid,
-        msgType: Number(b.msgtype),
-        messageBody: b.msg,
-        type: b.chattype,
+        toJid: req.gid,
+        messageType: Number(b.msgtype),
+        content: b.msg,
         conversationType: b.chattype,
         threadId: b.threadid,
       };
+      // deserialize mutates and returns the same model; the SDK copies citemsgid
+      // into both socket and HTTP fallback payloads (captured source, offset 129983).
       if (req.citemsgid !== undefined) message['citemsgid'] = req.citemsgid;
-      const r = f.sendMessageInSocket.call(f, message);
+      if (pendingFacadeSends.has(b.localid) || pendingFacadeSends.size >= 1000) throw new Error('sdk send tracking unavailable (nothing sent)');
+      let settled = false;
+      let ackTimer: unknown = null;
+      const cleanup = (): void => {
+        if (ackTimer !== null) opts.clearTimeout(ackTimer);
+        if (pendingFacadeSends.get(b.localid) === cancel) pendingFacadeSends.delete(b.localid);
+      };
+      const cancel = (): void => { if (!settled) { settled = true; cleanup(); } };
+      const complete = (raw: unknown, failure: boolean, legacyPromise = false): void => {
+        if (settled) return;
+        if (disposed) { cancel(); return; }
+        settled = true;
+        cleanup();
+        // A callback from a facade replaced while this operation was pending
+        // cannot confirm work in the new binding. It still must never be replayed.
+        if (facade() !== f) { emit('send_result', { localid: b.localid }); return; }
+        const rec = recordOrNull(raw);
+        if (rec && 'localId' in rec && idStr(rec['localId']) !== b.localid) { emit('send_result', { localid: b.localid }); return; }
+        const error = integerCode(rec?.['error']);
+        const reason = typeof rec?.['errmsg'] === 'string' ? rec['errmsg'] : typeof rec?.['reason'] === 'string' ? rec['reason'] : '';
+        if (error !== null && error !== 0) { emit('send_result', { localid: b.localid, error, reason }); return; }
+        if (failure || !rec || ('error' in rec && error !== 0)) { emit('send_result', { localid: b.localid }); return; }
+        const msgId = idStr(rec['msgId']) ?? (legacyPromise ? idStr(rec['messageId']) : null);
+        emit('send_result', msgId !== null
+          ? { error: 0, localid: b.localid, tid: msgId, create_time: rec['msgCreateTime'] ?? rec['createTime'] }
+          : { localid: b.localid });
+      };
+      pendingFacadeSends.set(b.localid, cancel);
+      ackTimer = opts.setTimeout(() => complete(null, true), opts.facadeSendTimeoutMs ?? 15_000);
+      let r: unknown;
+      try { r = f.sendMessageInSocket.call(f, message, raw => complete(raw, false), raw => complete(raw, true)); }
+      catch { complete(null, true); return; }
+      // Keep compatibility with an explicitly promise-returning facade. The
+      // callback path above remains authoritative for the captured official SDK.
       if (r && typeof (r as { then?: unknown }).then === 'function') {
-        (r as Promise<unknown>).then(
-          (res) => {
-            // Only a result that names the server message id confirms; anything else leaves the
-            // decision to the `send_result` frame or the timeout (→ unknown, never resent).
-            const rec = recordOrNull(res);
-            const msgId = idStr(rec?.['msgId']) ?? idStr(rec?.['messageId']);
-            const lid = idStr(rec?.['localId']);
-            if (msgId !== null && (lid === null || lid === b.localid)) {
-              emit('send_result', { error: 0, localid: b.localid, tid: msgId, create_time: rec?.['msgCreateTime'] ?? rec?.['createTime'] });
-            }
-          },
-          () => undefined,
-        );
+        (r as Promise<unknown>).then(raw => complete(raw, false, true), () => complete(null, true));
       }
     },
     async putAdviceOfReadByMsgId(req: SdkReadReceiptRequest): Promise<SdkCallOutcome> {
       if (disposed) throw new Error('sdk disposed (nothing sent)');
       const f = facade();
-      if (typeof f?.putAdviceOfReadByMsgId === 'function') {
-        const raw = await f.putAdviceOfReadByMsgId.call(f, { partnerJid: req.partnerJid, msgId: req.msgId, conversationType: req.conversationType });
-        return { kind: 'success', raw: null === raw ? null : 'ok' };
-      }
-      if (opts.httpReadReceipt) return opts.httpReadReceipt(req);
-      throw new Error('read receipt unavailable');
+      const send = f?.putAdviceOfReadByMsgId;
+      if (typeof send !== 'function' && !opts.httpReadReceipt) throw new Error('read receipt unavailable');
+      return new Promise<SdkCallOutcome>((resolve, reject) => {
+        let settled = false;
+        let timer: unknown = null;
+        const cancel = (): void => settle(null);
+        const settle = (outcome: SdkCallOutcome | null): void => {
+          if (settled) return;
+          settled = true;
+          if (timer !== null) opts.clearTimeout(timer);
+          pendingReadReceipts.delete(cancel);
+          if (disposed || facade() !== f) { reject(new Error('read receipt binding changed; outcome unknown')); return; }
+          const valid = recordOrNull(outcome);
+          if (valid && (valid['kind'] === 'success' || valid['kind'] === 'failure') && 'raw' in valid) { resolve({ kind: valid['kind'], raw: valid['raw'] }); return; }
+          reject(new Error('read receipt outcome unknown (not retried)'));
+        };
+        const finish = (raw: unknown, failure: boolean): void => {
+          if (settled) return;
+          const rec = recordOrNull(raw);
+          const rs = recordOrNull(rec?.['ResponseStatus']) ?? recordOrNull(rec?.['responseStatus']);
+          const code = integerCode(rec?.['error']);
+          if (rs?.['Ack'] === 'Failure' || (code !== null && code !== 0)) { settle({ kind: 'failure', raw: 'sdk_rejected' }); return; }
+          if (!failure && rs && (rs['Ack'] === 'Success' || rs['Ack'] === 0) && (rs['Errors'] === undefined || (Array.isArray(rs['Errors']) && rs['Errors'].length === 0)) && (!rec || !('error' in rec) || code === 0)) {
+            settle({ kind: 'success', raw: null }); return;
+          }
+          settle(null);
+        };
+        pendingReadReceipts.add(cancel);
+        timer = opts.setTimeout(cancel, opts.readReceiptTimeoutMs ?? 15_000);
+        const request = { partnerJid: jidLocal(req.partnerJid), msgId: req.msgId, conversationType: req.conversationType };
+        try {
+          if (typeof send === 'function') {
+            const result = send.call(f, request, raw => finish(raw, false), raw => finish(raw, true));
+            if (result && typeof (result as { then?: unknown }).then === 'function') {
+              (result as Promise<unknown>).then(raw => finish(raw, false), () => settle(null));
+            }
+          } else {
+            // This pre-existing HTTP path is used only without a facade method.
+            // It shares the same timeout/disposal fence, and is never a retry.
+            opts.httpReadReceipt!(request).then(outcome => settle(outcome), () => settle(null));
+          }
+        } catch { settle(null); }
+      });
     },
     dispose() {
       disposed = true;
+      bindingGeneration++;
+      for (const cancel of [...pendingReadReceipts]) cancel();
+      for (const cancel of [...pendingFacadeSends.values()]) cancel();
       if (probeTimer !== null) opts.clearTimeout(probeTimer);
       probeTimer = null;
       detach?.();
