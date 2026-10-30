@@ -1,0 +1,53 @@
+name: vbk check
+
+on:
+  push:
+    paths: ["vbk/**", ".github/workflows/vbk-check.yml"]
+  pull_request:
+    paths: ["vbk/**"]
+
+jobs:
+  cores:
+    name: std-only cores (cargo test + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --all --check
+        working-directory: vbk
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: vbk
+      - run: cargo test --workspace
+        working-directory: vbk
+
+  ui:
+    name: typescript (tsc + node:test + playwright smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-save typescript@6 @types/node@22 playwright@1
+        working-directory: vbk
+      - run: npx playwright install --with-deps chromium
+        working-directory: vbk
+      - run: npx tsc -p tsconfig.json
+        working-directory: vbk
+      - run: node --test "ui/**/*.test.ts"
+        working-directory: vbk
+      - run: node ui/tests/smoke/run.mjs
+        working-directory: vbk
+
+  host:
+    # The Tauri host only builds on Windows with WebView2; it is checked here
+    # but never published from CI (REL tasks own signing and release).
+    name: tauri host (windows, cargo check)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check
+        working-directory: vbk/src-tauri
