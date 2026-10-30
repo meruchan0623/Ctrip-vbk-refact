@@ -150,6 +150,16 @@ pub struct ProfileWindow<'a> {
     pub init_script: Option<String>,
 }
 
+/// Hidden adapter pages must keep their account's inbound loop scheduled.
+/// Login and detail windows retain the system default scheduling policy.
+fn adapter_background_policy(
+    label: &str,
+    script: Option<&str>,
+) -> Option<tauri::utils::config::BackgroundThrottlingPolicy> {
+    (label.starts_with(views::ACCOUNT_WEBVIEW_PREFIX) && script.is_some_and(|s| !s.is_empty()))
+        .then_some(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
+}
+
 /// Builds a top-level webview window in the profile. `on_nav` sees every
 /// navigation that passed [`allowed_navigation`].
 pub fn open_profile_window<F>(
@@ -160,6 +170,7 @@ pub fn open_profile_window<F>(
 where
     F: Fn(&Url) + Send + 'static,
 {
+    let background_policy = adapter_background_policy(opts.label, opts.init_script.as_deref());
     let mut b = WebviewWindowBuilder::new(app, opts.label, WebviewUrl::External(opts.url))
         .title(opts.title)
         .inner_size(1200.0, 800.0)
@@ -174,6 +185,9 @@ where
         });
     if !opts.visible {
         b = b.skip_taskbar(true);
+    }
+    if let Some(policy) = background_policy {
+        b = b.background_throttling(policy);
     }
     if let Some(script) = opts.init_script.filter(|s| !s.is_empty()) {
         b = b.initialization_script(script);
@@ -217,6 +231,23 @@ pub fn remove_profile_data(app: &AppHandle, profile_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_bootstrapped_account_pages_keep_background_scheduling() {
+        use tauri::utils::config::BackgroundThrottlingPolicy;
+        assert!(matches!(
+            adapter_background_policy("acct-synthetic", Some("boot")),
+            Some(BackgroundThrottlingPolicy::Disabled)
+        ));
+        for (label, script) in [
+            ("webview-1", Some("boot")),
+            ("login-remote-1", Some("boot")),
+            ("acct-synthetic", None),
+            ("acct-synthetic", Some("")),
+        ] {
+            assert!(adapter_background_policy(label, script).is_none());
+        }
+    }
 
     #[test]
     fn data_store_id_is_stable_and_distinct() {
