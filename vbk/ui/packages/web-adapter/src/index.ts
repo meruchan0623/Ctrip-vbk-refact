@@ -100,7 +100,7 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
   const bridge = new AdapterBridge({ account: opts.account, invoke: deps.invoke, cursors });
   const soa = new SoaClient(deps, opts.onServerTime ? { onServerTime: opts.onServerTime } : {});
   let roles: MemberRoles = opts.roles ?? UNKNOWN_ROLES;
-  const rolesProxy: MemberRoles = { roleOf: (uid) => roles.roleOf(uid) };
+  const rolesProxy: MemberRoles = { get selfUid() { return roles.selfUid ?? ''; }, roleOf: (uid) => roles.roleOf(uid) };
 
   let authInvalidSeen = false;
   const stopLoops = (): void => {

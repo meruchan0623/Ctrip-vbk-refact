@@ -4,6 +4,7 @@ import type { AdapterFactEnvelope } from '../../ipc/src/contracts.ts';
 import { ImCommands } from '../../ipc/src/commands.ts';
 import { AdapterBridge, streamFor } from './bridge.ts';
 import { createAdapter } from './index.ts';
+import { buildMemberRoles } from './facts.ts';
 import { OK_STATUS, jsonResponse, makeDeps } from './testing.ts';
 
 const account = { account_id: '{{account}}', environment: 'production', session_generation: 2 };
@@ -81,5 +82,31 @@ test('createAdapter: subscribes first, pushes transport, runs pollers, stop/rest
   await adapter.bridge.flush();
   const restarted = deps.invoked[deps.invoked.length - 1]?.payload as AdapterFactEnvelope;
   assert.equal(restarted.epoch, 2);
+  adapter.stop();
+});
+
+
+test('createAdapter forwards explicit self identity through role replacement for direct-message facts', async () => {
+  const deps = makeDeps();
+  const adapter = createAdapter(deps, { account, initialBeginMsgTime: deps.now(), roles: buildMemberRoles({ selfUid: 'self-a', customerUid: 'customer', members: [] }) });
+  adapter.start();
+  for (const [self, id] of [['self-a', 'm1'], ['self-b', 'm2']] as const) {
+    if (self === 'self-b') adapter.setRoles(buildMemberRoles({ selfUid: self, customerUid: 'customer', members: [] }));
+    deps.fakeSdk.emit('message', { id, type: 'chat', msgtype: '0', create_time: '1700000000700', from: 'customer@im.example/device', to: `${self}@im.example` });
+    await adapter.bridge.flush();
+    const facts = deps.invoked.map((row) => (row.payload as AdapterFactEnvelope).fact).filter((fact) => fact.kind === 'message');
+    const fact = facts.find((item) => item.fact.message_id === id)?.fact;
+    assert.equal(fact?.gid, 'customer');
+    assert.equal(fact?.sender_id, 'customer');
+    assert.equal(fact?.sender_role, 'customer');
+  }
+  deps.fakeSdk.emit('message', { id: 'out-after-replacement', type: 'chat', msgtype: '0', create_time: '1700000000800', from: 'self-b@im.example', to: 'customer@im.example' });
+  await adapter.bridge.flush();
+  const outgoing = deps.invoked.map((row) => (row.payload as AdapterFactEnvelope).fact).find((fact) => fact.kind === 'message' && fact.fact.message_id === 'out-after-replacement');
+  assert.equal(outgoing?.kind, 'message');
+  if (outgoing?.kind !== 'message') throw new Error('replacement identity must reach the fact bridge');
+  assert.equal(outgoing.fact.gid, 'customer');
+  assert.equal(outgoing.fact.sender_id, 'self-b');
+  assert.equal(outgoing.fact.sender_role, 'merchant_self');
   adapter.stop();
 });
