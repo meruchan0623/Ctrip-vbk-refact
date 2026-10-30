@@ -15,7 +15,7 @@ vbk/
 │  ├─ core-im/                跨来源去重、同步水位、SendIntent/outbox、等待轮次
 │  ├─ core-notify/            L0–L4 升级、稍后提醒、勿扰、alarm 快照
 │  └─ core-assistant/         TSim 身份/出站翻译/套餐速览客户端（请求构造与响应解析）
-├─ src-tauri/                 Tauri 2 宿主（独立包；需 Windows + WebView2 + crate 注册表）
+├─ src-tauri/                 Tauri 2 宿主（独立包；需 Windows/WebView2 或 macOS/WKWebView + crate 注册表）
 └─ ui/
    ├─ packages/ipc/           contracts.ts（Rust 镜像）、命令/事件名、invoke/listen 薄封装
    ├─ packages/web-adapter/   网页 Web IM SDK/HTTP 契约适配：有界事实事件、轮询、补偿、上传签名
@@ -39,6 +39,32 @@ cd vbk && cargo test
 cd vbk && npm run typecheck && npm test
 ```
 
+## macOS 构建
+
+需要一台装有 Xcode 命令行工具、Node ≥ 22.18 与 Rust 的 Mac（Linux 云环境无法交叉构建：缺 macOS SDK 与 WKWebView）。在 `vbk/` 下：
+
+```bash
+npm install --no-save typescript@6 @types/node@22 @tauri-apps/cli@2
+```
+
+```bash
+npx tauri build --target aarch64-apple-darwin
+```
+
+`tauri build` 会先执行 `npm run bundle:ui` 组装 `ui/bundle`（Tauri 的 `frontendDist`），产物在 `src-tauri/target/aarch64-apple-darwin/release/bundle/{macos,dmg}/`。Intel Mac 用 `x86_64-apple-darwin`。产物未签名、未公证，只能内部冒烟；对外分发需 Developer ID 签名与公证（REL 任务）。CI 的 `macos-bundle` 任务会产出同样的未签名 dmg。
+
+平台差异（`cfg(target_os = "macos")`）：
+
+| 行为 | Windows | macOS |
+| --- | --- | --- |
+| L1 闪烁 | 托盘图标 500 ms 隐/显 + 任务栏闪烁 | 不闪菜单栏图标（会挤动其他图标），Dock 图标弹跳一次（`Informational`） |
+| L0 未读数 | 窗口标题 `(n)`（覆盖图标待 NTF-04） | Dock 角标 + 窗口标题 |
+| alarm 窗 | 置顶、不激活、不进任务栏 | 置顶、不激活，并在所有桌面空间与全屏应用上可见 |
+| 关闭主窗口后找回 | 托盘左键 | 托盘或点击 Dock 图标（`RunEvent::Reopen`） |
+| 打包 | NSIS（当前用户安装） | `.app` + `.dmg`（`tauri.macos.conf.json`，`icons/icon.icns`） |
+
+macOS 上 alarm 显示时是否会夺走键盘焦点、锁屏/睡眠行为，仍需按[强提醒设计](../docs/dev/03-strong-alert.md) §7 在 Mac 上实测；未实测前不宣称 macOS 支持。
+
 ## 不变量（所有模块共同遵守）
 
 1. 身份不随界面漂移：`AccountContext{account_id,environment,session_generation}`；旧代次回调一律拒绝。
@@ -57,7 +83,8 @@ cd vbk && npm run typecheck && npm test
 | `tsc -p tsconfig.json` | 无错误 |
 | `node --test "ui/**/*.test.ts"`（ipc、ui-kit、web-adapter、apps 视图模型） | 148 通过 |
 | `node ui/tests/smoke/run.mjs`（Playwright/Chromium，含截图） | 211 项通过 |
-| `src-tauri`（Tauri 2 宿主） | 仅 `rustfmt` 语法级检查；需在 Windows + WebView2 + crate 注册表环境 `cargo check`/`cargo tauri build` |
+| `src-tauri`（Tauri 2 宿主） | 仅 `rustfmt` 语法级检查；`cargo check` 在 CI 的 Windows 与 macOS runner 上执行，本地需对应系统 + crate 注册表 |
+| `node ui/tools/bundle.mjs`（Tauri 嵌入的 `ui/bundle`） | 4 个窗口入口的全部引用可解析；单独托管时 Chromium 渲染无 404/报错 |
 
 对抗性审查记录（含已修正的 P1/P2 与未修正项）：
 

@@ -42,12 +42,50 @@ jobs:
         working-directory: vbk
 
   host:
-    # The Tauri host only builds on Windows with WebView2; it is checked here
-    # but never published from CI (REL tasks own signing and release).
-    name: tauri host (windows, cargo check)
-    runs-on: windows-latest
+    # The Tauri host needs the platform webview (WebView2 / WKWebView) and a
+    # crate registry, so it is checked on the real OS runners. `generate_context!`
+    # embeds `ui/bundle`, so the UI bundle is assembled first. Never published
+    # from CI (REL tasks own signing, notarization and release).
+    name: tauri host (${{ matrix.os }}, cargo check)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - uses: dtolnay/rust-toolchain@stable
+      - run: npm install --no-save typescript@6 @types/node@22
+        working-directory: vbk
+      - run: node ui/tools/bundle.mjs
+        working-directory: vbk
       - run: cargo check
         working-directory: vbk/src-tauri
+
+  macos-bundle:
+    # Unsigned .app/.dmg to prove the macOS bundle config; the artifact is
+    # for internal smoke only and is not a release (no Developer ID / notarization).
+    name: macOS bundle (unsigned app + dmg)
+    needs: host
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - run: npm install --no-save typescript@6 @types/node@22 @tauri-apps/cli@2
+        working-directory: vbk
+      - run: npx tauri build --target aarch64-apple-darwin
+        working-directory: vbk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vbk-macos-unsigned
+          path: vbk/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 7
