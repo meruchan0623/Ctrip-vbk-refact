@@ -9,6 +9,7 @@
  * re-rendered on change (focus/caret/scroll preserved by `rerender`).
  */
 
+import { sendComposer, attachmentSendUnavailable, ATTACHMENT_SEND_UNAVAILABLE } from './sendComposer.ts';
 import { applyPlatform } from '../_shared/platform.ts';
 const platform = applyPlatform();
 
@@ -509,6 +510,7 @@ function upsertConversation(c: UiConversation): void {
 }
 
 async function sendText(text: string, original: string | null): Promise<void> {
+  if (attachmentSendUnavailable(S().attachment)) { toast(ATTACHMENT_SEND_UNAVAILABLE); return; }
   const acc = activeAccount();
   const conv = activeConv();
   if (!acc || !conv || isDone(conv)) return;
@@ -534,14 +536,14 @@ async function handleSend(): Promise<void> {
   const s = S();
   const conv = activeConv(s);
   if (!conv || isDone(conv)) return;
-  let text = s.draft.trim();
-  if (s.attachment) text = text ? `${text}\n[附件] ${s.attachment.name}` : `[附件] ${s.attachment.name}`;
-  if (!text) return;
-  if (s.prefs?.assistant.send_mode === 'send_direct' && translationOn(s, conv)) {
-    await translateAndSend(text);
-    return;
-  }
-  await sendText(text, null);
+  const result = await sendComposer({ draft: s.draft, attachment: s.attachment }, async (text) => {
+    if (s.prefs?.assistant.send_mode === 'send_direct' && translationOn(s, conv)) {
+      await translateAndSend(text);
+      return;
+    }
+    await sendText(text, null);
+  });
+  if (result === 'blocked_attachment') toast(ATTACHMENT_SEND_UNAVAILABLE);
 }
 
 function translationTarget(s: MainState, conv: UiConversation): string {
@@ -549,6 +551,7 @@ function translationTarget(s: MainState, conv: UiConversation): string {
 }
 
 async function translateAndSend(text: string): Promise<void> {
+  if (attachmentSendUnavailable(S().attachment)) { toast(ATTACHMENT_SEND_UNAVAILABLE); return; }
   const acc = activeAccount();
   const conv = activeConv();
   if (!acc || !conv) return;
@@ -1269,7 +1272,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
       h('span', { class: 'hint', style: { 'margin-left': 'auto', 'padding-right': '6px' } }, t('composer.attachHint')),
     ),
     s.quote ? h('div', { class: 'quote-bar' }, h('span', { style: { flex: '1', overflow: 'hidden', 'white-space': 'nowrap', 'text-overflow': 'ellipsis' } }, t('chat.quotePrefix'), s.quote.text), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('chat.cancelQuote'), onclick: () => store.patch({ quote: null }) }, icon(IC.close, 12))) : null,
-    s.attachment ? h('div', { class: 'attach', title: t('composer.uploadHint') }, h('div', { class: 'attach-img' }), h('span', { style: { 'font-size': '12px' } }, t('composer.attached', { name: s.attachment.name })), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), onclick: () => store.patch({ attachment: null }) }, icon(IC.close, 12))) : null,
+    s.attachment ? h('div', { class: 'attach', title: ATTACHMENT_SEND_UNAVAILABLE }, h('div', { class: 'attach-img' }), h('span', { style: { 'font-size': '12px' } }, `${s.attachment.name} · 附件发送尚未实现`), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), onclick: () => store.patch({ attachment: null }) }, icon(IC.close, 12))) : null,
     h('textarea', {
       class: 'ta',
       placeholder: finished ? t('composer.placeholderFinished') : t('composer.placeholder'),
