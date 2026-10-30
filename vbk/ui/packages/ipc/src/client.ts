@@ -85,20 +85,22 @@ export function createTauriIpc(): IpcClient {
 }
 
 // ---------------------------------------------------------------------------
-// 契约变更请求（proposed, NOT frozen）
+// UI-facing commands — FROZEN 2026-10-30 (integration owner).
 //
-// `commands.ts` only names the account/notify/im-fact/order-validate/prefs
-// commands (app-level `<module>_<snake_action>` names). The windows additionally need the UI-facing commands below. They
-// are kept here (the only writable ipc file) so the integration owner can
-// move them into `commands.ts` and mirror the DTOs in `crates/contracts`.
 // Every payload echoes the `AccountContext` so the host can reject stale
-// generations; none of them carry credentials.
+// generations; none of them carry credentials. Return shapes are exactly the
+// `Ui*` interfaces below; the Rust host serializes to these shapes.
+// Account commands in `AccountCommands` take `{account}` (not a bare id) and
+// return `UiAccountSnapshot`; `account_start_login` returns `{attempt_id}`
+// and the host itself opens the login window.
 // ---------------------------------------------------------------------------
 
 export const UiCommands = {
   // account (in addition to AccountCommands)
   ACCOUNT_SET_REMARK: 'account_set_remark', // {account, remark}
   ACCOUNT_AGENT_STATUS: 'account_agent_status', // {account} → UiAgentStatus (read-back only)
+  ACCOUNT_SET_AGENT_STATUS: 'account_set_agent_status', // {account, status} → UiAgentStatus (server read-back)
+  ACCOUNT_CANCEL_LOGIN: 'account_cancel_login', // {attempt_id} → UiAccountSnapshot
   // im display models (web adapter → host → main)
   IM_CONVERSATIONS: 'im_conversations', // {account} → UiConversation[]
   IM_MESSAGES: 'im_messages', // {account, gid} → UiMessage[]

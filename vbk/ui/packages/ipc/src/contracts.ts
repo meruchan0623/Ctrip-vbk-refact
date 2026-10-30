@@ -115,6 +115,12 @@ export const ErrorCodes = {
   NOTIFY_ROUND_VERSION_MISMATCH: 'notify.round_version_mismatch',
   STORE_IO: 'store.io',
   STORE_CORRUPT: 'store.corrupt',
+  ADAPTER_NOT_READY: 'adapter.not_ready',
+  ADAPTER_TIMEOUT: 'adapter.timeout',
+  ADAPTER_FAILED: 'adapter.failed',
+  HOST_UNSUPPORTED: 'host.unsupported',
+  HOST_URL_REJECTED: 'host.url_rejected',
+  HOST_UNAVAILABLE: 'host.unavailable',
 } as const;
 
 export function isAppError(x: unknown): x is AppError {

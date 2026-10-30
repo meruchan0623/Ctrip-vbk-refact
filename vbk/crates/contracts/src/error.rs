@@ -71,6 +71,16 @@ pub mod codes {
     pub const NOTIFY_ROUND_VERSION_MISMATCH: &str = "notify.round_version_mismatch";
     pub const STORE_IO: &str = "store.io";
     pub const STORE_CORRUPT: &str = "store.corrupt";
+    /// The account's official-page webview is not connected yet.
+    pub const ADAPTER_NOT_READY: &str = "adapter.not_ready";
+    /// The page did not answer an `adapter://request` in time.
+    pub const ADAPTER_TIMEOUT: &str = "adapter.timeout";
+    /// The page reported an upstream business failure.
+    pub const ADAPTER_FAILED: &str = "adapter.failed";
+    /// Feature wired but not implemented on this platform/build.
+    pub const HOST_UNSUPPORTED: &str = "host.unsupported";
+    /// URL rejected by the host's official-origin policy.
+    pub const HOST_URL_REJECTED: &str = "host.url_rejected";
 }
 
 #[cfg(test)]
