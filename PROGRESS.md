@@ -1,0 +1,61 @@
+# VBooking 消息面板对齐（2026-10-31）
+
+## 当前执行断点：2026-10-31 /goal 任务 0
+- 已读三份断点文档并完成 7 行开工回执；保留 24 个跟踪改动及 6 个未跟踪文件，HEAD 00efc740。
+- 基线复核：TS 202、核心 Rust 300、宿主 58，失败/跳过均 0；typecheck、diff 检查通过。TS 原始输出 /tmp/vbk-goal-baseline-ts.tap。
+- ego-browser 复用 TaskSpace 1/p1，网页登录有效，标题客户与侧栏订单双核成功；本轮已由真实iframe解析gid（见下），尚未出站。
+- 旧客户端 PID 7441，仍为 release/macos；新旧 hash 与重勘记录一致。官方 1.2.12、安装器 0.7.5、助手 0.3.2。
+- 官方原生连接本轮失败为 NSOSStatusErrorDomain -1712 errAETimeout；助手日志末态 attached=true / auth=failed / phase=failed / verified-editor。
+- 统一展示出口未读防护已提交 `c806ad7674f803c7b4c7751705ef63f49219ed39`，真实回归红 `0 !== 3`→绿1项；完整工作树TS203通过。独立暂存快照TS190（HEAD189+新增1，未包含继承成果）、typecheck、bundle:ui通过。
+- 独立评审指出的宿主ACK强清零已在ab0b751修复；原生端到端未读验收未完成。
+- 三端复核：自制旧包登录/消息面板原生可读，助手原生仍 timeoutReached。官方订单/客户双核后由实际侧栏 iframe 解析gid，原值仅存 /tmp/vbk-goal-20261031/controlled-frame.json。
+- 迁移文档独立只写 docs/integration/tsim-cs.md 与 tools/contracts/tsim-integration-example.json。
+- 回执完整性提交 `3a9dcda3bf583c92ed571cf82f5ea1472c968122`：专项红6绿1→绿7通过；独立全测实际190通过/1失败，误未拦提交且正文误报，已由 `263ad0b` 后续提交迁移旧畸形码契约并加不重发判据；重新导出暂存快照typecheck、TS191/0失败/0skip、bundle:ui通过，不重写历史。
+- SDK Promise桥无损ID校验已提交 `2b4ee14`，联合测试红→绿，独立暂存快照TS192/typecheck/bundle通过。SDK disposed写保护已提交 `e3f5aef`，独立快照typecheck/2tests/bundle通过；历史preview防回滚已离线红→绿且独立复核，待独立提交；session代次栅栏已接入，真实session stop/start旧请求离线零发送已被独立复核，待行为提交。
+- 宿主不再ACK强清零，独立行为提交 `ab0b751`；独立快照bundle+宿主58通过，当前新增cache回归通过。TSim迁移材料/合成契约提交 `c91e72d`。
+- 周边新数据/宿主已接通，UI实现与独立复核中；额外修复畸形host回执unknown、metadata补全导致journal重放（先2次!=1次失败，再绿30/30），尚未整体提交/实机。
+- 16位订单校验与高亮已提交 `dde2d0b`；暂存快照typecheck/18tests/bundle通过，临时旧实现反证红→绿。
+- 任务0已完成复核，准确保留原生/认证阻塞；完整轮数0/6，第1轮已完成typecheck、TS242/核心300/宿主63（0fail/skip）、bundle和diff检查；tauri build进行中。冻结源码HEAD dde2d0b + dirty manifest SHA256 0014cb6de1ff67f255f45e156810b37a990a7a620a67a8cfa79adc38a3e6f60d，清单/tmp/vbk-goal-20261031/round1-source-manifest.json。
+
+## 上轮状态（历史）：用户要求重勘并重写 leader 目标
+- 已停止上一轮新代码实施；当前进行任务书交付，保留未提交改动。
+- 以 `docs/research/2026-10-31-environment-resurvey.md` 为最新环境/测试基线：插件已恢复为0.7.5且挂载，旧缺载荷结论失效；TSim认证及原生视觉仍待核验。
+- 最新测试：TypeScript 202、核心 Rust 300、宿主58 全通过；新包生成但当前运行的仍是旧包。
+- 独立评审已确认历史加载未读数伪清零问题，未修复；周边API仅函数落盘，未接线。
+- 后续目标增加持续按行为本地提交、同步文档，并把本仓库建设为未来 TSim_CS 携程客服平台接入示例；TSim_CS 当前只读参考。
+
+以下保留上一轮过程记录，冲突时以上述最新环境重勘为准。
+
+## 目标与授权
+- 直接完成实现、测试、打包与视觉/程序评审；不只交付任务书。
+- 官方网页、旅游商家桌面版及原有自制插件是对照；消息/身份准确性优先于视觉。
+- 唯一出站测试范围：订单 `1359049237105048`，客户 `_tihk******doml43`。其它会话只读。
+- 默认保留本产品多账号/强提醒结构，以真实字段对齐消息、列表、侧栏；不编造未读、成员数或订单信息。
+
+## 分工
+- 主代理：ego-browser TaskSpace 1 / p1 官方取证、集成、安全边界、打包、实机测试及独立复核。
+- data_contracts：web-adapter、IPC、Rust display/adapter/DTO，以及新命令注册精确增量。
+- ui_alignment：main UI、ui-kit；与数据 owner 协调合约。
+- desktop_plugin_evidence：官方安装/插件只读诊断与研究记录。
+- 不回退他人修改；共享接缝先协调；仅主代理创建子代理。
+
+## 已实测基线
+- git 工作区开始时干净。
+- Node 22.14.0，低于 package engines 22.18；原 npm test 因 .ts 加载失败。兼容执行 `node --experimental-strip-types --test 'ui/**/*.test.ts'` 为189通过。
+- `npm run typecheck` 通过；`cargo test --workspace` 完整通过。
+- 当前客户端 release/macos 中 app 已登录并可通过原生 UI 读取。
+- 官方网页 ego-browser 登录可用；受控 gid 已由实际订单侧栏及网络确认（原始含业务数据的证据仅存 /tmp/vbk-parity-20261031）。
+
+## 已确认差异 / 进行中
+- 会话错误使用产品 groupTitle；消息发送者无姓名/头像。
+- 历史缓存误当完整历史；缺分页；旧消息显示发送中；撤回原文未隐藏；内部 session_status 可见。
+- fromJid 的 room 地址未用于发送目标与补偿 gid，导致发送前失败。
+- 16位订单校验/高亮失败；图片仅显示URL；侧栏字段不完整；草稿与历史滚动行为待修。
+- 官方桌面版 CUA 连接超时；安装签名有效，进程运行；插件0.6.0回执残留但当前官方包不含启动器/助手，不能宣称插件在线运行。
+
+## 验收纪律
+- 不删除/跳过测试、不降低断言、不把 mock 演示当真实收发验收。
+- 浏览器验收只能用 ego-browser；已有 Playwright smoke 不执行，另做 ego 实测。
+- 每轮按数据→UI→打包→实机读回推进；同一失败三次改路线并记录。
+- 不将凭据、签名URL、客户正文提交到仓库；测试使用脱敏最小样本。
+- 完成时明确已证实、未证实和实际产物路径；继续任务先读本文件。
