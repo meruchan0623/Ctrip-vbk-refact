@@ -1,0 +1,11 @@
+{
+  "source": "Actual context menu after upload; no direct recall request submitted",
+  "controlled": false,
+  "messageKind": "video",
+  "menu": [
+    "引用",
+    "转发"
+  ],
+  "remainingVideoMessages": 1,
+  "checkedAt": "2026-10-30T11:06:18.248Z"
+}

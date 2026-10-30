@@ -1,0 +1,23 @@
+{
+  "target": "Jim",
+  "business": {
+    "resultCode": "SUCCESS"
+  },
+  "memberReadbackMatchesTransferredGroup": true,
+  "targetRoles": [
+    3,
+    4,
+    4
+  ],
+  "targetStatus": "1",
+  "previousMasterRoles": [
+    0,
+    3,
+    4
+  ],
+  "uiMaster": [
+    "门票活动旅游管家Jim"
+  ],
+  "otherConversationAuthorized": true,
+  "noMessageSentToTransferConversation": true
+}

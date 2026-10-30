@@ -1,0 +1,45 @@
+{
+  "capturedAt": "2026-10-30T10:17:27.564Z",
+  "page": "https://vbooking.ctrip.com/vbk/im/main",
+  "stage": "04-controlled-text-send",
+  "requests": [],
+  "websocket": [
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "xmlTemplate": "<message from=\"{{from}}\" to=\"{{to}}\" type=\"input_state\" id=\"{{id}}\" isGroup=\"{{isGroup}}\" xmlns=\"jabber:client\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "xmlTemplate": "<iq from=\"{{from}}\" to=\"{{to}}\" id=\"{{id}}\" type=\"get\" xmlns=\"jabber:client\"><ping xmlns=\"urn:xmpp:ping\"/></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.924",
+      "opcode": 1,
+      "xmlTemplate": "<iq type=\"result\" id=\"{{id}}\" from=\"{{from}}\" to=\"{{to}}\"/>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "xmlTemplate": "<message from=\"{{from}}\" to=\"{{to}}\" type=\"input_state\" id=\"{{id}}\" isGroup=\"{{isGroup}}\" xmlns=\"jabber:client\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "xmlTemplate": "<message to=\"{{to}}\" type=\"send\" id=\"{{id}}\" xmlns=\"jabber:client\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.1092",
+      "opcode": 1,
+      "xmlTemplate": "<message id=\"{{id}}\" udl=\"{{udl}}\" ucsUid=\"{{ucsUid}}\" type=\"input_state\" real_chat_type=\"{{real_chat_type}}\" isGroup=\"{{isGroup}}\" msgtype=\"9901\" bizType=\"{{bizType}}\" skip_db=\"{{skip_db}}\" from=\"{{from}}\" to=\"{{to}}\" receipt_range=\"{{receipt_range}}\"><body>{{text}}</body></message>"
+    }
+  ],
+  "redaction": "Full request shape and array entries retained; credentials and identities replaced by typed placeholders. Schemas describe observation, not requiredness."
+}

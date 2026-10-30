@@ -1,0 +1,14 @@
+{
+  "evidenceAudit": {
+    "evidenceFiles": 83,
+    "templateSchemaNodesChecked": 153168,
+    "unavailableSchemaNodes": 854,
+    "failureCount": 0,
+    "failures": [],
+    "businessReadinessAsserted": false
+  },
+  "localLinksChecked": 651,
+  "brokenLocalLinks": [],
+  "businessImplementationAllowed": false,
+  "scopeNote": "Avatar settings excluded from further work by latest user instruction; TSim source contracts are not live verification."
+}

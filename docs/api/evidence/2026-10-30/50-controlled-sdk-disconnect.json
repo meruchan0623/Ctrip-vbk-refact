@@ -1,0 +1,49 @@
+{
+  "capturedAt": "2026-10-30T10:43:06.028Z",
+  "page": "https://vbooking.ctrip.com/vbk/im/main",
+  "stage": "50-controlled-sdk-disconnect",
+  "requests": [],
+  "websocket": [
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [],
+      "bodyTemplate": [],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 0,
+        "items": {
+          "anyOf": []
+        }
+      },
+      "xmlTemplate": "<close xmlns=\"urn:ietf:params:xml:ns:xmpp-framing\"/>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        "{{ws.body[0]:string}}"
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "string"
+        }
+      },
+      "xmlTemplate": "</stream:stream>"
+    },
+    {
+      "event": "Network.webSocketClosed",
+      "id": "35568.924",
+      "headers": {}
+    }
+  ],
+  "xhr": [],
+  "redaction": "Full request shape and array entries retained; credentials and identities replaced by typed placeholders. Schemas describe observation, not requiredness."
+}

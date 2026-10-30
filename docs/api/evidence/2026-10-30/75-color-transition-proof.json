@@ -1,0 +1,25 @@
+{
+  "baseline": "unmarked neutral option selected in official UI",
+  "orange": {
+    "ack": "Success",
+    "business": {
+      "resultCode": "SUCCESS"
+    },
+    "star": 1
+  },
+  "restored": {
+    "ack": "Success",
+    "business": {
+      "resultCode": "SUCCESS"
+    },
+    "star": 0
+  },
+  "palette": [
+    "neutral",
+    "orange",
+    "green",
+    "blue",
+    "purple",
+    "pink"
+  ]
+}

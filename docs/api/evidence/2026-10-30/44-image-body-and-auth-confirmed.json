@@ -1,0 +1,1508 @@
+{
+  "capturedAt": "2026-10-30T10:39:57.694Z",
+  "page": "https://vbooking.ctrip.com/vbk/im/main",
+  "stage": "44-image-body-and-auth-confirmed",
+  "requests": [
+    {
+      "stage": "44-image-body-and-auth-confirmed",
+      "id": "35568.4513",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/uploadTokenCreate?_fxpcqlniredt=%7B%7Bquery._fxpcqlniredt%3Astring%7D%7D&x-traceID=%7B%7Bquery.x-traceID%3Astring%7D%7D",
+      "method": "POST",
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"macOS\"",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "x-ctx-Locale": "zh-CN",
+        "x-ctx-Currency": "CNY",
+        "Content-Type": "application/json",
+        "x-ctx-ubt-vid": "{{header.x-ctx-ubt-vid:string}}",
+        "x-ctx-ubt-pvid": "{{header.x-ctx-ubt-pvid:string}}",
+        "x-ctx-wclient-req": "{{header.x-ctx-wclient-req:string}}",
+        "x-ctx-ubt-sid": "{{header.x-ctx-ubt-sid:string}}",
+        "Referer": "https://vbooking.ctrip.com/",
+        "x-ctx-Country": "CN",
+        "w-payload-source": "{{header.w-payload-source:string}}",
+        "x-ctx-ubt-pageid": "{{header.x-ctx-ubt-pageid:string}}",
+        "cookieOrigin": "https://vbooking.ctrip.com",
+        "x-tour-auth-from": "vbk_online",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "application/json",
+        "cookie": "UBT_VID={{cookie}}; GUID={{cookie}}; _RSG={{cookie}}; _RDG={{cookie}}; _RGUID={{cookie}}; vbk_login_cid={{cookie}}; _RF1={{cookie}}; vbkticket={{cookie}}; bticket={{cookie}}; BDUID={{cookie}}; vbk-locale-lang={{cookie}}; vbk-menu-business-id={{cookie}}; vbk-menu-business-parameter={{cookie}}; ibulanguage={{cookie}}; ibulocale={{cookie}}; cookiePricesDisplayed={{cookie}}; _wb_wh={{cookie}}; _bfa={{cookie}}",
+        "cookieorigin": "https://vbooking.ctrip.com",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "x-ctx-country": "CN",
+        "x-ctx-currency": "CNY",
+        "x-ctx-locale": "zh-CN"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [
+        {
+          "name": "SECKEY_ABVK",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "BMAP_SECKEY",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibu_country",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_resDomain",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibusite",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibugroup",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "JSESSIONID",
+          "domain": "online.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibulocale",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "UBT_VID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "GUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RSG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RDG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RGUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk_login_cid",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RF1",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbkticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "bticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "BDUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-locale-lang",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-id",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-parameter",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulanguage",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulocale",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "cookiePricesDisplayed",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_wb_wh",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_bfa",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        }
+      ],
+      "requestTemplate": {
+        "head": {
+          "cid": "{{body.head.cid:string}}",
+          "ctok": "",
+          "cver": "2",
+          "lang": "01",
+          "sid": "{{body.head.sid:string}}",
+          "syscode": "09",
+          "auth": "",
+          "xsid": "",
+          "extension": [
+            {
+              "name": "cpc",
+              "value": "pc"
+            },
+            {
+              "name": "protocal",
+              "value": "https"
+            },
+            {
+              "name": "amp-product-type",
+              "value": "IM"
+            },
+            {
+              "name": "amp-account-source",
+              "value": "VBK"
+            },
+            {
+              "name": "client-source",
+              "value": "pc-900004"
+            },
+            {
+              "name": "locale",
+              "value": "zh-CN"
+            }
+          ],
+          "appId": "900004"
+        },
+        "channel": "im_business",
+        "type": "img"
+      },
+      "requestSchema": {
+        "type": "object",
+        "properties": {
+          "head": {
+            "type": "object",
+            "properties": {
+              "cid": {
+                "type": "string"
+              },
+              "ctok": {
+                "type": "string"
+              },
+              "cver": {
+                "type": "string"
+              },
+              "lang": {
+                "type": "string"
+              },
+              "sid": {
+                "type": "string"
+              },
+              "syscode": {
+                "type": "string"
+              },
+              "auth": {
+                "type": "string"
+              },
+              "xsid": {
+                "type": "string"
+              },
+              "extension": {
+                "type": "array",
+                "observedLength": 6,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "name",
+                    "value"
+                  ]
+                }
+              },
+              "appId": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "cid",
+              "ctok",
+              "cver",
+              "lang",
+              "sid",
+              "syscode",
+              "auth",
+              "xsid",
+              "extension",
+              "appId"
+            ]
+          },
+          "channel": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "head",
+          "channel",
+          "type"
+        ]
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "rootmessageid": "{{header.rootmessageid:string}}",
+        "access-control-expose-headers": "RootMessageId\nx-service-call\nx-gate-region\nslb-http-protocol-version",
+        "x-cat-root-url": "{{header.x-cat-root-url:string}}",
+        "content-encoding": "{{header.content-encoding:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "slb-http-protocol-version": "{{header.slb-http-protocol-version:string}}",
+        "x-cat-root-id": "{{header.x-cat-root-id:string}}",
+        "servermessageid": "{{header.servermessageid:string}}",
+        "c-via": "{{header.c-via:string}}",
+        "x-cat-parent-id": "{{header.x-cat-parent-id:string}}",
+        "date": "{{header.date:string}}",
+        "content-type": "application/json;charset=UTF-8",
+        "x-cat-server": "{{header.x-cat-server:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "clogging_trace_id": "{{header.clogging_trace_id:string}}",
+        "x-envoy-upstream-service-time": "{{header.x-envoy-upstream-service-time:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}",
+        "access-control-allow-credentials": "true",
+        "x-service-call": "{{header.x-service-call:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-cat-id": "{{header.x-cat-id:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}"
+      },
+      "responseTemplate": {
+        "ResponseStatus": {
+          "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+          "Ack": "Success",
+          "Errors": [],
+          "Extension": [
+            {
+              "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+            },
+            {
+              "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+            }
+          ]
+        },
+        "token": "{{response.token:string}}"
+      },
+      "responseSchema": {
+        "type": "object",
+        "properties": {
+          "ResponseStatus": {
+            "type": "object",
+            "properties": {
+              "Timestamp": {
+                "type": "string"
+              },
+              "Ack": {
+                "type": "string"
+              },
+              "Errors": {
+                "type": "array",
+                "observedLength": 0,
+                "items": {
+                  "anyOf": []
+                }
+              },
+              "Extension": {
+                "type": "array",
+                "observedLength": 2,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "Id": {
+                      "type": "string"
+                    },
+                    "Value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "Id",
+                    "Value"
+                  ]
+                }
+              }
+            },
+            "observedKeys": [
+              "Timestamp",
+              "Ack",
+              "Errors",
+              "Extension"
+            ]
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "ResponseStatus",
+          "token"
+        ]
+      },
+      "headExtension": [
+        {
+          "name": "cpc",
+          "value": "pc"
+        },
+        {
+          "name": "protocal",
+          "value": "https"
+        },
+        {
+          "name": "amp-product-type",
+          "value": "IM"
+        },
+        {
+          "name": "amp-account-source",
+          "value": "VBK"
+        },
+        {
+          "name": "client-source",
+          "value": "pc-900004"
+        },
+        {
+          "name": "locale",
+          "value": "zh-CN"
+        }
+      ]
+    },
+    {
+      "stage": "44-image-body-and-auth-confirmed",
+      "id": "70AFF82441E3852762D9A231F670A209",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/uploadTokenCreate?_fxpcqlniredt=%7B%7Bquery._fxpcqlniredt%3Astring%7D%7D&x-traceID=%7B%7Bquery.x-traceID%3Astring%7D%7D",
+      "method": "OPTIONS",
+      "requestHeaders": {
+        "Accept": "*/*",
+        "Access-Control-Request-Headers": "content-type,cookieorigin,w-payload-source,x-ctx-country,x-ctx-currency,x-ctx-locale,x-ctx-ubt-pageid,x-ctx-ubt-pvid,x-ctx-ubt-sid,x-ctx-ubt-vid,x-ctx-wclient-req,x-tour-auth-from",
+        "Access-Control-Request-Method": "POST",
+        "Origin": "https://vbooking.ctrip.com",
+        "Sec-Fetch-Mode": "cors",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "access-control-request-headers": "content-type,cookieorigin,w-payload-source,x-ctx-country,x-ctx-currency,x-ctx-locale,x-ctx-ubt-pageid,x-ctx-ubt-pvid,x-ctx-ubt-sid,x-ctx-ubt-vid,x-ctx-wclient-req,x-tour-auth-from",
+        "access-control-request-method": "POST",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [],
+      "requestTemplate": "undefined",
+      "requestSchema": {
+        "type": "undefined"
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "access-control-allow-credentials": "true",
+        "access-control-allow-headers": "content-type,cookieorigin,w-payload-source,x-ctx-country,x-ctx-currency,x-ctx-locale,x-ctx-ubt-pageid,x-ctx-ubt-pvid,x-ctx-ubt-sid,x-ctx-ubt-vid,x-ctx-wclient-req,x-tour-auth-from",
+        "access-control-allow-methods": "POST",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "access-control-expose-headers": "x-service-call\nx-gate-region\nslb-http-protocol-version",
+        "c-via": "{{header.c-via:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "text/html",
+        "date": "{{header.date:string}}",
+        "slb-http-protocol-version": "{{header.slb-http-protocol-version:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}"
+      },
+      "responseTemplate": "undefined",
+      "responseSchema": {
+        "type": "undefined"
+      }
+    },
+    {
+      "stage": "44-image-body-and-auth-confirmed",
+      "id": "35568.4514",
+      "url": "https://nephele.ctrip.com/image/v2/api/upload?channel=im_business&scene=cqDA0M7F6aAGHF06jzBe&rand=%7B%7Bquery.rand%3Astring%7D%7D",
+      "method": "POST",
+      "requestHeaders": {
+        "Content-MD5": "{{header.Content-MD5:string}}",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "Authorization": "{{header.Authorization:string}}",
+        "Referer": "https://vbooking.ctrip.com/",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "image/png",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "application/json, text/plain, */*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "authorization": "{{header.authorization:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-md5": "{{header.content-md5:string}}",
+        "content-type": "image/png",
+        "cookie": "UBT_VID={{cookie}}; GUID={{cookie}}; _RSG={{cookie}}; _RDG={{cookie}}; _RGUID={{cookie}}; vbk_login_cid={{cookie}}; _RF1={{cookie}}; vbkticket={{cookie}}; bticket={{cookie}}; BDUID={{cookie}}; vbk-locale-lang={{cookie}}; vbk-menu-business-id={{cookie}}; vbk-menu-business-parameter={{cookie}}; ibulanguage={{cookie}}; ibulocale={{cookie}}; cookiePricesDisplayed={{cookie}}; _wb_wh={{cookie}}; _bfa={{cookie}}",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [
+        {
+          "name": "SECKEY_ABVK",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "BMAP_SECKEY",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibu_country",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_resDomain",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibusite",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibugroup",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "JSESSIONID",
+          "domain": "online.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibulocale",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "UBT_VID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "GUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RSG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RDG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RGUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk_login_cid",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RF1",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbkticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "bticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "BDUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-locale-lang",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-id",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-parameter",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulanguage",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulocale",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "cookiePricesDisplayed",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_wb_wh",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_bfa",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        }
+      ],
+      "requestTemplate": "undefined",
+      "requestSchema": {
+        "type": "undefined"
+      },
+      "postDataError": "No post data available for the request",
+      "httpStatus": 200,
+      "responseHeaders": {
+        "access-control-expose-headers": "",
+        "cache-control": "{{header.cache-control:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "pragma": "{{header.pragma:string}}",
+        "access-control-allow-credentials": "true",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "c-via": "{{header.c-via:string}}",
+        "expires": "{{header.expires:string}}",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "content-length": "{{header.content-length:string}}",
+        "date": "{{header.date:string}}",
+        "content-type": "application/json; charset=utf-8",
+        "unique-request-id": "{{header.unique-request-id:string}}"
+      },
+      "responseTemplate": "undefined",
+      "responseSchema": {
+        "type": "undefined"
+      },
+      "responseError": "Request content was evicted from inspector cache"
+    },
+    {
+      "stage": "44-image-body-and-auth-confirmed",
+      "id": "35940784C86495A59CF9E73A60637B70",
+      "url": "https://nephele.ctrip.com/image/v2/api/upload?channel=im_business&scene=cqDA0M7F6aAGHF06jzBe&rand=%7B%7Bquery.rand%3Astring%7D%7D",
+      "method": "OPTIONS",
+      "requestHeaders": {
+        "Accept": "*/*",
+        "Access-Control-Request-Headers": "authorization,content-md5,content-type",
+        "Access-Control-Request-Method": "POST",
+        "Origin": "https://vbooking.ctrip.com",
+        "Sec-Fetch-Mode": "cors",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "access-control-request-headers": "authorization,content-md5,content-type",
+        "access-control-request-method": "POST",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [],
+      "requestTemplate": "undefined",
+      "requestSchema": {
+        "type": "undefined"
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "access-control-allow-credentials": "true",
+        "access-control-allow-headers": "Authorization, Content-Md5, Content-Type",
+        "access-control-allow-methods": "POST",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "c-via": "{{header.c-via:string}}",
+        "cache-control": "{{header.cache-control:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "date": "{{header.date:string}}",
+        "expires": "{{header.expires:string}}",
+        "pragma": "{{header.pragma:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}"
+      },
+      "responseTemplate": "undefined",
+      "responseSchema": {
+        "type": "undefined"
+      }
+    }
+  ],
+  "websocket": [
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [
+        {
+          "localid": "ref-1",
+          "threadid": "ref-2"
+        }
+      ],
+      "bodyTemplate": [
+        {
+          "chattype": "groupchat",
+          "biztype": "1513",
+          "localid": "{{ws.body[0].localid:string}}",
+          "msg": "{\"thumbUrl\":\"{{ws.body[0].msg.$json.thumbUrl:string}}\",\"url\":\"{{ws.body[0].msg.$json.url:string}}\",\"height\":34,\"width\":98,\"btype\":1,\"originImageSize\":-1,\"originImageUrl\":\"\",\"ext\":{\"channel\":\"im_business\",\"scene\":\"cqDA0M7F6aAGHF06jzBe\"}}",
+          "msgtype": "1",
+          "autoextend": 0,
+          "threadid": ""
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "chattype": {
+              "type": "string"
+            },
+            "biztype": {
+              "type": "string"
+            },
+            "localid": {
+              "type": "string"
+            },
+            "msg": {
+              "type": "string",
+              "encodedJson": {
+                "type": "object",
+                "properties": {
+                  "thumbUrl": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "btype": {
+                    "type": "number"
+                  },
+                  "originImageSize": {
+                    "type": "number"
+                  },
+                  "originImageUrl": {
+                    "type": "string"
+                  },
+                  "ext": {
+                    "type": "object",
+                    "properties": {
+                      "channel": {
+                        "type": "string"
+                      },
+                      "scene": {
+                        "type": "string"
+                      }
+                    },
+                    "observedKeys": [
+                      "channel",
+                      "scene"
+                    ]
+                  }
+                },
+                "observedKeys": [
+                  "thumbUrl",
+                  "url",
+                  "height",
+                  "width",
+                  "btype",
+                  "originImageSize",
+                  "originImageUrl",
+                  "ext"
+                ]
+              }
+            },
+            "msgtype": {
+              "type": "string"
+            },
+            "autoextend": {
+              "type": "number"
+            },
+            "threadid": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "chattype",
+            "biztype",
+            "localid",
+            "msg",
+            "msgtype",
+            "autoextend",
+            "threadid"
+          ]
+        }
+      },
+      "xmlTemplate": "<message to=\"{{to:ref-3}}\" type=\"send\" id=\"{{id:ref-1}}\" xmlns=\"jabber:client\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [
+        {
+          "localid": "ref-1",
+          "tid": "ref-4",
+          "threadid": "ref-2"
+        }
+      ],
+      "bodyTemplate": [
+        {
+          "error": 0,
+          "reason": "{{ws.body[0].reason:string}}",
+          "chattype": "groupchat",
+          "localid": "{{ws.body[0].localid:string}}",
+          "tid": "{{ws.body[0].tid:string}}",
+          "create_time": "{{ws.body[0].create_time:string}}",
+          "ts": "{{ws.body[0].ts:string}}",
+          "threadid": "",
+          "present": false
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "error": {
+              "type": "number"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "chattype": {
+              "type": "string"
+            },
+            "localid": {
+              "type": "string"
+            },
+            "tid": {
+              "type": "string"
+            },
+            "create_time": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "threadid": {
+              "type": "string"
+            },
+            "present": {
+              "type": "boolean"
+            }
+          },
+          "observedKeys": [
+            "error",
+            "reason",
+            "chattype",
+            "localid",
+            "tid",
+            "create_time",
+            "ts",
+            "threadid",
+            "present"
+          ]
+        }
+      },
+      "xmlTemplate": "<message to=\"{{to:ref-5}}\" type=\"send_result\" id=\"{{id:ref-1}}\" from=\"{{from:ref-3}}\" real_chat_type=\"{{real_chat_type:ref-6}}\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "thumbUrl": "{{ws.body[0].thumbUrl:string}}",
+          "url": "{{ws.body[0].url:string}}",
+          "height": 34,
+          "width": 98,
+          "btype": 1,
+          "originImageSize": -1,
+          "originImageUrl": "",
+          "ext": {
+            "channel": "im_business",
+            "scene": "cqDA0M7F6aAGHF06jzBe"
+          }
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "thumbUrl": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "height": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "btype": {
+              "type": "number"
+            },
+            "originImageSize": {
+              "type": "number"
+            },
+            "originImageUrl": {
+              "type": "string"
+            },
+            "ext": {
+              "type": "object",
+              "properties": {
+                "channel": {
+                  "type": "string"
+                },
+                "scene": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "channel",
+                "scene"
+              ]
+            }
+          },
+          "observedKeys": [
+            "thumbUrl",
+            "url",
+            "height",
+            "width",
+            "btype",
+            "originImageSize",
+            "originImageUrl",
+            "ext"
+          ]
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id:ref-4}}\" udl=\"{{udl:ref-7}}\" ucsUid=\"{{ucsUid:ref-8}}\" type=\"groupchat\" real_chat_type=\"{{real_chat_type:ref-9}}\" localid=\"{{localid:ref-1}}\" ts=\"{{ts:ref-10}}\" msgtype=\"1\" bizType=\"{{bizType:ref-11}}\" threadid=\"{{threadid:ref-2}}\" create_time=\"{{create_time:ref-12}}\" skip_db=\"{{skip_db:ref-13}}\" transmit=\"{{transmit:ref-14}}\" sourceGid=\"{{sourceGid:ref-15}}\" from=\"{{from:ref-3}}\" to=\"{{to:ref-16}}\" receipt_range=\"{{receipt_range:ref-17}}\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [],
+      "bodyTemplate": [],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 0,
+        "items": {
+          "anyOf": []
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id:ref-4}}\" type=\"notify_ack\" from=\"{{from:ref-16}}\" xmlns=\"jabber:client\"/>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [],
+      "bodyTemplate": [],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 0,
+        "items": {
+          "anyOf": []
+        }
+      },
+      "xmlTemplate": "<iq from=\"{{from:ref-5}}\" to=\"{{to:ref-18}}\" id=\"{{id:ref-19}}\" type=\"get\" xmlns=\"jabber:client\"><ping xmlns=\"urn:xmpp:ping\"/></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [],
+      "bodyTemplate": [],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 0,
+        "items": {
+          "anyOf": []
+        }
+      },
+      "xmlTemplate": "<iq type=\"result\" id=\"{{id:ref-19}}\" from=\"{{from:ref-18}}\" to=\"{{to:ref-5}}\"/>"
+    }
+  ],
+  "xhr": [
+    {
+      "method": "POST",
+      "url": "https://nephele.ctrip.com/image/v2/api/upload?channel=im_business&scene=cqDA0M7F6aAGHF06jzBe&rand=%7B%7Bquery.rand%3Astring%7D%7D",
+      "headers": {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "image/png",
+        "Authorization": "{{header.Authorization:string}}",
+        "Content-MD5": "{{header.Content-MD5:string}}"
+      },
+      "payload": {
+        "kind": "File",
+        "name": "{{payload.name:string}}",
+        "size": 139,
+        "type": "image/png"
+      },
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "kind",
+          "name",
+          "size",
+          "type"
+        ]
+      },
+      "status": 200,
+      "response": {
+        "Code": 2000,
+        "Content": {
+          "url": "{{response.Content.url:string}}",
+          "file_name": "{{response.Content.file_name:string}}"
+        },
+        "Message": "{{response.Message:string}}"
+      },
+      "responseSchema": {
+        "type": "object",
+        "properties": {
+          "Code": {
+            "type": "number"
+          },
+          "Content": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "file_name": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "url",
+              "file_name"
+            ]
+          },
+          "Message": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "Code",
+          "Content",
+          "Message"
+        ]
+      }
+    }
+  ],
+  "redaction": "Full request shape and array entries retained; credentials and identities replaced by typed placeholders. Schemas describe observation, not requiredness."
+}

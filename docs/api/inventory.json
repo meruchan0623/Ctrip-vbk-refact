@@ -1,0 +1,1896 @@
+{
+  "title": "逐接口证据清点",
+  "asOf": "2026-10-30",
+  "status": "inventory_only_not_verified_contract",
+  "scope": "递归扫描 docs/research/evidence/*.json 与 docs/research/*.md、docs/dev/*.md；排除 archive 与 docs/api/evidence。",
+  "rules": [
+    "仅记实际 URL host/path；缺host为null，不按服务号推断。",
+    "bodyEvidence仅描述旧证据保存形态，不代表完整可调用契约。",
+    "HTTP endpoint逐host/path去重；同path已发现host变体时关联对应来源。"
+  ],
+  "httpEndpointCount": 91,
+  "endpoints": [
+    {
+      "host": null,
+      "path": "/restapi/soa2/11419/getSessionUrls",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/11679/GetMyInfo.json",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-client-im-static-evidence.md",
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/11679/PutAdviceOfReadByMsgId.json",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/11679/SendMessage.json",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-client-im-static-evidence.md",
+        "docs/research/2026-10-30-web-im-observation.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/11679/getMessageTranslate",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-client-im-static-evidence.md",
+        "docs/research/2026-10-30-web-im-observation.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/12329/uploadImageV2",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/12405/authToken",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/12405/generateWaterMark",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/12405/getCurrentUserInfo",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-client-im-static-evidence.md",
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/13807/getLastImportTimeByIdList",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/missing-apis-user-clicks-20261030-165428-summary.json"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/14866/getUserOrderList",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/14894/getDoorFunctionGuide",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/14894/getProviderBusinessLineList",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/15529/getGroupOwner",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/15529/getImPlusModuleJump",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/15529/getPromotionList",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/15529/getSessionUrls",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/15529/getVBKImUserInfo",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/15529/queryIMSuggestCityList",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/15529/updateGroupOwner",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/16037/checkScoreStatus",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-missing-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/16037/getDLTOrderInfo",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/2026-10-30-web-im-observation.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/16037/inviteCtrip",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/16037/searchInviteMemberListBySkillGroup",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/16037/setVenAgentStatus",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-agent-status-and-settings.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/16037/transferVenMaster",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/16881/searchPop",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/18837/ImUploadImage",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/20016/getVbkRealNameTask",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-agent-status-and-settings.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/20016/startVBKRealNameAuthTask",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-agent-status-and-settings.md"
+      ]
+    },
+    {
+      "host": null,
+      "path": "/restapi/soa2/22015/getSceneConfig",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": "bd-s.tripcdn.cn",
+      "path": "/ares/NFES/100017720/1793085240908/_next/static/chunks/commons-16402123d854e2fd.js",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-message-notice-static-20261030.json"
+      ]
+    },
+    {
+      "host": "bd-s.tripcdn.cn",
+      "path": "/ares/NFES/100017720/1793085240908/_next/static/chunks/pages/main-7928b3c422bccbc5.js",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-message-notice-static-20261030.json"
+      ]
+    },
+    {
+      "host": "imvendor.ctrip.com",
+      "path": "/main",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/order-im-route-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/10290/createclientid",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/missing-apis-client-20261030-network.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11419/getLoginAdvisorOpenInfo",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/missing-apis-client-20261030-network.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/batchTranslateByMsgIds",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getIQConversations",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-missing-apis.md",
+        "docs/research/2026-10-30-web-reminders.md",
+        "docs/research/evidence/message-notice-order-live-20261030.json",
+        "docs/research/evidence/missing-apis-client-20261030-network.json",
+        "docs/research/evidence/web-im-final-verification-20261030.json",
+        "docs/research/evidence/web-im-passive-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getIQMessages",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/2026-10-30-web-reminders.md",
+        "docs/research/evidence/message-notice-order-live-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/getRecentMessages",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-reminders.md",
+        "docs/research/evidence/message-notice-order-live-20261030.json",
+        "docs/research/evidence/web-im-final-verification-20261030.json",
+        "docs/research/evidence/web-im-passive-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/putAdviceofreadIQMessage",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-reminders.md",
+        "docs/research/evidence/message-notice-order-live-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/recallMessage",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/13500/checkMemberStatus",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/browser-readonly-replay-20261030.json",
+        "docs/research/evidence/browser-replay-check-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/14735/getOrderDetailsForVbk",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "full",
+      "evidence": [
+        "docs/research/2026-10-30-browser-api-validation.md",
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/browser-replay-check-20261030.json",
+        "docs/research/evidence/im-peripheral-live-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/15529/queryGroupInfo",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-missing-apis.md",
+        "docs/research/2026-10-30-web-order-conversation.md",
+        "docs/research/evidence/message-notice-order-live-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/addCustomerScript",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/checkSessionStatus",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/createRootCategory",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/deleteCategory",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/deleteCustomerScript",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/finishConversation",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getAgentWorkingSchedule",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/missing-apis-client-20261030-network.json",
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getCategories",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/browser-replay-check-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getConversationInfoByGidList",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/missing-apis-client-20261030-network.json",
+        "docs/research/evidence/web-im-final-verification-20261030.json",
+        "docs/research/evidence/web-im-passive-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getConversationList",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "mixed",
+      "evidence": [
+        "docs/research/2026-10-30-client-im-static-evidence.md",
+        "docs/research/2026-10-30-web-reminders.md",
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/message-notice-order-live-20261030.json",
+        "docs/research/evidence/missing-apis-client-20261030-network.json",
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getConversationList.json",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/message-notice-order-live-20261030.json",
+        "docs/research/evidence/web-im-final-verification-20261030.json",
+        "docs/research/evidence/web-im-passive-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getCustomerScripts",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getInviteCtripData",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/im-peripheral-live-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getInviteMemberListBySkillGroup",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/im-peripheral-live-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getLatestConversationByGid",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/browser-readonly-replay-20261030.json",
+        "docs/research/evidence/browser-replay-check-20261030.json",
+        "docs/research/evidence/message-notice-order-live-20261030.json",
+        "docs/research/evidence/missing-apis-client-20261030-network.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getLatestSingleChat",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-im-final-verification-20261030.json",
+        "docs/research/evidence/web-im-passive-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getMessageList",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/browser-readonly-replay-20261030.json",
+        "docs/research/evidence/browser-replay-check-20261030.json",
+        "docs/research/evidence/message-notice-order-live-20261030.json",
+        "docs/research/evidence/missing-apis-client-20261030-network.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getRemarkList",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/evidence/message-notice-order-live-20261030.json",
+        "docs/research/evidence/missing-apis-client-20261030-network.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getTimeZoneList",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getVenAgentByUid",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "full",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/browser-readonly-replay-20261030.json",
+        "docs/research/evidence/browser-replay-check-20261030.json",
+        "docs/research/evidence/missing-apis-client-20261030-network.json",
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getVenAgentByUid.json",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/getWordsAboves",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "full",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/inviteVenAgent",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/modifyVendorAgentOption",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "full",
+      "evidence": [
+        "docs/research/2026-10-30-backend-support-matrix.md",
+        "docs/research/2026-10-30-browser-api-validation.md",
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/searchConversation",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-missing-apis.md",
+        "docs/research/2026-10-30-web-order-conversation.md",
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/message-notice-order-live-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/setWorkSheetStar",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/dev/10-im.md",
+        "docs/research/2026-10-30-browser-api-validation.md",
+        "docs/research/2026-10-30-missing-apis.md",
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/startChatB2C",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/syncVenAgentInfo",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/missing-apis-client-20261030-network.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/updateCustomerScript",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/16037/uploadTokenCreate",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieOrigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-browser-api-validation.md",
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/18088/getAppConfig.json",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/missing-apis-client-20261030-network.json",
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/20016/checkVBKRealNameAuthStatus",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-agent-status-and-settings.md",
+        "docs/research/evidence/missing-apis-client-20261030-network.json"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/36709/createTUid",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/missing-apis-client-20261030-network.json",
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": "nephele.ctrip.com",
+      "path": "/image/v2/api/upload",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 9,
+      "headerNames": [
+        "Accept",
+        "Authorization",
+        "Content-MD5",
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/13191/validateTicket",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/15529/queryRecommendProductList",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieorigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/evidence/browser-api-validation-20261030.json",
+        "docs/research/evidence/im-peripheral-live-20261030.json"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/15529/sendCardMessageForOffline",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": 17,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "cookieorigin",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-Country",
+        "x-ctx-Currency",
+        "x-ctx-Locale",
+        "x-ctx-ubt-pageid",
+        "x-ctx-ubt-pvid",
+        "x-ctx-ubt-sid",
+        "x-ctx-ubt-vid",
+        "x-ctx-wclient-req",
+        "x-tour-auth-from"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "template",
+      "evidence": [
+        "docs/research/2026-10-30-browser-api-validation.md",
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/evidence/browser-api-validation-20261030.json"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/16566/queryCountByEid",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/web-im-final-verification-20261030.json",
+        "docs/research/evidence/web-im-passive-20261030.json"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/17092/listNoticeReceiveConfig",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": "online.ctrip.com",
+      "path": "/restapi/soa2/22160/pwdLogin",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md"
+      ]
+    },
+    {
+      "host": "sec-m.ctrip.com",
+      "path": "/restapi/soa2/14361/createimchat",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/dev/04-business-pages.md",
+        "docs/research/2026-10-30-missing-apis.md",
+        "docs/research/2026-10-30-web-order-conversation.md",
+        "docs/research/evidence/message-notice-order-live-20261030.json"
+      ]
+    },
+    {
+      "host": "sec-m.ctrip.com",
+      "path": "/restapi/soa2/14361/searchorderlist",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/dev/04-business-pages.md",
+        "docs/research/2026-10-30-im-peripheral-apis.md",
+        "docs/research/2026-10-30-web-order-conversation.md",
+        "docs/research/evidence/im-peripheral-live-20261030.json",
+        "docs/research/evidence/message-notice-order-live-20261030.json"
+      ]
+    },
+    {
+      "host": "vbooking.ctrip.com",
+      "path": "/qconfig/jsonp",
+      "methods": [
+        "GET"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/missing-apis-client-20261030-network.json",
+        "docs/research/evidence/missing-apis-qconfig-20261030.json"
+      ]
+    },
+    {
+      "host": "vbooking.ctrip.com",
+      "path": "/vbk/im/main",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-im-final-verification-20261030.json"
+      ]
+    },
+    {
+      "host": "webresource.c-ctrip.com",
+      "path": "/NFES/vbkIm/1793340371237/_next/static/chunks/296-1776b2655d6f3342.js",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-message-notice-static-20261030.json"
+      ]
+    },
+    {
+      "host": "webresource.c-ctrip.com",
+      "path": "/NFES/vbkIm/1793340371237/_next/static/chunks/common-64bcba478022e02f.js",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "evidence": [
+        "docs/research/evidence/web-message-notice-static-20261030.json"
+      ]
+    }
+  ],
+  "transports": [
+    {
+      "name": "Web IM WSS",
+      "method": "WSS",
+      "host": null,
+      "path": null,
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/research/2026-10-30-backend-support-matrix.md"
+      ]
+    }
+  ],
+  "externalDependencies": [
+    {
+      "name": "TSim login/outbound translation/package-order query",
+      "host": null,
+      "path": null,
+      "evidence": [
+        "docs/research/2026-10-30-backend-support-matrix.md"
+      ]
+    },
+    {
+      "name": "project-controlled update service",
+      "host": null,
+      "path": null,
+      "evidence": [
+        "docs/dev/08-update-telemetry.md",
+        "docs/research/2026-10-30-backend-support-matrix.md"
+      ]
+    }
+  ],
+  "cancelledBusinessAuxiliary": [
+    {
+      "name": "公告/BI/旧桌面业务辅助能力",
+      "status": "out_of_scope",
+      "evidence": [
+        "docs/research/2026-10-30-missing-apis.md",
+        "docs/research/2026-10-30-backend-support-matrix.md"
+      ]
+    }
+  ]
+}

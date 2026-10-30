@@ -1,0 +1,11 @@
+{
+  "scheme": "Nephele",
+  "nonceLength": 32,
+  "nonceAllowedCharacters": true,
+  "timestampTwelveDigits": true,
+  "channel": "im_business",
+  "base64TokenMatchesReturnedToken": true,
+  "contentMD5MatchesFixtureHex": true,
+  "fixtureBytes": 139,
+  "fixtureSHA256": "b13027961d779f451e96bc43b0c7c1ad6d6ad0efe0377eed8979b51276d9a203"
+}

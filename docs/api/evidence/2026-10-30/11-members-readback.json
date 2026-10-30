@@ -1,0 +1,837 @@
+{
+  "capturedAt": "2026-10-30T10:20:44.757Z",
+  "page": "https://vbooking.ctrip.com/vbk/im/main",
+  "stage": "11-members-readback",
+  "requests": [
+    {
+      "stage": "11-members-readback",
+      "id": "82856B3681C82854A420F9D74871AFB0",
+      "url": "https://m.ctrip.com/restapi/soa2/13500/checkMemberStatus?_fxpcqlniredt=%7B%7Bquery._fxpcqlniredt%3Astring%7D%7D&x-traceID=%7B%7Bquery.x-traceID%3Astring%7D%7D",
+      "method": "OPTIONS",
+      "requestHeaders": {
+        "Accept": "*/*",
+        "Access-Control-Request-Headers": "content-type,cookieorigin,w-payload-source,x-ctx-country,x-ctx-currency,x-ctx-locale,x-ctx-ubt-pageid,x-ctx-ubt-pvid,x-ctx-ubt-sid,x-ctx-ubt-vid,x-ctx-wclient-req,x-tour-auth-from",
+        "Access-Control-Request-Method": "POST",
+        "Origin": "https://vbooking.ctrip.com",
+        "Sec-Fetch-Mode": "cors",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "access-control-request-headers": "content-type,cookieorigin,w-payload-source,x-ctx-country,x-ctx-currency,x-ctx-locale,x-ctx-ubt-pageid,x-ctx-ubt-pvid,x-ctx-ubt-sid,x-ctx-ubt-vid,x-ctx-wclient-req,x-tour-auth-from",
+        "access-control-request-method": "POST",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [],
+      "requestTemplate": "undefined",
+      "requestSchema": {
+        "type": "undefined"
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "access-control-allow-credentials": "true",
+        "access-control-allow-headers": "content-type,cookieorigin,w-payload-source,x-ctx-country,x-ctx-currency,x-ctx-locale,x-ctx-ubt-pageid,x-ctx-ubt-pvid,x-ctx-ubt-sid,x-ctx-ubt-vid,x-ctx-wclient-req,x-tour-auth-from",
+        "access-control-allow-methods": "POST",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "access-control-expose-headers": "x-service-call\nx-gate-region\nslb-http-protocol-version",
+        "c-via": "{{header.c-via:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "text/html",
+        "date": "{{header.date:string}}",
+        "slb-http-protocol-version": "{{header.slb-http-protocol-version:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}"
+      },
+      "responseTemplate": "undefined",
+      "responseSchema": {
+        "type": "undefined"
+      }
+    },
+    {
+      "stage": "11-members-readback",
+      "id": "35568.1837",
+      "url": "https://m.ctrip.com/restapi/soa2/13500/checkMemberStatus?_fxpcqlniredt=%7B%7Bquery._fxpcqlniredt%3Astring%7D%7D&x-traceID=%7B%7Bquery.x-traceID%3Astring%7D%7D",
+      "method": "POST",
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"macOS\"",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "x-ctx-Locale": "zh-CN",
+        "x-ctx-Currency": "CNY",
+        "Content-Type": "application/json",
+        "x-ctx-ubt-vid": "{{header.x-ctx-ubt-vid:string}}",
+        "x-ctx-ubt-pvid": "{{header.x-ctx-ubt-pvid:string}}",
+        "x-ctx-wclient-req": "{{header.x-ctx-wclient-req:string}}",
+        "x-ctx-ubt-sid": "{{header.x-ctx-ubt-sid:string}}",
+        "Referer": "https://vbooking.ctrip.com/",
+        "x-ctx-Country": "CN",
+        "w-payload-source": "{{header.w-payload-source:string}}",
+        "x-ctx-ubt-pageid": "{{header.x-ctx-ubt-pageid:string}}",
+        "cookieOrigin": "https://vbooking.ctrip.com",
+        "x-tour-auth-from": "vbk_online",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "application/json",
+        "cookie": "UBT_VID={{cookie}}; GUID={{cookie}}; _RSG={{cookie}}; _RDG={{cookie}}; _RGUID={{cookie}}; vbk_login_cid={{cookie}}; _RF1={{cookie}}; vbkticket={{cookie}}; bticket={{cookie}}; BDUID={{cookie}}; vbk-locale-lang={{cookie}}; vbk-menu-business-id={{cookie}}; vbk-menu-business-parameter={{cookie}}; ibulanguage={{cookie}}; ibulocale={{cookie}}; cookiePricesDisplayed={{cookie}}; _wb_wh={{cookie}}; _bfa={{cookie}}",
+        "cookieorigin": "https://vbooking.ctrip.com",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "x-ctx-country": "CN",
+        "x-ctx-currency": "CNY",
+        "x-ctx-locale": "zh-CN"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [
+        {
+          "name": "SECKEY_ABVK",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "BMAP_SECKEY",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibu_country",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibusite",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibugroup",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "JSESSIONID",
+          "domain": "online.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibulocale",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "UBT_VID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "GUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RSG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RDG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RGUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk_login_cid",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RF1",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbkticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "bticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "BDUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-locale-lang",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-id",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-parameter",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulanguage",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulocale",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "cookiePricesDisplayed",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_wb_wh",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_bfa",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        }
+      ],
+      "requestTemplate": {
+        "head": {
+          "cid": "{{body.head.cid:string}}",
+          "ctok": "",
+          "cver": "2",
+          "lang": "01",
+          "sid": "{{body.head.sid:string}}",
+          "syscode": "09",
+          "auth": "",
+          "xsid": "",
+          "extension": [
+            {
+              "name": "cpc",
+              "value": "{{body.head.extension[0].value:string}}"
+            },
+            {
+              "name": "protocal",
+              "value": "{{body.head.extension[1].value:string}}"
+            },
+            {
+              "name": "amp-product-type",
+              "value": "{{body.head.extension[2].value:string}}"
+            },
+            {
+              "name": "amp-account-source",
+              "value": "{{body.head.extension[3].value:string}}"
+            },
+            {
+              "name": "client-source",
+              "value": "{{body.head.extension[4].value:string}}"
+            },
+            {
+              "name": "locale",
+              "value": "{{body.head.extension[5].value:string}}"
+            }
+          ],
+          "appId": "900004"
+        },
+        "groupId": "{{body.groupId:string}}"
+      },
+      "requestSchema": {
+        "type": "object",
+        "properties": {
+          "head": {
+            "type": "object",
+            "properties": {
+              "cid": {
+                "type": "string"
+              },
+              "ctok": {
+                "type": "string"
+              },
+              "cver": {
+                "type": "string"
+              },
+              "lang": {
+                "type": "string"
+              },
+              "sid": {
+                "type": "string"
+              },
+              "syscode": {
+                "type": "string"
+              },
+              "auth": {
+                "type": "string"
+              },
+              "xsid": {
+                "type": "string"
+              },
+              "extension": {
+                "type": "array",
+                "observedLength": 6,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "name",
+                    "value"
+                  ]
+                }
+              },
+              "appId": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "cid",
+              "ctok",
+              "cver",
+              "lang",
+              "sid",
+              "syscode",
+              "auth",
+              "xsid",
+              "extension",
+              "appId"
+            ]
+          },
+          "groupId": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "head",
+          "groupId"
+        ]
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "rootmessageid": "{{header.rootmessageid:string}}",
+        "access-control-expose-headers": "RootMessageId\nx-service-call\nx-gate-region\nslb-http-protocol-version",
+        "x-cat-root-url": "{{header.x-cat-root-url:string}}",
+        "content-encoding": "{{header.content-encoding:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "slb-http-protocol-version": "{{header.slb-http-protocol-version:string}}",
+        "x-cat-root-id": "{{header.x-cat-root-id:string}}",
+        "servermessageid": "{{header.servermessageid:string}}",
+        "c-via": "{{header.c-via:string}}",
+        "x-cat-parent-id": "{{header.x-cat-parent-id:string}}",
+        "date": "{{header.date:string}}",
+        "content-type": "application/json;charset=UTF-8",
+        "x-cat-server": "{{header.x-cat-server:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "clogging_trace_id": "{{header.clogging_trace_id:string}}",
+        "x-envoy-upstream-service-time": "{{header.x-envoy-upstream-service-time:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}",
+        "access-control-allow-credentials": "true",
+        "x-service-call": "{{header.x-service-call:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-cat-id": "{{header.x-cat-id:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}"
+      },
+      "responseTemplate": {
+        "ResponseStatus": {
+          "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+          "Ack": "Success",
+          "Errors": [],
+          "Build": null,
+          "Version": null,
+          "Extension": [
+            {
+              "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+              "Version": null,
+              "ContentType": null,
+              "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+            },
+            {
+              "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+              "Version": null,
+              "ContentType": null,
+              "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+            }
+          ]
+        },
+        "status": {
+          "code": 0,
+          "msg": ""
+        },
+        "members": [
+          {
+            "uid": "{{response.members[0].uid:string}}",
+            "nick": "{{response.members[0].nick:string}}",
+            "avatar": "{{response.members[0].avatar:string}}",
+            "status": "4",
+            "visible": 4,
+            "roles": [
+              0,
+              3,
+              5
+            ],
+            "rolesv2": [
+              0,
+              3,
+              5
+            ]
+          },
+          {
+            "uid": "{{response.members[1].uid:string}}",
+            "nick": "{{response.members[1].nick:string}}",
+            "avatar": "{{response.members[1].avatar:string}}",
+            "status": "1",
+            "visible": 1,
+            "roles": [
+              3,
+              4,
+              4
+            ],
+            "rolesv2": [
+              3,
+              3,
+              4
+            ]
+          },
+          {
+            "uid": "{{response.members[2].uid:string}}",
+            "nick": "{{response.members[2].nick:string}}",
+            "avatar": "{{response.members[2].avatar:string}}",
+            "status": "2",
+            "visible": 2,
+            "roles": [
+              0,
+              3,
+              4
+            ],
+            "rolesv2": [
+              0,
+              3,
+              4
+            ]
+          },
+          {
+            "uid": "{{response.members[3].uid:string}}",
+            "nick": "{{response.members[3].nick:string}}",
+            "avatar": "{{response.members[3].avatar:string}}",
+            "status": "1",
+            "visible": 1,
+            "roles": [
+              0,
+              1,
+              0
+            ],
+            "rolesv2": [
+              0,
+              1,
+              1
+            ]
+          },
+          {
+            "uid": "{{response.members[4].uid:string}}",
+            "nick": "{{response.members[4].nick:string}}",
+            "avatar": "{{response.members[4].avatar:string}}",
+            "status": "1",
+            "visible": 1,
+            "roles": [
+              0,
+              2,
+              0
+            ],
+            "rolesv2": [
+              0,
+              2,
+              0
+            ]
+          }
+        ]
+      },
+      "responseSchema": {
+        "type": "object",
+        "properties": {
+          "ResponseStatus": {
+            "type": "object",
+            "properties": {
+              "Timestamp": {
+                "type": "string"
+              },
+              "Ack": {
+                "type": "string"
+              },
+              "Errors": {
+                "type": "array",
+                "observedLength": 0,
+                "items": {
+                  "anyOf": []
+                }
+              },
+              "Build": {
+                "type": "null"
+              },
+              "Version": {
+                "type": "null"
+              },
+              "Extension": {
+                "type": "array",
+                "observedLength": 2,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "Id": {
+                      "type": "string"
+                    },
+                    "Version": {
+                      "type": "null"
+                    },
+                    "ContentType": {
+                      "type": "null"
+                    },
+                    "Value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "Id",
+                    "Version",
+                    "ContentType",
+                    "Value"
+                  ]
+                }
+              }
+            },
+            "observedKeys": [
+              "Timestamp",
+              "Ack",
+              "Errors",
+              "Build",
+              "Version",
+              "Extension"
+            ]
+          },
+          "status": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "number"
+              },
+              "msg": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "code",
+              "msg"
+            ]
+          },
+          "members": {
+            "type": "array",
+            "observedLength": 5,
+            "items": {
+              "type": "object",
+              "properties": {
+                "uid": {
+                  "type": "string"
+                },
+                "nick": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "number"
+                },
+                "roles": {
+                  "type": "array",
+                  "observedLength": 3,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "rolesv2": {
+                  "type": "array",
+                  "observedLength": 3,
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              },
+              "observedKeys": [
+                "uid",
+                "nick",
+                "avatar",
+                "status",
+                "visible",
+                "roles",
+                "rolesv2"
+              ]
+            }
+          }
+        },
+        "observedKeys": [
+          "ResponseStatus",
+          "status",
+          "members"
+        ]
+      },
+      "headExtension": [
+        {
+          "name": "cpc",
+          "value": "pc"
+        },
+        {
+          "name": "protocal",
+          "value": "https"
+        },
+        {
+          "name": "amp-product-type",
+          "value": "IM"
+        },
+        {
+          "name": "amp-account-source",
+          "value": "VBK"
+        },
+        {
+          "name": "client-source",
+          "value": "pc-900004"
+        },
+        {
+          "name": "locale",
+          "value": "zh-CN"
+        }
+      ]
+    }
+  ],
+  "websocket": [],
+  "redaction": "Full request shape and array entries retained; credentials and identities replaced by typed placeholders. Schemas describe observation, not requiredness."
+}

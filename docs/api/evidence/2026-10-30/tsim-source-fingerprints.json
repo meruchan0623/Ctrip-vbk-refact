@@ -1,0 +1,49 @@
+{
+  "basis": "Current local owning source; no remote or deployment verification",
+  "files": [
+    {
+      "path": "/Users/tashima_meru/Develop/trip_vendor_im_companion/host/owned-service.ts",
+      "sha256": "cb8d6fcfcc5c00fef638e0e301cfe4990b9e5f23f0987f4cadf900937f26ecfc"
+    },
+    {
+      "path": "/Users/tashima_meru/Develop/trip_vendor_im_companion/electron/order-summary-query.ts",
+      "sha256": "4e885353cb58c3dde7cafc827d222357653b888d69985da84f307ccd2ad7dad4"
+    },
+    {
+      "path": "/Users/tashima_meru/Develop/trip_vendor_im_companion/src/shared/translation-request.ts",
+      "sha256": "0204f43df6e72ac8cbc1526dcbf6d4a54386de110e8d7a49e6c8a5e2bcfc5c4d"
+    },
+    {
+      "path": "/Users/tashima_meru/Develop/trip_vendor_im_companion/src/shared/workbench.ts",
+      "sha256": "9c65fb4bfb93ddb6ae6a9edec034709800e96ab1b87e4d374e459e984a6b80f0"
+    },
+    {
+      "path": "/Users/tashima_meru/Develop/TSim_CS/central-backend/api/routers/agent.py",
+      "sha256": "3d50536860ba7179b715c3ad3f63ee2052dfdfb138c45d46225137f29d64f1c1"
+    },
+    {
+      "path": "/Users/tashima_meru/Develop/TSim_CS/central-backend/api/routers/agent_package_query.py",
+      "sha256": "085e8df6e7a350b74b0f6320cb96bf91728329f9245c2bbf6cc9d683b11ea025"
+    },
+    {
+      "path": "/Users/tashima_meru/Develop/TSim_CS/central-backend/auth/dependencies.py",
+      "sha256": "68f065e2e6a23ce0d355ff57f908a90fb8a1612cb1f93f7ce0e03f904b468cea"
+    },
+    {
+      "path": "/Users/tashima_meru/Develop/TSim_CS/central-backend/services/translation_service.py",
+      "sha256": "c13ce7dadea6233cc25ba3804daec213f3292ecb4609f56484272823fa051eca"
+    },
+    {
+      "path": "/Users/tashima_meru/Develop/TSim_CS/central-backend/main.py",
+      "sha256": "5523ce846db7af9244efbfbbdfb73cc6279330b7dbfd4eb41be4e413eafd9e8d"
+    }
+  ],
+  "companion": {
+    "head": "8612ac29d7d397e012f11b06934c710e38769d08",
+    "sourceWorktreeState": []
+  },
+  "tsim": {
+    "head": "07feb3b384e2334a39dfcbb7dfb05a67d849f66d",
+    "sourceWorktreeState": []
+  }
+}

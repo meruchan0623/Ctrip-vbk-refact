@@ -1,0 +1,418 @@
+[
+  {
+    "credentials": "include",
+    "httpStatus": 200,
+    "body": {
+      "ResponseStatus": {
+        "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+        "Ack": "Success",
+        "Errors": [],
+        "Build": null,
+        "Version": null,
+        "Extension": [
+          {
+            "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+            "Version": null,
+            "ContentType": null,
+            "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+          },
+          {
+            "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+            "Version": null,
+            "ContentType": null,
+            "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+          }
+        ]
+      },
+      "status": {
+        "code": 0,
+        "msg": ""
+      },
+      "members": [
+        {
+          "uid": "{{response.members[0].uid:string}}",
+          "nick": "{{response.members[0].nick:string}}",
+          "avatar": "{{response.members[0].avatar:string}}",
+          "status": "4",
+          "visible": 4,
+          "roles": [
+            0,
+            3,
+            5
+          ],
+          "rolesv2": [
+            0,
+            3,
+            5
+          ]
+        },
+        {
+          "uid": "{{response.members[1].uid:string}}",
+          "nick": "{{response.members[1].nick:string}}",
+          "avatar": "{{response.members[1].avatar:string}}",
+          "status": "1",
+          "visible": 1,
+          "roles": [
+            3,
+            4,
+            4
+          ],
+          "rolesv2": [
+            3,
+            3,
+            4
+          ]
+        },
+        {
+          "uid": "{{response.members[2].uid:string}}",
+          "nick": "{{response.members[2].nick:string}}",
+          "avatar": "{{response.members[2].avatar:string}}",
+          "status": "2",
+          "visible": 2,
+          "roles": [
+            0,
+            3,
+            4
+          ],
+          "rolesv2": [
+            0,
+            3,
+            4
+          ]
+        },
+        {
+          "uid": "{{response.members[3].uid:string}}",
+          "nick": "{{response.members[3].nick:string}}",
+          "avatar": "{{response.members[3].avatar:string}}",
+          "status": "1",
+          "visible": 1,
+          "roles": [
+            0,
+            1,
+            0
+          ],
+          "rolesv2": [
+            0,
+            1,
+            1
+          ]
+        },
+        {
+          "uid": "{{response.members[4].uid:string}}",
+          "nick": "{{response.members[4].nick:string}}",
+          "avatar": "{{response.members[4].avatar:string}}",
+          "status": "1",
+          "visible": 1,
+          "roles": [
+            0,
+            2,
+            0
+          ],
+          "rolesv2": [
+            0,
+            2,
+            0
+          ]
+        }
+      ]
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "ResponseStatus": {
+          "type": "object",
+          "properties": {
+            "Timestamp": {
+              "type": "string"
+            },
+            "Ack": {
+              "type": "string"
+            },
+            "Errors": {
+              "type": "array",
+              "observedLength": 0,
+              "items": {
+                "anyOf": []
+              }
+            },
+            "Build": {
+              "type": "null"
+            },
+            "Version": {
+              "type": "null"
+            },
+            "Extension": {
+              "type": "array",
+              "observedLength": 2,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "Id": {
+                    "type": "string"
+                  },
+                  "Version": {
+                    "type": "null"
+                  },
+                  "ContentType": {
+                    "type": "null"
+                  },
+                  "Value": {
+                    "type": "string"
+                  }
+                },
+                "observedKeys": [
+                  "Id",
+                  "Version",
+                  "ContentType",
+                  "Value"
+                ]
+              }
+            }
+          },
+          "observedKeys": [
+            "Timestamp",
+            "Ack",
+            "Errors",
+            "Build",
+            "Version",
+            "Extension"
+          ]
+        },
+        "status": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "number"
+            },
+            "msg": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "code",
+            "msg"
+          ]
+        },
+        "members": {
+          "type": "array",
+          "observedLength": 5,
+          "items": {
+            "type": "object",
+            "properties": {
+              "uid": {
+                "type": "string"
+              },
+              "nick": {
+                "type": "string"
+              },
+              "avatar": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "visible": {
+                "type": "number"
+              },
+              "roles": {
+                "type": "array",
+                "observedLength": 3,
+                "items": {
+                  "type": "number"
+                }
+              },
+              "rolesv2": {
+                "type": "array",
+                "observedLength": 3,
+                "items": {
+                  "type": "number"
+                }
+              }
+            },
+            "observedKeys": [
+              "uid",
+              "nick",
+              "avatar",
+              "status",
+              "visible",
+              "roles",
+              "rolesv2"
+            ]
+          }
+        }
+      },
+      "observedKeys": [
+        "ResponseStatus",
+        "status",
+        "members"
+      ]
+    }
+  },
+  {
+    "credentials": "omit",
+    "httpStatus": 200,
+    "body": {
+      "ResponseStatus": {
+        "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+        "Ack": "Failure",
+        "Errors": [
+          {
+            "Message": null,
+            "ErrorCode": "{{response.ResponseStatus.Errors[0].ErrorCode:string}}",
+            "StackTrace": null,
+            "SeverityCode": "{{response.ResponseStatus.Errors[0].SeverityCode:string}}",
+            "ErrorFields": [
+              {
+                "FieldName": null,
+                "ErrorCode": "{{response.ResponseStatus.Errors[0].ErrorFields[0].ErrorCode:string}}",
+                "Message": "{{response.ResponseStatus.Errors[0].ErrorFields[0].Message:string}}"
+              }
+            ],
+            "ErrorClassification": "{{response.ResponseStatus.Errors[0].ErrorClassification:string}}"
+          }
+        ],
+        "Build": null,
+        "Version": null,
+        "Extension": [
+          {
+            "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+            "Version": null,
+            "ContentType": null,
+            "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+          },
+          {
+            "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+            "Version": null,
+            "ContentType": null,
+            "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+          }
+        ]
+      },
+      "status": null,
+      "members": null
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "ResponseStatus": {
+          "type": "object",
+          "properties": {
+            "Timestamp": {
+              "type": "string"
+            },
+            "Ack": {
+              "type": "string"
+            },
+            "Errors": {
+              "type": "array",
+              "observedLength": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "Message": {
+                    "type": "null"
+                  },
+                  "ErrorCode": {
+                    "type": "string"
+                  },
+                  "StackTrace": {
+                    "type": "null"
+                  },
+                  "SeverityCode": {
+                    "type": "string"
+                  },
+                  "ErrorFields": {
+                    "type": "array",
+                    "observedLength": 1,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "FieldName": {
+                          "type": "null"
+                        },
+                        "ErrorCode": {
+                          "type": "string"
+                        },
+                        "Message": {
+                          "type": "string"
+                        }
+                      },
+                      "observedKeys": [
+                        "FieldName",
+                        "ErrorCode",
+                        "Message"
+                      ]
+                    }
+                  },
+                  "ErrorClassification": {
+                    "type": "string"
+                  }
+                },
+                "observedKeys": [
+                  "Message",
+                  "ErrorCode",
+                  "StackTrace",
+                  "SeverityCode",
+                  "ErrorFields",
+                  "ErrorClassification"
+                ]
+              }
+            },
+            "Build": {
+              "type": "null"
+            },
+            "Version": {
+              "type": "null"
+            },
+            "Extension": {
+              "type": "array",
+              "observedLength": 2,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "Id": {
+                    "type": "string"
+                  },
+                  "Version": {
+                    "type": "null"
+                  },
+                  "ContentType": {
+                    "type": "null"
+                  },
+                  "Value": {
+                    "type": "string"
+                  }
+                },
+                "observedKeys": [
+                  "Id",
+                  "Version",
+                  "ContentType",
+                  "Value"
+                ]
+              }
+            }
+          },
+          "observedKeys": [
+            "Timestamp",
+            "Ack",
+            "Errors",
+            "Build",
+            "Version",
+            "Extension"
+          ]
+        },
+        "status": {
+          "type": "null"
+        },
+        "members": {
+          "type": "null"
+        }
+      },
+      "observedKeys": [
+        "ResponseStatus",
+        "status",
+        "members"
+      ]
+    }
+  }
+]

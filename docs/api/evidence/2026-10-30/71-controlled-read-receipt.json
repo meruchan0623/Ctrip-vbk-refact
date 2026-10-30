@@ -1,0 +1,4586 @@
+{
+  "capturedAt": "2026-10-30T11:10:39.347Z",
+  "page": "https://vbooking.ctrip.com/vbk/im/main",
+  "stage": "71-controlled-read-receipt",
+  "requests": [
+    {
+      "stage": "71-controlled-read-receipt",
+      "id": "35568.7734",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList?_fxpcqlniredt=%7B%7Bquery._fxpcqlniredt%3Astring%7D%7D&x-traceID=%7B%7Bquery.x-traceID%3Astring%7D%7D",
+      "method": "POST",
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"macOS\"",
+        "Referer": "https://vbooking.ctrip.com/",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "x-ctx-Country": "CN",
+        "x-ctx-Locale": "zh-CN",
+        "x-ctx-Currency": "CNY",
+        "cookieOrigin": "https://vbooking.ctrip.com",
+        "x-tour-auth-from": "vbk_online",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "Content-Type": "application/json",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "application/json",
+        "cookie": "UBT_VID={{cookie}}; GUID={{cookie}}; _RSG={{cookie}}; _RDG={{cookie}}; _RGUID={{cookie}}; vbk_login_cid={{cookie}}; _RF1={{cookie}}; BDUID={{cookie}}; vbk-locale-lang={{cookie}}; vbk-menu-business-id={{cookie}}; vbk-menu-business-parameter={{cookie}}; ibulanguage={{cookie}}; ibulocale={{cookie}}; cookiePricesDisplayed={{cookie}}; _wb_wh={{cookie}}; vbkticket={{cookie}}; bticket={{cookie}}; JSESSIONID={{cookie}}; _bfa={{cookie}}",
+        "cookieorigin": "https://vbooking.ctrip.com",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "x-ctx-country": "CN",
+        "x-ctx-currency": "CNY",
+        "x-ctx-locale": "zh-CN"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [
+        {
+          "name": "SECKEY_ABVK",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "BMAP_SECKEY",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibu_country",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_resDomain",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibusite",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibugroup",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "JSESSIONID",
+          "domain": "online.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibulocale",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "UBT_VID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "GUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RSG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RDG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RGUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk_login_cid",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RF1",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "BDUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-locale-lang",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-id",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-parameter",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulanguage",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulocale",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "cookiePricesDisplayed",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_wb_wh",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbkticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "bticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "JSESSIONID",
+          "domain": "m.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_bfa",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        }
+      ],
+      "requestTemplate": {
+        "head": {
+          "cid": "{{body.head.cid:string}}",
+          "ctok": "",
+          "cver": "2",
+          "lang": "01",
+          "sid": "{{body.head.sid:string}}",
+          "syscode": "09",
+          "auth": "",
+          "xsid": "",
+          "extension": [
+            {
+              "name": "cpc",
+              "value": "pc"
+            },
+            {
+              "name": "protocal",
+              "value": "https"
+            },
+            {
+              "name": "amp-product-type",
+              "value": "IM"
+            },
+            {
+              "name": "amp-account-source",
+              "value": "VBK"
+            },
+            {
+              "name": "client-source",
+              "value": "pc-900004"
+            },
+            {
+              "name": "locale",
+              "value": "zh-CN"
+            }
+          ],
+          "appId": "900004"
+        },
+        "showTargetIsRead": true,
+        "groupId": "{{body.groupId:string}}",
+        "conversationType": "B2C",
+        "pageSize": 50
+      },
+      "requestSchema": {
+        "type": "object",
+        "properties": {
+          "head": {
+            "type": "object",
+            "properties": {
+              "cid": {
+                "type": "string"
+              },
+              "ctok": {
+                "type": "string"
+              },
+              "cver": {
+                "type": "string"
+              },
+              "lang": {
+                "type": "string"
+              },
+              "sid": {
+                "type": "string"
+              },
+              "syscode": {
+                "type": "string"
+              },
+              "auth": {
+                "type": "string"
+              },
+              "xsid": {
+                "type": "string"
+              },
+              "extension": {
+                "type": "array",
+                "observedLength": 6,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "name",
+                    "value"
+                  ]
+                }
+              },
+              "appId": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "cid",
+              "ctok",
+              "cver",
+              "lang",
+              "sid",
+              "syscode",
+              "auth",
+              "xsid",
+              "extension",
+              "appId"
+            ]
+          },
+          "showTargetIsRead": {
+            "type": "boolean"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "conversationType": {
+            "type": "string"
+          },
+          "pageSize": {
+            "type": "number"
+          }
+        },
+        "observedKeys": [
+          "head",
+          "showTargetIsRead",
+          "groupId",
+          "conversationType",
+          "pageSize"
+        ]
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "rootmessageid": "{{header.rootmessageid:string}}",
+        "access-control-expose-headers": "RootMessageId\nx-service-call\nx-gate-region\nslb-http-protocol-version",
+        "x-cat-root-url": "{{header.x-cat-root-url:string}}",
+        "content-encoding": "{{header.content-encoding:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "slb-http-protocol-version": "{{header.slb-http-protocol-version:string}}",
+        "x-cat-root-id": "{{header.x-cat-root-id:string}}",
+        "servermessageid": "{{header.servermessageid:string}}",
+        "c-via": "{{header.c-via:string}}",
+        "x-cat-parent-id": "{{header.x-cat-parent-id:string}}",
+        "date": "{{header.date:string}}",
+        "content-type": "application/json;charset=UTF-8",
+        "x-cat-server": "{{header.x-cat-server:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "clogging_trace_id": "{{header.clogging_trace_id:string}}",
+        "x-envoy-upstream-service-time": "{{header.x-envoy-upstream-service-time:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}",
+        "access-control-allow-credentials": "true",
+        "x-service-call": "{{header.x-service-call:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-cat-id": "{{header.x-cat-id:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}"
+      },
+      "responseTemplate": {
+        "ResponseStatus": {
+          "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+          "Ack": "Success",
+          "Extension": [
+            {
+              "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+            },
+            {
+              "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+            }
+          ]
+        },
+        "rangeMessage": {
+          "isDone": false,
+          "lastMessageTime": "{{response.rangeMessage.lastMessageTime:number}}",
+          "messages": [
+            {
+              "msgId": "{{response.rangeMessage.messages[0].msgId:string}}",
+              "messageBody": "{\"btype\":\"{{response.rangeMessage.messages[0].messageBody.$json.btype:string}}\",\"operator\":\"{{response.rangeMessage.messages[0].messageBody.$json.operator:string}}\",\"content\":{\"tid\":\"{{response.rangeMessage.messages[0].messageBody.$json.content.tid:string}}\",\"create_time\":\"{{response.rangeMessage.messages[0].messageBody.$json.content.create_time:number}}\",\"sender\":\"{{response.rangeMessage.messages[0].messageBody.$json.content.sender:string}}\",\"biztype\":\"1513\"}}",
+              "fromJid": "{{response.rangeMessage.messages[0].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[0].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[0].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1022,
+              "isread": true,
+              "source": "",
+              "receiptRange": 1
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[1].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[1].messageBody.$json.title:string}}\",\"ext\":{\"status\":\"comeIn\"},\"isPresent\":false,\"action\":\"NHT09\"}",
+              "fromJid": "{{response.rangeMessage.messages[1].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[1].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[1].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[1].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[2].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[2].messageBody.$json.title:string}}\",\"ext\":{\"status\":\"goOut\"},\"isPresent\":false,\"action\":\"NHT09\"}",
+              "fromJid": "{{response.rangeMessage.messages[2].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[2].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[2].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[2].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[3].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[3].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[3].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[3].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[3].messageBody.$json.ext.createTime:number}}\",\"stage\":1,\"status\":1,\"finishType\":null,\"dataChangeLasttime\":\"{{response.rangeMessage.messages[3].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[3].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[3].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[3].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[3].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[3].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[4].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[4].messageBody.$json.title:string}}\",\"action\":\"CTL01\",\"ext\":{\"templateId\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.templateId:string}}\",\"type\":\"\",\"isPlay\":\"\",\"title\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.title:string}}\",\"desc\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.desc:string}}\",\"avatar\":\"\",\"nickName\":\"\",\"fromCardHide\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.fromCardHide:string}}\",\"toCardHide\":\"\",\"dataInfoList\":[{\"Id\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[0].Id:string}}\",\"title\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[0].title:string}}\",\"text\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[0].text:string}}\"},{\"Id\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[1].Id:string}}\",\"title\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[1].title:string}}\",\"text\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[1].text:string}}\"},{\"Id\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[2].Id:string}}\",\"title\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[2].title:string}}\",\"text\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[2].text:string}}\"},{\"Id\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[3].Id:string}}\",\"title\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[3].title:string}}\",\"text\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[3].text:string}}\"},{\"Id\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[4].Id:string}}\",\"title\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[4].title:string}}\",\"text\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.dataInfoList[4].text:string}}\"}],\"extendInfo\":{\"fromJumpUrl\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.fromJumpUrl:string}}\",\"fromJumpUrlHybrid\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.fromJumpUrlHybrid:string}}\",\"fromJumpUrlOnline\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.fromJumpUrlOnline:string}}\",\"toJumpUrl\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.toJumpUrl:string}}\",\"toJumpUrlHybrid\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.toJumpUrlHybrid:string}}\",\"toJumpUrlOnline\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.toJumpUrlOnline:string}}\",\"productId\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.productId:string}}\",\"isSelfOwned\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.isSelfOwned:string}}\",\"departCityId\":null,\"sessionId\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.sessionId:string}}\",\"platformName\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.platformName:string}}\",\"uid\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.uid:string}}\",\"orderId\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.orderId:string}}\",\"activityTripDefaultIMUrl\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.activityTripDefaultIMUrl:string}}\",\"platformId\":2,\"DestinationType\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.DestinationType:string}}\",\"shopping\":\"\",\"gid\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.gid:string}}\",\"jid\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.jid:string}}\",\"Platform\":\"APP\",\"departureCityName\":\"\",\"customerUid\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.customerUid:string}}\",\"saleCityId\":null,\"providerProductName\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.providerProductName:string}}\",\"Type\":\"3\",\"locale\":\"zh-CN\",\"providerId\":\"{{response.rangeMessage.messages[4].messageBody.$json.ext.extendInfo.providerId:string}}\",\"singleChatUrl\":\"\"}}}",
+              "fromJid": "{{response.rangeMessage.messages[4].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[4].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[4].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 7,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[5].msgId:string}}",
+              "messageBody": "{\"btype\":\"{{response.rangeMessage.messages[5].messageBody.$json.btype:string}}\",\"operator\":\"{{response.rangeMessage.messages[5].messageBody.$json.operator:string}}\",\"content\":{\"tid\":\"{{response.rangeMessage.messages[5].messageBody.$json.content.tid:string}}\",\"create_time\":\"{{response.rangeMessage.messages[5].messageBody.$json.content.create_time:number}}\",\"sender\":\"{{response.rangeMessage.messages[5].messageBody.$json.content.sender:string}}\",\"biztype\":\"1513\"}}",
+              "fromJid": "{{response.rangeMessage.messages[5].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[5].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[5].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1022,
+              "isread": true,
+              "source": "",
+              "receiptRange": 1
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[6].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[6].messageBody.$json.title:string}}\",\"ext\":{\"status\":\"comeIn\"},\"isPresent\":false,\"action\":\"NHT09\"}",
+              "fromJid": "{{response.rangeMessage.messages[6].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[6].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[6].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[6].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[7].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[7].messageBody.$json.title:string}}\",\"ext\":{\"status\":\"goOut\"},\"isPresent\":false,\"action\":\"NHT09\"}",
+              "fromJid": "{{response.rangeMessage.messages[7].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[7].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[7].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[7].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[8].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[8].messageBody.$json.title:string}}\",\"ext\":{\"visibleRule\":2,\"orderId\":\"{{response.rangeMessage.messages[8].messageBody.$json.ext.orderId:string}}\",\"orderTitle\":\"{{response.rangeMessage.messages[8].messageBody.$json.ext.orderTitle:string}}\"},\"isPresent\":true,\"action\":\"NBZ38\"}",
+              "fromJid": "{{response.rangeMessage.messages[8].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[8].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[8].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[8].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[9].msgId:string}}",
+              "messageBody": "{{response.rangeMessage.messages[9].messageBody:string}}",
+              "fromJid": "{{response.rangeMessage.messages[9].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[9].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[9].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[9].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 0,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[10].msgId:string}}",
+              "messageBody": "{\"isPresent\":false,\"title\":\"{{response.rangeMessage.messages[10].messageBody.$json.title:string}}\",\"action\":\"NBZ37\",\"ext\":{\"nickName\":\"{{response.rangeMessage.messages[10].messageBody.$json.ext.nickName:string}}\",\"visibleRule\":0,\"vendorUid\":\"{{response.rangeMessage.messages[10].messageBody.$json.ext.vendorUid:string}}\"},\"sid\":\"{{response.rangeMessage.messages[10].messageBody.$json.sid:string}}\",\"see\":0,\"bSee\":0,\"bsee\":0}",
+              "fromJid": "{{response.rangeMessage.messages[10].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[10].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[10].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[10].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[11].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[11].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[11].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[11].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[11].messageBody.$json.ext.createTime:number}}\",\"stage\":1,\"status\":0,\"finishType\":\"\",\"dataChangeLasttime\":\"{{response.rangeMessage.messages[11].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[11].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[11].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[11].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[11].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[11].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[12].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[12].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[12].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[12].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[12].messageBody.$json.ext.createTime:number}}\",\"stage\":0,\"status\":1,\"finishType\":null,\"dataChangeLasttime\":\"{{response.rangeMessage.messages[12].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[12].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[12].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[12].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[12].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[12].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[13].msgId:string}}",
+              "messageBody": "{\"btype\":\"{{response.rangeMessage.messages[13].messageBody.$json.btype:string}}\",\"operator\":\"{{response.rangeMessage.messages[13].messageBody.$json.operator:string}}\",\"content\":{\"tid\":\"{{response.rangeMessage.messages[13].messageBody.$json.content.tid:string}}\",\"create_time\":\"{{response.rangeMessage.messages[13].messageBody.$json.content.create_time:number}}\",\"sender\":\"{{response.rangeMessage.messages[13].messageBody.$json.content.sender:string}}\",\"biztype\":\"1513\"}}",
+              "fromJid": "{{response.rangeMessage.messages[13].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[13].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[13].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1022,
+              "isread": true,
+              "source": "",
+              "receiptRange": 1
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[14].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[14].messageBody.$json.title:string}}\",\"ext\":{\"status\":\"comeIn\"},\"isPresent\":false,\"action\":\"NHT09\"}",
+              "fromJid": "{{response.rangeMessage.messages[14].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[14].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[14].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[14].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[15].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[15].messageBody.$json.title:string}}\",\"ext\":{\"visibleRule\":2,\"orderId\":\"{{response.rangeMessage.messages[15].messageBody.$json.ext.orderId:string}}\",\"orderTitle\":\"{{response.rangeMessage.messages[15].messageBody.$json.ext.orderTitle:string}}\"},\"isPresent\":true,\"action\":\"NBZ38\"}",
+              "fromJid": "{{response.rangeMessage.messages[15].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[15].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[15].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[15].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": true,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[16].msgId:string}}",
+              "messageBody": "{\"btype\":\"{{response.rangeMessage.messages[16].messageBody.$json.btype:string}}\",\"operator\":\"{{response.rangeMessage.messages[16].messageBody.$json.operator:string}}\",\"content\":{\"tid\":\"{{response.rangeMessage.messages[16].messageBody.$json.content.tid:string}}\",\"create_time\":\"{{response.rangeMessage.messages[16].messageBody.$json.content.create_time:number}}\",\"sender\":\"{{response.rangeMessage.messages[16].messageBody.$json.content.sender:string}}\",\"biztype\":\"1513\"}}",
+              "fromJid": "{{response.rangeMessage.messages[16].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[16].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[16].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1022,
+              "isread": false,
+              "source": "",
+              "receiptRange": 1
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[17].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[17].messageBody.$json.title:string}}\",\"ext\":{\"status\":\"goOut\"},\"isPresent\":false,\"action\":\"NHT09\"}",
+              "fromJid": "{{response.rangeMessage.messages[17].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[17].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[17].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[17].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[18].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[18].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[18].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[18].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[18].messageBody.$json.ext.createTime:number}}\",\"stage\":1,\"status\":1,\"finishType\":\"\",\"dataChangeLasttime\":\"{{response.rangeMessage.messages[18].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[18].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[18].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[18].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[18].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[18].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[19].msgId:string}}",
+              "messageBody": "{\"thumbUrl\":\"{{response.rangeMessage.messages[19].messageBody.$json.thumbUrl:string}}\",\"url\":\"{{response.rangeMessage.messages[19].messageBody.$json.url:string}}\",\"height\":33,\"width\":97,\"btype\":1,\"originImageSize\":-1,\"originImageUrl\":\"\",\"ext\":{\"channel\":\"im_business\",\"scene\":\"cqDA0M7F6aAGHF06jzBe\"}}",
+              "fromJid": "{{response.rangeMessage.messages[19].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[19].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[19].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[19].createTime:number}}",
+              "bizType": "1513",
+              "status": 2,
+              "msgtype": 1,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[20].msgId:string}}",
+              "messageBody": "{\"isPresent\":true,\"title\":\"{{response.rangeMessage.messages[20].messageBody.$json.title:string}}\",\"action\":\"NBZ30\",\"ext\":{\"inviteAgentUid\":\"{{response.rangeMessage.messages[20].messageBody.$json.ext.inviteAgentUid:string}}\",\"visibleRule\":7,\"acceptAgentNick\":\"{{response.rangeMessage.messages[20].messageBody.$json.ext.acceptAgentNick:string}}\"},\"sid\":\"{{response.rangeMessage.messages[20].messageBody.$json.sid:string}}\",\"see\":0,\"bSee\":0,\"bsee\":0}",
+              "fromJid": "{{response.rangeMessage.messages[20].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[20].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[20].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[20].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[21].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[21].messageBody.$json.title:string}}\",\"isPresent\":true,\"messageId\":\"{{response.rangeMessage.messages[21].messageBody.$json.messageId:number}}\",\"recallMessageId\":\"{{response.rangeMessage.messages[21].messageBody.$json.recallMessageId:string}}\",\"from\":\"{{response.rangeMessage.messages[21].messageBody.$json.from:string}}\",\"createTime\":\"{{response.rangeMessage.messages[21].messageBody.$json.createTime:number}}\",\"code\":2,\"operator\":\"{{response.rangeMessage.messages[21].messageBody.$json.operator:string}}\",\"operatorName\":\"{{response.rangeMessage.messages[21].messageBody.$json.operatorName:string}}\"}",
+              "fromJid": "{{response.rangeMessage.messages[21].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[21].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[21].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1009,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[22].msgId:string}}",
+              "messageBody": "{\"isPresent\":false,\"title\":\"{{response.rangeMessage.messages[22].messageBody.$json.title:string}}\",\"action\":\"NBZ37\",\"ext\":{\"nickName\":\"{{response.rangeMessage.messages[22].messageBody.$json.ext.nickName:string}}\",\"visibleRule\":0,\"vendorUid\":\"{{response.rangeMessage.messages[22].messageBody.$json.ext.vendorUid:string}}\"},\"sid\":\"{{response.rangeMessage.messages[22].messageBody.$json.sid:string}}\",\"see\":0,\"bSee\":0,\"bsee\":0}",
+              "fromJid": "{{response.rangeMessage.messages[22].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[22].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[22].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[22].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[23].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[23].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[23].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[23].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[23].messageBody.$json.ext.createTime:number}}\",\"stage\":1,\"status\":0,\"finishType\":\"\",\"dataChangeLasttime\":\"{{response.rangeMessage.messages[23].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[23].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[23].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[23].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[23].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[23].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[24].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[24].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[24].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[24].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[24].messageBody.$json.ext.createTime:number}}\",\"stage\":0,\"status\":1,\"finishType\":null,\"dataChangeLasttime\":\"{{response.rangeMessage.messages[24].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[24].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[24].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[24].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[24].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[24].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[25].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[25].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[25].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[25].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[25].messageBody.$json.ext.createTime:number}}\",\"stage\":1,\"status\":1,\"finishType\":\"\",\"dataChangeLasttime\":\"{{response.rangeMessage.messages[25].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[25].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[25].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[25].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[25].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[25].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[26].msgId:string}}",
+              "messageBody": "{\"isPresent\":true,\"title\":\"{{response.rangeMessage.messages[26].messageBody.$json.title:string}}\",\"action\":\"NBZ30\",\"ext\":{\"inviteAgentUid\":\"{{response.rangeMessage.messages[26].messageBody.$json.ext.inviteAgentUid:string}}\",\"visibleRule\":7,\"acceptAgentNick\":\"{{response.rangeMessage.messages[26].messageBody.$json.ext.acceptAgentNick:string}}\"},\"sid\":\"{{response.rangeMessage.messages[26].messageBody.$json.sid:string}}\",\"see\":0,\"bSee\":0,\"bsee\":0}",
+              "fromJid": "{{response.rangeMessage.messages[26].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[26].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[26].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[26].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[27].msgId:string}}",
+              "messageBody": "{\"isPresent\":false,\"title\":\"{{response.rangeMessage.messages[27].messageBody.$json.title:string}}\",\"action\":\"NBZ37\",\"ext\":{\"nickName\":\"{{response.rangeMessage.messages[27].messageBody.$json.ext.nickName:string}}\",\"visibleRule\":0,\"vendorUid\":\"{{response.rangeMessage.messages[27].messageBody.$json.ext.vendorUid:string}}\"},\"sid\":\"{{response.rangeMessage.messages[27].messageBody.$json.sid:string}}\",\"see\":0,\"bSee\":0,\"bsee\":0}",
+              "fromJid": "{{response.rangeMessage.messages[27].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[27].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[27].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[27].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[28].msgId:string}}",
+              "messageBody": "{\"btype\":5,\"file\":{\"filename\":\"{{response.rangeMessage.messages[28].messageBody.$json.file.filename:string}}\",\"url\":\"{{response.rangeMessage.messages[28].messageBody.$json.file.url:string}}\",\"size\":1479}}",
+              "fromJid": "{{response.rangeMessage.messages[28].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[28].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[28].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[28].createTime:number}}",
+              "bizType": "1513",
+              "status": 2,
+              "msgtype": 5,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[29].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[29].messageBody.$json.title:string}}\",\"isPresent\":true,\"messageId\":\"{{response.rangeMessage.messages[29].messageBody.$json.messageId:number}}\",\"recallMessageId\":\"{{response.rangeMessage.messages[29].messageBody.$json.recallMessageId:string}}\",\"from\":\"{{response.rangeMessage.messages[29].messageBody.$json.from:string}}\",\"createTime\":\"{{response.rangeMessage.messages[29].messageBody.$json.createTime:number}}\",\"code\":2,\"operator\":\"{{response.rangeMessage.messages[29].messageBody.$json.operator:string}}\",\"operatorName\":\"{{response.rangeMessage.messages[29].messageBody.$json.operatorName:string}}\"}",
+              "fromJid": "{{response.rangeMessage.messages[29].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[29].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[29].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1009,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[30].msgId:string}}",
+              "messageBody": "{\"btype\":5,\"file\":{\"filename\":\"{{response.rangeMessage.messages[30].messageBody.$json.file.filename:string}}\",\"url\":\"{{response.rangeMessage.messages[30].messageBody.$json.file.url:string}}\",\"size\":1479}}",
+              "fromJid": "{{response.rangeMessage.messages[30].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[30].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[30].createTime:number}}",
+              "bizType": "1513",
+              "status": 2,
+              "msgtype": 5,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[31].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[31].messageBody.$json.title:string}}\",\"isPresent\":true,\"messageId\":\"{{response.rangeMessage.messages[31].messageBody.$json.messageId:number}}\",\"recallMessageId\":\"{{response.rangeMessage.messages[31].messageBody.$json.recallMessageId:string}}\",\"from\":\"{{response.rangeMessage.messages[31].messageBody.$json.from:string}}\",\"createTime\":\"{{response.rangeMessage.messages[31].messageBody.$json.createTime:number}}\",\"code\":2,\"operator\":\"{{response.rangeMessage.messages[31].messageBody.$json.operator:string}}\",\"operatorName\":\"{{response.rangeMessage.messages[31].messageBody.$json.operatorName:string}}\"}",
+              "fromJid": "{{response.rangeMessage.messages[31].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[31].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[31].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1009,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[32].msgId:string}}",
+              "messageBody": "{{response.rangeMessage.messages[32].messageBody:string}}",
+              "fromJid": "{{response.rangeMessage.messages[32].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[32].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[32].createTime:number}}",
+              "bizType": "1513",
+              "status": 2,
+              "msgtype": 0,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[33].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[33].messageBody.$json.title:string}}\",\"isPresent\":true,\"messageId\":\"{{response.rangeMessage.messages[33].messageBody.$json.messageId:number}}\",\"recallMessageId\":\"{{response.rangeMessage.messages[33].messageBody.$json.recallMessageId:string}}\",\"from\":\"{{response.rangeMessage.messages[33].messageBody.$json.from:string}}\",\"createTime\":\"{{response.rangeMessage.messages[33].messageBody.$json.createTime:number}}\",\"code\":2,\"operator\":\"{{response.rangeMessage.messages[33].messageBody.$json.operator:string}}\",\"operatorName\":\"{{response.rangeMessage.messages[33].messageBody.$json.operatorName:string}}\"}",
+              "fromJid": "{{response.rangeMessage.messages[33].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[33].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[33].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1009,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[34].msgId:string}}",
+              "messageBody": "{\"type\":\"推荐\",\"btype\":\"{{response.rangeMessage.messages[34].messageBody.$json.btype:string}}\",\"title\":\"{{response.rangeMessage.messages[34].messageBody.$json.title:string}}\",\"url\":\"{{response.rangeMessage.messages[34].messageBody.$json.url:string}}\",\"desc\":\"{{response.rangeMessage.messages[34].messageBody.$json.desc:string}}\",\"avatar\":\"{{response.rangeMessage.messages[34].messageBody.$json.avatar:string}}\"}",
+              "fromJid": "{{response.rangeMessage.messages[34].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[34].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[34].createTime:number}}",
+              "bizType": "1513",
+              "status": 2,
+              "msgtype": 2,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[35].msgId:string}}",
+              "messageBody": "{{response.rangeMessage.messages[35].messageBody:string}}",
+              "fromJid": "{{response.rangeMessage.messages[35].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[35].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[35].createTime:number}}",
+              "bizType": "1513",
+              "status": 2,
+              "msgtype": 0,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0,
+              "citeMsgId": "{{response.rangeMessage.messages[35].citeMsgId:string}}",
+              "citeMessageInfo": {
+                "msgId": "{{response.rangeMessage.messages[35].citeMessageInfo.msgId:string}}",
+                "msgtype": 2,
+                "messageBody": "{\"type\":\"推荐\",\"btype\":\"{{response.rangeMessage.messages[35].citeMessageInfo.messageBody.$json.btype:string}}\",\"title\":\"{{response.rangeMessage.messages[35].citeMessageInfo.messageBody.$json.title:string}}\",\"url\":\"{{response.rangeMessage.messages[35].citeMessageInfo.messageBody.$json.url:string}}\",\"desc\":\"{{response.rangeMessage.messages[35].citeMessageInfo.messageBody.$json.desc:string}}\",\"avatar\":\"{{response.rangeMessage.messages[35].citeMessageInfo.messageBody.$json.avatar:string}}\"}",
+                "fromJid": "{{response.rangeMessage.messages[35].citeMessageInfo.fromJid:string}}",
+                "toJid": "{{response.rangeMessage.messages[35].citeMessageInfo.toJid:string}}",
+                "createTime": "{{response.rangeMessage.messages[35].citeMessageInfo.createTime:number}}",
+                "status": 2,
+                "visible": 1,
+                "valid": 1,
+                "source": ""
+              }
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[36].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[36].messageBody.$json.title:string}}\",\"isPresent\":true,\"messageId\":\"{{response.rangeMessage.messages[36].messageBody.$json.messageId:number}}\",\"recallMessageId\":\"{{response.rangeMessage.messages[36].messageBody.$json.recallMessageId:string}}\",\"from\":\"{{response.rangeMessage.messages[36].messageBody.$json.from:string}}\",\"createTime\":\"{{response.rangeMessage.messages[36].messageBody.$json.createTime:number}}\",\"code\":2,\"operator\":\"{{response.rangeMessage.messages[36].messageBody.$json.operator:string}}\",\"operatorName\":\"{{response.rangeMessage.messages[36].messageBody.$json.operatorName:string}}\"}",
+              "fromJid": "{{response.rangeMessage.messages[36].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[36].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[36].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1009,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[37].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[37].messageBody.$json.title:string}}\",\"isPresent\":true,\"messageId\":\"{{response.rangeMessage.messages[37].messageBody.$json.messageId:number}}\",\"recallMessageId\":\"{{response.rangeMessage.messages[37].messageBody.$json.recallMessageId:string}}\",\"from\":\"{{response.rangeMessage.messages[37].messageBody.$json.from:string}}\",\"createTime\":\"{{response.rangeMessage.messages[37].messageBody.$json.createTime:number}}\",\"code\":2,\"operator\":\"{{response.rangeMessage.messages[37].messageBody.$json.operator:string}}\",\"operatorName\":\"{{response.rangeMessage.messages[37].messageBody.$json.operatorName:string}}\"}",
+              "fromJid": "{{response.rangeMessage.messages[37].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[37].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[37].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1009,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[38].msgId:string}}",
+              "messageBody": "{\"thumbUrl\":\"{{response.rangeMessage.messages[38].messageBody.$json.thumbUrl:string}}\",\"url\":\"{{response.rangeMessage.messages[38].messageBody.$json.url:string}}\",\"height\":34,\"width\":98,\"btype\":1,\"originImageSize\":-1,\"originImageUrl\":\"\",\"ext\":{\"channel\":\"im_business\",\"scene\":\"cqDA0M7F6aAGHF06jzBe\"}}",
+              "fromJid": "{{response.rangeMessage.messages[38].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[38].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[38].createTime:number}}",
+              "bizType": "1513",
+              "status": 2,
+              "msgtype": 1,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[39].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[39].messageBody.$json.title:string}}\",\"isPresent\":true,\"messageId\":\"{{response.rangeMessage.messages[39].messageBody.$json.messageId:number}}\",\"recallMessageId\":\"{{response.rangeMessage.messages[39].messageBody.$json.recallMessageId:string}}\",\"from\":\"{{response.rangeMessage.messages[39].messageBody.$json.from:string}}\",\"createTime\":\"{{response.rangeMessage.messages[39].messageBody.$json.createTime:number}}\",\"code\":2,\"operator\":\"{{response.rangeMessage.messages[39].messageBody.$json.operator:string}}\",\"operatorName\":\"{{response.rangeMessage.messages[39].messageBody.$json.operatorName:string}}\"}",
+              "fromJid": "{{response.rangeMessage.messages[39].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[39].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[39].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1009,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[40].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[40].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[40].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[40].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[40].messageBody.$json.ext.createTime:number}}\",\"stage\":1,\"status\":0,\"finishType\":\"{{response.rangeMessage.messages[40].messageBody.$json.ext.finishType:string}}\",\"dataChangeLasttime\":\"{{response.rangeMessage.messages[40].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[40].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[40].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[40].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[40].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[40].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[41].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[41].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[41].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[41].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[41].messageBody.$json.ext.createTime:number}}\",\"stage\":0,\"status\":1,\"finishType\":null,\"dataChangeLasttime\":\"{{response.rangeMessage.messages[41].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[41].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[41].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[41].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[41].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[41].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[42].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[42].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[42].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[42].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[42].messageBody.$json.ext.createTime:number}}\",\"stage\":1,\"status\":1,\"finishType\":\"\",\"dataChangeLasttime\":\"{{response.rangeMessage.messages[42].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[42].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[42].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[42].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[42].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[42].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[43].msgId:string}}",
+              "messageBody": "{{response.rangeMessage.messages[43].messageBody:string}}",
+              "fromJid": "{{response.rangeMessage.messages[43].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[43].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[43].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[43].createTime:number}}",
+              "bizType": "1513",
+              "status": 2,
+              "msgtype": 0,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[44].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[44].messageBody.$json.title:string}}\",\"isPresent\":true,\"messageId\":\"{{response.rangeMessage.messages[44].messageBody.$json.messageId:number}}\",\"recallMessageId\":\"{{response.rangeMessage.messages[44].messageBody.$json.recallMessageId:string}}\",\"from\":\"{{response.rangeMessage.messages[44].messageBody.$json.from:string}}\",\"createTime\":\"{{response.rangeMessage.messages[44].messageBody.$json.createTime:number}}\",\"code\":2,\"operator\":\"{{response.rangeMessage.messages[44].messageBody.$json.operator:string}}\",\"operatorName\":\"{{response.rangeMessage.messages[44].messageBody.$json.operatorName:string}}\"}",
+              "fromJid": "{{response.rangeMessage.messages[44].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[44].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[44].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1009,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[45].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[45].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[45].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[45].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[45].messageBody.$json.ext.createTime:number}}\",\"stage\":1,\"status\":0,\"finishType\":\"\",\"dataChangeLasttime\":\"{{response.rangeMessage.messages[45].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[45].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[45].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[45].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[45].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[45].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[46].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[46].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[46].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[46].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[46].messageBody.$json.ext.createTime:number}}\",\"stage\":0,\"status\":1,\"finishType\":null,\"dataChangeLasttime\":\"{{response.rangeMessage.messages[46].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[46].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[46].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[46].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[46].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[46].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[47].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[47].messageBody.$json.title:string}}\",\"isPresent\":false,\"action\":\"NBZ109\",\"ext\":{\"sid\":\"{{response.rangeMessage.messages[47].messageBody.$json.ext.sid:string}}\",\"gid\":\"{{response.rangeMessage.messages[47].messageBody.$json.ext.gid:number}}\",\"bizType\":1513,\"gType\":1513,\"createTime\":\"{{response.rangeMessage.messages[47].messageBody.$json.ext.createTime:number}}\",\"stage\":1,\"status\":1,\"finishType\":\"\",\"dataChangeLasttime\":\"{{response.rangeMessage.messages[47].messageBody.$json.ext.dataChangeLasttime:number}}\",\"parent_sid\":\"{{response.rangeMessage.messages[47].messageBody.$json.ext.parent_sid:string}}\",\"eventType\":\"{{response.rangeMessage.messages[47].messageBody.$json.ext.eventType:string}}\"}}",
+              "fromJid": "{{response.rangeMessage.messages[47].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[47].toJid:string}}",
+              "threadId": "",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[47].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[48].msgId:string}}",
+              "messageBody": "{\"title\":\"{{response.rangeMessage.messages[48].messageBody.$json.title:string}}\",\"ext\":{\"visibleRule\":2,\"orderId\":\"{{response.rangeMessage.messages[48].messageBody.$json.ext.orderId:string}}\",\"orderTitle\":\"{{response.rangeMessage.messages[48].messageBody.$json.ext.orderTitle:string}}\"},\"isPresent\":true,\"action\":\"NBZ38\"}",
+              "fromJid": "{{response.rangeMessage.messages[48].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[48].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[48].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[48].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 1007,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            },
+            {
+              "msgId": "{{response.rangeMessage.messages[49].msgId:string}}",
+              "messageBody": "{\"btype\":3,\"video\":{\"filename\":\"{{response.rangeMessage.messages[49].messageBody.$json.video.filename:string}}\",\"cover\":\"{{response.rangeMessage.messages[49].messageBody.$json.video.cover:string}}\",\"url\":\"{{response.rangeMessage.messages[49].messageBody.$json.video.url:string}}\",\"duration\":0.8,\"size\":1696,\"width\":0,\"height\":0}}",
+              "fromJid": "{{response.rangeMessage.messages[49].fromJid:string}}",
+              "toJid": "{{response.rangeMessage.messages[49].toJid:string}}",
+              "threadId": "{{response.rangeMessage.messages[49].threadId:string}}",
+              "subject": "",
+              "createTime": "{{response.rangeMessage.messages[49].createTime:number}}",
+              "bizType": "1513",
+              "status": 0,
+              "msgtype": 3,
+              "isread": false,
+              "source": "",
+              "receiptRange": 0
+            }
+          ]
+        }
+      },
+      "responseSchema": {
+        "type": "object",
+        "properties": {
+          "ResponseStatus": {
+            "type": "object",
+            "properties": {
+              "Timestamp": {
+                "type": "string"
+              },
+              "Ack": {
+                "type": "string"
+              },
+              "Extension": {
+                "type": "array",
+                "observedLength": 2,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "Id": {
+                      "type": "string"
+                    },
+                    "Value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "Id",
+                    "Value"
+                  ]
+                }
+              }
+            },
+            "observedKeys": [
+              "Timestamp",
+              "Ack",
+              "Extension"
+            ]
+          },
+          "rangeMessage": {
+            "type": "object",
+            "properties": {
+              "isDone": {
+                "type": "boolean"
+              },
+              "lastMessageTime": {
+                "type": "number"
+              },
+              "messages": {
+                "type": "array",
+                "observedLength": 50,
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "btype": {
+                                "type": "string"
+                              },
+                              "operator": {
+                                "type": "string"
+                              },
+                              "content": {
+                                "type": "object",
+                                "properties": {
+                                  "tid": {
+                                    "type": "string"
+                                  },
+                                  "create_time": {
+                                    "type": "number"
+                                  },
+                                  "sender": {
+                                    "type": "string"
+                                  },
+                                  "biztype": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "tid",
+                                  "create_time",
+                                  "sender",
+                                  "biztype"
+                                ]
+                              }
+                            },
+                            "observedKeys": [
+                              "btype",
+                              "operator",
+                              "content"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "title": {
+                                "type": "string"
+                              },
+                              "ext": {
+                                "type": "object",
+                                "properties": {
+                                  "status": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "status"
+                                ]
+                              },
+                              "isPresent": {
+                                "type": "boolean"
+                              },
+                              "action": {
+                                "type": "string"
+                              }
+                            },
+                            "observedKeys": [
+                              "title",
+                              "ext",
+                              "isPresent",
+                              "action"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "title": {
+                                "type": "string"
+                              },
+                              "isPresent": {
+                                "type": "boolean"
+                              },
+                              "action": {
+                                "type": "string"
+                              },
+                              "ext": {
+                                "type": "object",
+                                "properties": {
+                                  "sid": {
+                                    "type": "string"
+                                  },
+                                  "gid": {
+                                    "type": "number"
+                                  },
+                                  "bizType": {
+                                    "type": "number"
+                                  },
+                                  "gType": {
+                                    "type": "number"
+                                  },
+                                  "createTime": {
+                                    "type": "number"
+                                  },
+                                  "stage": {
+                                    "type": "number"
+                                  },
+                                  "status": {
+                                    "type": "number"
+                                  },
+                                  "finishType": {
+                                    "type": "null"
+                                  },
+                                  "dataChangeLasttime": {
+                                    "type": "number"
+                                  },
+                                  "parent_sid": {
+                                    "type": "string"
+                                  },
+                                  "eventType": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "sid",
+                                  "gid",
+                                  "bizType",
+                                  "gType",
+                                  "createTime",
+                                  "stage",
+                                  "status",
+                                  "finishType",
+                                  "dataChangeLasttime",
+                                  "parent_sid",
+                                  "eventType"
+                                ]
+                              }
+                            },
+                            "observedKeys": [
+                              "title",
+                              "isPresent",
+                              "action",
+                              "ext"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "title": {
+                                "type": "string"
+                              },
+                              "action": {
+                                "type": "string"
+                              },
+                              "ext": {
+                                "type": "object",
+                                "properties": {
+                                  "templateId": {
+                                    "type": "string"
+                                  },
+                                  "type": {
+                                    "type": "string"
+                                  },
+                                  "isPlay": {
+                                    "type": "string"
+                                  },
+                                  "title": {
+                                    "type": "string"
+                                  },
+                                  "desc": {
+                                    "type": "string"
+                                  },
+                                  "avatar": {
+                                    "type": "string"
+                                  },
+                                  "nickName": {
+                                    "type": "string"
+                                  },
+                                  "fromCardHide": {
+                                    "type": "string"
+                                  },
+                                  "toCardHide": {
+                                    "type": "string"
+                                  },
+                                  "dataInfoList": {
+                                    "type": "array",
+                                    "observedLength": 5,
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "Id": {
+                                          "type": "string"
+                                        },
+                                        "title": {
+                                          "type": "string"
+                                        },
+                                        "text": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "observedKeys": [
+                                        "Id",
+                                        "title",
+                                        "text"
+                                      ]
+                                    }
+                                  },
+                                  "extendInfo": {
+                                    "type": "object",
+                                    "properties": {
+                                      "fromJumpUrl": {
+                                        "type": "string"
+                                      },
+                                      "fromJumpUrlHybrid": {
+                                        "type": "string"
+                                      },
+                                      "fromJumpUrlOnline": {
+                                        "type": "string"
+                                      },
+                                      "toJumpUrl": {
+                                        "type": "string"
+                                      },
+                                      "toJumpUrlHybrid": {
+                                        "type": "string"
+                                      },
+                                      "toJumpUrlOnline": {
+                                        "type": "string"
+                                      },
+                                      "productId": {
+                                        "type": "string"
+                                      },
+                                      "isSelfOwned": {
+                                        "type": "string"
+                                      },
+                                      "departCityId": {
+                                        "type": "null"
+                                      },
+                                      "sessionId": {
+                                        "type": "string"
+                                      },
+                                      "platformName": {
+                                        "type": "string"
+                                      },
+                                      "uid": {
+                                        "type": "string"
+                                      },
+                                      "orderId": {
+                                        "type": "string"
+                                      },
+                                      "activityTripDefaultIMUrl": {
+                                        "type": "string"
+                                      },
+                                      "platformId": {
+                                        "type": "number"
+                                      },
+                                      "DestinationType": {
+                                        "type": "string"
+                                      },
+                                      "shopping": {
+                                        "type": "string"
+                                      },
+                                      "gid": {
+                                        "type": "string"
+                                      },
+                                      "jid": {
+                                        "type": "string"
+                                      },
+                                      "Platform": {
+                                        "type": "string"
+                                      },
+                                      "departureCityName": {
+                                        "type": "string"
+                                      },
+                                      "customerUid": {
+                                        "type": "string"
+                                      },
+                                      "saleCityId": {
+                                        "type": "null"
+                                      },
+                                      "providerProductName": {
+                                        "type": "string"
+                                      },
+                                      "Type": {
+                                        "type": "string"
+                                      },
+                                      "locale": {
+                                        "type": "string"
+                                      },
+                                      "providerId": {
+                                        "type": "string"
+                                      },
+                                      "singleChatUrl": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "observedKeys": [
+                                      "fromJumpUrl",
+                                      "fromJumpUrlHybrid",
+                                      "fromJumpUrlOnline",
+                                      "toJumpUrl",
+                                      "toJumpUrlHybrid",
+                                      "toJumpUrlOnline",
+                                      "productId",
+                                      "isSelfOwned",
+                                      "departCityId",
+                                      "sessionId",
+                                      "platformName",
+                                      "uid",
+                                      "orderId",
+                                      "activityTripDefaultIMUrl",
+                                      "platformId",
+                                      "DestinationType",
+                                      "shopping",
+                                      "gid",
+                                      "jid",
+                                      "Platform",
+                                      "departureCityName",
+                                      "customerUid",
+                                      "saleCityId",
+                                      "providerProductName",
+                                      "Type",
+                                      "locale",
+                                      "providerId",
+                                      "singleChatUrl"
+                                    ]
+                                  }
+                                },
+                                "observedKeys": [
+                                  "templateId",
+                                  "type",
+                                  "isPlay",
+                                  "title",
+                                  "desc",
+                                  "avatar",
+                                  "nickName",
+                                  "fromCardHide",
+                                  "toCardHide",
+                                  "dataInfoList",
+                                  "extendInfo"
+                                ]
+                              }
+                            },
+                            "observedKeys": [
+                              "title",
+                              "action",
+                              "ext"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "title": {
+                                "type": "string"
+                              },
+                              "ext": {
+                                "type": "object",
+                                "properties": {
+                                  "visibleRule": {
+                                    "type": "number"
+                                  },
+                                  "orderId": {
+                                    "type": "string"
+                                  },
+                                  "orderTitle": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "visibleRule",
+                                  "orderId",
+                                  "orderTitle"
+                                ]
+                              },
+                              "isPresent": {
+                                "type": "boolean"
+                              },
+                              "action": {
+                                "type": "string"
+                              }
+                            },
+                            "observedKeys": [
+                              "title",
+                              "ext",
+                              "isPresent",
+                              "action"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string"
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "isPresent": {
+                                "type": "boolean"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "action": {
+                                "type": "string"
+                              },
+                              "ext": {
+                                "type": "object",
+                                "properties": {
+                                  "nickName": {
+                                    "type": "string"
+                                  },
+                                  "visibleRule": {
+                                    "type": "number"
+                                  },
+                                  "vendorUid": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "nickName",
+                                  "visibleRule",
+                                  "vendorUid"
+                                ]
+                              },
+                              "sid": {
+                                "type": "string"
+                              },
+                              "see": {
+                                "type": "number"
+                              },
+                              "bSee": {
+                                "type": "number"
+                              },
+                              "bsee": {
+                                "type": "number"
+                              }
+                            },
+                            "observedKeys": [
+                              "isPresent",
+                              "title",
+                              "action",
+                              "ext",
+                              "sid",
+                              "see",
+                              "bSee",
+                              "bsee"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "title": {
+                                "type": "string"
+                              },
+                              "isPresent": {
+                                "type": "boolean"
+                              },
+                              "action": {
+                                "type": "string"
+                              },
+                              "ext": {
+                                "type": "object",
+                                "properties": {
+                                  "sid": {
+                                    "type": "string"
+                                  },
+                                  "gid": {
+                                    "type": "number"
+                                  },
+                                  "bizType": {
+                                    "type": "number"
+                                  },
+                                  "gType": {
+                                    "type": "number"
+                                  },
+                                  "createTime": {
+                                    "type": "number"
+                                  },
+                                  "stage": {
+                                    "type": "number"
+                                  },
+                                  "status": {
+                                    "type": "number"
+                                  },
+                                  "finishType": {
+                                    "type": "string"
+                                  },
+                                  "dataChangeLasttime": {
+                                    "type": "number"
+                                  },
+                                  "parent_sid": {
+                                    "type": "string"
+                                  },
+                                  "eventType": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "sid",
+                                  "gid",
+                                  "bizType",
+                                  "gType",
+                                  "createTime",
+                                  "stage",
+                                  "status",
+                                  "finishType",
+                                  "dataChangeLasttime",
+                                  "parent_sid",
+                                  "eventType"
+                                ]
+                              }
+                            },
+                            "observedKeys": [
+                              "title",
+                              "isPresent",
+                              "action",
+                              "ext"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "thumbUrl": {
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string"
+                              },
+                              "height": {
+                                "type": "number"
+                              },
+                              "width": {
+                                "type": "number"
+                              },
+                              "btype": {
+                                "type": "number"
+                              },
+                              "originImageSize": {
+                                "type": "number"
+                              },
+                              "originImageUrl": {
+                                "type": "string"
+                              },
+                              "ext": {
+                                "type": "object",
+                                "properties": {
+                                  "channel": {
+                                    "type": "string"
+                                  },
+                                  "scene": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "channel",
+                                  "scene"
+                                ]
+                              }
+                            },
+                            "observedKeys": [
+                              "thumbUrl",
+                              "url",
+                              "height",
+                              "width",
+                              "btype",
+                              "originImageSize",
+                              "originImageUrl",
+                              "ext"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "isPresent": {
+                                "type": "boolean"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "action": {
+                                "type": "string"
+                              },
+                              "ext": {
+                                "type": "object",
+                                "properties": {
+                                  "inviteAgentUid": {
+                                    "type": "string"
+                                  },
+                                  "visibleRule": {
+                                    "type": "number"
+                                  },
+                                  "acceptAgentNick": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "inviteAgentUid",
+                                  "visibleRule",
+                                  "acceptAgentNick"
+                                ]
+                              },
+                              "sid": {
+                                "type": "string"
+                              },
+                              "see": {
+                                "type": "number"
+                              },
+                              "bSee": {
+                                "type": "number"
+                              },
+                              "bsee": {
+                                "type": "number"
+                              }
+                            },
+                            "observedKeys": [
+                              "isPresent",
+                              "title",
+                              "action",
+                              "ext",
+                              "sid",
+                              "see",
+                              "bSee",
+                              "bsee"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "title": {
+                                "type": "string"
+                              },
+                              "isPresent": {
+                                "type": "boolean"
+                              },
+                              "messageId": {
+                                "type": "number"
+                              },
+                              "recallMessageId": {
+                                "type": "string"
+                              },
+                              "from": {
+                                "type": "string"
+                              },
+                              "createTime": {
+                                "type": "number"
+                              },
+                              "code": {
+                                "type": "number"
+                              },
+                              "operator": {
+                                "type": "string"
+                              },
+                              "operatorName": {
+                                "type": "string"
+                              }
+                            },
+                            "observedKeys": [
+                              "title",
+                              "isPresent",
+                              "messageId",
+                              "recallMessageId",
+                              "from",
+                              "createTime",
+                              "code",
+                              "operator",
+                              "operatorName"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "btype": {
+                                "type": "number"
+                              },
+                              "file": {
+                                "type": "object",
+                                "properties": {
+                                  "filename": {
+                                    "type": "string"
+                                  },
+                                  "url": {
+                                    "type": "string"
+                                  },
+                                  "size": {
+                                    "type": "number"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "filename",
+                                  "url",
+                                  "size"
+                                ]
+                              }
+                            },
+                            "observedKeys": [
+                              "btype",
+                              "file"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string"
+                              },
+                              "btype": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string"
+                              },
+                              "desc": {
+                                "type": "string"
+                              },
+                              "avatar": {
+                                "type": "string"
+                              }
+                            },
+                            "observedKeys": [
+                              "type",
+                              "btype",
+                              "title",
+                              "url",
+                              "desc",
+                              "avatar"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string"
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        },
+                        "citeMsgId": {
+                          "type": "string"
+                        },
+                        "citeMessageInfo": {
+                          "type": "object",
+                          "properties": {
+                            "msgId": {
+                              "type": "string"
+                            },
+                            "msgtype": {
+                              "type": "number"
+                            },
+                            "messageBody": {
+                              "type": "string",
+                              "encodedJson": {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string"
+                                  },
+                                  "btype": {
+                                    "type": "string"
+                                  },
+                                  "title": {
+                                    "type": "string"
+                                  },
+                                  "url": {
+                                    "type": "string"
+                                  },
+                                  "desc": {
+                                    "type": "string"
+                                  },
+                                  "avatar": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "type",
+                                  "btype",
+                                  "title",
+                                  "url",
+                                  "desc",
+                                  "avatar"
+                                ]
+                              }
+                            },
+                            "fromJid": {
+                              "type": "string"
+                            },
+                            "toJid": {
+                              "type": "string"
+                            },
+                            "createTime": {
+                              "type": "number"
+                            },
+                            "status": {
+                              "type": "number"
+                            },
+                            "visible": {
+                              "type": "number"
+                            },
+                            "valid": {
+                              "type": "number"
+                            },
+                            "source": {
+                              "type": "string"
+                            }
+                          },
+                          "observedKeys": [
+                            "msgId",
+                            "msgtype",
+                            "messageBody",
+                            "fromJid",
+                            "toJid",
+                            "createTime",
+                            "status",
+                            "visible",
+                            "valid",
+                            "source"
+                          ]
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange",
+                        "citeMsgId",
+                        "citeMessageInfo"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "msgId": {
+                          "type": "string"
+                        },
+                        "messageBody": {
+                          "type": "string",
+                          "encodedJson": {
+                            "type": "object",
+                            "properties": {
+                              "btype": {
+                                "type": "number"
+                              },
+                              "video": {
+                                "type": "object",
+                                "properties": {
+                                  "filename": {
+                                    "type": "string"
+                                  },
+                                  "cover": {
+                                    "type": "string"
+                                  },
+                                  "url": {
+                                    "type": "string"
+                                  },
+                                  "duration": {
+                                    "type": "number"
+                                  },
+                                  "size": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "filename",
+                                  "cover",
+                                  "url",
+                                  "duration",
+                                  "size",
+                                  "width",
+                                  "height"
+                                ]
+                              }
+                            },
+                            "observedKeys": [
+                              "btype",
+                              "video"
+                            ]
+                          }
+                        },
+                        "fromJid": {
+                          "type": "string"
+                        },
+                        "toJid": {
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "createTime": {
+                          "type": "number"
+                        },
+                        "bizType": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "number"
+                        },
+                        "msgtype": {
+                          "type": "number"
+                        },
+                        "isread": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "receiptRange": {
+                          "type": "number"
+                        }
+                      },
+                      "observedKeys": [
+                        "msgId",
+                        "messageBody",
+                        "fromJid",
+                        "toJid",
+                        "threadId",
+                        "subject",
+                        "createTime",
+                        "bizType",
+                        "status",
+                        "msgtype",
+                        "isread",
+                        "source",
+                        "receiptRange"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "observedKeys": [
+              "isDone",
+              "lastMessageTime",
+              "messages"
+            ]
+          }
+        },
+        "observedKeys": [
+          "ResponseStatus",
+          "rangeMessage"
+        ]
+      },
+      "requestHasPostData": true,
+      "headExtension": [
+        {
+          "name": "cpc",
+          "value": "pc"
+        },
+        {
+          "name": "protocal",
+          "value": "https"
+        },
+        {
+          "name": "amp-product-type",
+          "value": "IM"
+        },
+        {
+          "name": "amp-account-source",
+          "value": "VBK"
+        },
+        {
+          "name": "client-source",
+          "value": "pc-900004"
+        },
+        {
+          "name": "locale",
+          "value": "zh-CN"
+        }
+      ]
+    },
+    {
+      "stage": "71-controlled-read-receipt",
+      "id": "6E0E1764D2EA3F8A4334251DA930504D",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getMessageList?_fxpcqlniredt=%7B%7Bquery._fxpcqlniredt%3Astring%7D%7D&x-traceID=%7B%7Bquery.x-traceID%3Astring%7D%7D",
+      "method": "OPTIONS",
+      "requestHeaders": {
+        "Accept": "*/*",
+        "Access-Control-Request-Headers": "content-type,cookieorigin,x-ctx-country,x-ctx-currency,x-ctx-locale,x-tour-auth-from",
+        "Access-Control-Request-Method": "POST",
+        "Origin": "https://vbooking.ctrip.com",
+        "Sec-Fetch-Mode": "cors",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "access-control-request-headers": "content-type,cookieorigin,x-ctx-country,x-ctx-currency,x-ctx-locale,x-tour-auth-from",
+        "access-control-request-method": "POST",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [],
+      "requestTemplate": null,
+      "requestSchema": {
+        "type": "null"
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "access-control-allow-credentials": "true",
+        "access-control-allow-headers": "content-type,cookieorigin,x-ctx-country,x-ctx-currency,x-ctx-locale,x-tour-auth-from",
+        "access-control-allow-methods": "POST",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "access-control-expose-headers": "x-service-call\nx-gate-region\nslb-http-protocol-version",
+        "c-via": "{{header.c-via:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "text/html",
+        "date": "{{header.date:string}}",
+        "slb-http-protocol-version": "{{header.slb-http-protocol-version:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}"
+      },
+      "responseTemplate": "undefined",
+      "responseSchema": {
+        "type": "undefined"
+      },
+      "requestHasPostData": false,
+      "requestEncoding": "none (OPTIONS without request body)"
+    },
+    {
+      "stage": "71-controlled-read-receipt",
+      "id": "35568.7735",
+      "url": "https://online.ctrip.com/restapi/soa2/16566/queryCountByEid?_fxpcqlniredt=%7B%7Bquery._fxpcqlniredt%3Astring%7D%7D&x-traceID=%7B%7Bquery.x-traceID%3Astring%7D%7D",
+      "method": "POST",
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"macOS\"",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "x-ctx-Locale": "zh-CN",
+        "x-ctx-Currency": "CNY",
+        "content-Type": "application/json",
+        "x-ctx-ubt-vid": "{{header.x-ctx-ubt-vid:string}}",
+        "x-ctx-ubt-pvid": "{{header.x-ctx-ubt-pvid:string}}",
+        "x-ctx-wclient-req": "{{header.x-ctx-wclient-req:string}}",
+        "x-ctx-ubt-sid": "{{header.x-ctx-ubt-sid:string}}",
+        "Referer": "https://vbooking.ctrip.com/",
+        "x-ctx-Country": "CN",
+        "w-payload-source": "{{header.w-payload-source:string}}",
+        "x-ctx-ubt-pageid": "{{header.x-ctx-ubt-pageid:string}}",
+        "x-tour-auth-from": "vbk_online",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "application/json",
+        "cookie": "UBT_VID={{cookie}}; GUID={{cookie}}; _RSG={{cookie}}; _RDG={{cookie}}; _RGUID={{cookie}}; vbk_login_cid={{cookie}}; _RF1={{cookie}}; BDUID={{cookie}}; vbk-locale-lang={{cookie}}; vbk-menu-business-id={{cookie}}; vbk-menu-business-parameter={{cookie}}; ibulanguage={{cookie}}; ibulocale={{cookie}}; cookiePricesDisplayed={{cookie}}; _wb_wh={{cookie}}; vbkticket={{cookie}}; bticket={{cookie}}; JSESSIONID={{cookie}}; _bfa={{cookie}}",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "x-ctx-country": "CN",
+        "x-ctx-currency": "CNY",
+        "x-ctx-locale": "zh-CN"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [
+        {
+          "name": "SECKEY_ABVK",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "BMAP_SECKEY",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibu_country",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_resDomain",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "JSESSIONID",
+          "domain": "m.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibusite",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibugroup",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibulocale",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "UBT_VID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "GUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RSG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RDG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RGUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk_login_cid",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RF1",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "BDUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-locale-lang",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-id",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-parameter",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulanguage",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulocale",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "cookiePricesDisplayed",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_wb_wh",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbkticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "bticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "JSESSIONID",
+          "domain": "online.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_bfa",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        }
+      ],
+      "requestTemplate": {
+        "pageHead": {
+          "businessType": "{{body.pageHead.businessType:string}}"
+        },
+        "filterList": [
+          {
+            "filterType": 1,
+            "filterValue": "{{body.filterList[0].filterValue:string}}"
+          }
+        ],
+        "head": {
+          "cid": "{{body.head.cid:string}}",
+          "ctok": "",
+          "cver": "1.0",
+          "lang": "01",
+          "sid": "{{body.head.sid:string}}",
+          "syscode": "09",
+          "auth": "",
+          "xsid": "",
+          "extension": []
+        }
+      },
+      "requestSchema": {
+        "type": "object",
+        "properties": {
+          "pageHead": {
+            "type": "object",
+            "properties": {
+              "businessType": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "businessType"
+            ]
+          },
+          "filterList": {
+            "type": "array",
+            "observedLength": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "filterType": {
+                  "type": "number"
+                },
+                "filterValue": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "filterType",
+                "filterValue"
+              ]
+            }
+          },
+          "head": {
+            "type": "object",
+            "properties": {
+              "cid": {
+                "type": "string"
+              },
+              "ctok": {
+                "type": "string"
+              },
+              "cver": {
+                "type": "string"
+              },
+              "lang": {
+                "type": "string"
+              },
+              "sid": {
+                "type": "string"
+              },
+              "syscode": {
+                "type": "string"
+              },
+              "auth": {
+                "type": "string"
+              },
+              "xsid": {
+                "type": "string"
+              },
+              "extension": {
+                "type": "array",
+                "observedLength": 0,
+                "items": {
+                  "anyOf": []
+                }
+              }
+            },
+            "observedKeys": [
+              "cid",
+              "ctok",
+              "cver",
+              "lang",
+              "sid",
+              "syscode",
+              "auth",
+              "xsid",
+              "extension"
+            ]
+          }
+        },
+        "observedKeys": [
+          "pageHead",
+          "filterList",
+          "head"
+        ]
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "rootmessageid": "{{header.rootmessageid:string}}",
+        "access-control-expose-headers": "RootMessageId\nx-service-call\nx-gate-region",
+        "x-cat-root-url": "{{header.x-cat-root-url:string}}",
+        "content-encoding": "{{header.content-encoding:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "x-cat-root-id": "{{header.x-cat-root-id:string}}",
+        "servermessageid": "{{header.servermessageid:string}}",
+        "c-via": "{{header.c-via:string}}",
+        "x-cat-parent-id": "{{header.x-cat-parent-id:string}}",
+        "date": "{{header.date:string}}",
+        "content-type": "application/json;charset=UTF-8",
+        "x-cat-server": "{{header.x-cat-server:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "clogging_trace_id": "{{header.clogging_trace_id:string}}",
+        "x-envoy-upstream-service-time": "{{header.x-envoy-upstream-service-time:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}",
+        "access-control-allow-credentials": "true",
+        "x-service-call": "{{header.x-service-call:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-cat-id": "{{header.x-cat-id:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}"
+      },
+      "responseTemplate": {
+        "ResponseStatus": {
+          "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+          "Ack": "Success",
+          "Errors": [],
+          "Extension": [
+            {
+              "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+            },
+            {
+              "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+            }
+          ]
+        },
+        "count": 43,
+        "isSuccess": true
+      },
+      "responseSchema": {
+        "type": "object",
+        "properties": {
+          "ResponseStatus": {
+            "type": "object",
+            "properties": {
+              "Timestamp": {
+                "type": "string"
+              },
+              "Ack": {
+                "type": "string"
+              },
+              "Errors": {
+                "type": "array",
+                "observedLength": 0,
+                "items": {
+                  "anyOf": []
+                }
+              },
+              "Extension": {
+                "type": "array",
+                "observedLength": 2,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "Id": {
+                      "type": "string"
+                    },
+                    "Value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "Id",
+                    "Value"
+                  ]
+                }
+              }
+            },
+            "observedKeys": [
+              "Timestamp",
+              "Ack",
+              "Errors",
+              "Extension"
+            ]
+          },
+          "count": {
+            "type": "number"
+          },
+          "isSuccess": {
+            "type": "boolean"
+          }
+        },
+        "observedKeys": [
+          "ResponseStatus",
+          "count",
+          "isSuccess"
+        ]
+      },
+      "requestHasPostData": true,
+      "headExtension": []
+    },
+    {
+      "stage": "71-controlled-read-receipt",
+      "id": "8E24E9069DD82D8031446705FCEEC721",
+      "url": "https://online.ctrip.com/restapi/soa2/16566/queryCountByEid?_fxpcqlniredt=%7B%7Bquery._fxpcqlniredt%3Astring%7D%7D&x-traceID=%7B%7Bquery.x-traceID%3Astring%7D%7D",
+      "method": "OPTIONS",
+      "requestHeaders": {
+        "Accept": "*/*",
+        "Access-Control-Request-Headers": "content-type,w-payload-source,x-ctx-country,x-ctx-currency,x-ctx-locale,x-ctx-ubt-pageid,x-ctx-ubt-pvid,x-ctx-ubt-sid,x-ctx-ubt-vid,x-ctx-wclient-req,x-tour-auth-from",
+        "Access-Control-Request-Method": "POST",
+        "Origin": "https://vbooking.ctrip.com",
+        "Sec-Fetch-Mode": "cors",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "access-control-request-headers": "content-type,w-payload-source,x-ctx-country,x-ctx-currency,x-ctx-locale,x-ctx-ubt-pageid,x-ctx-ubt-pvid,x-ctx-ubt-sid,x-ctx-ubt-vid,x-ctx-wclient-req,x-tour-auth-from",
+        "access-control-request-method": "POST",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [],
+      "requestTemplate": null,
+      "requestSchema": {
+        "type": "null"
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "access-control-allow-credentials": "true",
+        "access-control-allow-headers": "content-type,w-payload-source,x-ctx-country,x-ctx-currency,x-ctx-locale,x-ctx-ubt-pageid,x-ctx-ubt-pvid,x-ctx-ubt-sid,x-ctx-ubt-vid,x-ctx-wclient-req,x-tour-auth-from",
+        "access-control-allow-methods": "POST",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "access-control-expose-headers": "x-service-call\nx-gate-region",
+        "c-via": "{{header.c-via:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "text/html",
+        "date": "{{header.date:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}"
+      },
+      "responseTemplate": "undefined",
+      "responseSchema": {
+        "type": "undefined"
+      },
+      "requestHasPostData": false,
+      "requestEncoding": "none (OPTIONS without request body)"
+    },
+    {
+      "stage": "71-controlled-read-receipt",
+      "id": "35568.7736",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/PutAdviceOfReadByMsgId.json",
+      "method": "POST",
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"macOS\"",
+        "Referer": "https://vbooking.ctrip.com/",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "Content-Type": "application/json;charset=UTF-8",
+        "sec-ch-ua-mobile": "?0",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "application/json, text/plain, */*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "application/json;charset=UTF-8",
+        "cookie": "UBT_VID={{cookie}}; GUID={{cookie}}; _RSG={{cookie}}; _RDG={{cookie}}; _RGUID={{cookie}}; vbk_login_cid={{cookie}}; _RF1={{cookie}}; BDUID={{cookie}}; vbk-locale-lang={{cookie}}; vbk-menu-business-id={{cookie}}; vbk-menu-business-parameter={{cookie}}; ibulanguage={{cookie}}; ibulocale={{cookie}}; cookiePricesDisplayed={{cookie}}; _wb_wh={{cookie}}; vbkticket={{cookie}}; bticket={{cookie}}; JSESSIONID={{cookie}}; _bfa={{cookie}}",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [
+        {
+          "name": "SECKEY_ABVK",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "BMAP_SECKEY",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibu_country",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_resDomain",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibusite",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibugroup",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "JSESSIONID",
+          "domain": "online.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibulocale",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "UBT_VID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "GUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RSG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RDG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RGUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk_login_cid",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RF1",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "BDUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-locale-lang",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-id",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-parameter",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulanguage",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulocale",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "cookiePricesDisplayed",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_wb_wh",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbkticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "bticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "JSESSIONID",
+          "domain": "m.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_bfa",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        }
+      ],
+      "requestTemplate": {
+        "partnerJid": "{{body.partnerJid:string}}",
+        "msgId": "{{body.msgId:string}}",
+        "type": "groupchat",
+        "head": {
+          "cver": "1.0.7",
+          "extension": [
+            {
+              "name": "protocol",
+              "value": "https:"
+            },
+            {
+              "name": "cpc",
+              "value": "pc"
+            },
+            {
+              "name": "appid",
+              "value": "100067816"
+            },
+            {
+              "name": "language",
+              "value": "zh-CN"
+            },
+            {
+              "name": "amp-product-type",
+              "value": "IM"
+            },
+            {
+              "name": "amp-account-source",
+              "value": "vbk"
+            },
+            {
+              "name": "client-source",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "requestSchema": {
+        "type": "object",
+        "properties": {
+          "partnerJid": {
+            "type": "string"
+          },
+          "msgId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "head": {
+            "type": "object",
+            "properties": {
+              "cver": {
+                "type": "string"
+              },
+              "extension": {
+                "type": "array",
+                "observedLength": 7,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "name",
+                    "value"
+                  ]
+                }
+              }
+            },
+            "observedKeys": [
+              "cver",
+              "extension"
+            ]
+          }
+        },
+        "observedKeys": [
+          "partnerJid",
+          "msgId",
+          "type",
+          "head"
+        ]
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "rootmessageid": "{{header.rootmessageid:string}}",
+        "access-control-expose-headers": "RootMessageId\nx-service-call\nx-gate-region\nslb-http-protocol-version",
+        "x-cat-root-url": "{{header.x-cat-root-url:string}}",
+        "content-encoding": "{{header.content-encoding:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "slb-http-protocol-version": "{{header.slb-http-protocol-version:string}}",
+        "x-cat-root-id": "{{header.x-cat-root-id:string}}",
+        "servermessageid": "{{header.servermessageid:string}}",
+        "c-via": "{{header.c-via:string}}",
+        "x-cat-parent-id": "{{header.x-cat-parent-id:string}}",
+        "date": "{{header.date:string}}",
+        "content-type": "application/json;charset=UTF-8",
+        "x-cat-server": "{{header.x-cat-server:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "clogging_trace_id": "{{header.clogging_trace_id:string}}",
+        "x-envoy-upstream-service-time": "{{header.x-envoy-upstream-service-time:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}",
+        "access-control-allow-credentials": "true",
+        "x-service-call": "{{header.x-service-call:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-cat-id": "{{header.x-cat-id:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}"
+      },
+      "responseTemplate": {
+        "ResponseStatus": {
+          "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+          "Ack": "Success",
+          "Errors": [],
+          "Extension": [
+            {
+              "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+            },
+            {
+              "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+            }
+          ]
+        }
+      },
+      "responseSchema": {
+        "type": "object",
+        "properties": {
+          "ResponseStatus": {
+            "type": "object",
+            "properties": {
+              "Timestamp": {
+                "type": "string"
+              },
+              "Ack": {
+                "type": "string"
+              },
+              "Errors": {
+                "type": "array",
+                "observedLength": 0,
+                "items": {
+                  "anyOf": []
+                }
+              },
+              "Extension": {
+                "type": "array",
+                "observedLength": 2,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "Id": {
+                      "type": "string"
+                    },
+                    "Value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "Id",
+                    "Value"
+                  ]
+                }
+              }
+            },
+            "observedKeys": [
+              "Timestamp",
+              "Ack",
+              "Errors",
+              "Extension"
+            ]
+          }
+        },
+        "observedKeys": [
+          "ResponseStatus"
+        ]
+      },
+      "requestHasPostData": true,
+      "headExtension": [
+        {
+          "name": "protocol",
+          "value": "https:"
+        },
+        {
+          "name": "cpc",
+          "value": "pc"
+        },
+        {
+          "name": "appid",
+          "value": "100067816"
+        },
+        {
+          "name": "language",
+          "value": "zh-CN"
+        },
+        {
+          "name": "amp-product-type",
+          "value": "IM"
+        },
+        {
+          "name": "amp-account-source",
+          "value": "vbk"
+        },
+        {
+          "name": "client-source",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "stage": "71-controlled-read-receipt",
+      "id": "5ABE350EAC5D2605296AEBDC988FF590",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/PutAdviceOfReadByMsgId.json",
+      "method": "OPTIONS",
+      "requestHeaders": {
+        "Accept": "*/*",
+        "Access-Control-Request-Headers": "content-type",
+        "Access-Control-Request-Method": "POST",
+        "Origin": "https://vbooking.ctrip.com",
+        "Sec-Fetch-Mode": "cors",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "access-control-request-headers": "content-type",
+        "access-control-request-method": "POST",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [],
+      "requestTemplate": null,
+      "requestSchema": {
+        "type": "null"
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "access-control-allow-credentials": "true",
+        "access-control-allow-headers": "content-type",
+        "access-control-allow-methods": "POST",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "access-control-expose-headers": "x-service-call\nx-gate-region\nslb-http-protocol-version",
+        "c-via": "{{header.c-via:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "text/html",
+        "date": "{{header.date:string}}",
+        "slb-http-protocol-version": "{{header.slb-http-protocol-version:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}"
+      },
+      "responseTemplate": "undefined",
+      "responseSchema": {
+        "type": "undefined"
+      },
+      "requestHasPostData": false,
+      "requestEncoding": "none (OPTIONS without request body)"
+    }
+  ],
+  "websocket": [],
+  "xhr": [
+    {
+      "method": "POST",
+      "url": "https://m.ctrip.com/restapi/soa2/11679/PutAdviceOfReadByMsgId.json",
+      "headers": {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json;charset=utf-8"
+      },
+      "payload": {
+        "kind": "string"
+      },
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "kind"
+        ]
+      },
+      "status": 200,
+      "response": {
+        "ResponseStatus": {
+          "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+          "Ack": "Success",
+          "Errors": [],
+          "Extension": [
+            {
+              "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+            },
+            {
+              "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+            }
+          ]
+        }
+      },
+      "responseSchema": {
+        "type": "object",
+        "properties": {
+          "ResponseStatus": {
+            "type": "object",
+            "properties": {
+              "Timestamp": {
+                "type": "string"
+              },
+              "Ack": {
+                "type": "string"
+              },
+              "Errors": {
+                "type": "array",
+                "observedLength": 0,
+                "items": {
+                  "anyOf": []
+                }
+              },
+              "Extension": {
+                "type": "array",
+                "observedLength": 2,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "Id": {
+                      "type": "string"
+                    },
+                    "Value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "Id",
+                    "Value"
+                  ]
+                }
+              }
+            },
+            "observedKeys": [
+              "Timestamp",
+              "Ack",
+              "Errors",
+              "Extension"
+            ]
+          }
+        },
+        "observedKeys": [
+          "ResponseStatus"
+        ]
+      }
+    }
+  ],
+  "redaction": "Full request shape and array entries retained; credentials and identities replaced by typed placeholders. Schemas describe observation, not requiredness."
+}

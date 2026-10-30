@@ -1,0 +1,9 @@
+{
+  "capturedAt": "2026-10-30T10:48:31.916Z",
+  "page": "https://vbooking.ctrip.com/vbk/im/main",
+  "stage": "57-controlled-order-detail-open",
+  "requests": [],
+  "websocket": [],
+  "xhr": [],
+  "redaction": "Full request shape and array entries retained; credentials and identities replaced by typed placeholders. Schemas describe observation, not requiredness."
+}

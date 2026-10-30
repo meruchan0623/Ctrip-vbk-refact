@@ -1,0 +1,10 @@
+{
+  "authorizationObserved": true,
+  "tokenObserved": true,
+  "authorizationEqualsReturnedToken": false,
+  "authorizationIsBearer": false,
+  "contentMD5EqualsFileHex": true,
+  "contentMD5EqualsFileBase64": false,
+  "fixtureSHA256": "a668ac59594d8c4dabfd4e5b2e69a18d460a27a4997f1e8f02b31e3d902aa64c",
+  "fixtureBytes": 138
+}

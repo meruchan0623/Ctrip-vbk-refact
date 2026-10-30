@@ -1,0 +1,1300 @@
+{
+  "source": "Parsed JSON literal from rendered iframe inline __INITIAL_STATE__; not a browser SOA response",
+  "state": {
+    "location": {
+      "pattern": "{{ssr.location.pattern:string}}",
+      "params": {
+        "platform": "b"
+      },
+      "raw": "{{ssr.location.raw:string}}",
+      "basename": "",
+      "pathname": "{{ssr.location.pathname:string}}",
+      "search": "{{ssr.location.search:string}}",
+      "hash": "",
+      "action": 2,
+      "query": {
+        "groupid": "{{ssr.location.query.groupid:string}}",
+        "sessionid": "{{ssr.location.query.sessionid:string}}",
+        "uid": "{{ssr.location.query.uid:string}}",
+        "locale": "zh-CN",
+        "servicetype": "1513",
+        "status": "2"
+      }
+    },
+    "basename": "{{ssr.basename:string}}",
+    "publicPath": "{{ssr.publicPath:string}}",
+    "restapi": "{{ssr.restapi:string}}",
+    "html": {
+      "title": "{{ssr.html.title:string}}",
+      "description": "{{ssr.html.description:string}}"
+    },
+    "env": "{{ssr.env:string}}",
+    "userInfo": {
+      "userId": "{{ssr.userInfo.userId:string}}",
+      "account": "{{ssr.userInfo.account:string}}",
+      "name": "{{ssr.userInfo.name:string}}",
+      "partyId": "{{ssr.userInfo.partyId:string}}",
+      "partyType": "{{ssr.userInfo.partyType:string}}",
+      "partyName": "{{ssr.userInfo.partyName:string}}",
+      "uid": "",
+      "buid": "{{ssr.userInfo.buid:string}}",
+      "loginChannel": null,
+      "userType": null,
+      "email": "",
+      "mobilePhone": "{{ssr.userInfo.mobilePhone:string}}",
+      "mobileAreaCode": "{{ssr.userInfo.mobileAreaCode:string}}",
+      "positionCode": "{{ssr.userInfo.positionCode:string}}",
+      "eid": "",
+      "eidName": null,
+      "empCode": "",
+      "userGroupId": "{{ssr.userInfo.userGroupId:number}}",
+      "userGroupName": "{{ssr.userInfo.userGroupName:string}}"
+    },
+    "pageId": "{{ssr.pageId:number}}",
+    "preload": {
+      "main": "{{ssr.preload.main:string}}",
+      "boxInfo": "{{ssr.preload.boxInfo:string}}",
+      "aiReply": "{{ssr.preload.aiReply:string}}",
+      "xtaro": "{{ssr.preload.xtaro:string}}"
+    },
+    "lang": {},
+    "applicationCode": "vbk_online_new",
+    "isOffline": false,
+    "locale": "zh-CN",
+    "isDeploy": true,
+    "queryParams": {
+      "groupid": "{{ssr.queryParams.groupid:string}}",
+      "sessionid": "{{ssr.queryParams.sessionid:string}}",
+      "uid": "{{ssr.queryParams.uid:string}}",
+      "locale": "zh-CN",
+      "servicetype": "1513",
+      "status": "2"
+    },
+    "sessionId": "{{ssr.sessionId:string}}",
+    "sourceFrom": "{{ssr.sourceFrom:string}}",
+    "groupId": "{{ssr.groupId:string}}",
+    "uid": "{{ssr.uid:string}}",
+    "bizType": 1513,
+    "imBuType": "ACTIVITY-TRIP",
+    "wecomEditableGray": true,
+    "moduleJumpInfo": {
+      "hasOrderPrivilege": true,
+      "hasModuleJumpPrivilege": true,
+      "moduleJumpList": [
+        {
+          "moduleId": "{{ssr.moduleJumpInfo.moduleJumpList[0].moduleId:string}}",
+          "showText": "{{ssr.moduleJumpInfo.moduleJumpList[0].showText:string}}",
+          "jumpUrl": "{{ssr.moduleJumpInfo.moduleJumpList[0].jumpUrl:string}}",
+          "showPointList": {
+            "IsRightClick": true,
+            "IsOrder": false,
+            "IsUid": false,
+            "IsRBCorner": false
+          }
+        },
+        {
+          "moduleId": "{{ssr.moduleJumpInfo.moduleJumpList[1].moduleId:string}}",
+          "showText": "{{ssr.moduleJumpInfo.moduleJumpList[1].showText:string}}",
+          "jumpUrl": "{{ssr.moduleJumpInfo.moduleJumpList[1].jumpUrl:string}}",
+          "showPointList": {
+            "IsRightClick": true,
+            "IsOrder": false,
+            "IsUid": false,
+            "IsRBCorner": true
+          }
+        }
+      ]
+    },
+    "hasInviteLeaveEmailAuth": false,
+    "vbkUserInfo": {
+      "promotionInfo": {
+        "hasPromotionPrivilege": false,
+        "productId": null
+      },
+      "riskInfo": {
+        "hasRiskPrivilege": true,
+        "riskMessage": "{{ssr.vbkUserInfo.riskInfo.riskMessage:string}}"
+      },
+      "userInfo": {
+        "hasUserPrivilege": false,
+        "userTag": null,
+        "platform": null,
+        "riskMessage": null,
+        "userTags": null,
+        "userTagEnum": null,
+        "customerLocale": null
+      },
+      "sourceTraceInfo": {
+        "hasSourceTracePrivilege": true,
+        "lastSourceTrace": {
+          "msg": "{\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.title:string}}\",\"action\":\"CTL01\",\"ext\":{\"templateId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.templateId:string}}\",\"type\":\"\",\"isPlay\":\"\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.title:string}}\",\"desc\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.desc:string}}\",\"avatar\":\"\",\"nickName\":\"\",\"fromCardHide\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.fromCardHide:string}}\",\"toCardHide\":\"\",\"dataInfoList\":[{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[0].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[0].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[0].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[1].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[1].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[1].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[2].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[2].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[2].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[3].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[3].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[3].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[4].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[4].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.dataInfoList[4].text:string}}\"}],\"extendInfo\":{\"fromJumpUrl\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.fromJumpUrl:string}}\",\"fromJumpUrlHybrid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.fromJumpUrlHybrid:string}}\",\"fromJumpUrlOnline\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.fromJumpUrlOnline:string}}\",\"toJumpUrl\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.toJumpUrl:string}}\",\"toJumpUrlHybrid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.toJumpUrlHybrid:string}}\",\"toJumpUrlOnline\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.toJumpUrlOnline:string}}\",\"productId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.productId:string}}\",\"isSelfOwned\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.isSelfOwned:string}}\",\"departCityId\":null,\"sessionId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.sessionId:string}}\",\"platformName\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.platformName:string}}\",\"uid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.uid:string}}\",\"orderId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.orderId:string}}\",\"activityTripDefaultIMUrl\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.activityTripDefaultIMUrl:string}}\",\"platformId\":2,\"DestinationType\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.DestinationType:string}}\",\"shopping\":\"\",\"gid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.gid:string}}\",\"jid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.jid:string}}\",\"Platform\":\"APP\",\"departureCityName\":\"\",\"customerUid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.customerUid:string}}\",\"saleCityId\":null,\"providerProductName\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.providerProductName:string}}\",\"Type\":\"3\",\"locale\":\"zh-CN\",\"providerId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.msg.$json.ext.extendInfo.providerId:string}}\",\"singleChatUrl\":\"\"}}}",
+          "sendTime": "{{ssr.vbkUserInfo.sourceTraceInfo.lastSourceTrace.sendTime:number}}",
+          "action": "CTL01"
+        },
+        "sourceTraceList": [
+          {
+            "msg": "{\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.title:string}}\",\"action\":\"CTL01\",\"ext\":{\"templateId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.templateId:string}}\",\"type\":\"\",\"isPlay\":\"\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.title:string}}\",\"desc\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.desc:string}}\",\"avatar\":\"\",\"nickName\":\"\",\"fromCardHide\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.fromCardHide:string}}\",\"toCardHide\":\"\",\"dataInfoList\":[{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[0].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[0].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[0].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[1].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[1].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[1].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[2].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[2].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[2].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[3].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[3].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[3].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[4].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[4].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.dataInfoList[4].text:string}}\"}],\"extendInfo\":{\"fromJumpUrl\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.fromJumpUrl:string}}\",\"fromJumpUrlHybrid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.fromJumpUrlHybrid:string}}\",\"fromJumpUrlOnline\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.fromJumpUrlOnline:string}}\",\"toJumpUrl\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.toJumpUrl:string}}\",\"toJumpUrlHybrid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.toJumpUrlHybrid:string}}\",\"toJumpUrlOnline\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.toJumpUrlOnline:string}}\",\"productId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.productId:string}}\",\"isSelfOwned\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.isSelfOwned:string}}\",\"departCityId\":null,\"sessionId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.sessionId:string}}\",\"platformName\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.platformName:string}}\",\"uid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.uid:string}}\",\"orderId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.orderId:string}}\",\"activityTripDefaultIMUrl\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.activityTripDefaultIMUrl:string}}\",\"platformId\":2,\"DestinationType\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.DestinationType:string}}\",\"shopping\":\"\",\"gid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.gid:string}}\",\"jid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.jid:string}}\",\"Platform\":\"APP\",\"departureCityName\":\"\",\"customerUid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.customerUid:string}}\",\"saleCityId\":null,\"providerProductName\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.providerProductName:string}}\",\"Type\":\"3\",\"locale\":\"zh-CN\",\"providerId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].msg.$json.ext.extendInfo.providerId:string}}\",\"singleChatUrl\":\"\"}}}",
+            "sendTime": "{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[0].sendTime:number}}",
+            "action": "CTL01"
+          },
+          {
+            "msg": "{\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.title:string}}\",\"action\":\"CTL01\",\"ext\":{\"templateId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.templateId:string}}\",\"type\":\"\",\"isPlay\":\"\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.title:string}}\",\"desc\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.desc:string}}\",\"avatar\":\"\",\"nickName\":\"\",\"fromCardHide\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.fromCardHide:string}}\",\"toCardHide\":\"\",\"dataInfoList\":[{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[0].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[0].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[0].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[1].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[1].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[1].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[2].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[2].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[2].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[3].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[3].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[3].text:string}}\"},{\"Id\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[4].Id:string}}\",\"title\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[4].title:string}}\",\"text\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.dataInfoList[4].text:string}}\"}],\"extendInfo\":{\"fromJumpUrl\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.fromJumpUrl:string}}\",\"fromJumpUrlHybrid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.fromJumpUrlHybrid:string}}\",\"fromJumpUrlOnline\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.fromJumpUrlOnline:string}}\",\"toJumpUrl\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.toJumpUrl:string}}\",\"toJumpUrlHybrid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.toJumpUrlHybrid:string}}\",\"toJumpUrlOnline\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.toJumpUrlOnline:string}}\",\"productId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.productId:string}}\",\"isSelfOwned\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.isSelfOwned:string}}\",\"departCityId\":null,\"sessionId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.sessionId:string}}\",\"platformName\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.platformName:string}}\",\"uid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.uid:string}}\",\"orderId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.orderId:string}}\",\"activityTripDefaultIMUrl\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.activityTripDefaultIMUrl:string}}\",\"platformId\":2,\"DestinationType\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.DestinationType:string}}\",\"shopping\":\"\",\"gid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.gid:string}}\",\"jid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.jid:string}}\",\"Platform\":\"APP\",\"departureCityName\":\"\",\"customerUid\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.customerUid:string}}\",\"saleCityId\":null,\"providerProductName\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.providerProductName:string}}\",\"Type\":\"3\",\"locale\":\"zh-CN\",\"providerId\":\"{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].msg.$json.ext.extendInfo.providerId:string}}\",\"singleChatUrl\":\"\"}}}",
+            "sendTime": "{{ssr.vbkUserInfo.sourceTraceInfo.sourceTraceList[1].sendTime:number}}",
+            "action": "CTL01"
+          }
+        ]
+      },
+      "vbkHistoryOrderInfo": {
+        "hasHistoryOrderPrivilege": false,
+        "historyOrderList": null
+      },
+      "vbkBrowserHistoryInfo": {
+        "hasBrowserHistoryPrivilege": false,
+        "browseHistoryInfoList": null
+      },
+      "vendorPrivilege": {
+        "hasProductRecommendPrivilege": true,
+        "hasGuideProductRecommendPrivilege": false
+      },
+      "wechatGroupInfo": {
+        "hasWeChatGroupPrivilege": false,
+        "requirementOrderId": null,
+        "productId": null,
+        "requirementOrderCreateTime": null,
+        "requirementOrderServiceName": null,
+        "requirementOrderProductH5Url": null,
+        "requirementOrderH5Url": null,
+        "requirementOrderPCUrl": null,
+        "opInfoList": null
+      }
+    },
+    "productId": "",
+    "orderId": "",
+    "bookingPhase": "",
+    "benefitId": "",
+    "wechatGroupInfo": {
+      "hasWeChatGroupPrivilege": false,
+      "requirementOrderId": null,
+      "productId": null,
+      "requirementOrderCreateTime": null,
+      "requirementOrderServiceName": null,
+      "requirementOrderProductH5Url": null,
+      "requirementOrderH5Url": null,
+      "requirementOrderPCUrl": null,
+      "opInfoList": null
+    },
+    "showOpInfoList": null,
+    "whatsAppInfo": {
+      "hasWhatsAppPrivilege": false
+    },
+    "weChatPollingTime": "{{ssr.weChatPollingTime:string}}",
+    "tabIdList": [
+      1,
+      2
+    ],
+    "curTabIndex": 1
+  },
+  "schema": {
+    "type": "object",
+    "properties": {
+      "location": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "platform"
+            ]
+          },
+          "raw": {
+            "type": "string"
+          },
+          "basename": {
+            "type": "string"
+          },
+          "pathname": {
+            "type": "string"
+          },
+          "search": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "action": {
+            "type": "number"
+          },
+          "query": {
+            "type": "object",
+            "properties": {
+              "groupid": {
+                "type": "string"
+              },
+              "sessionid": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "locale": {
+                "type": "string"
+              },
+              "servicetype": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "groupid",
+              "sessionid",
+              "uid",
+              "locale",
+              "servicetype",
+              "status"
+            ]
+          }
+        },
+        "observedKeys": [
+          "pattern",
+          "params",
+          "raw",
+          "basename",
+          "pathname",
+          "search",
+          "hash",
+          "action",
+          "query"
+        ]
+      },
+      "basename": {
+        "type": "string"
+      },
+      "publicPath": {
+        "type": "string"
+      },
+      "restapi": {
+        "type": "string"
+      },
+      "html": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "title",
+          "description"
+        ]
+      },
+      "env": {
+        "type": "string"
+      },
+      "userInfo": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "partyId": {
+            "type": "string"
+          },
+          "partyType": {
+            "type": "string"
+          },
+          "partyName": {
+            "type": "string"
+          },
+          "uid": {
+            "type": "string"
+          },
+          "buid": {
+            "type": "string"
+          },
+          "loginChannel": {
+            "type": "null"
+          },
+          "userType": {
+            "type": "null"
+          },
+          "email": {
+            "type": "string"
+          },
+          "mobilePhone": {
+            "type": "string"
+          },
+          "mobileAreaCode": {
+            "type": "string"
+          },
+          "positionCode": {
+            "type": "string"
+          },
+          "eid": {
+            "type": "string"
+          },
+          "eidName": {
+            "type": "null"
+          },
+          "empCode": {
+            "type": "string"
+          },
+          "userGroupId": {
+            "type": "number"
+          },
+          "userGroupName": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "userId",
+          "account",
+          "name",
+          "partyId",
+          "partyType",
+          "partyName",
+          "uid",
+          "buid",
+          "loginChannel",
+          "userType",
+          "email",
+          "mobilePhone",
+          "mobileAreaCode",
+          "positionCode",
+          "eid",
+          "eidName",
+          "empCode",
+          "userGroupId",
+          "userGroupName"
+        ]
+      },
+      "pageId": {
+        "type": "number"
+      },
+      "preload": {
+        "type": "object",
+        "properties": {
+          "main": {
+            "type": "string"
+          },
+          "boxInfo": {
+            "type": "string"
+          },
+          "aiReply": {
+            "type": "string"
+          },
+          "xtaro": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "main",
+          "boxInfo",
+          "aiReply",
+          "xtaro"
+        ]
+      },
+      "lang": {
+        "type": "object",
+        "properties": {},
+        "observedKeys": []
+      },
+      "applicationCode": {
+        "type": "string"
+      },
+      "isOffline": {
+        "type": "boolean"
+      },
+      "locale": {
+        "type": "string"
+      },
+      "isDeploy": {
+        "type": "boolean"
+      },
+      "queryParams": {
+        "type": "object",
+        "properties": {
+          "groupid": {
+            "type": "string"
+          },
+          "sessionid": {
+            "type": "string"
+          },
+          "uid": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "servicetype": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "groupid",
+          "sessionid",
+          "uid",
+          "locale",
+          "servicetype",
+          "status"
+        ]
+      },
+      "sessionId": {
+        "type": "string"
+      },
+      "sourceFrom": {
+        "type": "string"
+      },
+      "groupId": {
+        "type": "string"
+      },
+      "uid": {
+        "type": "string"
+      },
+      "bizType": {
+        "type": "number"
+      },
+      "imBuType": {
+        "type": "string"
+      },
+      "wecomEditableGray": {
+        "type": "boolean"
+      },
+      "moduleJumpInfo": {
+        "type": "object",
+        "properties": {
+          "hasOrderPrivilege": {
+            "type": "boolean"
+          },
+          "hasModuleJumpPrivilege": {
+            "type": "boolean"
+          },
+          "moduleJumpList": {
+            "type": "array",
+            "observedLength": 2,
+            "items": {
+              "type": "object",
+              "properties": {
+                "moduleId": {
+                  "type": "string"
+                },
+                "showText": {
+                  "type": "string"
+                },
+                "jumpUrl": {
+                  "type": "string"
+                },
+                "showPointList": {
+                  "type": "object",
+                  "properties": {
+                    "IsRightClick": {
+                      "type": "boolean"
+                    },
+                    "IsOrder": {
+                      "type": "boolean"
+                    },
+                    "IsUid": {
+                      "type": "boolean"
+                    },
+                    "IsRBCorner": {
+                      "type": "boolean"
+                    }
+                  },
+                  "observedKeys": [
+                    "IsRightClick",
+                    "IsOrder",
+                    "IsUid",
+                    "IsRBCorner"
+                  ]
+                }
+              },
+              "observedKeys": [
+                "moduleId",
+                "showText",
+                "jumpUrl",
+                "showPointList"
+              ]
+            }
+          }
+        },
+        "observedKeys": [
+          "hasOrderPrivilege",
+          "hasModuleJumpPrivilege",
+          "moduleJumpList"
+        ]
+      },
+      "hasInviteLeaveEmailAuth": {
+        "type": "boolean"
+      },
+      "vbkUserInfo": {
+        "type": "object",
+        "properties": {
+          "promotionInfo": {
+            "type": "object",
+            "properties": {
+              "hasPromotionPrivilege": {
+                "type": "boolean"
+              },
+              "productId": {
+                "type": "null"
+              }
+            },
+            "observedKeys": [
+              "hasPromotionPrivilege",
+              "productId"
+            ]
+          },
+          "riskInfo": {
+            "type": "object",
+            "properties": {
+              "hasRiskPrivilege": {
+                "type": "boolean"
+              },
+              "riskMessage": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "hasRiskPrivilege",
+              "riskMessage"
+            ]
+          },
+          "userInfo": {
+            "type": "object",
+            "properties": {
+              "hasUserPrivilege": {
+                "type": "boolean"
+              },
+              "userTag": {
+                "type": "null"
+              },
+              "platform": {
+                "type": "null"
+              },
+              "riskMessage": {
+                "type": "null"
+              },
+              "userTags": {
+                "type": "null"
+              },
+              "userTagEnum": {
+                "type": "null"
+              },
+              "customerLocale": {
+                "type": "null"
+              }
+            },
+            "observedKeys": [
+              "hasUserPrivilege",
+              "userTag",
+              "platform",
+              "riskMessage",
+              "userTags",
+              "userTagEnum",
+              "customerLocale"
+            ]
+          },
+          "sourceTraceInfo": {
+            "type": "object",
+            "properties": {
+              "hasSourceTracePrivilege": {
+                "type": "boolean"
+              },
+              "lastSourceTrace": {
+                "type": "object",
+                "properties": {
+                  "msg": {
+                    "type": "string",
+                    "encodedJson": {
+                      "type": "object",
+                      "properties": {
+                        "title": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string"
+                        },
+                        "ext": {
+                          "type": "object",
+                          "properties": {
+                            "templateId": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string"
+                            },
+                            "isPlay": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "desc": {
+                              "type": "string"
+                            },
+                            "avatar": {
+                              "type": "string"
+                            },
+                            "nickName": {
+                              "type": "string"
+                            },
+                            "fromCardHide": {
+                              "type": "string"
+                            },
+                            "toCardHide": {
+                              "type": "string"
+                            },
+                            "dataInfoList": {
+                              "type": "array",
+                              "observedLength": 5,
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "Id": {
+                                    "type": "string"
+                                  },
+                                  "title": {
+                                    "type": "string"
+                                  },
+                                  "text": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "Id",
+                                  "title",
+                                  "text"
+                                ]
+                              }
+                            },
+                            "extendInfo": {
+                              "type": "object",
+                              "properties": {
+                                "fromJumpUrl": {
+                                  "type": "string"
+                                },
+                                "fromJumpUrlHybrid": {
+                                  "type": "string"
+                                },
+                                "fromJumpUrlOnline": {
+                                  "type": "string"
+                                },
+                                "toJumpUrl": {
+                                  "type": "string"
+                                },
+                                "toJumpUrlHybrid": {
+                                  "type": "string"
+                                },
+                                "toJumpUrlOnline": {
+                                  "type": "string"
+                                },
+                                "productId": {
+                                  "type": "string"
+                                },
+                                "isSelfOwned": {
+                                  "type": "string"
+                                },
+                                "departCityId": {
+                                  "type": "null"
+                                },
+                                "sessionId": {
+                                  "type": "string"
+                                },
+                                "platformName": {
+                                  "type": "string"
+                                },
+                                "uid": {
+                                  "type": "string"
+                                },
+                                "orderId": {
+                                  "type": "string"
+                                },
+                                "activityTripDefaultIMUrl": {
+                                  "type": "string"
+                                },
+                                "platformId": {
+                                  "type": "number"
+                                },
+                                "DestinationType": {
+                                  "type": "string"
+                                },
+                                "shopping": {
+                                  "type": "string"
+                                },
+                                "gid": {
+                                  "type": "string"
+                                },
+                                "jid": {
+                                  "type": "string"
+                                },
+                                "Platform": {
+                                  "type": "string"
+                                },
+                                "departureCityName": {
+                                  "type": "string"
+                                },
+                                "customerUid": {
+                                  "type": "string"
+                                },
+                                "saleCityId": {
+                                  "type": "null"
+                                },
+                                "providerProductName": {
+                                  "type": "string"
+                                },
+                                "Type": {
+                                  "type": "string"
+                                },
+                                "locale": {
+                                  "type": "string"
+                                },
+                                "providerId": {
+                                  "type": "string"
+                                },
+                                "singleChatUrl": {
+                                  "type": "string"
+                                }
+                              },
+                              "observedKeys": [
+                                "fromJumpUrl",
+                                "fromJumpUrlHybrid",
+                                "fromJumpUrlOnline",
+                                "toJumpUrl",
+                                "toJumpUrlHybrid",
+                                "toJumpUrlOnline",
+                                "productId",
+                                "isSelfOwned",
+                                "departCityId",
+                                "sessionId",
+                                "platformName",
+                                "uid",
+                                "orderId",
+                                "activityTripDefaultIMUrl",
+                                "platformId",
+                                "DestinationType",
+                                "shopping",
+                                "gid",
+                                "jid",
+                                "Platform",
+                                "departureCityName",
+                                "customerUid",
+                                "saleCityId",
+                                "providerProductName",
+                                "Type",
+                                "locale",
+                                "providerId",
+                                "singleChatUrl"
+                              ]
+                            }
+                          },
+                          "observedKeys": [
+                            "templateId",
+                            "type",
+                            "isPlay",
+                            "title",
+                            "desc",
+                            "avatar",
+                            "nickName",
+                            "fromCardHide",
+                            "toCardHide",
+                            "dataInfoList",
+                            "extendInfo"
+                          ]
+                        }
+                      },
+                      "observedKeys": [
+                        "title",
+                        "action",
+                        "ext"
+                      ]
+                    }
+                  },
+                  "sendTime": {
+                    "type": "number"
+                  },
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "observedKeys": [
+                  "msg",
+                  "sendTime",
+                  "action"
+                ]
+              },
+              "sourceTraceList": {
+                "type": "array",
+                "observedLength": 2,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "msg": {
+                      "type": "string",
+                      "encodedJson": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "action": {
+                            "type": "string"
+                          },
+                          "ext": {
+                            "type": "object",
+                            "properties": {
+                              "templateId": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "isPlay": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "desc": {
+                                "type": "string"
+                              },
+                              "avatar": {
+                                "type": "string"
+                              },
+                              "nickName": {
+                                "type": "string"
+                              },
+                              "fromCardHide": {
+                                "type": "string"
+                              },
+                              "toCardHide": {
+                                "type": "string"
+                              },
+                              "dataInfoList": {
+                                "type": "array",
+                                "observedLength": 5,
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "Id": {
+                                      "type": "string"
+                                    },
+                                    "title": {
+                                      "type": "string"
+                                    },
+                                    "text": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "observedKeys": [
+                                    "Id",
+                                    "title",
+                                    "text"
+                                  ]
+                                }
+                              },
+                              "extendInfo": {
+                                "type": "object",
+                                "properties": {
+                                  "fromJumpUrl": {
+                                    "type": "string"
+                                  },
+                                  "fromJumpUrlHybrid": {
+                                    "type": "string"
+                                  },
+                                  "fromJumpUrlOnline": {
+                                    "type": "string"
+                                  },
+                                  "toJumpUrl": {
+                                    "type": "string"
+                                  },
+                                  "toJumpUrlHybrid": {
+                                    "type": "string"
+                                  },
+                                  "toJumpUrlOnline": {
+                                    "type": "string"
+                                  },
+                                  "productId": {
+                                    "type": "string"
+                                  },
+                                  "isSelfOwned": {
+                                    "type": "string"
+                                  },
+                                  "departCityId": {
+                                    "type": "null"
+                                  },
+                                  "sessionId": {
+                                    "type": "string"
+                                  },
+                                  "platformName": {
+                                    "type": "string"
+                                  },
+                                  "uid": {
+                                    "type": "string"
+                                  },
+                                  "orderId": {
+                                    "type": "string"
+                                  },
+                                  "activityTripDefaultIMUrl": {
+                                    "type": "string"
+                                  },
+                                  "platformId": {
+                                    "type": "number"
+                                  },
+                                  "DestinationType": {
+                                    "type": "string"
+                                  },
+                                  "shopping": {
+                                    "type": "string"
+                                  },
+                                  "gid": {
+                                    "type": "string"
+                                  },
+                                  "jid": {
+                                    "type": "string"
+                                  },
+                                  "Platform": {
+                                    "type": "string"
+                                  },
+                                  "departureCityName": {
+                                    "type": "string"
+                                  },
+                                  "customerUid": {
+                                    "type": "string"
+                                  },
+                                  "saleCityId": {
+                                    "type": "null"
+                                  },
+                                  "providerProductName": {
+                                    "type": "string"
+                                  },
+                                  "Type": {
+                                    "type": "string"
+                                  },
+                                  "locale": {
+                                    "type": "string"
+                                  },
+                                  "providerId": {
+                                    "type": "string"
+                                  },
+                                  "singleChatUrl": {
+                                    "type": "string"
+                                  }
+                                },
+                                "observedKeys": [
+                                  "fromJumpUrl",
+                                  "fromJumpUrlHybrid",
+                                  "fromJumpUrlOnline",
+                                  "toJumpUrl",
+                                  "toJumpUrlHybrid",
+                                  "toJumpUrlOnline",
+                                  "productId",
+                                  "isSelfOwned",
+                                  "departCityId",
+                                  "sessionId",
+                                  "platformName",
+                                  "uid",
+                                  "orderId",
+                                  "activityTripDefaultIMUrl",
+                                  "platformId",
+                                  "DestinationType",
+                                  "shopping",
+                                  "gid",
+                                  "jid",
+                                  "Platform",
+                                  "departureCityName",
+                                  "customerUid",
+                                  "saleCityId",
+                                  "providerProductName",
+                                  "Type",
+                                  "locale",
+                                  "providerId",
+                                  "singleChatUrl"
+                                ]
+                              }
+                            },
+                            "observedKeys": [
+                              "templateId",
+                              "type",
+                              "isPlay",
+                              "title",
+                              "desc",
+                              "avatar",
+                              "nickName",
+                              "fromCardHide",
+                              "toCardHide",
+                              "dataInfoList",
+                              "extendInfo"
+                            ]
+                          }
+                        },
+                        "observedKeys": [
+                          "title",
+                          "action",
+                          "ext"
+                        ]
+                      }
+                    },
+                    "sendTime": {
+                      "type": "number"
+                    },
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "msg",
+                    "sendTime",
+                    "action"
+                  ]
+                }
+              }
+            },
+            "observedKeys": [
+              "hasSourceTracePrivilege",
+              "lastSourceTrace",
+              "sourceTraceList"
+            ]
+          },
+          "vbkHistoryOrderInfo": {
+            "type": "object",
+            "properties": {
+              "hasHistoryOrderPrivilege": {
+                "type": "boolean"
+              },
+              "historyOrderList": {
+                "type": "null"
+              }
+            },
+            "observedKeys": [
+              "hasHistoryOrderPrivilege",
+              "historyOrderList"
+            ]
+          },
+          "vbkBrowserHistoryInfo": {
+            "type": "object",
+            "properties": {
+              "hasBrowserHistoryPrivilege": {
+                "type": "boolean"
+              },
+              "browseHistoryInfoList": {
+                "type": "null"
+              }
+            },
+            "observedKeys": [
+              "hasBrowserHistoryPrivilege",
+              "browseHistoryInfoList"
+            ]
+          },
+          "vendorPrivilege": {
+            "type": "object",
+            "properties": {
+              "hasProductRecommendPrivilege": {
+                "type": "boolean"
+              },
+              "hasGuideProductRecommendPrivilege": {
+                "type": "boolean"
+              }
+            },
+            "observedKeys": [
+              "hasProductRecommendPrivilege",
+              "hasGuideProductRecommendPrivilege"
+            ]
+          },
+          "wechatGroupInfo": {
+            "type": "object",
+            "properties": {
+              "hasWeChatGroupPrivilege": {
+                "type": "boolean"
+              },
+              "requirementOrderId": {
+                "type": "null"
+              },
+              "productId": {
+                "type": "null"
+              },
+              "requirementOrderCreateTime": {
+                "type": "null"
+              },
+              "requirementOrderServiceName": {
+                "type": "null"
+              },
+              "requirementOrderProductH5Url": {
+                "type": "null"
+              },
+              "requirementOrderH5Url": {
+                "type": "null"
+              },
+              "requirementOrderPCUrl": {
+                "type": "null"
+              },
+              "opInfoList": {
+                "type": "null"
+              }
+            },
+            "observedKeys": [
+              "hasWeChatGroupPrivilege",
+              "requirementOrderId",
+              "productId",
+              "requirementOrderCreateTime",
+              "requirementOrderServiceName",
+              "requirementOrderProductH5Url",
+              "requirementOrderH5Url",
+              "requirementOrderPCUrl",
+              "opInfoList"
+            ]
+          }
+        },
+        "observedKeys": [
+          "promotionInfo",
+          "riskInfo",
+          "userInfo",
+          "sourceTraceInfo",
+          "vbkHistoryOrderInfo",
+          "vbkBrowserHistoryInfo",
+          "vendorPrivilege",
+          "wechatGroupInfo"
+        ]
+      },
+      "productId": {
+        "type": "string"
+      },
+      "orderId": {
+        "type": "string"
+      },
+      "bookingPhase": {
+        "type": "string"
+      },
+      "benefitId": {
+        "type": "string"
+      },
+      "wechatGroupInfo": {
+        "type": "object",
+        "properties": {
+          "hasWeChatGroupPrivilege": {
+            "type": "boolean"
+          },
+          "requirementOrderId": {
+            "type": "null"
+          },
+          "productId": {
+            "type": "null"
+          },
+          "requirementOrderCreateTime": {
+            "type": "null"
+          },
+          "requirementOrderServiceName": {
+            "type": "null"
+          },
+          "requirementOrderProductH5Url": {
+            "type": "null"
+          },
+          "requirementOrderH5Url": {
+            "type": "null"
+          },
+          "requirementOrderPCUrl": {
+            "type": "null"
+          },
+          "opInfoList": {
+            "type": "null"
+          }
+        },
+        "observedKeys": [
+          "hasWeChatGroupPrivilege",
+          "requirementOrderId",
+          "productId",
+          "requirementOrderCreateTime",
+          "requirementOrderServiceName",
+          "requirementOrderProductH5Url",
+          "requirementOrderH5Url",
+          "requirementOrderPCUrl",
+          "opInfoList"
+        ]
+      },
+      "showOpInfoList": {
+        "type": "null"
+      },
+      "whatsAppInfo": {
+        "type": "object",
+        "properties": {
+          "hasWhatsAppPrivilege": {
+            "type": "boolean"
+          }
+        },
+        "observedKeys": [
+          "hasWhatsAppPrivilege"
+        ]
+      },
+      "weChatPollingTime": {
+        "type": "string"
+      },
+      "tabIdList": {
+        "type": "array",
+        "observedLength": 2,
+        "items": {
+          "type": "number"
+        }
+      },
+      "curTabIndex": {
+        "type": "number"
+      }
+    },
+    "observedKeys": [
+      "location",
+      "basename",
+      "publicPath",
+      "restapi",
+      "html",
+      "env",
+      "userInfo",
+      "pageId",
+      "preload",
+      "lang",
+      "applicationCode",
+      "isOffline",
+      "locale",
+      "isDeploy",
+      "queryParams",
+      "sessionId",
+      "sourceFrom",
+      "groupId",
+      "uid",
+      "bizType",
+      "imBuType",
+      "wecomEditableGray",
+      "moduleJumpInfo",
+      "hasInviteLeaveEmailAuth",
+      "vbkUserInfo",
+      "productId",
+      "orderId",
+      "bookingPhase",
+      "benefitId",
+      "wechatGroupInfo",
+      "showOpInfoList",
+      "whatsAppInfo",
+      "weChatPollingTime",
+      "tabIdList",
+      "curTabIndex"
+    ]
+  }
+}

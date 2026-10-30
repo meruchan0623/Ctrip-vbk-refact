@@ -1,0 +1,10 @@
+{
+  "source": "Observed initial popup immediately after official order IM contact action; before the later reload attempt",
+  "initialPopupPage": "p5",
+  "initialPopupOrigin": "https://imvendor.ctrip.com",
+  "initialControlledTitleConfirmed": true,
+  "controlledAlias": "_tihk******doml43",
+  "initialMemberCount": 3,
+  "laterReloadReachedControlledTitleWithin15Seconds": false,
+  "interpretation": "Initial contact navigation succeeded; subsequent legacy-entry reload is not accepted as stable."
+}

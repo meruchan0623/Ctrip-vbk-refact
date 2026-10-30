@@ -1,0 +1,82 @@
+{
+  "description": "公开网页源码锚点；offset 从零开始，excerpt 为原文截取。文件位于采集机器的临时路径，SHA256 用于核对版本。无实际凭据。",
+  "files": {
+    "chunk-0.txt": {
+      "path": "/tmp/ctrip-contract-20261030/chunk-0.txt",
+      "sha256": "7ab9d673e0d81f1a9705fc27a2413289871ffc8c6303e6f6d1cee0216c6444d1"
+    },
+    "chunk-2.txt": {
+      "path": "/tmp/ctrip-contract-20261030/chunk-2.txt",
+      "sha256": "9aa79e16460e17612ccef3d8a23076039616e7fdd53243f18d51e7dfbd1ed728"
+    },
+    "source-0.txt": {
+      "path": "/tmp/ctrip-contract-20261030/source-0.txt",
+      "sha256": "5d2aacf7a265835f5cea40ae5888e97f4126b4400eecb51c32e61a8873179bb1"
+    }
+  },
+  "anchors": [
+    {
+      "topic": "摘要",
+      "file": "chunk-0.txt",
+      "utf16Offset": 3189008,
+      "byteOffset": 3190565,
+      "excerpt": "var u=(0,M.md5)(\"\".concat(l,\";\").concat(t.method,\";\").concat(n,\";\").concat(a.GUID||\"\",\";\").concat(a.UBT_VID||\"\",\";\").concat(a.DUID||\"\",\";\").concat(a._RF1||\"\"));t.headers[\"x-ctx-wclient-req\"]=u}}catch(f){}};function j(e,t){var r=Object.keys(e);if(Object.getOwnPropertySymbols){var n=Object.getOwnPropertySymbols(e);t&&(n=n.filter(function(t){return Ob"
+    },
+    {
+      "topic": "追踪生成",
+      "file": "chunk-0.txt",
+      "utf16Offset": 3197892,
+      "byteOffset": 3199449,
+      "excerpt": "y=\"\".concat(t||\"\",\"-\").concat(new Date().getTime(),\"-\").concat(Math.floor(1e7*Math.random())),t&&(X=\"\".concat(X).concat((0,c.pj)(X),\"_fxpcqlniredt=\").concat(t,\"&x-traceID=\").concat(y)),E(X,o,d,n),h&&(0,c.YT)(o,n,d,J),w={},n.noCookieOrigin||(O=window.location.origin||\"\"."
+    },
+    {
+      "topic": "摘要调用",
+      "file": "chunk-0.txt",
+      "utf16Offset": 3198839,
+      "byteOffset": 3200396,
+      "excerpt": "S(X,o,n,y,J),B(o,n),"
+    },
+    {
+      "topic": "风控生成",
+      "file": "chunk-0.txt",
+      "utf16Offset": 3191942,
+      "byteOffset": 3193499,
+      "excerpt": "var q=function(e,t){try{var r=(0,M.md5)(e.body),n=window.c_sign.toString(r);e.headers[\"w-payload-source\"]=n,t.set({cSign:\"T\",cSign_info:r})}catch(o){t.set({cSign:\"F\",cSign_info:null==o?void "
+    },
+    {
+      "topic": "图片授权",
+      "file": "chunk-0.txt",
+      "utf16Offset": 1991424,
+      "byteOffset": 1991674,
+      "excerpt": "this.createDynamicToken=function(){return new Promise(function(e,r){var n=\"Nephele\",o=t.randomString(),a=t.getFormatDate();try{var i=t.token,c=window.btoa&&btoa(\"token:\".concat(i));t.authorization=\"\".concat(n,\" \").concat(o,\"/\").concat(a,\"/\").concat(t.channel,\"/\").concat(c),e()}catch(s){t.error={errCode:l.ET[2].errCode,errMsg:l.ET[2].errMs"
+    },
+    {
+      "topic": "随机数与时间",
+      "file": "chunk-0.txt",
+      "utf16Offset": 1991794,
+      "byteOffset": 1992044,
+      "excerpt": "this.randomString=function(e){e=e||32;for(var t=\"ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678\",r=t.length,n=\"\",o=0;o<e;o++)n+=t.charAt(Math.floor(Math.random()*r));return n},this.getFormatDate=function(){var e=new Date,t=e.getFullYear(),r=e.getMonth()+1;return t+(r<10?\"0\"+r:r+\"\")+(e.getDate()<10?\"0\"+e.getDate():e.getDate()+\"\")+(e.getHours()<10?\"0\"+e.getHours():e.getHours()+\"\")+(e.getMinutes()<10?\"0\"+e.getMinutes():e.getMinutes()+\"\")},this.uploadMultipartComplete=function(){return f(t,void 0,void 0,function(){va"
+    },
+    {
+      "topic": "业务head",
+      "file": "chunk-2.txt",
+      "utf16Offset": 823974,
+      "byteOffset": 833048,
+      "excerpt": "function p(e,t,n){try{window._n(\"RVg\")}catch(r){}return{cver:\"2\",appId:e,extension:[{name:\"cpc\",value:\"pc\"},{name:\"protocal\",value:\"https\"},{name:\"amp-product-type\",value:\"IM\"},{name:\"amp-account-source\",value:\"VBK\"},{name:\"client-source\",value:n||\"pc-\".concat(e||\"900004\")},{name:\"locale\",value:t||\"zh-CN\"}]}}function f(e){try{window._n(\"IG5\")}catch(t){}return{cid:e,ctok:\"\",cver:\"1.0\",lang:\"01\",sid"
+    },
+    {
+      "topic": "业务调用",
+      "file": "chunk-2.txt",
+      "utf16Offset": 126387,
+      "byteOffset": 126533,
+      "excerpt": "return $.cq(e||\"900004\",n,this.query[\"client-source\"])}}]),h}(tY)"
+    },
+    {
+      "topic": "SDK版本",
+      "file": "source-0.txt",
+      "utf16Offset": 9341,
+      "byteOffset": 9342,
+      "excerpt": "appVersion:\"1.0.7\",conver"
+    }
+  ]
+}

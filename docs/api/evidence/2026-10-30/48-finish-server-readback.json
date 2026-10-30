@@ -1,0 +1,3033 @@
+{
+  "capturedAt": "2026-10-30T10:41:46.576Z",
+  "page": "https://vbooking.ctrip.com/vbk/im/main",
+  "stage": "48-finish-server-readback",
+  "requests": [
+    {
+      "stage": "48-finish-server-readback",
+      "id": "35568.4728",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid?_fxpcqlniredt=%7B%7Bquery._fxpcqlniredt%3Astring%7D%7D&x-traceID=%7B%7Bquery.x-traceID%3Astring%7D%7D",
+      "method": "POST",
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"macOS\"",
+        "Referer": "https://vbooking.ctrip.com/",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "x-ctx-Country": "CN",
+        "x-ctx-Locale": "zh-CN",
+        "x-ctx-Currency": "CNY",
+        "cookieOrigin": "https://vbooking.ctrip.com",
+        "x-tour-auth-from": "vbk_online",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "Content-Type": "application/json",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "application/json",
+        "cookie": "UBT_VID={{cookie}}; GUID={{cookie}}; _RSG={{cookie}}; _RDG={{cookie}}; _RGUID={{cookie}}; vbk_login_cid={{cookie}}; _RF1={{cookie}}; vbkticket={{cookie}}; bticket={{cookie}}; BDUID={{cookie}}; vbk-locale-lang={{cookie}}; vbk-menu-business-id={{cookie}}; vbk-menu-business-parameter={{cookie}}; ibulanguage={{cookie}}; ibulocale={{cookie}}; cookiePricesDisplayed={{cookie}}; _wb_wh={{cookie}}; _bfa={{cookie}}",
+        "cookieorigin": "https://vbooking.ctrip.com",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "x-ctx-country": "CN",
+        "x-ctx-currency": "CNY",
+        "x-ctx-locale": "zh-CN"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [
+        {
+          "name": "SECKEY_ABVK",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "BMAP_SECKEY",
+          "domain": "vbooking.ctrip.com",
+          "path": "/activity-vbk",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "NotOnPath",
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibu_country",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "nfes_isSupportWebP",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_lid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "w_tuid",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "sameSite": "Lax",
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_resDomain",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "imvendor.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibusite",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibugroup",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "_pd",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "JSESSIONID",
+          "domain": "online.ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "ibulocale",
+          "domain": "vbooking.ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": [
+            "DomainMismatch"
+          ]
+        },
+        {
+          "name": "UBT_VID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "GUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RSG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RDG",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RGUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk_login_cid",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_RF1",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbkticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "bticket",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "BDUID",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": true,
+          "sameSite": "None",
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-locale-lang",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-id",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "vbk-menu-business-parameter",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulanguage",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "ibulocale",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "cookiePricesDisplayed",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_wb_wh",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        },
+        {
+          "name": "_bfa",
+          "domain": ".ctrip.com",
+          "path": "/",
+          "httpOnly": false,
+          "secure": false,
+          "blockedReasons": []
+        }
+      ],
+      "requestTemplate": {
+        "head": {
+          "cid": "{{body.head.cid:string}}",
+          "ctok": "",
+          "cver": "2",
+          "lang": "01",
+          "sid": "{{body.head.sid:string}}",
+          "syscode": "09",
+          "auth": "",
+          "xsid": "",
+          "extension": [
+            {
+              "name": "cpc",
+              "value": "pc"
+            },
+            {
+              "name": "protocal",
+              "value": "https"
+            },
+            {
+              "name": "amp-product-type",
+              "value": "IM"
+            },
+            {
+              "name": "amp-account-source",
+              "value": "VBK"
+            },
+            {
+              "name": "client-source",
+              "value": "pc-900004"
+            },
+            {
+              "name": "locale",
+              "value": "zh-CN"
+            }
+          ],
+          "appId": "900004"
+        },
+        "gid": "{{body.gid:string}}"
+      },
+      "requestSchema": {
+        "type": "object",
+        "properties": {
+          "head": {
+            "type": "object",
+            "properties": {
+              "cid": {
+                "type": "string"
+              },
+              "ctok": {
+                "type": "string"
+              },
+              "cver": {
+                "type": "string"
+              },
+              "lang": {
+                "type": "string"
+              },
+              "sid": {
+                "type": "string"
+              },
+              "syscode": {
+                "type": "string"
+              },
+              "auth": {
+                "type": "string"
+              },
+              "xsid": {
+                "type": "string"
+              },
+              "extension": {
+                "type": "array",
+                "observedLength": 6,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "name",
+                    "value"
+                  ]
+                }
+              },
+              "appId": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "cid",
+              "ctok",
+              "cver",
+              "lang",
+              "sid",
+              "syscode",
+              "auth",
+              "xsid",
+              "extension",
+              "appId"
+            ]
+          },
+          "gid": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "head",
+          "gid"
+        ]
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "rootmessageid": "{{header.rootmessageid:string}}",
+        "access-control-expose-headers": "RootMessageId\nx-service-call\nx-gate-region\nslb-http-protocol-version",
+        "x-cat-root-url": "{{header.x-cat-root-url:string}}",
+        "content-encoding": "{{header.content-encoding:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "slb-http-protocol-version": "{{header.slb-http-protocol-version:string}}",
+        "x-cat-root-id": "{{header.x-cat-root-id:string}}",
+        "servermessageid": "{{header.servermessageid:string}}",
+        "c-via": "{{header.c-via:string}}",
+        "x-cat-parent-id": "{{header.x-cat-parent-id:string}}",
+        "date": "{{header.date:string}}",
+        "content-type": "application/json;charset=UTF-8",
+        "x-cat-server": "{{header.x-cat-server:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "clogging_trace_id": "{{header.clogging_trace_id:string}}",
+        "x-envoy-upstream-service-time": "{{header.x-envoy-upstream-service-time:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}",
+        "access-control-allow-credentials": "true",
+        "x-service-call": "{{header.x-service-call:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-cat-id": "{{header.x-cat-id:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}"
+      },
+      "responseTemplate": {
+        "ResponseStatus": {
+          "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+          "Ack": "Success",
+          "Extension": [
+            {
+              "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+            },
+            {
+              "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+              "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+            }
+          ]
+        },
+        "bizResponseStatus": {
+          "resultCode": "SUCCESS"
+        },
+        "conversation": {
+          "uid": "{{response.conversation.uid:string}}",
+          "venAgentId": "{{response.conversation.venAgentId:string}}",
+          "serviceType": "1513",
+          "id": "{{response.conversation.id:number}}",
+          "gid": "{{response.conversation.gid:string}}",
+          "threadId": "{{response.conversation.threadId:string}}",
+          "conversationKey": "{{response.conversation.conversationKey:string}}",
+          "firstMessageTime": "{{response.conversation.firstMessageTime:number}}",
+          "lastMessageTime": "{{response.conversation.lastMessageTime:number}}",
+          "skillGroupCode": "{{response.conversation.skillGroupCode:string}}",
+          "refId": "{{response.conversation.refId:string}}",
+          "vendorRole": "{{response.conversation.vendorRole:string}}",
+          "vendorId": "{{response.conversation.vendorId:number}}",
+          "vendorName": "{{response.conversation.vendorName:string}}",
+          "relationOrderId": "{{response.conversation.relationOrderId:string}}",
+          "ext": {
+            "parentsid": "{{response.conversation.ext.parentsid:string}}",
+            "clientid": "{{response.conversation.ext.clientid:string}}",
+            "needsendusermessage": "{{response.conversation.ext.needsendusermessage:string}}",
+            "imreqmsgid": "{{response.conversation.ext.imreqmsgid:string}}",
+            "latitude": "{{response.conversation.ext.latitude:string}}",
+            "channel": "VAC",
+            "ibuclientversion": "{{response.conversation.ext.ibuclientversion:string}}",
+            "title": "{{response.conversation.ext.title:string}}",
+            "pageid": "{{response.conversation.ext.pageid:string}}",
+            "locale": "zh_HK",
+            "aitoken": "",
+            "bu": "{{response.conversation.ext.bu:string}}",
+            "thirdpartytoken": "{{response.conversation.ext.thirdpartytoken:string}}",
+            "tag": "",
+            "longitude": "{{response.conversation.ext.longitude:string}}",
+            "imassignscene": "{{response.conversation.ext.imassignscene:string}}",
+            "supplierid": "{{response.conversation.ext.supplierid:string}}",
+            "coordinate": "{{response.conversation.ext.coordinate:string}}",
+            "clientversion": "{{response.conversation.ext.clientversion:string}}",
+            "orderid": "{{response.conversation.ext.orderid:string}}",
+            "cityname": "{{response.conversation.ext.cityname:string}}",
+            "relationorderid": "{{response.conversation.ext.relationorderid:string}}",
+            "appversion": "{{response.conversation.ext.appversion:string}}",
+            "cityid": "{{response.conversation.ext.cityid:string}}",
+            "supplierpid": "",
+            "vendorUid": "{{response.conversation.ext.vendorUid:string}}",
+            "token": "{{response.conversation.ext.token:string}}",
+            "imclientip": "{{response.conversation.ext.imclientip:string}}",
+            "vtoken": "{{response.conversation.ext.vtoken:string}}",
+            "ctype": "{{response.conversation.ext.ctype:string}}",
+            "pagefrom": "{{response.conversation.ext.pagefrom:string}}",
+            "cid": "{{response.conversation.ext.cid:string}}"
+          },
+          "status": 4,
+          "conversationType": "B2C",
+          "groupTitle": "{{response.conversation.groupTitle:string}}",
+          "groupAvatar": "{{response.conversation.groupAvatar:string}}",
+          "sessionId": "{{response.conversation.sessionId:string}}",
+          "customerInGroup": "{{response.conversation.customerInGroup:number}}",
+          "inGroup": -1,
+          "isHide": 0,
+          "star": 0,
+          "isRead": 0,
+          "lastUpdateTime": "{{response.conversation.lastUpdateTime:number}}",
+          "currentConversationRole": 2,
+          "languageInfo": {
+            "lang": "zh_HK",
+            "terminalChannel": "",
+            "terminalChannelUid": "",
+            "timeZone": "",
+            "customerSource": ""
+          },
+          "inQueueStatus": 0
+        }
+      },
+      "responseSchema": {
+        "type": "object",
+        "properties": {
+          "ResponseStatus": {
+            "type": "object",
+            "properties": {
+              "Timestamp": {
+                "type": "string"
+              },
+              "Ack": {
+                "type": "string"
+              },
+              "Extension": {
+                "type": "array",
+                "observedLength": 2,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "Id": {
+                      "type": "string"
+                    },
+                    "Value": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "Id",
+                    "Value"
+                  ]
+                }
+              }
+            },
+            "observedKeys": [
+              "Timestamp",
+              "Ack",
+              "Extension"
+            ]
+          },
+          "bizResponseStatus": {
+            "type": "object",
+            "properties": {
+              "resultCode": {
+                "type": "string"
+              }
+            },
+            "observedKeys": [
+              "resultCode"
+            ]
+          },
+          "conversation": {
+            "type": "object",
+            "properties": {
+              "uid": {
+                "type": "string"
+              },
+              "venAgentId": {
+                "type": "string"
+              },
+              "serviceType": {
+                "type": "string"
+              },
+              "id": {
+                "type": "number"
+              },
+              "gid": {
+                "type": "string"
+              },
+              "threadId": {
+                "type": "string"
+              },
+              "conversationKey": {
+                "type": "string"
+              },
+              "firstMessageTime": {
+                "type": "number"
+              },
+              "lastMessageTime": {
+                "type": "number"
+              },
+              "skillGroupCode": {
+                "type": "string"
+              },
+              "refId": {
+                "type": "string"
+              },
+              "vendorRole": {
+                "type": "string"
+              },
+              "vendorId": {
+                "type": "number"
+              },
+              "vendorName": {
+                "type": "string"
+              },
+              "relationOrderId": {
+                "type": "string"
+              },
+              "ext": {
+                "type": "object",
+                "properties": {
+                  "parentsid": {
+                    "type": "string"
+                  },
+                  "clientid": {
+                    "type": "string"
+                  },
+                  "needsendusermessage": {
+                    "type": "string"
+                  },
+                  "imreqmsgid": {
+                    "type": "string"
+                  },
+                  "latitude": {
+                    "type": "string"
+                  },
+                  "channel": {
+                    "type": "string"
+                  },
+                  "ibuclientversion": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "pageid": {
+                    "type": "string"
+                  },
+                  "locale": {
+                    "type": "string"
+                  },
+                  "aitoken": {
+                    "type": "string"
+                  },
+                  "bu": {
+                    "type": "string"
+                  },
+                  "thirdpartytoken": {
+                    "type": "string"
+                  },
+                  "tag": {
+                    "type": "string"
+                  },
+                  "longitude": {
+                    "type": "string"
+                  },
+                  "imassignscene": {
+                    "type": "string"
+                  },
+                  "supplierid": {
+                    "type": "string"
+                  },
+                  "coordinate": {
+                    "type": "string"
+                  },
+                  "clientversion": {
+                    "type": "string"
+                  },
+                  "orderid": {
+                    "type": "string"
+                  },
+                  "cityname": {
+                    "type": "string"
+                  },
+                  "relationorderid": {
+                    "type": "string"
+                  },
+                  "appversion": {
+                    "type": "string"
+                  },
+                  "cityid": {
+                    "type": "string"
+                  },
+                  "supplierpid": {
+                    "type": "string"
+                  },
+                  "vendorUid": {
+                    "type": "string"
+                  },
+                  "token": {
+                    "type": "string"
+                  },
+                  "imclientip": {
+                    "type": "string"
+                  },
+                  "vtoken": {
+                    "type": "string"
+                  },
+                  "ctype": {
+                    "type": "string"
+                  },
+                  "pagefrom": {
+                    "type": "string"
+                  },
+                  "cid": {
+                    "type": "string"
+                  }
+                },
+                "observedKeys": [
+                  "parentsid",
+                  "clientid",
+                  "needsendusermessage",
+                  "imreqmsgid",
+                  "latitude",
+                  "channel",
+                  "ibuclientversion",
+                  "title",
+                  "pageid",
+                  "locale",
+                  "aitoken",
+                  "bu",
+                  "thirdpartytoken",
+                  "tag",
+                  "longitude",
+                  "imassignscene",
+                  "supplierid",
+                  "coordinate",
+                  "clientversion",
+                  "orderid",
+                  "cityname",
+                  "relationorderid",
+                  "appversion",
+                  "cityid",
+                  "supplierpid",
+                  "vendorUid",
+                  "token",
+                  "imclientip",
+                  "vtoken",
+                  "ctype",
+                  "pagefrom",
+                  "cid"
+                ]
+              },
+              "status": {
+                "type": "number"
+              },
+              "conversationType": {
+                "type": "string"
+              },
+              "groupTitle": {
+                "type": "string"
+              },
+              "groupAvatar": {
+                "type": "string"
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "customerInGroup": {
+                "type": "number"
+              },
+              "inGroup": {
+                "type": "number"
+              },
+              "isHide": {
+                "type": "number"
+              },
+              "star": {
+                "type": "number"
+              },
+              "isRead": {
+                "type": "number"
+              },
+              "lastUpdateTime": {
+                "type": "number"
+              },
+              "currentConversationRole": {
+                "type": "number"
+              },
+              "languageInfo": {
+                "type": "object",
+                "properties": {
+                  "lang": {
+                    "type": "string"
+                  },
+                  "terminalChannel": {
+                    "type": "string"
+                  },
+                  "terminalChannelUid": {
+                    "type": "string"
+                  },
+                  "timeZone": {
+                    "type": "string"
+                  },
+                  "customerSource": {
+                    "type": "string"
+                  }
+                },
+                "observedKeys": [
+                  "lang",
+                  "terminalChannel",
+                  "terminalChannelUid",
+                  "timeZone",
+                  "customerSource"
+                ]
+              },
+              "inQueueStatus": {
+                "type": "number"
+              }
+            },
+            "observedKeys": [
+              "uid",
+              "venAgentId",
+              "serviceType",
+              "id",
+              "gid",
+              "threadId",
+              "conversationKey",
+              "firstMessageTime",
+              "lastMessageTime",
+              "skillGroupCode",
+              "refId",
+              "vendorRole",
+              "vendorId",
+              "vendorName",
+              "relationOrderId",
+              "ext",
+              "status",
+              "conversationType",
+              "groupTitle",
+              "groupAvatar",
+              "sessionId",
+              "customerInGroup",
+              "inGroup",
+              "isHide",
+              "star",
+              "isRead",
+              "lastUpdateTime",
+              "currentConversationRole",
+              "languageInfo",
+              "inQueueStatus"
+            ]
+          }
+        },
+        "observedKeys": [
+          "ResponseStatus",
+          "bizResponseStatus",
+          "conversation"
+        ]
+      },
+      "headExtension": [
+        {
+          "name": "cpc",
+          "value": "pc"
+        },
+        {
+          "name": "protocal",
+          "value": "https"
+        },
+        {
+          "name": "amp-product-type",
+          "value": "IM"
+        },
+        {
+          "name": "amp-account-source",
+          "value": "VBK"
+        },
+        {
+          "name": "client-source",
+          "value": "pc-900004"
+        },
+        {
+          "name": "locale",
+          "value": "zh-CN"
+        }
+      ]
+    },
+    {
+      "stage": "48-finish-server-readback",
+      "id": "65B871B4036B656DF542608D64737D53",
+      "url": "https://m.ctrip.com/restapi/soa2/16037/getLatestConversationByGid?_fxpcqlniredt=%7B%7Bquery._fxpcqlniredt%3Astring%7D%7D&x-traceID=%7B%7Bquery.x-traceID%3Astring%7D%7D",
+      "method": "OPTIONS",
+      "requestHeaders": {
+        "Accept": "*/*",
+        "Access-Control-Request-Headers": "content-type,cookieorigin,x-ctx-country,x-ctx-currency,x-ctx-locale,x-tour-auth-from",
+        "Access-Control-Request-Method": "POST",
+        "Origin": "https://vbooking.ctrip.com",
+        "Sec-Fetch-Mode": "cors",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "access-control-request-headers": "content-type,cookieorigin,x-ctx-country,x-ctx-currency,x-ctx-locale,x-tour-auth-from",
+        "access-control-request-method": "POST",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [],
+      "requestTemplate": "undefined",
+      "requestSchema": {
+        "type": "undefined"
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "access-control-allow-credentials": "true",
+        "access-control-allow-headers": "content-type,cookieorigin,x-ctx-country,x-ctx-currency,x-ctx-locale,x-tour-auth-from",
+        "access-control-allow-methods": "POST",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "access-control-expose-headers": "x-service-call\nx-gate-region\nslb-http-protocol-version",
+        "c-via": "{{header.c-via:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "text/html",
+        "date": "{{header.date:string}}",
+        "slb-http-protocol-version": "{{header.slb-http-protocol-version:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "x-gate": "{{header.x-gate:string}}",
+        "x-gate-region": "{{header.x-gate-region:string}}",
+        "x-gate-root-id": "{{header.x-gate-root-id:string}}",
+        "x-originating-url": "{{header.x-originating-url:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}"
+      },
+      "responseTemplate": "undefined",
+      "responseSchema": {
+        "type": "undefined"
+      }
+    }
+  ],
+  "websocket": [
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "default",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "{{ws.body[0].ext.playSound:string}}",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": "{{ws.body[0].operation:string}}"
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id:ref-1}}\" type=\"chat\" real_chat_type=\"{{real_chat_type:ref-2}}\" localid=\"{{localid:ref-3}}\" ts=\"{{ts:ref-4}}\" msgtype=\"7\" bizType=\"{{bizType:ref-5}}\" threadid=\"{{threadid:ref-6}}\" create_time=\"{{create_time:ref-7}}\" skip_db=\"{{skip_db:ref-8}}\" transmit=\"{{transmit:ref-9}}\" from=\"{{from:ref-10}}\" to=\"{{to:ref-11}}\" receipt_range=\"{{receipt_range:ref-9}}\" fromName=\"{{fromName:ref-12}}\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [],
+      "bodyTemplate": [],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 0,
+        "items": {
+          "anyOf": []
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id:ref-1}}\" type=\"notify_ack\" from=\"{{from:ref-11}}\" xmlns=\"jabber:client\"/>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "default",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "{{ws.body[0].ext.playSound:string}}",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": "{{ws.body[0].operation:string}}"
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<iq type=\"set\" id=\"{{id:ref-1}}\" localid=\"{{localid:ref-3}}\" categoryId=\"{{categoryId:ref-13}}\" categorySubId=\"{{categorySubId:ref-14}}\" create_time=\"{{create_time:ref-7}}\" from=\"{{from:ref-10}}\" to=\"{{to:ref-11}}\" real_chat_type=\"{{real_chat_type:ref-15}}\" skip_db=\"{{skip_db:ref-8}}\" bizType=\"{{bizType:ref-5}}\" msgtype=\"7\" messageCode=\"{{messageCode:ref-16}}\"><body>{{text}}</body></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "default",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "{{ws.body[0].ext.playSound:string}}",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": "{{ws.body[0].operation:string}}"
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<iq to=\"{{to:ref-10}}\" from=\"{{from:ref-11}}\" id=\"{{id:ref-1}}\" type=\"error\" xmlns=\"jabber:client\"><body>{{text}}</body><error type=\"cancel\"><service-unavailable xmlns=\"urn:ietf:params:xml:ns:xmpp-stanzas\"/></error></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "default",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "{{ws.body[0].ext.playSound:string}}",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": "{{ws.body[0].operation:string}}"
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id:ref-1}}\" type=\"chat\" real_chat_type=\"{{real_chat_type:ref-2}}\" localid=\"{{localid:ref-3}}\" ts=\"{{ts:ref-4}}\" msgtype=\"7\" bizType=\"{{bizType:ref-5}}\" threadid=\"{{threadid:ref-6}}\" create_time=\"{{create_time:ref-7}}\" skip_db=\"{{skip_db:ref-8}}\" transmit=\"{{transmit:ref-9}}\" from=\"{{from:ref-10}}\" to=\"{{to:ref-17}}\" receipt_range=\"{{receipt_range:ref-9}}\" fromName=\"{{fromName:ref-12}}\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [],
+      "bodyTemplate": [],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 0,
+        "items": {
+          "anyOf": []
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id:ref-1}}\" type=\"notify_ack\" from=\"{{from:ref-17}}\" xmlns=\"jabber:client\"/>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "default",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "{{ws.body[0].ext.playSound:string}}",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": "{{ws.body[0].operation:string}}"
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<iq type=\"set\" id=\"{{id:ref-1}}\" localid=\"{{localid:ref-3}}\" categoryId=\"{{categoryId:ref-13}}\" categorySubId=\"{{categorySubId:ref-14}}\" create_time=\"{{create_time:ref-7}}\" from=\"{{from:ref-10}}\" to=\"{{to:ref-17}}\" real_chat_type=\"{{real_chat_type:ref-15}}\" skip_db=\"{{skip_db:ref-8}}\" bizType=\"{{bizType:ref-5}}\" msgtype=\"7\" messageCode=\"{{messageCode:ref-16}}\"><body>{{text}}</body></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "default",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "{{ws.body[0].ext.playSound:string}}",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": "{{ws.body[0].operation:string}}"
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<iq to=\"{{to:ref-10}}\" from=\"{{from:ref-17}}\" id=\"{{id:ref-1}}\" type=\"error\" xmlns=\"jabber:client\"><body>{{text}}</body><error type=\"cancel\"><service-unavailable xmlns=\"urn:ietf:params:xml:ns:xmpp-stanzas\"/></error></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "default",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "{{ws.body[0].ext.playSound:string}}",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": "{{ws.body[0].operation:string}}"
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<iq to=\"{{to:ref-10}}\" from=\"{{from:ref-11}}\" id=\"{{id:ref-1}}\" type=\"error\"><body>{{text}}</body><error type=\"cancel\"><service-unavailable xmlns=\"urn:ietf:params:xml:ns:xmpp-stanzas\"></service-unavailable></error></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "default",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "{{ws.body[0].ext.playSound:string}}",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": "{{ws.body[0].operation:string}}"
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<iq to=\"{{to:ref-10}}\" from=\"{{from:ref-17}}\" id=\"{{id:ref-1}}\" type=\"error\"><body>{{text}}</body><error type=\"cancel\"><service-unavailable xmlns=\"urn:ietf:params:xml:ns:xmpp-stanzas\"></service-unavailable></error></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": ""
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id:ref-18}}\" type=\"chat\" real_chat_type=\"{{real_chat_type:ref-2}}\" localid=\"{{localid:ref-19}}\" ts=\"{{ts:ref-4}}\" msgtype=\"7\" bizType=\"{{bizType:ref-5}}\" threadid=\"{{threadid:ref-6}}\" create_time=\"{{create_time:ref-20}}\" skip_db=\"{{skip_db:ref-8}}\" transmit=\"{{transmit:ref-9}}\" from=\"{{from:ref-10}}\" to=\"{{to:ref-11}}\" receipt_range=\"{{receipt_range:ref-9}}\" fromName=\"{{fromName:ref-12}}\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [],
+      "bodyTemplate": [],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 0,
+        "items": {
+          "anyOf": []
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id:ref-18}}\" type=\"notify_ack\" from=\"{{from:ref-11}}\" xmlns=\"jabber:client\"/>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": ""
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<iq type=\"set\" id=\"{{id:ref-18}}\" localid=\"{{localid:ref-19}}\" categoryId=\"{{categoryId:ref-13}}\" categorySubId=\"{{categorySubId:ref-14}}\" create_time=\"{{create_time:ref-20}}\" from=\"{{from:ref-10}}\" to=\"{{to:ref-11}}\" real_chat_type=\"{{real_chat_type:ref-15}}\" skip_db=\"{{skip_db:ref-8}}\" bizType=\"{{bizType:ref-5}}\" msgtype=\"7\" messageCode=\"{{messageCode:ref-16}}\"><body>{{text}}</body></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": ""
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<iq to=\"{{to:ref-10}}\" from=\"{{from:ref-11}}\" id=\"{{id:ref-18}}\" type=\"error\" xmlns=\"jabber:client\"><body>{{text}}</body><error type=\"cancel\"><service-unavailable xmlns=\"urn:ietf:params:xml:ns:xmpp-stanzas\"/></error></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": ""
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id:ref-18}}\" type=\"chat\" real_chat_type=\"{{real_chat_type:ref-2}}\" localid=\"{{localid:ref-19}}\" ts=\"{{ts:ref-4}}\" msgtype=\"7\" bizType=\"{{bizType:ref-5}}\" threadid=\"{{threadid:ref-6}}\" create_time=\"{{create_time:ref-20}}\" skip_db=\"{{skip_db:ref-8}}\" transmit=\"{{transmit:ref-9}}\" from=\"{{from:ref-10}}\" to=\"{{to:ref-17}}\" receipt_range=\"{{receipt_range:ref-9}}\" fromName=\"{{fromName:ref-12}}\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [],
+      "bodyTemplate": [],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 0,
+        "items": {
+          "anyOf": []
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id:ref-18}}\" type=\"notify_ack\" from=\"{{from:ref-17}}\" xmlns=\"jabber:client\"/>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": ""
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<iq type=\"set\" id=\"{{id:ref-18}}\" localid=\"{{localid:ref-19}}\" categoryId=\"{{categoryId:ref-13}}\" categorySubId=\"{{categorySubId:ref-14}}\" create_time=\"{{create_time:ref-20}}\" from=\"{{from:ref-10}}\" to=\"{{to:ref-17}}\" real_chat_type=\"{{real_chat_type:ref-15}}\" skip_db=\"{{skip_db:ref-8}}\" bizType=\"{{bizType:ref-5}}\" msgtype=\"7\" messageCode=\"{{messageCode:ref-16}}\"><body>{{text}}</body></iq>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyReferences": [
+        {}
+      ],
+      "bodyTemplate": [
+        {
+          "ext": {
+            "nickName": "",
+            "toCardHide": "",
+            "avatar": "",
+            "templateId": "{{ws.body[0].ext.templateId:string}}",
+            "type": "",
+            "title": "{{ws.body[0].ext.title:string}}",
+            "extendInfo": {
+              "toJumpUrlOnline": "{{ws.body[0].ext.extendInfo.toJumpUrlOnline:string}}",
+              "toJumpUrl": "{{ws.body[0].ext.extendInfo.toJumpUrl:string}}",
+              "fromJumpUrlOnline": "{{ws.body[0].ext.extendInfo.fromJumpUrlOnline:string}}"
+            },
+            "fromCardHide": "{{ws.body[0].ext.fromCardHide:string}}",
+            "categorySubId": "{{ws.body[0].ext.categorySubId:string}}",
+            "playSound": "",
+            "isPlay": "",
+            "soundUrl": "{{ws.body[0].ext.soundUrl:string}}",
+            "categoryId": "{{ws.body[0].ext.categoryId:string}}",
+            "desc": "{{ws.body[0].ext.desc:string}}"
+          },
+          "action": "CTL01",
+          "title": "",
+          "operation": ""
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "ext": {
+              "type": "object",
+              "properties": {
+                "nickName": {
+                  "type": "string"
+                },
+                "toCardHide": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "templateId": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "extendInfo": {
+                  "type": "object",
+                  "properties": {
+                    "toJumpUrlOnline": {
+                      "type": "string"
+                    },
+                    "toJumpUrl": {
+                      "type": "string"
+                    },
+                    "fromJumpUrlOnline": {
+                      "type": "string"
+                    }
+                  },
+                  "observedKeys": [
+                    "toJumpUrlOnline",
+                    "toJumpUrl",
+                    "fromJumpUrlOnline"
+                  ]
+                },
+                "fromCardHide": {
+                  "type": "string"
+                },
+                "categorySubId": {
+                  "type": "string"
+                },
+                "playSound": {
+                  "type": "string"
+                },
+                "isPlay": {
+                  "type": "string"
+                },
+                "soundUrl": {
+                  "type": "string"
+                },
+                "categoryId": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "observedKeys": [
+                "nickName",
+                "toCardHide",
+                "avatar",
+                "templateId",
+                "type",
+                "title",
+                "extendInfo",
+                "fromCardHide",
+                "categorySubId",
+                "playSound",
+                "isPlay",
+                "soundUrl",
+                "categoryId",
+                "desc"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "ext",
+            "action",
+            "title",
+            "operation"
+          ]
+        }
+      },
+      "xmlTemplate": "<iq to=\"{{to:ref-10}}\" from=\"{{from:ref-17}}\" id=\"{{id:ref-18}}\" type=\"error\" xmlns=\"jabber:client\"><body>{{text}}</body><error type=\"cancel\"><service-unavailable xmlns=\"urn:ietf:params:xml:ns:xmpp-stanzas\"/></error></iq>"
+    }
+  ],
+  "xhr": [],
+  "redaction": "Full request shape and array entries retained; credentials and identities replaced by typed placeholders. Schemas describe observation, not requiredness."
+}

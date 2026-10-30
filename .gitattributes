@@ -1,0 +1,3 @@
+
+# Preserve binary upload fixtures without text whitespace checks.
+tools/contracts/fixtures/*.pdf binary

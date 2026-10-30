@@ -1,0 +1,404 @@
+{
+  "capturedAt": "2026-10-30T10:34:12.022Z",
+  "page": "https://vbooking.ctrip.com/vbk/im/main",
+  "stage": "33-controlled-file-full-contract",
+  "requests": [
+    {
+      "stage": "33-controlled-file-full-contract",
+      "id": "35568.3998",
+      "url": "https://nephele.ctrip.com/file/v1/api/upload?channel=im&public=%7B%7Bquery.public%3Astring%7D%7D",
+      "method": "POST",
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"macOS\"",
+        "Referer": "https://vbooking.ctrip.com/",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "Content-Type": "application/pdf",
+        "sec-ch-ua-mobile": "?0",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "application/json, text/plain, */*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "content-type": "application/pdf",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [],
+      "requestTemplate": "undefined",
+      "requestSchema": {
+        "type": "undefined"
+      },
+      "postDataError": "No post data available for the request",
+      "httpStatus": 200,
+      "responseHeaders": {
+        "access-control-expose-headers": "X-Nep-Download-Id",
+        "cache-control": "{{header.cache-control:string}}",
+        "content-encoding": "{{header.content-encoding:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "pragma": "{{header.pragma:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}",
+        "access-control-allow-credentials": "true",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "c-via": "{{header.c-via:string}}",
+        "expires": "{{header.expires:string}}",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "date": "{{header.date:string}}",
+        "content-type": "application/json; charset=utf-8",
+        "unique-request-id": "{{header.unique-request-id:string}}"
+      },
+      "responseTemplate": "undefined",
+      "responseSchema": {
+        "type": "undefined"
+      },
+      "responseError": "Request content was evicted from inspector cache"
+    },
+    {
+      "stage": "33-controlled-file-full-contract",
+      "id": "BD4F15B68E409454452604362101678A",
+      "url": "https://nephele.ctrip.com/file/v1/api/upload?channel=im&public=%7B%7Bquery.public%3Astring%7D%7D",
+      "method": "OPTIONS",
+      "requestHeaders": {
+        "Accept": "*/*",
+        "Access-Control-Request-Headers": "content-type",
+        "Access-Control-Request-Method": "POST",
+        "Origin": "https://vbooking.ctrip.com",
+        "Sec-Fetch-Mode": "cors",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        ":authority": "{{header.:authority:string}}",
+        ":method": "{{header.:method:string}}",
+        ":path": "{{header.:path:string}}",
+        ":scheme": "{{header.:scheme:string}}",
+        "accept": "*/*",
+        "accept-encoding": "{{header.accept-encoding:string}}",
+        "accept-language": "{{header.accept-language:string}}",
+        "access-control-request-headers": "content-type",
+        "access-control-request-method": "POST",
+        "origin": "https://vbooking.ctrip.com",
+        "priority": "{{header.priority:string}}",
+        "referer": "https://vbooking.ctrip.com/",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-site",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "extraInfoObserved": true,
+      "associatedCookies": [],
+      "requestTemplate": "undefined",
+      "requestSchema": {
+        "type": "undefined"
+      },
+      "httpStatus": 200,
+      "responseHeaders": {
+        "access-control-allow-credentials": "true",
+        "access-control-allow-headers": "Content-Type",
+        "access-control-allow-methods": "POST",
+        "access-control-allow-origin": "https://vbooking.ctrip.com",
+        "c-via": "{{header.c-via:string}}",
+        "cache-control": "{{header.cache-control:string}}",
+        "content-length": "{{header.content-length:string}}",
+        "date": "{{header.date:string}}",
+        "expires": "{{header.expires:string}}",
+        "pragma": "{{header.pragma:string}}",
+        "unique-request-id": "{{header.unique-request-id:string}}",
+        "x-cdn-cache": "{{header.x-cdn-cache:string}}",
+        "x-via": "{{header.x-via:string}}",
+        "x-ws-request-id": "{{header.x-ws-request-id:string}}"
+      },
+      "responseTemplate": "undefined",
+      "responseSchema": {
+        "type": "undefined"
+      }
+    }
+  ],
+  "websocket": [
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyTemplate": [
+        {
+          "chattype": "groupchat",
+          "biztype": "1513",
+          "localid": "{{ws.body[0].localid:string}}",
+          "msg": "{\"btype\":5,\"file\":{\"filename\":\"{{ws.body[0].msg.$json.file.filename:string}}\",\"url\":\"{{ws.body[0].msg.$json.file.url:string}}\",\"size\":1479}}",
+          "msgtype": "5",
+          "autoextend": 0,
+          "threadid": ""
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "chattype": {
+              "type": "string"
+            },
+            "biztype": {
+              "type": "string"
+            },
+            "localid": {
+              "type": "string"
+            },
+            "msg": {
+              "type": "string",
+              "encodedJson": {
+                "type": "object",
+                "properties": {
+                  "btype": {
+                    "type": "number"
+                  },
+                  "file": {
+                    "type": "object",
+                    "properties": {
+                      "filename": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "number"
+                      }
+                    },
+                    "observedKeys": [
+                      "filename",
+                      "url",
+                      "size"
+                    ]
+                  }
+                },
+                "observedKeys": [
+                  "btype",
+                  "file"
+                ]
+              }
+            },
+            "msgtype": {
+              "type": "string"
+            },
+            "autoextend": {
+              "type": "number"
+            },
+            "threadid": {
+              "type": "string"
+            }
+          },
+          "observedKeys": [
+            "chattype",
+            "biztype",
+            "localid",
+            "msg",
+            "msgtype",
+            "autoextend",
+            "threadid"
+          ]
+        }
+      },
+      "xmlTemplate": "<message to=\"{{to}}\" type=\"send\" id=\"{{id}}\" xmlns=\"jabber:client\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.924",
+      "opcode": 1,
+      "bodyTemplate": [
+        {
+          "error": 0,
+          "reason": "{{ws.body[0].reason:string}}",
+          "chattype": "groupchat",
+          "localid": "{{ws.body[0].localid:string}}",
+          "tid": "{{ws.body[0].tid:string}}",
+          "create_time": "{{ws.body[0].create_time:string}}",
+          "ts": "{{ws.body[0].ts:string}}",
+          "threadid": "",
+          "present": false
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "error": {
+              "type": "number"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "chattype": {
+              "type": "string"
+            },
+            "localid": {
+              "type": "string"
+            },
+            "tid": {
+              "type": "string"
+            },
+            "create_time": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            },
+            "threadid": {
+              "type": "string"
+            },
+            "present": {
+              "type": "boolean"
+            }
+          },
+          "observedKeys": [
+            "error",
+            "reason",
+            "chattype",
+            "localid",
+            "tid",
+            "create_time",
+            "ts",
+            "threadid",
+            "present"
+          ]
+        }
+      },
+      "xmlTemplate": "<message to=\"{{to}}\" type=\"send_result\" id=\"{{id}}\" from=\"{{from}}\" real_chat_type=\"{{real_chat_type}}\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameReceived",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyTemplate": [
+        {
+          "btype": 5,
+          "file": {
+            "filename": "{{ws.body[0].file.filename:string}}",
+            "url": "{{ws.body[0].file.url:string}}",
+            "size": 1479
+          }
+        }
+      ],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "btype": {
+              "type": "number"
+            },
+            "file": {
+              "type": "object",
+              "properties": {
+                "filename": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "number"
+                }
+              },
+              "observedKeys": [
+                "filename",
+                "url",
+                "size"
+              ]
+            }
+          },
+          "observedKeys": [
+            "btype",
+            "file"
+          ]
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id}}\" udl=\"{{udl}}\" ucsUid=\"{{ucsUid}}\" type=\"groupchat\" real_chat_type=\"{{real_chat_type}}\" localid=\"{{localid}}\" ts=\"{{ts}}\" msgtype=\"5\" bizType=\"{{bizType}}\" threadid=\"{{threadid}}\" create_time=\"{{create_time}}\" skip_db=\"{{skip_db}}\" transmit=\"{{transmit}}\" sourceGid=\"{{sourceGid}}\" from=\"{{from}}\" to=\"{{to}}\" receipt_range=\"{{receipt_range}}\"><body>{{text}}</body></message>"
+    },
+    {
+      "event": "Network.webSocketFrameSent",
+      "id": "35568.1092",
+      "opcode": 1,
+      "bodyTemplate": [],
+      "bodySchema": {
+        "type": "array",
+        "observedLength": 0,
+        "items": {
+          "anyOf": []
+        }
+      },
+      "xmlTemplate": "<message id=\"{{id}}\" type=\"notify_ack\" from=\"{{from}}\" xmlns=\"jabber:client\"/>"
+    }
+  ],
+  "xhr": [
+    {
+      "method": "POST",
+      "url": "https://nephele.ctrip.com/file/v1/api/upload?channel=im&public=%7B%7Bquery.public%3Astring%7D%7D",
+      "headers": {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/pdf"
+      },
+      "payload": {
+        "kind": "File",
+        "name": "{{payload.name:string}}",
+        "size": 1479,
+        "type": "application/pdf"
+      },
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "kind",
+          "name",
+          "size",
+          "type"
+        ]
+      },
+      "status": 200,
+      "response": {
+        "file_name": "{{response.file_name:string}}",
+        "url": "{{response.url:string}}"
+      },
+      "responseSchema": {
+        "type": "object",
+        "properties": {
+          "file_name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "observedKeys": [
+          "file_name",
+          "url"
+        ]
+      }
+    }
+  ],
+  "redaction": "Full request shape and array entries retained; credentials and identities replaced by typed placeholders. Schemas describe observation, not requiredness."
+}

@@ -1,0 +1,1835 @@
+# POST m.ctrip.com/restapi/soa2/16037/getConversationList
+
+状态：真实网页请求样本；完整实施准入尚未通过。固定网页版本、鉴权边界和占位符规则见 [鉴权说明](../authentication.md)。
+
+- 完整地址：`https://m.ctrip.com/restapi/soa2/16037/getConversationList`
+- 请求方法：`POST`
+- 范围：网页消息/身份/联系入口及共享读取契约
+- 编码：JSON；HTTP Content-Type 见下表，不能由 body.contentType 推断
+- Authentication：本轮浏览器 Cookie 会话；逐项 Cookie 必需性未证明，见鉴权说明
+- 原始证据：[evidence/2026-10-30/01-bootstrap.json](../evidence/2026-10-30/01-bootstrap.json)、[evidence/2026-10-30/02-controlled-open.json](../evidence/2026-10-30/02-controlled-open.json)、[evidence/2026-10-30/06-controlled-search.json](../evidence/2026-10-30/06-controlled-search.json)、[evidence/2026-10-30/14-upload-full-payload.json](../evidence/2026-10-30/14-upload-full-payload.json)、[evidence/2026-10-30/16-full-list-readonly-replay.json](../evidence/2026-10-30/16-full-list-readonly-replay.json)、[evidence/2026-10-30/17-full-list-exact-replay.json](../evidence/2026-10-30/17-full-list-exact-replay.json)、[evidence/2026-10-30/19-transfer-conversation-search.json](../evidence/2026-10-30/19-transfer-conversation-search.json)、[evidence/2026-10-30/23-transfer-target-open.json](../evidence/2026-10-30/23-transfer-target-open.json)、[evidence/2026-10-30/25-invite-jim-for-transfer.json](../evidence/2026-10-30/25-invite-jim-for-transfer.json)、[evidence/2026-10-30/27-return-to-controlled.json](../evidence/2026-10-30/27-return-to-controlled.json)、[evidence/2026-10-30/29-controlled-invite-jim.json](../evidence/2026-10-30/29-controlled-invite-jim.json)、[evidence/2026-10-30/32-controlled-file-recall.json](../evidence/2026-10-30/32-controlled-file-recall.json)、[evidence/2026-10-30/38-controlled-product-query.json](../evidence/2026-10-30/38-controlled-product-query.json)、[evidence/2026-10-30/45-image-auth-fixture-cleanup.json](../evidence/2026-10-30/45-image-auth-fixture-cleanup.json)、[evidence/2026-10-30/47-controlled-finish-confirmed.json](../evidence/2026-10-30/47-controlled-finish-confirmed.json)、[evidence/2026-10-30/49-controlled-reopen-after-finish.json](../evidence/2026-10-30/49-controlled-reopen-after-finish.json)、[evidence/2026-10-30/54-sdk-restored-by-official-page-reload.json](../evidence/2026-10-30/54-sdk-restored-by-official-page-reload.json)、[evidence/2026-10-30/63-personal-settings-read.json](../evidence/2026-10-30/63-personal-settings-read.json)、[evidence/2026-10-30/64-working-schedule-read.json](../evidence/2026-10-30/64-working-schedule-read.json)、[evidence/2026-10-30/70-controlled-history-pagination-replay.json](../evidence/2026-10-30/70-controlled-history-pagination-replay.json)
+
+## HTTP 请求 Header
+
+| Header | 本轮值/占位符 | 生成方 |
+| --- | --- | --- |
+| `:authority` | `{{header.:authority:string}}` | HTTP/2 传输层伪头；不写入应用 fetch headers |
+| `:method` | `{{header.:method:string}}` | HTTP/2 传输层伪头；不写入应用 fetch headers |
+| `:path` | `{{header.:path:string}}` | HTTP/2 传输层伪头；不写入应用 fetch headers |
+| `:scheme` | `{{header.:scheme:string}}` | HTTP/2 传输层伪头；不写入应用 fetch headers |
+| `accept` | `*/*` | 对应业务请求层/SDK；以本接口实际值为准 |
+| `accept-encoding` | `{{header.accept-encoding:string}}` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `accept-language` | `{{header.accept-language:string}}` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `content-length` | `{{header.content-length:string}}` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `content-type` | `application/json` | 对应业务请求层/SDK；以本接口实际值为准 |
+| `cookie` | `UBT_VID={{cookie}}; GUID={{cookie}}; _RSG={{cookie}}; _RDG={{cookie}}; _RGUID={{cookie}}; vbk_login_cid={{cookie}}; _RF1={{cookie}}; vbkticket={{cookie}}; bticket={{cookie}}; BDUID={{cookie}}; vbk-locale-lang={{cookie}}; vbk-menu-business-id={{cookie}}; vbk-menu-business-parameter={{cookie}}; ibulanguage={{cookie}}; ibulocale={{cookie}}; cookiePricesDisplayed={{cookie}}; _wb_wh={{cookie}}; _bfa={{cookie}}` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `cookieorigin` | `https://vbooking.ctrip.com` | 对应业务请求层/SDK；以本接口实际值为准 |
+| `origin` | `https://vbooking.ctrip.com` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `priority` | `{{header.priority:string}}` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `referer` | `https://vbooking.ctrip.com/` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `sec-ch-ua` | `"Not:A-Brand";v="8", "Chromium";v="156", "Google Chrome";v="156"` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `sec-ch-ua-mobile` | `?0` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `sec-ch-ua-platform` | `"macOS"` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `sec-fetch-dest` | `empty` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `sec-fetch-mode` | `cors` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `sec-fetch-site` | `same-site` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `user-agent` | `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36` | 浏览器/网络栈；复用当前 Profile，不手工设置受限头 |
+| `w-payload-source` | `{{header.w-payload-source:string}}` | 平台公共请求/风控/埋点层；动态生成，算法未全部闭环 |
+| `x-ctx-country` | `CN` | 对应业务请求层/SDK；以本接口实际值为准 |
+| `x-ctx-currency` | `CNY` | 对应业务请求层/SDK；以本接口实际值为准 |
+| `x-ctx-locale` | `zh-CN` | 对应业务请求层/SDK；以本接口实际值为准 |
+| `x-ctx-ubt-pageid` | `{{header.x-ctx-ubt-pageid:string}}` | 平台公共请求/风控/埋点层；动态生成，算法未全部闭环 |
+| `x-ctx-ubt-pvid` | `{{header.x-ctx-ubt-pvid:string}}` | 平台公共请求/风控/埋点层；动态生成，算法未全部闭环 |
+| `x-ctx-ubt-sid` | `{{header.x-ctx-ubt-sid:string}}` | 平台公共请求/风控/埋点层；动态生成，算法未全部闭环 |
+| `x-ctx-ubt-vid` | `{{header.x-ctx-ubt-vid:string}}` | 平台公共请求/风控/埋点层；动态生成，算法未全部闭环 |
+| `x-ctx-wclient-req` | `{{header.x-ctx-wclient-req:string}}` | 平台公共请求/风控/埋点层；动态生成，算法未全部闭环 |
+| `x-tour-auth-from` | `vbk_online` | 对应业务请求层/SDK；以本接口实际值为准 |
+
+以上为观察到的请求头，包含 CDP ExtraInfo。出现不代表逐项必需；浏览器自动字段、风控字段和应用字段分开处理。
+
+## Query 参数
+
+```json
+{
+  "_fxpcqlniredt": "{{query._fxpcqlniredt:string}}",
+  "x-traceID": "{{query.x-traceID:string}}"
+}
+```
+
+`_fxpcqlniredt`、`x-traceID` 如出现，由平台公共请求层处理；nonce、时间戳和上传 rand 不可复制为常量。
+
+## 完整请求样本与分支
+
+`{{字段路径:类型}}` 是脱敏占位符，不能作为字面量发出。数字占位符的原始类型以参数表为准。数组不截断；JSON 字符串仍保留字符串编码。
+
+### 样本 1：54-sdk-restored-by-official-page-reload / HTTP 200 / Ack Success
+
+```json
+{
+  "head": {
+    "cid": "{{body.head.cid:string}}",
+    "ctok": "",
+    "cver": "2",
+    "lang": "01",
+    "sid": "{{body.head.sid:string}}",
+    "syscode": "09",
+    "auth": "",
+    "xsid": "",
+    "extension": [
+      {
+        "name": "cpc",
+        "value": "pc"
+      },
+      {
+        "name": "protocal",
+        "value": "https"
+      },
+      {
+        "name": "amp-product-type",
+        "value": "IM"
+      },
+      {
+        "name": "amp-account-source",
+        "value": "VBK"
+      },
+      {
+        "name": "client-source",
+        "value": "pc-900004"
+      },
+      {
+        "name": "locale",
+        "value": "zh-CN"
+      }
+    ],
+    "appId": "900004"
+  },
+  "needTodoList": 1
+}
+```
+
+### 样本 2：54-sdk-restored-by-official-page-reload / HTTP 200 / Ack Success
+
+```json
+{
+  "head": {
+    "cid": "{{body.head.cid:string}}",
+    "ctok": "",
+    "cver": "2",
+    "lang": "01",
+    "sid": "{{body.head.sid:string}}",
+    "syscode": "09",
+    "auth": "",
+    "xsid": "",
+    "extension": [
+      {
+        "name": "cpc",
+        "value": "pc"
+      },
+      {
+        "name": "protocal",
+        "value": "https"
+      },
+      {
+        "name": "amp-product-type",
+        "value": "IM"
+      },
+      {
+        "name": "amp-account-source",
+        "value": "VBK"
+      },
+      {
+        "name": "client-source",
+        "value": "pc-900004"
+      },
+      {
+        "name": "locale",
+        "value": "zh-CN"
+      }
+    ],
+    "appId": "900004"
+  }
+}
+```
+
+### 样本 3：49-controlled-reopen-after-finish / HTTP 200 / Ack Success
+
+```json
+{
+  "head": {
+    "cid": "{{body.head.cid:string}}",
+    "ctok": "",
+    "cver": "2",
+    "lang": "01",
+    "sid": "{{body.head.sid:string}}",
+    "syscode": "09",
+    "auth": "",
+    "xsid": "",
+    "extension": [
+      {
+        "name": "cpc",
+        "value": "pc"
+      },
+      {
+        "name": "protocal",
+        "value": "https"
+      },
+      {
+        "name": "amp-product-type",
+        "value": "IM"
+      },
+      {
+        "name": "amp-account-source",
+        "value": "VBK"
+      },
+      {
+        "name": "client-source",
+        "value": "pc-900004"
+      },
+      {
+        "name": "locale",
+        "value": "zh-CN"
+      }
+    ],
+    "appId": "900004"
+  },
+  "startTime": "{{body.startTime:number}}",
+  "needTodoList": 1
+}
+```
+
+### 样本 4：17-full-list-exact-replay / HTTP 200 / Ack Success
+
+```json
+{
+  "head": {
+    "cid": "{{body.head.cid:string}}",
+    "ctok": "",
+    "cver": "2",
+    "lang": "01",
+    "sid": "{{body.head.sid:string}}",
+    "syscode": "09",
+    "auth": "",
+    "xsid": "",
+    "extension": [
+      {
+        "name": "cpc",
+        "value": "pc"
+      },
+      {
+        "name": "protocal",
+        "value": "https"
+      },
+      {
+        "name": "amp-product-type",
+        "value": "IM"
+      },
+      {
+        "name": "amp-account-source",
+        "value": "VBK"
+      },
+      {
+        "name": "client-source",
+        "value": "pc-900004"
+      },
+      {
+        "name": "locale",
+        "value": "zh-CN"
+      }
+    ],
+    "appId": "900004"
+  },
+  "needTodoList": 1
+}
+```
+
+### 样本 5：27-return-to-controlled / HTTP 200 / Ack Success
+
+```json
+{
+  "head": {
+    "cid": "{{body.head.cid:string}}",
+    "ctok": "",
+    "cver": "2",
+    "lang": "01",
+    "sid": "{{body.head.sid:string}}",
+    "syscode": "09",
+    "auth": "",
+    "xsid": "",
+    "extension": [
+      {
+        "name": "cpc",
+        "value": "pc"
+      },
+      {
+        "name": "protocal",
+        "value": "https"
+      },
+      {
+        "name": "amp-product-type",
+        "value": "IM"
+      },
+      {
+        "name": "amp-account-source",
+        "value": "VBK"
+      },
+      {
+        "name": "client-source",
+        "value": "pc-900004"
+      },
+      {
+        "name": "locale",
+        "value": "zh-CN"
+      }
+    ],
+    "appId": "900004"
+  },
+  "startTime": "{{body.startTime:number}}",
+  "needTodoList": 1
+}
+```
+
+### 样本 6：63-personal-settings-read / HTTP 200 / Ack Success
+
+```json
+{
+  "head": {
+    "cid": "{{body.head.cid:string}}",
+    "ctok": "",
+    "cver": "2",
+    "lang": "01",
+    "sid": "{{body.head.sid:string}}",
+    "syscode": "09",
+    "auth": "",
+    "xsid": "",
+    "extension": [
+      {
+        "name": "cpc",
+        "value": "pc"
+      },
+      {
+        "name": "protocal",
+        "value": "https"
+      },
+      {
+        "name": "amp-product-type",
+        "value": "IM"
+      },
+      {
+        "name": "amp-account-source",
+        "value": "VBK"
+      },
+      {
+        "name": "client-source",
+        "value": "pc-900004"
+      },
+      {
+        "name": "locale",
+        "value": "zh-CN"
+      }
+    ],
+    "appId": "900004"
+  }
+}
+```
+
+### 样本 7：64-working-schedule-read / HTTP 200 / Ack Success
+
+```json
+{
+  "head": {
+    "cid": "{{body.head.cid:string}}",
+    "ctok": "",
+    "cver": "2",
+    "lang": "01",
+    "sid": "{{body.head.sid:string}}",
+    "syscode": "09",
+    "auth": "",
+    "xsid": "",
+    "extension": [
+      {
+        "name": "cpc",
+        "value": "pc"
+      },
+      {
+        "name": "protocal",
+        "value": "https"
+      },
+      {
+        "name": "amp-product-type",
+        "value": "IM"
+      },
+      {
+        "name": "amp-account-source",
+        "value": "VBK"
+      },
+      {
+        "name": "client-source",
+        "value": "pc-900004"
+      },
+      {
+        "name": "locale",
+        "value": "zh-CN"
+      }
+    ],
+    "appId": "900004"
+  },
+  "startTime": "{{body.startTime:number}}",
+  "needTodoList": 1
+}
+```
+
+### 样本 8：70-controlled-history-pagination-replay / HTTP 200 / Ack Success
+
+```json
+{
+  "head": {
+    "cid": "{{body.head.cid:string}}",
+    "ctok": "",
+    "cver": "2",
+    "lang": "01",
+    "sid": "{{body.head.sid:string}}",
+    "syscode": "09",
+    "auth": "",
+    "xsid": "",
+    "extension": [
+      {
+        "name": "cpc",
+        "value": "pc"
+      },
+      {
+        "name": "protocal",
+        "value": "https"
+      },
+      {
+        "name": "amp-product-type",
+        "value": "IM"
+      },
+      {
+        "name": "amp-account-source",
+        "value": "VBK"
+      },
+      {
+        "name": "client-source",
+        "value": "pc-900004"
+      },
+      {
+        "name": "locale",
+        "value": "zh-CN"
+      }
+    ],
+    "appId": "900004"
+  },
+  "startTime": "{{body.startTime:number}}",
+  "needTodoList": 1
+}
+```
+
+### 样本 9：16-full-list-readonly-replay / HTTP 200 / Ack Failure
+
+```json
+{
+  "head": {
+    "cid": "{{body.head.cid:string}}",
+    "ctok": "",
+    "cver": "2",
+    "lang": "01",
+    "sid": "{{body.head.sid:string}}",
+    "syscode": "09",
+    "auth": "",
+    "xsid": "",
+    "extension": [
+      {
+        "name": "cpc",
+        "value": "pc"
+      },
+      {
+        "name": "protocal",
+        "value": "https"
+      },
+      {
+        "name": "amp-product-type",
+        "value": "IM"
+      },
+      {
+        "name": "amp-account-source",
+        "value": "VBK"
+      },
+      {
+        "name": "client-source",
+        "value": "pc-900004"
+      },
+      {
+        "name": "locale",
+        "value": "zh-CN"
+      }
+    ],
+    "appId": "900004"
+  },
+  "needTodoList": true
+}
+```
+
+该失败分支响应：
+
+```json
+{
+  "ResponseStatus": {
+    "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+    "Ack": "Failure",
+    "Errors": [
+      {
+        "Message": "{{response.ResponseStatus.Errors[0].Message:string}}",
+        "ErrorCode": "{{response.ResponseStatus.Errors[0].ErrorCode:string}}",
+        "SeverityCode": "{{response.ResponseStatus.Errors[0].SeverityCode:string}}",
+        "ErrorClassification": "{{response.ResponseStatus.Errors[0].ErrorClassification:string}}"
+      }
+    ],
+    "Extension": [
+      {
+        "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+        "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+      },
+      {
+        "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+        "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+      }
+    ]
+  }
+}
+```
+
+## 参数类型与来源
+
+| 位置 | 实测类型 | 来源与限制 |
+| --- | --- | --- |
+| `(body)` | `object` | 本轮实际观测值；必填性、默认值及完整取值范围未由单次样本证明 |
+| `head` | `object` | 该接口所属请求层生成；见 authentication.md 两类 head |
+| `head.cid` | `string` | 公共请求层补入的客户端标识；具体合并来源尚需逐调用点核实 |
+| `head.ctok` | `string` | 对应请求层的公共 head；见 authentication.md，不与 HTTP Header 合并 |
+| `head.cver` | `string` | 对应请求层的公共 head；见 authentication.md，不与 HTTP Header 合并 |
+| `head.lang` | `string` | 对应请求层的公共 head；见 authentication.md，不与 HTTP Header 合并 |
+| `head.sid` | `string` | 公共请求层补入的字段；不可将单次样本推定为全局常量 |
+| `head.syscode` | `string` | 对应请求层的公共 head；见 authentication.md，不与 HTTP Header 合并 |
+| `head.auth` | `string` | 本轮 Cookie 请求为空；显式 token 分支与 Cookie 分支分开 |
+| `head.xsid` | `string` | 对应请求层的公共 head；见 authentication.md，不与 HTTP Header 合并 |
+| `head.extension` | `array` | 对应请求层的公共 head；见 authentication.md，不与 HTTP Header 合并 |
+| `head.extension[]` | `object` | 对应请求层的公共 head；见 authentication.md，不与 HTTP Header 合并 |
+| `head.extension[].name` | `string` | 对应 head 配置的准确名称，protocol 与 protocal 不同 |
+| `head.extension[].value` | `string` | 对应协议扩展的实际常量或运行时上下文，见完整示例与鉴权文档 |
+| `head.appId` | `string` | 对应请求层的公共 head；见 authentication.md，不与 HTTP Header 合并 |
+| `needTodoList` | `number` | 实际调用点配置/用户操作；本轮观测值见完整示例，非已证明的完整枚举 |
+| `startTime` | `number` | 会话列表上一响应 lastUpdateTime，按当前网页增量调用点传递 |
+| `needTodoList` | `boolean` | 实际调用点配置/用户操作；本轮观测值见完整示例，非已证明的完整枚举 |
+
+“观测到”不等于“必填”。本轮未进行完整删字段/边界矩阵，不编造 required、默认值、枚举或省略行为。
+
+## 响应与读回
+
+完整响应结构和脱敏实例在以上证据的 responseSchema / responseTemplate；上传另有 xhr.response。HTTP 200、Ack Success 和最终业务状态分别判断。
+
+```json
+{
+  "ResponseStatus": {
+    "Timestamp": "{{response.ResponseStatus.Timestamp:string}}",
+    "Ack": "Success",
+    "Extension": [
+      {
+        "Id": "{{response.ResponseStatus.Extension[0].Id:string}}",
+        "Value": "{{response.ResponseStatus.Extension[0].Value:string}}"
+      },
+      {
+        "Id": "{{response.ResponseStatus.Extension[1].Id:string}}",
+        "Value": "{{response.ResponseStatus.Extension[1].Value:string}}"
+      }
+    ]
+  },
+  "conversationList": [
+    {
+      "uid": "{{response.conversationList[0].uid:string}}",
+      "venAgentId": "{{response.conversationList[0].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[0].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[0].gid:string}}",
+      "threadId": "{{response.conversationList[0].threadId:string}}",
+      "conversationKey": "{{response.conversationList[0].conversationKey:string}}",
+      "lastMessageTime": "{{response.conversationList[0].lastMessageTime:number}}",
+      "skillGroupCode": "{{response.conversationList[0].skillGroupCode:string}}",
+      "refId": "{{response.conversationList[0].refId:string}}",
+      "vendorRole": "{{response.conversationList[0].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[0].vendorId:number}}",
+      "vendorName": "{{response.conversationList[0].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[0].relationOrderId:string}}",
+      "ext": {
+        "relationOrderId": "{{response.conversationList[0].ext.relationOrderId:string}}",
+        "orderId": "{{response.conversationList[0].ext.orderId:string}}",
+        "vendorUid": "{{response.conversationList[0].ext.vendorUid:string}}",
+        "token": "{{response.conversationList[0].ext.token:string}}"
+      },
+      "status": 4,
+      "originStatus": 4,
+      "conversationType": "B2C",
+      "groupTitle": "{{response.conversationList[0].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[0].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[0].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[0].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[0].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "lastMessageJsonString": "{\"msgId\":\"{{response.conversationList[0].lastMessageJsonString.$json.msgId:string}}\",\"messageBody\":\"{{response.conversationList[0].lastMessageJsonString.$json.messageBody:string}}\",\"fromJid\":\"{{response.conversationList[0].lastMessageJsonString.$json.fromJid:string}}\",\"toJid\":\"{{response.conversationList[0].lastMessageJsonString.$json.toJid:string}}\",\"threadId\":\"{{response.conversationList[0].lastMessageJsonString.$json.threadId:string}}\",\"subject\":\"\",\"createTime\":\"{{response.conversationList[0].lastMessageJsonString.$json.createTime:number}}\",\"bizType\":\"1513\",\"status\":0,\"msgtype\":0,\"isread\":true,\"isTargetRead\":null,\"source\":\"\",\"receiptRange\":0,\"citeMsgId\":null,\"citeMessageInfo\":null}",
+      "languageInfo": {
+        "lang": ""
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[1].uid:string}}",
+      "venAgentId": "{{response.conversationList[1].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[1].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[1].gid:string}}",
+      "threadId": "{{response.conversationList[1].threadId:string}}",
+      "conversationKey": "{{response.conversationList[1].conversationKey:string}}",
+      "lastMessageTime": "{{response.conversationList[1].lastMessageTime:number}}",
+      "skillGroupCode": "{{response.conversationList[1].skillGroupCode:string}}",
+      "refId": "{{response.conversationList[1].refId:string}}",
+      "vendorRole": "{{response.conversationList[1].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[1].vendorId:number}}",
+      "vendorName": "{{response.conversationList[1].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[1].relationOrderId:string}}",
+      "ext": {
+        "parentsid": "{{response.conversationList[1].ext.parentsid:string}}",
+        "clientid": "{{response.conversationList[1].ext.clientid:string}}",
+        "needsendusermessage": "{{response.conversationList[1].ext.needsendusermessage:string}}",
+        "imreqmsgid": "{{response.conversationList[1].ext.imreqmsgid:string}}",
+        "latitude": "{{response.conversationList[1].ext.latitude:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[1].ext.ibuclientversion:string}}",
+        "title": "{{response.conversationList[1].ext.title:string}}",
+        "pageid": "{{response.conversationList[1].ext.pageid:string}}",
+        "locale": "zh_HK",
+        "aitoken": "",
+        "bu": "{{response.conversationList[1].ext.bu:string}}",
+        "thirdpartytoken": "{{response.conversationList[1].ext.thirdpartytoken:string}}",
+        "tag": "",
+        "longitude": "{{response.conversationList[1].ext.longitude:string}}",
+        "imassignscene": "{{response.conversationList[1].ext.imassignscene:string}}",
+        "supplierid": "{{response.conversationList[1].ext.supplierid:string}}",
+        "coordinate": "{{response.conversationList[1].ext.coordinate:string}}",
+        "clientversion": "{{response.conversationList[1].ext.clientversion:string}}",
+        "orderid": "{{response.conversationList[1].ext.orderid:string}}",
+        "cityname": "{{response.conversationList[1].ext.cityname:string}}",
+        "relationorderid": "{{response.conversationList[1].ext.relationorderid:string}}",
+        "appversion": "{{response.conversationList[1].ext.appversion:string}}",
+        "cityid": "{{response.conversationList[1].ext.cityid:string}}",
+        "supplierpid": "",
+        "vendorUid": "{{response.conversationList[1].ext.vendorUid:string}}",
+        "token": "{{response.conversationList[1].ext.token:string}}",
+        "imclientip": "{{response.conversationList[1].ext.imclientip:string}}",
+        "vtoken": "{{response.conversationList[1].ext.vtoken:string}}",
+        "ctype": "{{response.conversationList[1].ext.ctype:string}}",
+        "pagefrom": "{{response.conversationList[1].ext.pagefrom:string}}",
+        "cid": "{{response.conversationList[1].ext.cid:string}}"
+      },
+      "status": 4,
+      "originStatus": 4,
+      "conversationType": "B2C",
+      "groupTitle": "{{response.conversationList[1].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[1].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[1].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[1].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[1].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "lastMessageJsonString": "{\"msgId\":\"{{response.conversationList[1].lastMessageJsonString.$json.msgId:string}}\",\"messageBody\":\"{{response.conversationList[1].lastMessageJsonString.$json.messageBody:string}}\",\"fromJid\":\"{{response.conversationList[1].lastMessageJsonString.$json.fromJid:string}}\",\"toJid\":\"{{response.conversationList[1].lastMessageJsonString.$json.toJid:string}}\",\"threadId\":\"{{response.conversationList[1].lastMessageJsonString.$json.threadId:string}}\",\"subject\":\"\",\"createTime\":\"{{response.conversationList[1].lastMessageJsonString.$json.createTime:number}}\",\"bizType\":\"1513\",\"status\":0,\"msgtype\":0,\"isread\":false,\"isTargetRead\":null,\"source\":\"\",\"receiptRange\":0,\"citeMsgId\":null,\"citeMessageInfo\":null}",
+      "languageInfo": {
+        "lang": "zh_HK",
+        "terminalChannel": "",
+        "customerSource": ""
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[2].uid:string}}",
+      "venAgentId": "{{response.conversationList[2].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[2].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[2].gid:string}}",
+      "threadId": "{{response.conversationList[2].threadId:string}}",
+      "conversationKey": "{{response.conversationList[2].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[2].firstMessageTime:number}}",
+      "refId": "{{response.conversationList[2].refId:string}}",
+      "vendorRole": "{{response.conversationList[2].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[2].vendorId:number}}",
+      "vendorName": "{{response.conversationList[2].vendorName:string}}",
+      "ext": {
+        "pageid": "{{response.conversationList[2].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[2].ext.imassignscene:string}}",
+        "cityid": "{{response.conversationList[2].ext.cityid:string}}",
+        "parentsid": "{{response.conversationList[2].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[2].ext.cid:string}}",
+        "bu": "{{response.conversationList[2].ext.bu:string}}",
+        "locale": "zh_MY",
+        "longitude": "{{response.conversationList[2].ext.longitude:string}}",
+        "pagefrom": "{{response.conversationList[2].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[2].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[2].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[2].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[2].ext.clientversion:string}}",
+        "token": "{{response.conversationList[2].ext.token:string}}",
+        "clientid": "{{response.conversationList[2].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[2].ext.coordinate:string}}",
+        "orderid": "",
+        "cityname": "{{response.conversationList[2].ext.cityname:string}}",
+        "aitoken": "",
+        "vtoken": "{{response.conversationList[2].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[2].ext.appversion:string}}",
+        "biz": "{{response.conversationList[2].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[2].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[2].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[2].ext.latitude:string}}",
+        "thirdpartytoken": "{{response.conversationList[2].ext.thirdpartytoken:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[2].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[2].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[2].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[2].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[2].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "zh_MY"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[3].uid:string}}",
+      "venAgentId": "{{response.conversationList[3].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[3].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[3].gid:string}}",
+      "threadId": "{{response.conversationList[3].threadId:string}}",
+      "conversationKey": "{{response.conversationList[3].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[3].firstMessageTime:number}}",
+      "refId": "{{response.conversationList[3].refId:string}}",
+      "vendorRole": "{{response.conversationList[3].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[3].vendorId:number}}",
+      "vendorName": "{{response.conversationList[3].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[3].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[3].ext.title:string}}",
+        "pageid": "{{response.conversationList[3].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[3].ext.imassignscene:string}}",
+        "needsendusermessage": "{{response.conversationList[3].ext.needsendusermessage:string}}",
+        "cityid": "{{response.conversationList[3].ext.cityid:string}}",
+        "parentsid": "{{response.conversationList[3].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[3].ext.cid:string}}",
+        "bu": "{{response.conversationList[3].ext.bu:string}}",
+        "locale": "en_PH",
+        "longitude": "{{response.conversationList[3].ext.longitude:string}}",
+        "relationorderid": "{{response.conversationList[3].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[3].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[3].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[3].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[3].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[3].ext.clientversion:string}}",
+        "clientid": "{{response.conversationList[3].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[3].ext.coordinate:string}}",
+        "orderid": "{{response.conversationList[3].ext.orderid:string}}",
+        "cityname": "{{response.conversationList[3].ext.cityname:string}}",
+        "aitoken": "",
+        "vtoken": "{{response.conversationList[3].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[3].ext.appversion:string}}",
+        "imreqmsgid": "{{response.conversationList[3].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[3].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[3].ext.latitude:string}}",
+        "thirdpartytoken": "{{response.conversationList[3].ext.thirdpartytoken:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[3].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[3].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[3].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[3].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[3].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "en_PH"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[4].uid:string}}",
+      "venAgentId": "{{response.conversationList[4].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[4].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[4].gid:string}}",
+      "threadId": "{{response.conversationList[4].threadId:string}}",
+      "conversationKey": "{{response.conversationList[4].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[4].firstMessageTime:number}}",
+      "refId": "{{response.conversationList[4].refId:string}}",
+      "vendorRole": "{{response.conversationList[4].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[4].vendorId:number}}",
+      "vendorName": "{{response.conversationList[4].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[4].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[4].ext.title:string}}",
+        "currency": "TWD",
+        "imassignscene": "{{response.conversationList[4].ext.imassignscene:string}}",
+        "needsendusermessage": "{{response.conversationList[4].ext.needsendusermessage:string}}",
+        "cityid": "{{response.conversationList[4].ext.cityid:string}}",
+        "parentsid": "{{response.conversationList[4].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[4].ext.cid:string}}",
+        "locale": "zh_TW",
+        "longitude": "{{response.conversationList[4].ext.longitude:string}}",
+        "relationorderid": "{{response.conversationList[4].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[4].ext.pagefrom:string}}",
+        "price": "{{response.conversationList[4].ext.price:string}}",
+        "channel": "VAC",
+        "desc": "{{response.conversationList[4].ext.desc:string}}",
+        "ibuclientversion": "{{response.conversationList[4].ext.ibuclientversion:string}}",
+        "orderactionurl": "{{response.conversationList[4].ext.orderactionurl:string}}",
+        "supplierid": "",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[4].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[4].ext.clientversion:string}}",
+        "token": "{{response.conversationList[4].ext.token:string}}",
+        "clientid": "{{response.conversationList[4].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[4].ext.coordinate:string}}",
+        "orderid": "{{response.conversationList[4].ext.orderid:string}}",
+        "status": "已確認",
+        "cityname": "{{response.conversationList[4].ext.cityname:string}}",
+        "aitoken": "",
+        "vtoken": "{{response.conversationList[4].ext.vtoken:string}}",
+        "amount": "{{response.conversationList[4].ext.amount:string}}",
+        "appversion": "{{response.conversationList[4].ext.appversion:string}}",
+        "biz": "{{response.conversationList[4].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[4].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[4].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[4].ext.latitude:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[4].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[4].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[4].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[4].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[4].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "zh_TW"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[5].uid:string}}",
+      "venAgentId": "{{response.conversationList[5].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[5].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[5].gid:string}}",
+      "threadId": "{{response.conversationList[5].threadId:string}}",
+      "conversationKey": "{{response.conversationList[5].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[5].firstMessageTime:number}}",
+      "lastMessageTime": "{{response.conversationList[5].lastMessageTime:number}}",
+      "refId": "{{response.conversationList[5].refId:string}}",
+      "vendorRole": "{{response.conversationList[5].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[5].vendorId:number}}",
+      "vendorName": "{{response.conversationList[5].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[5].relationOrderId:string}}",
+      "ext": {
+        "sourcesession": "",
+        "supplierpid": "",
+        "title": "{{response.conversationList[5].ext.title:string}}",
+        "imclientip": "{{response.conversationList[5].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[5].ext.clientversion:string}}",
+        "imassignscene": "{{response.conversationList[5].ext.imassignscene:string}}",
+        "needsendusermessage": "{{response.conversationList[5].ext.needsendusermessage:string}}",
+        "orderid": "{{response.conversationList[5].ext.orderid:string}}",
+        "clientid": "{{response.conversationList[5].ext.clientid:string}}",
+        "parentsid": "{{response.conversationList[5].ext.parentsid:string}}",
+        "aitoken": "",
+        "cid": "{{response.conversationList[5].ext.cid:string}}",
+        "bu": "{{response.conversationList[5].ext.bu:string}}",
+        "vtoken": "{{response.conversationList[5].ext.vtoken:string}}",
+        "locale": "en-GB",
+        "relationorderid": "{{response.conversationList[5].ext.relationorderid:string}}",
+        "biz": "{{response.conversationList[5].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[5].ext.imreqmsgid:string}}",
+        "pagefrom": "{{response.conversationList[5].ext.pagefrom:string}}",
+        "ctype": "{{response.conversationList[5].ext.ctype:string}}",
+        "tag": "",
+        "channel": "VAC",
+        "supplierid": "{{response.conversationList[5].ext.supplierid:string}}"
+      },
+      "status": 4,
+      "originStatus": 4,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[5].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[5].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[5].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[5].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[5].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "lastMessageJsonString": "{\"msgId\":\"{{response.conversationList[5].lastMessageJsonString.$json.msgId:string}}\",\"messageBody\":\"{{response.conversationList[5].lastMessageJsonString.$json.messageBody:string}}\",\"fromJid\":\"{{response.conversationList[5].lastMessageJsonString.$json.fromJid:string}}\",\"toJid\":\"{{response.conversationList[5].lastMessageJsonString.$json.toJid:string}}\",\"threadId\":\"{{response.conversationList[5].lastMessageJsonString.$json.threadId:string}}\",\"subject\":\"\",\"createTime\":\"{{response.conversationList[5].lastMessageJsonString.$json.createTime:number}}\",\"bizType\":\"1513\",\"status\":0,\"msgtype\":0,\"isread\":true,\"isTargetRead\":null,\"source\":\"\",\"receiptRange\":0,\"citeMsgId\":null,\"citeMessageInfo\":null}",
+      "languageInfo": {
+        "lang": "en_GB"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[6].uid:string}}",
+      "venAgentId": "{{response.conversationList[6].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[6].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[6].gid:string}}",
+      "threadId": "{{response.conversationList[6].threadId:string}}",
+      "conversationKey": "{{response.conversationList[6].conversationKey:string}}",
+      "skillGroupCode": "{{response.conversationList[6].skillGroupCode:string}}",
+      "refId": "{{response.conversationList[6].refId:string}}",
+      "vendorRole": "{{response.conversationList[6].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[6].vendorId:number}}",
+      "vendorName": "{{response.conversationList[6].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[6].relationOrderId:string}}",
+      "ext": {
+        "relationOrderId": "{{response.conversationList[6].ext.relationOrderId:string}}",
+        "orderId": "{{response.conversationList[6].ext.orderId:string}}",
+        "vendorUid": "{{response.conversationList[6].ext.vendorUid:string}}",
+        "token": "{{response.conversationList[6].ext.token:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "B2C",
+      "groupTitle": "{{response.conversationList[6].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[6].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[6].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[6].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[6].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "",
+        "terminalChannel": "",
+        "customerSource": ""
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[7].uid:string}}",
+      "venAgentId": "{{response.conversationList[7].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[7].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[7].gid:string}}",
+      "threadId": "{{response.conversationList[7].threadId:string}}",
+      "conversationKey": "{{response.conversationList[7].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[7].firstMessageTime:number}}",
+      "refId": "{{response.conversationList[7].refId:string}}",
+      "vendorRole": "{{response.conversationList[7].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[7].vendorId:number}}",
+      "vendorName": "{{response.conversationList[7].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[7].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[7].ext.title:string}}",
+        "pageid": "{{response.conversationList[7].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[7].ext.imassignscene:string}}",
+        "cityid": "{{response.conversationList[7].ext.cityid:string}}",
+        "parentsid": "{{response.conversationList[7].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[7].ext.cid:string}}",
+        "bu": "{{response.conversationList[7].ext.bu:string}}",
+        "locale": "ru_RU",
+        "longitude": "{{response.conversationList[7].ext.longitude:string}}",
+        "relationorderid": "{{response.conversationList[7].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[7].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[7].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[7].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[7].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[7].ext.clientversion:string}}",
+        "token": "{{response.conversationList[7].ext.token:string}}",
+        "clientid": "{{response.conversationList[7].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[7].ext.coordinate:string}}",
+        "orderid": "{{response.conversationList[7].ext.orderid:string}}",
+        "aitoken": "",
+        "cityname": "{{response.conversationList[7].ext.cityname:string}}",
+        "vtoken": "{{response.conversationList[7].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[7].ext.appversion:string}}",
+        "biz": "{{response.conversationList[7].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[7].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[7].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[7].ext.latitude:string}}",
+        "thirdpartytoken": "{{response.conversationList[7].ext.thirdpartytoken:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[7].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[7].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[7].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[7].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[7].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "ru_RU"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[8].uid:string}}",
+      "venAgentId": "{{response.conversationList[8].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[8].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[8].gid:string}}",
+      "threadId": "{{response.conversationList[8].threadId:string}}",
+      "conversationKey": "{{response.conversationList[8].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[8].firstMessageTime:number}}",
+      "refId": "{{response.conversationList[8].refId:string}}",
+      "vendorRole": "{{response.conversationList[8].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[8].vendorId:number}}",
+      "vendorName": "{{response.conversationList[8].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[8].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[8].ext.title:string}}",
+        "pageid": "{{response.conversationList[8].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[8].ext.imassignscene:string}}",
+        "parentsid": "{{response.conversationList[8].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[8].ext.cid:string}}",
+        "bu": "{{response.conversationList[8].ext.bu:string}}",
+        "locale": "zh_HK",
+        "longitude": "{{response.conversationList[8].ext.longitude:string}}",
+        "relationorderid": "{{response.conversationList[8].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[8].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[8].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[8].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[8].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[8].ext.clientversion:string}}",
+        "clientid": "{{response.conversationList[8].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[8].ext.coordinate:string}}",
+        "orderid": "{{response.conversationList[8].ext.orderid:string}}",
+        "token": "{{response.conversationList[8].ext.token:string}}",
+        "aitoken": "",
+        "vtoken": "{{response.conversationList[8].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[8].ext.appversion:string}}",
+        "biz": "{{response.conversationList[8].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[8].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[8].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[8].ext.latitude:string}}",
+        "thirdpartytoken": "{{response.conversationList[8].ext.thirdpartytoken:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[8].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[8].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[8].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[8].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[8].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "zh_HK"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[9].uid:string}}",
+      "venAgentId": "{{response.conversationList[9].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[9].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[9].gid:string}}",
+      "threadId": "{{response.conversationList[9].threadId:string}}",
+      "conversationKey": "{{response.conversationList[9].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[9].firstMessageTime:number}}",
+      "refId": "{{response.conversationList[9].refId:string}}",
+      "vendorRole": "{{response.conversationList[9].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[9].vendorId:number}}",
+      "vendorName": "{{response.conversationList[9].vendorName:string}}",
+      "ext": {
+        "pageid": "{{response.conversationList[9].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[9].ext.imassignscene:string}}",
+        "cityid": "{{response.conversationList[9].ext.cityid:string}}",
+        "parentsid": "{{response.conversationList[9].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[9].ext.cid:string}}",
+        "bu": "{{response.conversationList[9].ext.bu:string}}",
+        "locale": "ru_KZ",
+        "longitude": "{{response.conversationList[9].ext.longitude:string}}",
+        "pagefrom": "{{response.conversationList[9].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[9].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[9].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[9].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[9].ext.clientversion:string}}",
+        "token": "{{response.conversationList[9].ext.token:string}}",
+        "clientid": "{{response.conversationList[9].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[9].ext.coordinate:string}}",
+        "orderid": "",
+        "cityname": "{{response.conversationList[9].ext.cityname:string}}",
+        "aitoken": "",
+        "vtoken": "{{response.conversationList[9].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[9].ext.appversion:string}}",
+        "biz": "{{response.conversationList[9].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[9].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[9].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[9].ext.latitude:string}}",
+        "thirdpartytoken": "{{response.conversationList[9].ext.thirdpartytoken:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[9].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[9].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[9].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[9].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[9].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "ru_KZ"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[10].uid:string}}",
+      "venAgentId": "{{response.conversationList[10].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[10].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[10].gid:string}}",
+      "threadId": "{{response.conversationList[10].threadId:string}}",
+      "conversationKey": "{{response.conversationList[10].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[10].firstMessageTime:number}}",
+      "refId": "{{response.conversationList[10].refId:string}}",
+      "vendorRole": "{{response.conversationList[10].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[10].vendorId:number}}",
+      "vendorName": "{{response.conversationList[10].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[10].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[10].ext.title:string}}",
+        "pageid": "{{response.conversationList[10].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[10].ext.imassignscene:string}}",
+        "cityid": "{{response.conversationList[10].ext.cityid:string}}",
+        "parentsid": "{{response.conversationList[10].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[10].ext.cid:string}}",
+        "bu": "{{response.conversationList[10].ext.bu:string}}",
+        "locale": "en_ID",
+        "longitude": "{{response.conversationList[10].ext.longitude:string}}",
+        "relationorderid": "{{response.conversationList[10].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[10].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[10].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[10].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[10].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[10].ext.clientversion:string}}",
+        "token": "{{response.conversationList[10].ext.token:string}}",
+        "clientid": "{{response.conversationList[10].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[10].ext.coordinate:string}}",
+        "orderid": "{{response.conversationList[10].ext.orderid:string}}",
+        "aitoken": "",
+        "cityname": "{{response.conversationList[10].ext.cityname:string}}",
+        "vtoken": "{{response.conversationList[10].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[10].ext.appversion:string}}",
+        "biz": "{{response.conversationList[10].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[10].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[10].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[10].ext.latitude:string}}",
+        "thirdpartytoken": "{{response.conversationList[10].ext.thirdpartytoken:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[10].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[10].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[10].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[10].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[10].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "en_ID"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[11].uid:string}}",
+      "venAgentId": "{{response.conversationList[11].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[11].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[11].gid:string}}",
+      "threadId": "{{response.conversationList[11].threadId:string}}",
+      "conversationKey": "{{response.conversationList[11].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[11].firstMessageTime:number}}",
+      "refId": "{{response.conversationList[11].refId:string}}",
+      "vendorRole": "{{response.conversationList[11].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[11].vendorId:number}}",
+      "vendorName": "{{response.conversationList[11].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[11].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[11].ext.title:string}}",
+        "pageid": "{{response.conversationList[11].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[11].ext.imassignscene:string}}",
+        "needsendusermessage": "{{response.conversationList[11].ext.needsendusermessage:string}}",
+        "parentsid": "{{response.conversationList[11].ext.parentsid:string}}",
+        "bu": "{{response.conversationList[11].ext.bu:string}}",
+        "cid": "{{response.conversationList[11].ext.cid:string}}",
+        "locale": "en_IN",
+        "relationorderid": "{{response.conversationList[11].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[11].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[11].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[11].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[11].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[11].ext.clientversion:string}}",
+        "clientid": "{{response.conversationList[11].ext.clientid:string}}",
+        "orderid": "{{response.conversationList[11].ext.orderid:string}}",
+        "aitoken": "",
+        "vtoken": "{{response.conversationList[11].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[11].ext.appversion:string}}",
+        "imreqmsgid": "{{response.conversationList[11].ext.imreqmsgid:string}}",
+        "tag": "",
+        "ctype": "{{response.conversationList[11].ext.ctype:string}}",
+        "thirdpartytoken": "{{response.conversationList[11].ext.thirdpartytoken:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[11].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[11].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[11].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[11].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[11].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "en_IN"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[12].uid:string}}",
+      "venAgentId": "{{response.conversationList[12].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[12].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[12].gid:string}}",
+      "threadId": "{{response.conversationList[12].threadId:string}}",
+      "conversationKey": "{{response.conversationList[12].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[12].firstMessageTime:number}}",
+      "refId": "{{response.conversationList[12].refId:string}}",
+      "vendorRole": "{{response.conversationList[12].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[12].vendorId:number}}",
+      "vendorName": "{{response.conversationList[12].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[12].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[12].ext.title:string}}",
+        "pageid": "{{response.conversationList[12].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[12].ext.imassignscene:string}}",
+        "parentsid": "{{response.conversationList[12].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[12].ext.cid:string}}",
+        "bu": "{{response.conversationList[12].ext.bu:string}}",
+        "locale": "ru_RU",
+        "longitude": "{{response.conversationList[12].ext.longitude:string}}",
+        "relationorderid": "{{response.conversationList[12].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[12].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[12].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[12].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[12].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[12].ext.clientversion:string}}",
+        "clientid": "{{response.conversationList[12].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[12].ext.coordinate:string}}",
+        "orderid": "{{response.conversationList[12].ext.orderid:string}}",
+        "token": "{{response.conversationList[12].ext.token:string}}",
+        "aitoken": "",
+        "vtoken": "{{response.conversationList[12].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[12].ext.appversion:string}}",
+        "biz": "{{response.conversationList[12].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[12].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[12].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[12].ext.latitude:string}}",
+        "thirdpartytoken": "{{response.conversationList[12].ext.thirdpartytoken:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[12].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[12].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[12].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[12].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[12].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "ru_RU"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[13].uid:string}}",
+      "venAgentId": "{{response.conversationList[13].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[13].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[13].gid:string}}",
+      "threadId": "{{response.conversationList[13].threadId:string}}",
+      "conversationKey": "{{response.conversationList[13].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[13].firstMessageTime:number}}",
+      "lastMessageTime": "{{response.conversationList[13].lastMessageTime:number}}",
+      "refId": "{{response.conversationList[13].refId:string}}",
+      "vendorRole": "{{response.conversationList[13].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[13].vendorId:number}}",
+      "vendorName": "{{response.conversationList[13].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[13].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[13].ext.title:string}}",
+        "pageid": "{{response.conversationList[13].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[13].ext.imassignscene:string}}",
+        "cityid": "{{response.conversationList[13].ext.cityid:string}}",
+        "parentsid": "{{response.conversationList[13].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[13].ext.cid:string}}",
+        "locale": "zh_HK",
+        "longitude": "{{response.conversationList[13].ext.longitude:string}}",
+        "relationorderid": "{{response.conversationList[13].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[13].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[13].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[13].ext.supplierid:string}}",
+        "imchatinvokeytype": "{{response.conversationList[13].ext.imchatinvokeytype:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[13].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[13].ext.clientversion:string}}",
+        "token": "{{response.conversationList[13].ext.token:string}}",
+        "clientid": "{{response.conversationList[13].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[13].ext.coordinate:string}}",
+        "orderid": "{{response.conversationList[13].ext.orderid:string}}",
+        "cityname": "{{response.conversationList[13].ext.cityname:string}}",
+        "aitoken": "",
+        "vtoken": "{{response.conversationList[13].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[13].ext.appversion:string}}",
+        "biz": "{{response.conversationList[13].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[13].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[13].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[13].ext.latitude:string}}",
+        "thirdpartytoken": ""
+      },
+      "status": 4,
+      "originStatus": 4,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[13].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[13].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[13].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[13].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[13].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "lastMessageJsonString": "{\"msgId\":\"{{response.conversationList[13].lastMessageJsonString.$json.msgId:string}}\",\"messageBody\":\"{{response.conversationList[13].lastMessageJsonString.$json.messageBody:string}}\",\"fromJid\":\"{{response.conversationList[13].lastMessageJsonString.$json.fromJid:string}}\",\"toJid\":\"{{response.conversationList[13].lastMessageJsonString.$json.toJid:string}}\",\"threadId\":\"{{response.conversationList[13].lastMessageJsonString.$json.threadId:string}}\",\"subject\":\"\",\"createTime\":\"{{response.conversationList[13].lastMessageJsonString.$json.createTime:number}}\",\"bizType\":\"1513\",\"status\":0,\"msgtype\":0,\"isread\":true,\"isTargetRead\":null,\"source\":\"\",\"receiptRange\":0,\"citeMsgId\":null,\"citeMessageInfo\":null}",
+      "languageInfo": {
+        "lang": "zh_HK"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[14].uid:string}}",
+      "venAgentId": "{{response.conversationList[14].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[14].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[14].gid:string}}",
+      "threadId": "{{response.conversationList[14].threadId:string}}",
+      "conversationKey": "{{response.conversationList[14].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[14].firstMessageTime:number}}",
+      "lastMessageTime": "{{response.conversationList[14].lastMessageTime:number}}",
+      "refId": "{{response.conversationList[14].refId:string}}",
+      "vendorRole": "{{response.conversationList[14].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[14].vendorId:number}}",
+      "vendorName": "{{response.conversationList[14].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[14].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[14].ext.title:string}}",
+        "pageid": "{{response.conversationList[14].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[14].ext.imassignscene:string}}",
+        "cityid": "{{response.conversationList[14].ext.cityid:string}}",
+        "parentsid": "{{response.conversationList[14].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[14].ext.cid:string}}",
+        "bu": "{{response.conversationList[14].ext.bu:string}}",
+        "locale": "ru_RU",
+        "longitude": "{{response.conversationList[14].ext.longitude:string}}",
+        "relationorderid": "{{response.conversationList[14].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[14].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[14].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[14].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[14].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[14].ext.clientversion:string}}",
+        "token": "{{response.conversationList[14].ext.token:string}}",
+        "clientid": "{{response.conversationList[14].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[14].ext.coordinate:string}}",
+        "orderid": "{{response.conversationList[14].ext.orderid:string}}",
+        "aitoken": "",
+        "cityname": "{{response.conversationList[14].ext.cityname:string}}",
+        "vtoken": "{{response.conversationList[14].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[14].ext.appversion:string}}",
+        "biz": "{{response.conversationList[14].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[14].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[14].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[14].ext.latitude:string}}",
+        "thirdpartytoken": "{{response.conversationList[14].ext.thirdpartytoken:string}}"
+      },
+      "status": 4,
+      "originStatus": 4,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[14].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[14].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[14].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[14].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[14].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "lastMessageJsonString": "{\"msgId\":\"{{response.conversationList[14].lastMessageJsonString.$json.msgId:string}}\",\"messageBody\":\"{{response.conversationList[14].lastMessageJsonString.$json.messageBody:string}}\",\"fromJid\":\"{{response.conversationList[14].lastMessageJsonString.$json.fromJid:string}}\",\"toJid\":\"{{response.conversationList[14].lastMessageJsonString.$json.toJid:string}}\",\"threadId\":\"{{response.conversationList[14].lastMessageJsonString.$json.threadId:string}}\",\"subject\":\"\",\"createTime\":\"{{response.conversationList[14].lastMessageJsonString.$json.createTime:number}}\",\"bizType\":\"1513\",\"status\":0,\"msgtype\":0,\"isread\":true,\"isTargetRead\":null,\"source\":\"\",\"receiptRange\":0,\"citeMsgId\":null,\"citeMessageInfo\":null}",
+      "languageInfo": {
+        "lang": "ru_RU"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[15].uid:string}}",
+      "venAgentId": "{{response.conversationList[15].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[15].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[15].gid:string}}",
+      "threadId": "{{response.conversationList[15].threadId:string}}",
+      "conversationKey": "{{response.conversationList[15].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[15].firstMessageTime:number}}",
+      "refId": "{{response.conversationList[15].refId:string}}",
+      "vendorRole": "{{response.conversationList[15].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[15].vendorId:number}}",
+      "vendorName": "{{response.conversationList[15].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[15].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[15].ext.title:string}}",
+        "pageid": "{{response.conversationList[15].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[15].ext.imassignscene:string}}",
+        "cityid": "{{response.conversationList[15].ext.cityid:string}}",
+        "parentsid": "{{response.conversationList[15].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[15].ext.cid:string}}",
+        "bu": "{{response.conversationList[15].ext.bu:string}}",
+        "locale": "th_TH",
+        "longitude": "{{response.conversationList[15].ext.longitude:string}}",
+        "relationorderid": "{{response.conversationList[15].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[15].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[15].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[15].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[15].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[15].ext.clientversion:string}}",
+        "token": "{{response.conversationList[15].ext.token:string}}",
+        "clientid": "{{response.conversationList[15].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[15].ext.coordinate:string}}",
+        "orderid": "{{response.conversationList[15].ext.orderid:string}}",
+        "aitoken": "",
+        "cityname": "{{response.conversationList[15].ext.cityname:string}}",
+        "vtoken": "{{response.conversationList[15].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[15].ext.appversion:string}}",
+        "biz": "{{response.conversationList[15].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[15].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[15].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[15].ext.latitude:string}}",
+        "thirdpartytoken": "{{response.conversationList[15].ext.thirdpartytoken:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[15].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[15].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[15].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[15].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[15].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "th_TH"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[16].uid:string}}",
+      "venAgentId": "{{response.conversationList[16].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[16].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[16].gid:string}}",
+      "threadId": "{{response.conversationList[16].threadId:string}}",
+      "conversationKey": "{{response.conversationList[16].conversationKey:string}}",
+      "skillGroupCode": "{{response.conversationList[16].skillGroupCode:string}}",
+      "refId": "{{response.conversationList[16].refId:string}}",
+      "vendorRole": "{{response.conversationList[16].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[16].vendorId:number}}",
+      "vendorName": "{{response.conversationList[16].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[16].relationOrderId:string}}",
+      "ext": {
+        "parentsid": "{{response.conversationList[16].ext.parentsid:string}}",
+        "orderactionurl": "{{response.conversationList[16].ext.orderactionurl:string}}",
+        "clientid": "{{response.conversationList[16].ext.clientid:string}}",
+        "needsendusermessage": "{{response.conversationList[16].ext.needsendusermessage:string}}",
+        "imreqmsgid": "{{response.conversationList[16].ext.imreqmsgid:string}}",
+        "latitude": "{{response.conversationList[16].ext.latitude:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[16].ext.ibuclientversion:string}}",
+        "title": "{{response.conversationList[16].ext.title:string}}",
+        "locale": "en_XX",
+        "aitoken": "",
+        "biz": "{{response.conversationList[16].ext.biz:string}}",
+        "price": "{{response.conversationList[16].ext.price:string}}",
+        "currency": "MYR",
+        "tag": "",
+        "longitude": "{{response.conversationList[16].ext.longitude:string}}",
+        "imassignscene": "{{response.conversationList[16].ext.imassignscene:string}}",
+        "amount": "{{response.conversationList[16].ext.amount:string}}",
+        "supplierid": "",
+        "coordinate": "{{response.conversationList[16].ext.coordinate:string}}",
+        "clientversion": "{{response.conversationList[16].ext.clientversion:string}}",
+        "orderid": "{{response.conversationList[16].ext.orderid:string}}",
+        "cityname": "{{response.conversationList[16].ext.cityname:string}}",
+        "relationorderid": "{{response.conversationList[16].ext.relationorderid:string}}",
+        "appversion": "{{response.conversationList[16].ext.appversion:string}}",
+        "cityid": "{{response.conversationList[16].ext.cityid:string}}",
+        "supplierpid": "",
+        "vendorUid": "{{response.conversationList[16].ext.vendorUid:string}}",
+        "token": "{{response.conversationList[16].ext.token:string}}",
+        "imclientip": "{{response.conversationList[16].ext.imclientip:string}}",
+        "vtoken": "{{response.conversationList[16].ext.vtoken:string}}",
+        "ctype": "{{response.conversationList[16].ext.ctype:string}}",
+        "pagefrom": "{{response.conversationList[16].ext.pagefrom:string}}",
+        "cid": "{{response.conversationList[16].ext.cid:string}}",
+        "desc": "{{response.conversationList[16].ext.desc:string}}",
+        "status": "Confirmed"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "B2C",
+      "groupTitle": "{{response.conversationList[16].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[16].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[16].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[16].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[16].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "en_XX",
+        "terminalChannel": "",
+        "customerSource": ""
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[17].uid:string}}",
+      "venAgentId": "{{response.conversationList[17].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[17].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[17].gid:string}}",
+      "threadId": "{{response.conversationList[17].threadId:string}}",
+      "conversationKey": "{{response.conversationList[17].conversationKey:string}}",
+      "skillGroupCode": "{{response.conversationList[17].skillGroupCode:string}}",
+      "refId": "{{response.conversationList[17].refId:string}}",
+      "vendorRole": "{{response.conversationList[17].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[17].vendorId:number}}",
+      "vendorName": "{{response.conversationList[17].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[17].relationOrderId:string}}",
+      "ext": {
+        "parentsid": "{{response.conversationList[17].ext.parentsid:string}}",
+        "clientid": "{{response.conversationList[17].ext.clientid:string}}",
+        "imreqmsgid": "{{response.conversationList[17].ext.imreqmsgid:string}}",
+        "latitude": "{{response.conversationList[17].ext.latitude:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[17].ext.ibuclientversion:string}}",
+        "title": "{{response.conversationList[17].ext.title:string}}",
+        "pageid": "{{response.conversationList[17].ext.pageid:string}}",
+        "locale": "en_US",
+        "aitoken": "",
+        "biz": "{{response.conversationList[17].ext.biz:string}}",
+        "bu": "{{response.conversationList[17].ext.bu:string}}",
+        "thirdpartytoken": "{{response.conversationList[17].ext.thirdpartytoken:string}}",
+        "tag": "",
+        "longitude": "{{response.conversationList[17].ext.longitude:string}}",
+        "imassignscene": "{{response.conversationList[17].ext.imassignscene:string}}",
+        "supplierid": "{{response.conversationList[17].ext.supplierid:string}}",
+        "coordinate": "{{response.conversationList[17].ext.coordinate:string}}",
+        "clientversion": "{{response.conversationList[17].ext.clientversion:string}}",
+        "orderid": "{{response.conversationList[17].ext.orderid:string}}",
+        "cityname": "{{response.conversationList[17].ext.cityname:string}}",
+        "relationorderid": "{{response.conversationList[17].ext.relationorderid:string}}",
+        "appversion": "{{response.conversationList[17].ext.appversion:string}}",
+        "cityid": "{{response.conversationList[17].ext.cityid:string}}",
+        "supplierpid": "",
+        "vendorUid": "{{response.conversationList[17].ext.vendorUid:string}}",
+        "token": "{{response.conversationList[17].ext.token:string}}",
+        "imclientip": "{{response.conversationList[17].ext.imclientip:string}}",
+        "vtoken": "{{response.conversationList[17].ext.vtoken:string}}",
+        "ctype": "{{response.conversationList[17].ext.ctype:string}}",
+        "pagefrom": "{{response.conversationList[17].ext.pagefrom:string}}",
+        "cid": "{{response.conversationList[17].ext.cid:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "B2C",
+      "groupTitle": "{{response.conversationList[17].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[17].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[17].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[17].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[17].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "en_US",
+        "terminalChannel": "",
+        "customerSource": ""
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[18].uid:string}}",
+      "venAgentId": "{{response.conversationList[18].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[18].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[18].gid:string}}",
+      "threadId": "{{response.conversationList[18].threadId:string}}",
+      "conversationKey": "{{response.conversationList[18].conversationKey:string}}",
+      "firstMessageTime": "{{response.conversationList[18].firstMessageTime:number}}",
+      "lastMessageTime": "{{response.conversationList[18].lastMessageTime:number}}",
+      "refId": "{{response.conversationList[18].refId:string}}",
+      "vendorRole": "{{response.conversationList[18].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[18].vendorId:number}}",
+      "vendorName": "{{response.conversationList[18].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[18].relationOrderId:string}}",
+      "ext": {
+        "title": "{{response.conversationList[18].ext.title:string}}",
+        "pageid": "{{response.conversationList[18].ext.pageid:string}}",
+        "imassignscene": "{{response.conversationList[18].ext.imassignscene:string}}",
+        "cityid": "{{response.conversationList[18].ext.cityid:string}}",
+        "parentsid": "{{response.conversationList[18].ext.parentsid:string}}",
+        "cid": "{{response.conversationList[18].ext.cid:string}}",
+        "bu": "{{response.conversationList[18].ext.bu:string}}",
+        "locale": "en_ID",
+        "longitude": "{{response.conversationList[18].ext.longitude:string}}",
+        "relationorderid": "{{response.conversationList[18].ext.relationorderid:string}}",
+        "pagefrom": "{{response.conversationList[18].ext.pagefrom:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[18].ext.ibuclientversion:string}}",
+        "supplierid": "{{response.conversationList[18].ext.supplierid:string}}",
+        "supplierpid": "",
+        "imclientip": "{{response.conversationList[18].ext.imclientip:string}}",
+        "clientversion": "{{response.conversationList[18].ext.clientversion:string}}",
+        "token": "{{response.conversationList[18].ext.token:string}}",
+        "clientid": "{{response.conversationList[18].ext.clientid:string}}",
+        "coordinate": "{{response.conversationList[18].ext.coordinate:string}}",
+        "orderid": "{{response.conversationList[18].ext.orderid:string}}",
+        "aitoken": "",
+        "cityname": "{{response.conversationList[18].ext.cityname:string}}",
+        "vtoken": "{{response.conversationList[18].ext.vtoken:string}}",
+        "appversion": "{{response.conversationList[18].ext.appversion:string}}",
+        "biz": "{{response.conversationList[18].ext.biz:string}}",
+        "imreqmsgid": "{{response.conversationList[18].ext.imreqmsgid:string}}",
+        "ctype": "{{response.conversationList[18].ext.ctype:string}}",
+        "tag": "",
+        "latitude": "{{response.conversationList[18].ext.latitude:string}}",
+        "thirdpartytoken": "{{response.conversationList[18].ext.thirdpartytoken:string}}"
+      },
+      "status": 4,
+      "originStatus": 4,
+      "conversationType": "C2B",
+      "groupTitle": "{{response.conversationList[18].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[18].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[18].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[18].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[18].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "lastMessageJsonString": "{\"msgId\":\"{{response.conversationList[18].lastMessageJsonString.$json.msgId:string}}\",\"messageBody\":\"{{response.conversationList[18].lastMessageJsonString.$json.messageBody:string}}\",\"fromJid\":\"{{response.conversationList[18].lastMessageJsonString.$json.fromJid:string}}\",\"toJid\":\"{{response.conversationList[18].lastMessageJsonString.$json.toJid:string}}\",\"threadId\":\"{{response.conversationList[18].lastMessageJsonString.$json.threadId:string}}\",\"subject\":\"\",\"createTime\":\"{{response.conversationList[18].lastMessageJsonString.$json.createTime:number}}\",\"bizType\":\"1513\",\"status\":0,\"msgtype\":0,\"isread\":false,\"isTargetRead\":null,\"source\":\"\",\"receiptRange\":0,\"citeMsgId\":null,\"citeMessageInfo\":null}",
+      "languageInfo": {
+        "lang": "en_ID"
+      },
+      "inQueueStatus": 0
+    },
+    {
+      "uid": "{{response.conversationList[19].uid:string}}",
+      "venAgentId": "{{response.conversationList[19].venAgentId:string}}",
+      "serviceType": "1513",
+      "id": "{{response.conversationList[19].id:number}}",
+      "isOwner": false,
+      "gid": "{{response.conversationList[19].gid:string}}",
+      "threadId": "{{response.conversationList[19].threadId:string}}",
+      "conversationKey": "{{response.conversationList[19].conversationKey:string}}",
+      "skillGroupCode": "{{response.conversationList[19].skillGroupCode:string}}",
+      "refId": "{{response.conversationList[19].refId:string}}",
+      "vendorRole": "{{response.conversationList[19].vendorRole:string}}",
+      "vendorId": "{{response.conversationList[19].vendorId:number}}",
+      "vendorName": "{{response.conversationList[19].vendorName:string}}",
+      "relationOrderId": "{{response.conversationList[19].relationOrderId:string}}",
+      "ext": {
+        "parentsid": "{{response.conversationList[19].ext.parentsid:string}}",
+        "clientid": "{{response.conversationList[19].ext.clientid:string}}",
+        "needsendusermessage": "{{response.conversationList[19].ext.needsendusermessage:string}}",
+        "imreqmsgid": "{{response.conversationList[19].ext.imreqmsgid:string}}",
+        "latitude": "{{response.conversationList[19].ext.latitude:string}}",
+        "channel": "VAC",
+        "ibuclientversion": "{{response.conversationList[19].ext.ibuclientversion:string}}",
+        "title": "{{response.conversationList[19].ext.title:string}}",
+        "pageid": "{{response.conversationList[19].ext.pageid:string}}",
+        "locale": "zh_HK",
+        "aitoken": "",
+        "bu": "{{response.conversationList[19].ext.bu:string}}",
+        "thirdpartytoken": "{{response.conversationList[19].ext.thirdpartytoken:string}}",
+        "tag": "",
+        "longitude": "{{response.conversationList[19].ext.longitude:string}}",
+        "imassignscene": "{{response.conversationList[19].ext.imassignscene:string}}",
+        "supplierid": "{{response.conversationList[19].ext.supplierid:string}}",
+        "coordinate": "{{response.conversationList[19].ext.coordinate:string}}",
+        "clientversion": "{{response.conversationList[19].ext.clientversion:string}}",
+        "orderid": "{{response.conversationList[19].ext.orderid:string}}",
+        "cityname": "{{response.conversationList[19].ext.cityname:string}}",
+        "relationorderid": "{{response.conversationList[19].ext.relationorderid:string}}",
+        "appversion": "{{response.conversationList[19].ext.appversion:string}}",
+        "cityid": "{{response.conversationList[19].ext.cityid:string}}",
+        "supplierpid": "",
+        "vendorUid": "{{response.conversationList[19].ext.vendorUid:string}}",
+        "token": "{{response.conversationList[19].ext.token:string}}",
+        "imclientip": "{{response.conversationList[19].ext.imclientip:string}}",
+        "vtoken": "{{response.conversationList[19].ext.vtoken:string}}",
+        "ctype": "{{response.conversationList[19].ext.ctype:string}}",
+        "pagefrom": "{{response.conversationList[19].ext.pagefrom:string}}",
+        "cid": "{{response.conversationList[19].ext.cid:string}}"
+      },
+      "status": 2,
+      "originStatus": 2,
+      "conversationType": "B2C",
+      "groupTitle": "{{response.conversationList[19].groupTitle:string}}",
+      "groupAvatar": "{{response.conversationList[19].groupAvatar:string}}",
+      "sessionId": "{{response.conversationList[19].sessionId:string}}",
+      "customerInGroup": "{{response.conversationList[19].customerInGroup:number}}",
+      "inGroup": 1,
+      "isHide": 0,
+      "star": 0,
+      "isRead": 0,
+      "lastUpdateTime": "{{response.conversationList[19].lastUpdateTime:number}}",
+      "currentConversationRole": 2,
+      "languageInfo": {
+        "lang": "zh_HK",
+        "terminalChannel": "",
+        "customerSource": ""
+      },
+      "inQueueStatus": 0
+    }
+  ],
+  "currentStatus": 3,
+  "lastUpdateTime": "{{response.lastUpdateTime:number}}",
+  "haveRest": false
+}
+```
+
+写请求未知结果先读回，不自动重发。具体 UI 操作、目标和状态收敛见 [验证记录](../validation.md)。
+
+## 未完成项
+
+- 逐字段必填性、所有条件分支和失败范围尚未穷尽。
+- 独立宿主 Origin/Profile/网络层尚未验证；页面内重放成功不能外推到原生 HTTP。
+- 动态来源未闭环：见公共 head / 风控 / 身份来源的共同未完成项。

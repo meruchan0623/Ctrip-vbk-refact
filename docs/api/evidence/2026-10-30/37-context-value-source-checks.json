@@ -1,0 +1,10 @@
+{
+  "headPresent": true,
+  "cidMatchesGUID": true,
+  "cidMatchesLoginCID": true,
+  "sidEquals8888": true,
+  "authEmpty": true,
+  "ctokEmpty": true,
+  "xsidEmpty": true,
+  "limit": "Equality in one current webpage session; not proof of a unique derivation or all environments."
+}

@@ -1,0 +1,10 @@
+{
+  "source": "Official SDK read-receipt API after current controlled-history read",
+  "customerMessageIdentified": true,
+  "controlledGroup": true,
+  "ack": "Success",
+  "responseKeys": [
+    "ResponseStatus",
+    "gatewayRootId"
+  ]
+}

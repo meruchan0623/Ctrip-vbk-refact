@@ -1,0 +1,21 @@
+{
+  "source": "Current official web request template; read-only controlled conversation replay",
+  "pageSize": 2,
+  "base": {
+    "count": 2,
+    "isDone": false
+  },
+  "prev": {
+    "count": 2,
+    "isDone": false,
+    "boundaryIncluded": false
+  },
+  "next": {
+    "count": 1,
+    "isDone": true,
+    "boundaryIncluded": false
+  },
+  "observedTimestampDigits": 13,
+  "sameTimestampMultipleMessages": "not tested",
+  "readonly": true
+}
