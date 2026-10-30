@@ -1,0 +1,22 @@
+[package]
+name = "vbk-scenarios"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "QA-owned cross-crate scenario tests (strong-alert §7 end-to-end counterexamples). No product code."
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+contracts = { path = "../../crates/contracts" }
+core-account = { path = "../../crates/core-account" }
+core-store = { path = "../../crates/core-store" }
+core-net = { path = "../../crates/core-net" }
+core-im = { path = "../../crates/core-im" }
+core-notify = { path = "../../crates/core-notify" }
+core-assistant = { path = "../../crates/core-assistant" }

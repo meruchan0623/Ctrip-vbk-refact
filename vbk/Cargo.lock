@@ -47,3 +47,16 @@ version = "0.1.0"
 dependencies = [
  "contracts",
 ]
+
+[[package]]
+name = "vbk-scenarios"
+version = "0.1.0"
+dependencies = [
+ "contracts",
+ "core-account",
+ "core-assistant",
+ "core-im",
+ "core-net",
+ "core-notify",
+ "core-store",
+]
