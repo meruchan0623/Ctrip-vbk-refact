@@ -14,6 +14,7 @@ import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.t
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
+import { guarded, isPrefsSnapshot } from '../_shared/guards.ts';
 import { CACHE_DAY_OPTIONS, EMPTY_TSIM_FORM, SECTIONS, ZOOM_OPTIONS, isSectionId, prefsCommand, reminderCommand, sendModeDescription, tsimFormValid, tsimStatusText } from './viewmodel.ts';
 import type { SectionId, TsimForm } from './viewmodel.ts';
 
@@ -293,7 +294,7 @@ function render(s: SettingState): Node {
 subscribeBatched(store, (s) => rerender(root, () => render(s)));
 rerender(root, () => render(store.get()));
 
-ipc.listen<PrefsSnapshot>(Events.PREFS_CHANGED, (p) => store.patch({ prefs: p }));
+ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, (p) => store.patch({ prefs: p })));
 void (async () => {
   try {
     const [p, net] = await Promise.all([ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT), ipc.invoke<UiNetStatus>(UiCommands.NET_STATUS, {}).catch(() => null)]);

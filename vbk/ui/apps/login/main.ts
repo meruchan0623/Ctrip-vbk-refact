@@ -13,6 +13,7 @@ import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.t
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
+import { guarded, isUiAccountSnapshot } from '../_shared/guards.ts';
 
 interface LoginState {
   readonly accounts: UiAccountSnapshot | null;
@@ -47,6 +48,11 @@ function render(s: LoginState): Node {
 
 subscribeBatched(store, (s) => rerender(root, () => render(s)));
 rerender(root, () => render(store.get()));
-ipc.listen<UiAccountSnapshot>(Events.ACCOUNT_CHANGED, (snap) => store.patch({ accounts: snap }));
-void ipc.invoke<UiAccountSnapshot>(AccountCommands.SNAPSHOT).then((snap) => store.patch({ accounts: snap })).catch(() => undefined);
+ipc.listen<unknown>(Events.ACCOUNT_CHANGED, guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, (snap) => store.patch({ accounts: snap })));
+void ipc
+  .invoke<unknown>(AccountCommands.SNAPSHOT)
+  .then((snap) => {
+    if (isUiAccountSnapshot(snap)) store.patch({ accounts: snap });
+  })
+  .catch(() => undefined);
 exposeForTests(sel, { __vbkStore: store });

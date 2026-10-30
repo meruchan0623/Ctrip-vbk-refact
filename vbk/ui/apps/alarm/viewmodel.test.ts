@@ -4,7 +4,7 @@ import type { AlarmEntry, AlarmSnapshot } from '../../packages/ipc/src/contracts
 import { DEFAULT_REMINDER_SETTINGS, ErrorCodes, RED_AFTER_SECONDS } from '../../packages/ipc/src/contracts.ts';
 import { Events, NotifyCommands } from '../../packages/ipc/src/commands.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
-import { deriveAlarmRows, entryCommand, headerTitle, hideAllCommand, thresholdText } from './viewmodel.ts';
+import { SNOOZE_OPTIONS, acceptsSnapshotResponse, deriveAlarmRows, entryCommand, headerTitle, hideAllCommand, thresholdText } from './viewmodel.ts';
 
 const acc = { account_id: 'a', environment: 'production', session_generation: 2 };
 const now = 1_700_000_000_000;
@@ -47,6 +47,47 @@ test('entry commands echo account/gid/round_id/version from the snapshot', () =>
   assert.deepEqual(entryCommand(e, { kind: 'snooze', minutes: 10 }).payload, { account: acc, gid: 'g', round_id: 'r-g', version: 7, minutes: 10 });
   assert.equal(entryCommand(e, { kind: 'open' }).cmd, NotifyCommands.OPEN_CONVERSATION);
   assert.deepEqual(hideAllCommand(snap([e, entry('h', 5)])), { cmd: NotifyCommands.HIDE_ALL, payload: { seen: [{ gid: 'g', round_id: 'r-g', version: 7 }, { gid: 'h', round_id: 'r-h', version: 1 }] } });
+});
+
+test('snooze menu offers exactly 5/10/30 minutes and the red threshold is inclusive at 90 s', () => {
+  assert.deepEqual(SNOOZE_OPTIONS.map((o) => o.minutes), [5, 10, 30]);
+  assert.equal(RED_AFTER_SECONDS, 90);
+  const rows = deriveAlarmRows(snap([entry('x', 90), entry('y', 89)]), now);
+  assert.deepEqual(rows.map((r) => [r.entry.gid, r.red]), [['x', true], ['y', false]]);
+});
+
+test('hide_all echoes exactly the versions currently displayed (snoozed rows included, nothing else)', () => {
+  const s = snap([entry('a', 45, { version: 2 }), entry('b', 200, { version: 9, snoozed_until_ms: now + 60_000 })]);
+  const shown = deriveAlarmRows(s, now).map((r) => ({ gid: r.entry.gid, round_id: r.entry.round_id, version: r.entry.version }));
+  const { payload } = hideAllCommand(s);
+  assert.deepEqual([...payload.seen].sort((x, y) => x.gid.localeCompare(y.gid)), [...shown].sort((x, y) => x.gid.localeCompare(y.gid)));
+  assert.ok(payload.seen.every((x) => !('account' in x) && Object.keys(x).length === 3), 'seen entries carry only gid/round_id/version');
+});
+
+test('a notify_snapshot response older than the snapshot pushed meanwhile is ignored (subscribe-first race)', async () => {
+  const older = snap([entry('a', 10)], { generated_at_ms: now - 500 });
+  const newer = snap([entry('a', 11)], { generated_at_ms: now });
+  assert.equal(acceptsSnapshotResponse(null, older), true, 'first snapshot always applies');
+  assert.equal(acceptsSnapshotResponse(newer, older), false, 'late response must not overwrite the event');
+  assert.equal(acceptsSnapshotResponse(older, newer), true);
+  assert.equal(acceptsSnapshotResponse(newer, newer), true, 'same generation is accepted (idempotent)');
+  // end-to-end with the mock: an event delivered while `notify_snapshot` is in flight is never lost
+  const ipc = createMockIpc('default', { tick: false, latency: 20 });
+  let current: AlarmSnapshot | null = null;
+  const seen: number[] = [];
+  ipc.listen<AlarmSnapshot>(Events.ALARM_SNAPSHOT, (s) => {
+    current = s;
+    seen.push(s.entries.length);
+  });
+  const pending = ipc.invoke<AlarmSnapshot>(NotifyCommands.SNAPSHOT);
+  ipc.tick(1); // arrives before the response
+  assert.deepEqual(seen, [3]);
+  const response = await pending;
+  if (acceptsSnapshotResponse(current, response)) current = response;
+  const cur = current as AlarmSnapshot | null;
+  assert.ok(cur);
+  assert.ok(cur.generated_at_ms >= response.generated_at_ms, 'displayed snapshot is never older than the response');
+  ipc.dispose();
 });
 
 test('mock notify: version mismatch rejected, snooze bumps version, subscribe-first order delivers ticks', async () => {

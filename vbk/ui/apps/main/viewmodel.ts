@@ -223,7 +223,14 @@ export type OrderContactEvent =
   | { readonly type: 'query'; readonly orderId: string }
   | { readonly type: 'result'; readonly orderId: string; readonly result: OrderSearchResult }
   | { readonly type: 'error'; readonly orderId: string; readonly error: unknown }
+  /** The user picked one row out of a `multiple` result (04 §: 多个匹配，请核对后选择). */
+  | { readonly type: 'select'; readonly orderId: string }
   | { readonly type: 'reset' };
+
+/** `IM 联系` / `网页高级操作` are offered only for exactly one verified order. */
+export function canContactOrder(state: OrderContactState): state is Extract<OrderContactState, { kind: 'one' }> {
+  return state.kind === 'one';
+}
 
 export const ORDER_ID_RE = /^\d{10}$/;
 
@@ -263,6 +270,12 @@ export function orderContactReduce(state: OrderContactState, ev: OrderContactEve
         return { kind: 'unknown', orderId: ev.orderId, message: e.message };
       }
       return { kind: 'unknown', orderId: ev.orderId, message: errorMessage(e) };
+    }
+    case 'select': {
+      // Only a row of the current multiple result can be selected; the pick narrows it to `one`.
+      if (state.kind !== 'multiple') return state;
+      const order = state.orders.find((o) => o.order_id === ev.orderId);
+      return order ? { kind: 'one', orderId: state.orderId, order } : state;
     }
     default:
       return state;

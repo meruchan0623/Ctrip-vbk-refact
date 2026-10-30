@@ -7,12 +7,15 @@ import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
 import {
   MARK_COLORS,
+  canContactOrder,
   contextMenuCommand,
   contextMenuItems,
   filterConversations,
   findIccids,
   isValidOrderId,
+  logoutCommand,
   orderContactReduce,
+  orderDetailUrl,
   sendStateView,
   shouldShowTranslationBar,
   sortConversations,
@@ -78,6 +81,25 @@ test('tabCounts and filterConversations by tab/query', () => {
   assert.equal(unreadTotal(list), 2, 'finished conversations do not count toward unread');
 });
 
+test('colour marks never change ordering, tab counts or unread; pinned/colour mixes count correctly', () => {
+  const list = [
+    conv('a', { last_message_time_ms: 100, mark: 5, unread_count: 3 }),
+    conv('b', { last_message_time_ms: 900, mark: 0 }),
+    conv('c', { last_message_time_ms: 500, mark: 1, is_top: true, unread_count: 1 }),
+    conv('d', { last_message_time_ms: 950, mark: 3, status: 'finished', unread_count: 7 }),
+    conv('e', { last_message_time_ms: 50, mark: 2, is_top: true, status: 'transferred_out' }),
+  ];
+  const plain = list.map((c) => ({ ...c, mark: 0 as const }));
+  assert.deepEqual(sortConversations(list).map((c) => c.gid), sortConversations(plain).map((c) => c.gid), 'sort order is independent of colour');
+  assert.deepEqual(sortConversations(list).map((c) => c.gid), ['c', 'e', 'd', 'b', 'a']);
+  assert.deepEqual(tabCounts(list), tabCounts(plain));
+  assert.deepEqual(tabCounts(list), { doing: 3, done: 2 });
+  assert.equal(unreadTotal(list), unreadTotal(plain));
+  assert.equal(unreadTotal(list), 4);
+  assert.deepEqual(filterConversations(list, 'doing', '').map((c) => c.gid), ['c', 'b', 'a']);
+  assert.deepEqual(filterConversations(list, 'done', '').map((c) => c.gid), ['e', 'd'], 'pinned finished conversation still sorts first inside 已完成');
+});
+
 test('context menu produces official command payloads (top toggle, mark 0–5)', () => {
   const c = conv('g1', { is_top: false, mark: 2 });
   assert.deepEqual(contextMenuCommand(c, { kind: 'toggle_top' }), { cmd: UiCommands.IM_SET_TOP, payload: { account: ctx, gid: 'g1', top: true } });
@@ -128,6 +150,70 @@ test('order-contact state machine: none/one/multiple/forbidden/unknown, late res
   assert.equal(isValidOrderId('0000000001'), true);
   assert.equal(isValidOrderId('1234'), false);
   assert.equal(isValidOrderId(' 0000000001 '), true);
+});
+
+test('order contact: IM 联系 only for exactly one verified order; a multiple result must be picked first', () => {
+  const order = { order_id: '0000000002', product: 'p', use_date: 'd', quantity: 'q', status: 's', contact: '客户B' };
+  const other = { ...order, order_id: '0000000005' };
+  const loading = orderContactReduce({ kind: 'idle' }, { type: 'query', orderId: '0000000002' });
+  const multiple = orderContactReduce(loading, { type: 'result', orderId: '0000000002', result: { kind: 'multiple', orders: [order, other] } });
+  assert.equal(multiple.kind, 'multiple');
+  assert.equal(canContactOrder(multiple), false, 'no IM button while several orders match');
+  for (const s of [{ kind: 'idle' } as const, loading, orderContactReduce(loading, { type: 'result', orderId: '0000000002', result: { kind: 'none' } }), orderContactReduce(loading, { type: 'result', orderId: '0000000002', result: { kind: 'forbidden' } }), orderContactReduce(loading, { type: 'error', orderId: '0000000002', error: { code: ErrorCodes.NET_TIMEOUT, message: 't', retryable: false } })]) {
+    assert.equal(canContactOrder(s), false, `no contact in state ${s.kind}`);
+  }
+  // picking a row of the result narrows it to one verified order
+  const picked = orderContactReduce(multiple, { type: 'select', orderId: '0000000005' });
+  assert.deepEqual(picked, { kind: 'one', orderId: '0000000002', order: other });
+  assert.equal(canContactOrder(picked), true);
+  // only rows of the current result can be picked; `select` is ignored elsewhere
+  assert.equal(orderContactReduce(multiple, { type: 'select', orderId: '0000000009' }), multiple);
+  assert.equal(orderContactReduce(loading, { type: 'select', orderId: '0000000002' }), loading);
+  assert.equal(orderContactReduce(picked, { type: 'select', orderId: '0000000002' }), picked);
+  // 网页高级操作 always targets the official detail page with the order id encoded
+  assert.equal(orderDetailUrl('0000000001'), 'https://vbooking.ctrip.com/ticket_order/order/detail?orderId=0000000001');
+  assert.equal(orderDetailUrl('a b&c'), 'https://vbooking.ctrip.com/ticket_order/order/detail?orderId=a%20b%26c');
+});
+
+test('mock: marking read never touches the waiting round; conversations and createimchat are per account', async () => {
+  const ipc = createMockIpc('default', { tick: false, latency: 0 });
+  const snap = await ipc.invoke<{ accounts: { context: { account_id: string; environment: string; session_generation: number } }[] }>(AccountCommands.SNAPSHOT);
+  const a = snap.accounts[0]?.context;
+  const b = snap.accounts[1]?.context;
+  assert.ok(a && b);
+  const before = (await ipc.invoke<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account: a })).find((c) => c.gid === 'g-demo-2');
+  assert.ok(before && before.unread_count > 0 && before.waiting_since_ms !== null);
+  const alarmBefore = await ipc.invoke<{ entries: unknown[] }>('notify_snapshot');
+  await ipc.invoke(UiCommands.IM_MARK_READ, { account: a, gid: 'g-demo-2' });
+  const after = (await ipc.invoke<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account: a })).find((c) => c.gid === 'g-demo-2');
+  assert.ok(after);
+  assert.equal(after.unread_count, 0);
+  assert.equal(after.waiting_since_ms, before.waiting_since_ms, 'waiting indicator comes only from host data; read state does not clear it');
+  assert.equal(after.waiting_confirmed, before.waiting_confirmed);
+  assert.deepEqual(await ipc.invoke('notify_snapshot').then((s) => (s as { entries: unknown[] }).entries), alarmBefore.entries, 'alarm rounds untouched by mark-read');
+  // account isolation
+  assert.deepEqual(await ipc.invoke(UiCommands.IM_CONVERSATIONS, { account: b }), [], 'account B sees none of A\'s conversations');
+  await assert.rejects(ipc.invoke(UiCommands.IM_MESSAGES, { account: b, gid: 'g-demo-1' }), (e: { code: string }) => e.code === ErrorCodes.IM_PERMISSION_DENIED);
+  await assert.rejects(ipc.invoke(UiCommands.IM_SET_MARK, { account: b, gid: 'g-demo-1', action: 1 }), (e: { code: string }) => e.code === ErrorCodes.IM_PERMISSION_DENIED);
+  // an in-flight createimchat carries the account from its payload, not the account active in the host
+  await ipc.invoke(AccountCommands.SWITCH, { account: b });
+  const r = await ipc.invoke<{ gid: string; reused: boolean }>(UiCommands.ORDER_CREATE_IM_CHAT, { account: a, order_id: '0000000001' });
+  assert.equal(r.reused, true, 'existing conversation of A is reused');
+  const empty = createMockIpc('empty', { tick: false, latency: 0 });
+  await empty.invoke(AccountCommands.SWITCH, { account: b });
+  const created = await empty.invoke<{ gid: string; reused: boolean }>(UiCommands.ORDER_CREATE_IM_CHAT, { account: a, order_id: '0000000001' });
+  assert.equal(created.reused, false);
+  const convA = await empty.invoke<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account: a });
+  assert.equal(convA.find((c) => c.gid === created.gid)?.account.account_id, a.account_id, 'new conversation belongs to the payload account');
+  assert.deepEqual(await empty.invoke(UiCommands.IM_CONVERSATIONS, { account: b }), [], 'not to the host-active account');
+  empty.dispose();
+  ipc.dispose();
+});
+
+test('three logout modes map to three distinct account commands', () => {
+  const cmds = (['suspend', 'logout', 'forget'] as const).map(logoutCommand);
+  assert.deepEqual(cmds, [AccountCommands.SUSPEND, AccountCommands.LOGOUT, AccountCommands.FORGET]);
+  assert.equal(new Set(cmds).size, 3);
 });
 
 test('translation gating and draft-version binding', () => {

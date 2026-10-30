@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ALLOWED_T1_SECONDS, DEFAULT_REMINDER_SETTINGS } from '../../packages/ipc/src/contracts.ts';
-import { NotifyCommands, PrefsCommands } from '../../packages/ipc/src/commands.ts';
+import { Events, NotifyCommands, PrefsCommands } from '../../packages/ipc/src/commands.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import type { PrefsSnapshot } from '../../packages/ipc/src/client.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
@@ -44,5 +44,27 @@ test('mock prefs: typed set, unknown key rejected, notify threshold validated', 
   await assert.rejects(ipc.invoke(UiCommands.ASSIST_TSIM_LOGIN, { user: 'demo', password: 'wrong' }));
   const ts = await ipc.invoke<{ logged_in: boolean; user: string }>(UiCommands.ASSIST_TSIM_LOGIN, { user: 'demo', password: 'ok' });
   assert.deepEqual(ts, { logged_in: true, user: 'demo' });
+  ipc.dispose();
+});
+
+test('every reminder toggle persists through the command the view-model picks (notify_set_* or prefs_set reminder.*)', async () => {
+  const ipc = createMockIpc('default', { tick: false, latency: 0 });
+  const alarmPushes: { settings: Record<string, unknown> }[] = [];
+  ipc.listen<{ settings: Record<string, unknown> }>(Events.ALARM_SNAPSHOT, (s) => alarmPushes.push(s));
+  const keys = ['continuous_l4', 'position_bottom_right', 'alert_during_dnd', 'alert_during_fullscreen', 'tray_flash', 'taskbar_badge'] as const;
+  for (const key of keys) {
+    const before = (await ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT)).reminder[key];
+    const { cmd, payload } = reminderCommand(key, !before);
+    assert.equal(cmd, UiCommands.PREFS_SET);
+    await ipc.invoke(cmd, payload); // used to be rejected with prefs.use_notify → toggle silently reverted
+    assert.equal((await ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT)).reminder[key], !before, `${key} persisted`);
+    assert.equal(alarmPushes.at(-1)?.settings[key], !before, `${key} reaches the alarm snapshot`);
+    await assert.rejects(ipc.invoke(cmd, { ...payload, value: 'yes' }), (e: { code: string }) => e.code === 'prefs.bad_type');
+  }
+  // the three alarm-core fields stay exclusive to notify_set_*
+  for (const key of ['enabled', 't1_seconds', 'timeout_sound']) {
+    await assert.rejects(ipc.invoke(UiCommands.PREFS_SET, { section: 'reminder', key, value: true }), (e: { code: string }) => e.code === 'prefs.use_notify');
+  }
+  await assert.rejects(ipc.invoke(UiCommands.PREFS_SET, { section: 'reminder', key: 'toString', value: 'x' }), (e: { code: string }) => e.code === 'prefs.unknown_key', 'inherited keys are not settings');
   ipc.dispose();
 });

@@ -42,25 +42,40 @@ export function hasTauri(): boolean {
   return tauriGlobal() !== null;
 }
 
-/** Throws when the host globals are absent; callers should check `hasTauri()` first. */
+/** Error code used when the host globals are missing (not part of the frozen contract; UI-only). */
+export const HOST_UNAVAILABLE = 'host.unavailable';
+
+/**
+ * Never throws: the globals are resolved lazily on every call, so a client
+ * created before `window.__TAURI__` exists works once it appears. Without the
+ * host, `invoke` rejects with an `AppError` (`host.unavailable`) and `listen`
+ * is a no-op that returns an unsubscribe function. Callers that want the mock
+ * instead should check `hasTauri()` first (see `apps/_shared/ipc.ts`).
+ */
 export function createTauriIpc(): IpcClient {
-  const g = tauriGlobal();
-  if (!g || !g.core?.invoke || !g.event?.listen) throw new Error('window.__TAURI__ is not available');
-  const invoke = g.core.invoke;
-  const listen = g.event.listen;
   return {
     invoke<T>(cmd: string, payload?: unknown): Promise<T> {
-      return invoke(cmd, payload ?? {}) as Promise<T>;
+      const invoke = tauriGlobal()?.core?.invoke;
+      if (!invoke) return Promise.reject({ code: HOST_UNAVAILABLE, message: 'window.__TAURI__ is not available', retryable: true });
+      try {
+        return Promise.resolve(invoke(cmd, payload ?? {})) as Promise<T>;
+      } catch (e) {
+        return Promise.reject(e);
+      }
     },
     listen<T>(event: string, cb: (payload: T) => void): () => void {
+      const listen = tauriGlobal()?.event?.listen;
+      if (!listen) return () => undefined;
       let disposed = false;
       let unlisten: (() => void) | null = null;
       void listen(event, (ev) => {
         if (!disposed) cb(ev.payload as T);
-      }).then((fn) => {
-        if (disposed) fn();
-        else unlisten = fn;
-      });
+      })
+        .then((fn) => {
+          if (disposed) fn();
+          else unlisten = fn;
+        })
+        .catch(() => undefined);
       return () => {
         disposed = true;
         if (unlisten) unlisten();
@@ -107,7 +122,10 @@ export const UiCommands = {
   MEDIA_PICK: 'media_pick', // {kind: 'image'|'file'|'video'} → {attachment_id, name} | null
   NET_STATUS: 'net_status', // {} → UiNetStatus
   // prefs (in addition to PrefsCommands.SNAPSHOT)
-  PREFS_SET: 'prefs_set', // {section, key, value} → PrefsSnapshot
+  // {section, key, value} → PrefsSnapshot. `section: 'reminder'` is accepted only for the fields without a
+  // notify_set_* command (continuous_l4, position_bottom_right, alert_during_dnd, alert_during_fullscreen,
+  // tray_flash, taskbar_badge); enabled / t1_seconds / timeout_sound are rejected (`prefs.use_notify`).
+  PREFS_SET: 'prefs_set',
   // assistant (TSim)
   ASSIST_TSIM_STATUS: 'assistant_tsim_status', // {} → {logged_in, user}
   ASSIST_TSIM_LOGIN: 'assistant_tsim_login', // {user, password} → {logged_in, user}  (password never stored in UI)

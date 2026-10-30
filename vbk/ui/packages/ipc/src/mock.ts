@@ -189,13 +189,13 @@ function seedNotices(now: number): { cats: UiNoticeCategory[]; items: UiNotice[]
     { id: 'nt-2', category_id: 'order', title: '订单退改申请（示例）', body: '示例订单 0000000002 申请退改，原因：行程变更。', time_ms: now - 3 * H, unread: true, url: 'https://vbooking.ctrip.com/ticket_order/order/detail?orderId=0000000002' },
     { id: 'nt-3', category_id: 'product', title: '产品审核通过（示例）', body: '示例产品 P00000 已上线。', time_ms: now - 26 * H, unread: true, url: 'https://vbooking.ctrip.com/' },
     { id: 'nt-4', category_id: 'finance', title: '结算单已生成（示例）', body: '示例金额 ¥0.00，请核对。', time_ms: now - 48 * H, unread: false, url: 'https://vbooking.ctrip.com/' },
-    { id: 'nt-5', category_id: 'system', title: '系统公告（示例）', body: '示例公告正文。', time_ms: now - 72 * H, unread: false, url: 'https://vbooking.ctrip.com/' },
+    { id: 'nt-5', category_id: 'system', title: '系统通知（示例）', body: '示例系统通知正文。', time_ms: now - 72 * H, unread: false, url: 'https://vbooking.ctrip.com/' },
   ];
   const cats: UiNoticeCategory[] = [
     { id: 'order', name: '订单通知', unread: 0 },
     { id: 'product', name: '产品通知', unread: 0 },
     { id: 'finance', name: '财务通知', unread: 0 },
-    { id: 'system', name: '系统公告', unread: 0 },
+    { id: 'system', name: '系统通知', unread: 0 },
   ].map((c) => ({ ...c, unread: items.filter((i) => i.category_id === c.id && i.unread).length }));
   return { cats, items };
 }
@@ -315,6 +315,17 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     emit(Events.PREFS_CHANGED, structuredClone(st.prefs));
   }
 
+  /** Conversations are isolated per account (01-shell): another account's gid is out of scope. */
+  function convFor(ctx: AccountContext, gid: string): UiConversation {
+    const c = st.conversations.get(gid);
+    if (!c || c.account.account_id !== ctx.account_id) throw appError(ErrorCodes.IM_PERMISSION_DENIED, '会话不在当前账号范围内');
+    return c;
+  }
+
+  function conversationsOf(ctx: AccountContext): UiConversation[] {
+    return Array.from(st.conversations.values()).filter((c) => c.account.account_id === ctx.account_id);
+  }
+
   function updateConv(gid: string, fn: (c: UiConversation) => UiConversation): UiConversation {
     const c = st.conversations.get(gid);
     if (!c) throw appError(ErrorCodes.IM_PERMISSION_DENIED, '会话不存在');
@@ -379,47 +390,45 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     [UiCommands.NET_STATUS]: async () => ({ ...st.net }),
 
     // ---- im
-    [ImCommands.CONVERSATION_SNAPSHOT]: async (p) => {
-      checkAccount(p);
-      return Array.from(st.conversations.values());
-    },
-    [UiCommands.IM_CONVERSATIONS]: async (p) => {
-      checkAccount(p);
-      return Array.from(st.conversations.values()).map((c) => ({ ...c }));
-    },
+    [ImCommands.CONVERSATION_SNAPSHOT]: async (p) => conversationsOf(checkAccount(p)),
+    [UiCommands.IM_CONVERSATIONS]: async (p) => conversationsOf(checkAccount(p)).map((c) => ({ ...c })),
     [UiCommands.IM_MESSAGES]: async (p) => {
-      checkAccount(p);
+      const ctx = checkAccount(p);
       const gid = String((p as { gid?: string }).gid ?? '');
+      convFor(ctx, gid);
       return (st.messages.get(gid) ?? []).map((m) => ({ ...m }));
     },
     [ImCommands.LOCATE]: async (p) => {
-      checkAccount(p);
+      const ctx = checkAccount(p);
       const gid = String((p as { gid?: string }).gid ?? '');
-      if (!st.conversations.has(gid)) throw appError(ErrorCodes.IM_PERMISSION_DENIED, '会话不在当前账号范围内');
+      convFor(ctx, gid);
       return { gid };
     },
     [UiCommands.IM_MARK_READ]: async (p) => {
-      checkAccount(p);
+      const ctx = checkAccount(p);
       const gid = String((p as { gid?: string }).gid ?? '');
-      if (st.conversations.has(gid)) updateConv(gid, (c) => ({ ...c, unread_count: 0 }));
+      // read state only: the waiting round (waiting_since_ms) is untouched (10-im: 已读不能清掉提醒)
+      convFor(ctx, gid);
+      updateConv(gid, (c) => ({ ...c, unread_count: 0 }));
       return null;
     },
     [UiCommands.IM_SET_TOP]: async (p) => {
-      checkAccount(p);
+      const ctx = checkAccount(p);
       const { gid, top } = p as { gid: string; top: boolean };
+      convFor(ctx, gid);
       return updateConv(gid, (c) => ({ ...c, is_top: !!top }));
     },
     [UiCommands.IM_SET_MARK]: async (p) => {
-      checkAccount(p);
+      const ctx = checkAccount(p);
       const { gid, action } = p as { gid: string; action: number };
       if (!Number.isInteger(action) || action < 0 || action > 5) throw appError('im.bad_mark', 'action 必须为 0–5');
+      convFor(ctx, gid);
       return updateConv(gid, (c) => ({ ...c, mark: action as MarkAction }));
     },
     [UiCommands.IM_SEND_TEXT]: async (p) => {
-      checkAccount(p);
+      const ctx = checkAccount(p);
       const { gid, local_id, text, original, quote_id } = p as { gid: string; local_id: string; text: string; original?: string; quote_id?: string };
-      const conv = st.conversations.get(gid);
-      if (!conv) throw appError(ErrorCodes.IM_PERMISSION_DENIED, '会话不存在');
+      const conv = convFor(ctx, gid);
       if (conv.status === 'finished') throw appError(ErrorCodes.IM_PERMISSION_DENIED, '会话已结束');
       if (!st.net.online) {
         return { kind: 'unknown' } satisfies SendDisposition;
@@ -492,17 +501,18 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       return { kind: 'one', order: o } satisfies OrderSearchResult;
     },
     [UiCommands.ORDER_CREATE_IM_CHAT]: async (p) => {
-      checkAccount(p);
+      // The conversation belongs to the account named in the payload, not to whichever account is active now.
+      const ctx = checkAccount(p);
       const id = String((p as { order_id?: string }).order_id ?? '');
       await delay(latency * 2);
-      const existing = Array.from(st.conversations.values()).find((c) => c.order?.order_id === id);
+      const existing = conversationsOf(ctx).find((c) => c.order?.order_id === id);
       if (existing) return { gid: existing.gid, reused: true };
       const o = ORDERS[id];
       if (!o) throw appError(ErrorCodes.IM_PERMISSION_DENIED, '当前账号无权联系该订单客户');
-      const gid = `g-demo-order-${id}`;
+      const gid = `g-demo-order-${ctx.account_id}-${id}`;
       const nowMs = now();
       const conv: UiConversation = {
-        account: activeContext(), gid, status: 'active', agent_in_group: true, is_owner: true, service_type: 'ticket', last_message_time_ms: nowMs, last_update_time_ms: nowMs, unread_count: 0, is_full_snapshot: true,
+        account: ctx, gid, status: 'active', agent_in_group: true, is_owner: true, service_type: 'ticket', last_message_time_ms: nowMs, last_update_time_ms: nowMs, unread_count: 0, is_full_snapshot: true,
         title: o.contact, color: '#2F6FED', lang: 'zh', biz: '订单联系', preview: '', draft: '', is_top: false, mark: 0, waiting_since_ms: null, waiting_confirmed: true, customer_tags: [], order: o,
       };
       st.conversations.set(gid, conv);
@@ -548,12 +558,15 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     [PrefsCommands.SNAPSHOT]: async () => structuredClone(st.prefs),
     [UiCommands.PREFS_SET]: async (p) => {
       const { section, key, value } = p as { section: string; key: string; value: unknown };
-      if (section === 'reminder') throw appError('prefs.use_notify', '提醒设置请通过 notify_set_* 修改');
+      // enabled / t1_seconds / timeout_sound are owned by the alarm core and only change through notify_set_*;
+      // the remaining reminder fields (L4, position, DND, fullscreen, tray, badge) are plain prefs.
+      if (section === 'reminder' && (key === 'enabled' || key === 't1_seconds' || key === 'timeout_sound')) throw appError('prefs.use_notify', '提醒设置请通过 notify_set_* 修改');
       const sec = (st.prefs as unknown as Record<string, Record<string, unknown>>)[section];
-      if (!sec || !(key in sec)) throw appError('prefs.unknown_key', `未知设置 ${section}.${key}`);
+      if (!sec || !Object.prototype.hasOwnProperty.call(sec, key)) throw appError('prefs.unknown_key', `未知设置 ${section}.${key}`);
       if (typeof sec[key] !== typeof value) throw appError('prefs.bad_type', `设置 ${section}.${key} 类型错误`);
       st.prefs = { ...st.prefs, [section]: { ...sec, [key]: value } } as PrefsSnapshot;
       pushPrefs();
+      if (section === 'reminder') pushAlarm(); // the alarm snapshot carries the reminder settings
       return structuredClone(st.prefs);
     },
 

@@ -214,6 +214,8 @@ const zhCN = {
   'order.col.status': '状态',
   'order.col.contact': '联系人',
   'order.col.actions': '操作',
+  'order.select': '选择此订单',
+  'order.selectTitle': '核对后选择这一笔，再「IM 联系」或「网页高级操作」',
   'order.im': 'IM 联系',
   'order.imBusy': '获取会话…',
   'order.web': '网页高级操作',

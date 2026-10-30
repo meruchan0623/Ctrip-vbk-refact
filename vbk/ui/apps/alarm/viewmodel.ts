@@ -65,6 +65,18 @@ export function hasL4(snapshot: AlarmSnapshot): boolean {
   return snapshot.settings.continuous_l4 && snapshot.entries.some((e) => e.level === 'L4');
 }
 
+/**
+ * Whether a snapshot returned by `notify_snapshot` may replace the one the
+ * window currently shows. The window subscribes to the event stream before it
+ * requests the snapshot, so an event can arrive while the request is in
+ * flight; the response is then older than what is displayed and must not
+ * win. Pushed events are always applied (the host stream is ordered); this
+ * guard is only for command responses.
+ */
+export function acceptsSnapshotResponse(current: AlarmSnapshot | null, response: AlarmSnapshot): boolean {
+  return current === null || response.generated_at_ms >= current.generated_at_ms;
+}
+
 export interface RoundRef {
   readonly account: AlarmEntry['account'];
   readonly gid: string;

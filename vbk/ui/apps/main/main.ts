@@ -5,8 +5,8 @@
  * (focus/caret/scroll preserved by `rerender`).
  */
 
-import type { AlarmSnapshot, ClockReading, SendDisposition } from '../../packages/ipc/src/contracts.ts';
-import { isAppError } from '../../packages/ipc/src/contracts.ts';
+import type { AccountContext, SendDisposition } from '../../packages/ipc/src/contracts.ts';
+import { RED_AFTER_SECONDS, isAppError } from '../../packages/ipc/src/contracts.ts';
 import { AccountCommands, Events, PrefsCommands, WindowLabels } from '../../packages/ipc/src/commands.ts';
 import type {
   PrefsSnapshot,
@@ -28,6 +28,7 @@ import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { badgeText, formatClock, formatDate, formatDuration, formatRelativeTime, initialOf } from '../../packages/ui-kit/src/format.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
+import { guarded, isAlarmSnapshot, isClockReading, isPrefsSnapshot, isToastPayload, isUiAccountSnapshot, isUiAgentStatus, isUiConversation, isUiMessage, isUiNetStatus } from '../_shared/guards.ts';
 import {
   AGENT_STATUS_ORDER,
   MARK_COLORS,
@@ -36,6 +37,7 @@ import {
   accountLabel,
   agentStatusColorVar,
   agentStatusLabel,
+  canContactOrder,
   contextMenuCommand,
   contextMenuItems,
   errorMessage,
@@ -160,6 +162,15 @@ function activeConv(s: MainState = S()): UiConversation | null {
   return s.conversations.find((c) => c.gid === s.activeGid) ?? null;
 }
 
+/** True when `account` is still the active one: results of an in-flight command for another account are dropped. */
+function stillActive(account: AccountContext): boolean {
+  const acc = activeAccount();
+  return !!acc && acc.context.account_id === account.account_id && acc.context.environment === account.environment;
+}
+
+/** Per-account state that must not leak across an account switch (navigation itself is kept). */
+const ACCOUNT_SCOPED_RESET = { activeGid: null, messages: {}, draft: '', quote: null, attachment: null, translation: TRANSLATION_IDLE, pkg: { status: 'idle', info: null, error: null }, order: { kind: 'idle' }, orderBusyId: null, ctxMenu: null, meMenu: false } as const satisfies Partial<MainState>;
+
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function toast(text: string): void {
   store.patch({ toast: text });
@@ -202,6 +213,7 @@ async function loadForActiveAccount(): Promise<void> {
     invokeSafe<UiNetStatus>(UiCommands.NET_STATUS, {}),
     invokeSafe<UiNoticeCategory[]>(UiCommands.NOTICE_CATEGORIES, { account }),
   ]);
+  if (!stillActive(account)) return; // the user switched accounts meanwhile: these belong to the old one
   const s = S();
   const conversations = convs ?? [];
   store.patch({
@@ -220,7 +232,7 @@ async function loadNotices(): Promise<void> {
   const s = S();
   if (!acc || !s.noticeCat) return;
   const list = await invokeSafe<UiNotice[]>(UiCommands.NOTICE_LIST, { account: acc.context, category_id: s.noticeCat });
-  if (list) store.patch({ notices: list });
+  if (list && stillActive(acc.context)) store.patch({ notices: list });
 }
 
 async function loadPrefs(): Promise<void> {
@@ -232,9 +244,11 @@ async function loadPrefs(): Promise<void> {
 
 async function switchAccount(a: UiAccount): Promise<void> {
   if (a.state === 'logging_in') return;
+  // Clicking the tab that is already active is a no-op: it must not close the open conversation or drop the draft.
+  if (a.context.account_id === S().accounts?.active_account_id) return;
   const snap = await invokeSafe<UiAccountSnapshot>(AccountCommands.SWITCH, { account: a.context });
   if (snap) {
-    store.patch({ accounts: snap, activeGid: null, messages: {}, draft: '', quote: null, attachment: null, translation: TRANSLATION_IDLE, meMenu: false });
+    store.patch({ accounts: snap, ...ACCOUNT_SCOPED_RESET });
     await loadForActiveAccount();
   }
 }
@@ -463,7 +477,7 @@ async function refreshNoticeCats(): Promise<void> {
   const acc = activeAccount();
   if (!acc) return;
   const cats = await invokeSafe<UiNoticeCategory[]>(UiCommands.NOTICE_CATEGORIES, { account: acc.context });
-  if (cats) store.patch({ noticeCats: cats });
+  if (cats && stillActive(acc.context)) store.patch({ noticeCats: cats });
 }
 
 // --------------------------------------------------------------- order contact
@@ -479,22 +493,31 @@ async function runOrderQuery(id?: string): Promise<void> {
   store.patch({ orderQuery: orderId, order: orderContactReduce(S().order, { type: 'query', orderId }) });
   try {
     const result = await ipc.invoke<import('../../packages/ipc/src/client.ts').OrderSearchResult>(UiCommands.ORDER_SEARCH, { account: acc.context, order_id: orderId });
+    if (!stillActive(acc.context)) return; // the result is scoped to the account that issued the query
     store.patch({ order: orderContactReduce(S().order, { type: 'result', orderId, result }) });
   } catch (e) {
+    if (!stillActive(acc.context)) return;
     store.patch({ order: orderContactReduce(S().order, { type: 'error', orderId, error: e }) });
   }
 }
 
+function selectOrder(o: UiOrderSummary): void {
+  store.patch({ order: orderContactReduce(S().order, { type: 'select', orderId: o.order_id }) });
+}
+
 async function contactViaIm(o: UiOrderSummary): Promise<void> {
   const acc = activeAccount();
-  if (!acc || S().orderBusyId) return;
+  if (!acc || S().orderBusyId || !canContactOrder(S().order)) return;
   store.patch({ orderBusyId: o.order_id });
   try {
+    // Both calls carry the account that was active when the user clicked, even if they switch tabs meanwhile.
     const r = await ipc.invoke<{ gid: string; reused: boolean }>(UiCommands.ORDER_CREATE_IM_CHAT, { account: acc.context, order_id: o.order_id });
     const convs = await ipc.invoke<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account: acc.context });
+    if (!stillActive(acc.context)) return; // never show another account's conversations under the active tab
     store.patch({ conversations: convs, orderBusyId: null, tab: 'doing' });
     await openConversation(r.gid);
   } catch (e) {
+    if (!stillActive(acc.context)) return;
     store.patch({ orderBusyId: null });
     toast(t('order.imFailed', { msg: errorMessage(e) }));
   }
@@ -680,7 +703,7 @@ function conversationList(s: MainState): HTMLElement {
           'div',
           { class: 'crow', style: { 'margin-top': '2px' } },
           h('span', { class: 'chip chip-biz' }, c.biz),
-          waiting ? h('span', { class: cx('wait', waitedSec >= 90 ? 'red' : 'amber') }, icon(IC.clock, 11), c.waiting_confirmed ? t('list.waiting', { t: formatDuration(waitedSec) }) : `${t('list.waiting', { t: formatDuration(waitedSec) })} · ${t('list.waitingPending')}`) : null,
+          waiting ? h('span', { class: cx('wait', waitedSec >= RED_AFTER_SECONDS ? 'red' : 'amber') }, icon(IC.clock, 11), c.waiting_confirmed ? t('list.waiting', { t: formatDuration(waitedSec) }) : `${t('list.waiting', { t: formatDuration(waitedSec) })} · ${t('list.waitingPending')}`) : null,
           isDone(c) ? h('span', { class: 'chip chip-muted' }, t('list.finished')) : null,
           c.is_top ? icon(IC.pin, 12, { style: 'color: var(--c-text-faint)', 'aria-label': t('list.pinned') }) : null,
         ),
@@ -1014,8 +1037,15 @@ function notificationsView(s: MainState): HTMLElement {
 
 // ---- order contact view
 
-function orderRow(s: MainState, o: UiOrderSummary): HTMLElement {
+function orderRow(s: MainState, o: UiOrderSummary, verified: boolean): HTMLElement {
   const busy = s.orderBusyId === o.order_id;
+  // 「IM 联系」/「网页高级操作」only for exactly one verified order; a row of a multiple result must be picked first.
+  const actions = verified
+    ? [
+        h('button', { class: 'btn sm pri', dataset: { action: 'im' }, disabled: busy, onclick: () => void contactViaIm(o) }, busy ? h('span', { class: 'spin' }) : icon(IC.chat, 13), busy ? t('order.imBusy') : t('order.im')),
+        h('button', { class: 'btn sm', dataset: { action: 'web' }, title: t('order.webTitle'), onclick: () => void openWebAdvanced(o) }, icon(IC.lock, 13), t('order.web')),
+      ]
+    : [h('button', { class: 'btn sm', dataset: { action: 'select' }, title: t('order.selectTitle'), onclick: () => selectOrder(o) }, icon(IC.check, 13), t('order.select'))];
   return h(
     'div',
     { class: 'grid-r', dataset: { order: o.order_id } },
@@ -1025,12 +1055,7 @@ function orderRow(s: MainState, o: UiOrderSummary): HTMLElement {
     h('span', { class: 'cell' }, o.quantity),
     h('span', null, h('span', { class: 'chip chip-info' }, o.status)),
     h('span', { class: 'cell' }, o.contact),
-    h(
-      'span',
-      { style: { display: 'flex', gap: '6px' } },
-      h('button', { class: 'btn sm pri', dataset: { action: 'im' }, disabled: busy, onclick: () => void contactViaIm(o) }, busy ? h('span', { class: 'spin' }) : icon(IC.chat, 13), busy ? t('order.imBusy') : t('order.im')),
-      h('button', { class: 'btn sm', dataset: { action: 'web' }, title: t('order.webTitle'), onclick: () => void openWebAdvanced(o) }, icon(IC.lock, 13), t('order.web')),
-    ),
+    h('span', { style: { display: 'flex', gap: '6px' } }, actions),
   );
 }
 
@@ -1049,7 +1074,7 @@ function orderView(s: MainState): HTMLElement {
       { class: 'panel', dataset: { orderState: st.kind } },
       h('div', { class: 'ph' }, t('order.result', { n: orders.length }), st.kind === 'multiple' ? h('span', { class: 'chip chip-warn', style: { 'margin-left': '8px' } }, t('order.multiple')) : h('span', { class: 'muted', style: { 'font-size': '12px', 'font-weight': '400', 'margin-left': '8px' } }, t('order.verify'))),
       h('div', { class: 'grid-h' }, h('span', null, t('order.col.id')), h('span', null, t('order.col.product')), h('span', null, t('order.col.date')), h('span', null, t('order.col.qty')), h('span', null, t('order.col.status')), h('span', null, t('order.col.contact')), h('span', null, t('order.col.actions'))),
-      orders.map((o) => orderRow(s, o)),
+      orders.map((o) => orderRow(s, o, st.kind === 'one')),
     );
   }
   return h(
@@ -1143,27 +1168,39 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// subscribe first, then request snapshots
-ipc.listen<UiAccountSnapshot>(Events.ACCOUNT_CHANGED, (snap) => {
-  const prev = S().accounts?.active_account_id ?? null;
-  store.patch({ accounts: snap });
-  if (snap.active_account_id !== prev) void loadForActiveAccount();
-});
-ipc.listen<UiConversation>(Events.IM_CONVERSATION_CHANGED, (c) => {
-  const acc = activeAccount();
-  if (acc && c.account.account_id === acc.context.account_id) upsertConversation(c);
-});
-ipc.listen<UiMessage>(Events.IM_MESSAGE_NEW, (m) => upsertMessage(m));
-ipc.listen<PrefsSnapshot>(Events.PREFS_CHANGED, (p) => store.patch({ prefs: p }));
-ipc.listen<ClockReading>(Events.NET_CLOCK, (c) => store.patch({ clockTrusted: c.quality.kind === 'anchored' }));
-ipc.listen<AlarmSnapshot>(Events.ALARM_SNAPSHOT, (snap) => {
-  const s = S();
-  const count = snap.entries.filter((e) => e.snoozed_until_ms === null || e.snoozed_until_ms <= snap.generated_at_ms).length;
-  if (count !== s.alarmCount || snap.clock_trusted !== s.clockTrusted) store.patch({ alarmCount: count, clockTrusted: snap.clock_trusted });
-});
-ipc.listen<UiNetStatus>(UiEvents.NET_STATUS, (n) => store.patch({ net: n }));
-ipc.listen<UiAgentStatus>(UiEvents.AGENT_STATUS, (a) => store.patch({ agent: a }));
-ipc.listen<{ text: string }>(UiEvents.TOAST, (p) => toast(p.text));
+// subscribe first, then request snapshots; every payload is validated before it reaches the store
+ipc.listen<unknown>(
+  Events.ACCOUNT_CHANGED,
+  guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, (snap) => {
+    const prev = S().accounts?.active_account_id ?? null;
+    if (snap.active_account_id !== prev) {
+      store.patch({ accounts: snap, ...ACCOUNT_SCOPED_RESET });
+      void loadForActiveAccount();
+    } else {
+      store.patch({ accounts: snap });
+    }
+  }),
+);
+ipc.listen<unknown>(
+  Events.IM_CONVERSATION_CHANGED,
+  guarded(Events.IM_CONVERSATION_CHANGED, isUiConversation, (c) => {
+    if (stillActive(c.account)) upsertConversation(c);
+  }),
+);
+ipc.listen<unknown>(Events.IM_MESSAGE_NEW, guarded(Events.IM_MESSAGE_NEW, isUiMessage, (m) => upsertMessage(m)));
+ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, (p) => store.patch({ prefs: p })));
+ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => store.patch({ clockTrusted: c.quality.kind === 'anchored' })));
+ipc.listen<unknown>(
+  Events.ALARM_SNAPSHOT,
+  guarded(Events.ALARM_SNAPSHOT, isAlarmSnapshot, (snap) => {
+    const s = S();
+    const count = snap.entries.filter((e) => e.snoozed_until_ms === null || e.snoozed_until_ms <= snap.generated_at_ms).length;
+    if (count !== s.alarmCount || snap.clock_trusted !== s.clockTrusted) store.patch({ alarmCount: count, clockTrusted: snap.clock_trusted });
+  }),
+);
+ipc.listen<unknown>(UiEvents.NET_STATUS, guarded(UiEvents.NET_STATUS, isUiNetStatus, (n) => store.patch({ net: n })));
+ipc.listen<unknown>(UiEvents.AGENT_STATUS, guarded(UiEvents.AGENT_STATUS, isUiAgentStatus, (a) => store.patch({ agent: a })));
+ipc.listen<unknown>(UiEvents.TOAST, guarded(UiEvents.TOAST, isToastPayload, (p) => toast(p.text)));
 
 setInterval(() => {
   if (clockEl) clockEl.textContent = `${formatDate(Date.now())} ${formatClock(Date.now(), true)}`;

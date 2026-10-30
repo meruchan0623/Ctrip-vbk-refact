@@ -12,7 +12,8 @@ import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.t
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
-import { SNOOZE_OPTIONS, deriveAlarmRows, entryCommand, hasL4, headerTitle, hideAllCommand, rowKey, thresholdText } from './viewmodel.ts';
+import { guarded, isAlarmSnapshot } from '../_shared/guards.ts';
+import { SNOOZE_OPTIONS, acceptsSnapshotResponse, deriveAlarmRows, entryCommand, hasL4, headerTitle, hideAllCommand, rowKey, thresholdText } from './viewmodel.ts';
 import type { AlarmAction } from './viewmodel.ts';
 
 interface AlarmState {
@@ -37,8 +38,10 @@ function notice(text: string): void {
 
 async function refresh(): Promise<void> {
   try {
-    const snap = await ipc.invoke<AlarmSnapshot>(NotifyCommands.SNAPSHOT, {});
-    store.patch({ snapshot: snap });
+    const snap = await ipc.invoke<unknown>(NotifyCommands.SNAPSHOT, {});
+    if (!isAlarmSnapshot(snap)) throw new Error('notify_snapshot: malformed snapshot');
+    // an event that arrived while the request was in flight is newer than this response
+    if (acceptsSnapshotResponse(store.get().snapshot, snap)) store.patch({ snapshot: snap });
   } catch (e) {
     notice(t('alarm.cmdFailed', { msg: isAppError(e) ? e.message : String(e) }));
   }
@@ -138,8 +141,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && store.get().snoozeMenu) store.patch({ snoozeMenu: null });
 });
 
-// subscribe-first, then snapshot
-ipc.listen<AlarmSnapshot>(Events.ALARM_SNAPSHOT, (snap) => store.patch({ snapshot: snap }));
+// subscribe-first, then snapshot; a malformed event payload is dropped, never rendered
+ipc.listen<unknown>(Events.ALARM_SNAPSHOT, guarded(Events.ALARM_SNAPSHOT, isAlarmSnapshot, (snap) => store.patch({ snapshot: snap })));
 void refresh();
 
 exposeForTests(sel, { __vbkStore: store });

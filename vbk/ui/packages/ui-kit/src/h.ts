@@ -52,8 +52,9 @@ function applyProps(el: HTMLElement | SVGElement, props: Props): void {
     } else if (key === 'dataset') {
       // camelCase keys become kebab-case attributes, mirroring `el.dataset`.
       for (const [k, v] of Object.entries(value as Record<string, string>)) el.setAttribute(`data-${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`, v);
-    } else if (key.startsWith('on') && typeof value === 'function') {
-      el.addEventListener(key.slice(2).toLowerCase(), value as EventListener);
+    } else if (key.startsWith('on')) {
+      // Listeners only: an `on*` prop is never written as an inline-handler attribute (CSP: no inline script).
+      if (typeof value === 'function') el.addEventListener(key.slice(2).toLowerCase(), value as EventListener);
     } else if (BOOL_PROPS.has(key)) {
       (el as unknown as Record<string, unknown>)[key] = value === true;
     } else if (key === 'value') {
