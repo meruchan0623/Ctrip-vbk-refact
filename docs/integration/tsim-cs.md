@@ -97,3 +97,12 @@
 仓库根目录运行 `node --experimental-strip-types tools/contracts/run-vbooking-contract-demo.mts`。该入口直接执行当前真实 SDK glue 与 submitIntent，用合成 callback facade/时钟重现精度完整的 confirmed、明确 rejected、无回执/不安全 ID/销毁后的 unknown，以及 void 返回不确认已读。无浏览器和网络依赖；所有结果只写终端，不调用 TSim 或上游。
 
 发送断言是应用层一次 facade 调用及零宿主额外 HTTP，不代表官方 SDK 内部 exactly-once；示例没有持久化或重启 reconciler，不能当成迁移第6步完成。JSON 映射仍为未实施提案，运行说明见 [契约工具](../../tools/contracts/README.md)。
+
+## 示例宿主的持久发送边界（2026-10-31新增）
+
+本仓库已在79e5e50把实际Tauri im_send_text接入独立FileStore账本，详见[宿主发送屏障](../api/outbound-journal.md)。稳定environment/account/local_id去重、不可变payload hash、write_started落盘/fsync、confirmed/rejected/unknown回放可供迁移第6步参考；generation仅作审计。故障测试使用真实FileStore，但不是TSim数据库实现，也没有完成unknown只读核验UI或跨进程运行验收。
+
+未来dispatcher/reconciler应把这个准入边界替换为TSim事务与租约，保留原幂等键，不能直接把本地文件当正式共享数据库。Rejected的原始reason可能回显正文，需固定说明或脱敏后持久化；write_started代表已准入但不证明网络包已发。实例重启先读回不确定状态，不能转pending盲重发。现有离线adapter演示仍是纯内存回调演示，与这份宿主测试分别说明。
+
+
+周边动作在eb67560通过独立的peripheral_journal持久准入：room/action未知屏障、token+目标摘要墓碑以及明确not_submitted分类详见[周边契约](../api/peripheral-actions.md)。它保守跨服务会话锁住unknown，当前没有核验后解锁UI；未来迁移须设计只读权威证据和审计解锁，不能删除账本、换token或改目标绕过。官方已接受与实际生效分别建模，不让客服面板刷新成为重试器。
