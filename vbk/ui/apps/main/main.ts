@@ -59,6 +59,7 @@ import {
 import type { SoundName } from '../_shared/guards.ts';
 import { playSound, stopSound } from './sound.ts';
 import { settleAccountSend } from './sendScope.ts';
+import { messageAlignment } from './message-alignment.ts';
 import {
   AGENT_STATUS_ORDER,
   BANNER_VISIBLE,
@@ -80,7 +81,6 @@ import {
   findIccids,
   highlightParts,
   isDone,
-  isOutbound,
   isValidOrderId,
   langName,
   logoutCommand,
@@ -1129,8 +1129,10 @@ function richText(text: string): HTMLElement[] {
 }
 
 function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAccount | null): HTMLElement {
-  if (m.kind === 'system') return h('div', { class: 'msg-sys' }, h('span', null, m.text));
-  const mine = isOutbound(m);
+  const alignment = messageAlignment(m);
+  if (alignment.side === 'system') return h('div', { class: 'msg-sys' }, h('span', null, m.text));
+  const alignRight = alignment.side === 'right';
+  const isSelf = alignment.self;
   const showTime = s.prefs?.general.show_msg_time ?? true;
   let body: HTMLElement;
   if (m.kind === 'order_card') {
@@ -1155,12 +1157,12 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
       m.original ? h('div', { class: 'btr' }, h('span', { class: 'trtag' }, t('chat.original')), h('span', null, m.original)) : null,
     );
   }
-  const st = mine ? sendStateView(m.disposition) : null;
-  const who = mine ? roleLabel('merchant_self') : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role);
+  const st = isSelf ? sendStateView(m.disposition) : null;
+  const who = isSelf ? roleLabel('merchant_self') : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role);
   return h(
     'div',
-    { class: cx('msg', { mine }), dataset: { mid: m.local_id ?? m.message_id ?? '' } },
-    h('div', { class: 'ava sm', style: { background: mine ? (acc?.color ?? '#5B6676') : conv.color } }, mine ? (acc ? accountInitial(acc) : '我') : initialOf(conv.title)),
+    { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '' } },
+    h('div', { class: 'ava sm', style: { background: isSelf ? (acc?.color ?? '#5B6676') : conv.color } }, isSelf ? (acc ? accountInitial(acc) : '我') : initialOf(conv.title)),
     h(
       'div',
       { class: 'mcol' },
