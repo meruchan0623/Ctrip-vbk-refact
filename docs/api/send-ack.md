@@ -9,3 +9,5 @@
 `send.test.ts` 新增负向回归：修复前 `{error:0}` 被误判为空 ID 的 confirmed（6 通过/1 失败），修复后缺字段、畸形码、不安全数值均保持 unknown，长字符串 ID 无损通过，断言 SDK 一次、HTTP 零次。原始输出在本机 `/tmp/vbk-send-ack-red.tap` 与 `/tmp/vbk-send-ack-green.tap`，不入 Git。
 
 提交验证更正：`3a9dcda` 的提交正文误写独立全量 TS191 通过；该次实际为190通过/1失败，bundle因 `&&` 未执行。失败来自旧 `send.review.test.ts` 对畸形码强制 rejected 的契约。后续提交保留全部8个输入和明确错误码的逐字段断言，将缺证据分支要求改为 unknown，并增加每意图一次SDK、零HTTP重试、fact一致与监听器/计时器清理断言；没有删除或跳过测试。历史不重写，重新验证输出另行记录。
+
+SDK Promise 回执桥同样必须在数字转字符串前验证 ID：`sdkGlue.ts::idStr` 只接受非空字符串或非负安全整数。`sdk-boundary.test.ts` 通过真实 createPageSdk→submitIntent 链路证明不安全数值不会被桥接成 confirmed；长字符串保持精度。修复前负向测试失败，修复后通过。

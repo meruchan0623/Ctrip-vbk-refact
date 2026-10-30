@@ -226,8 +226,8 @@ export interface PageSdkOptions extends TimerDeps {
 type Listener<K extends keyof SdkEventMap> = (p: SdkEventMap[K]) => void;
 
 function idStr(x: unknown): string | null {
-  if (typeof x === 'string' && x !== '') return x;
-  if (typeof x === 'number' && Number.isFinite(x)) return String(x);
+  if (typeof x === 'string' && x.trim() !== '') return x;
+  if (typeof x === 'number' && Number.isSafeInteger(x) && x >= 0) return String(x);
   return null;
 }
 
