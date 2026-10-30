@@ -8,9 +8,10 @@
  * Quote: `citemsgid` is an XML attribute passed as an SDK option, not a body field.
  *
  * Dispositions:
- * - `send_result` with `error === 0` and matching `localid` → `confirmed`
+ * - `send_result` with `error === 0`, a lossless nonempty tid and matching `localid` → `confirmed`
  *   (`server_message_id` = `tid`, `server_time_ms` = `create_time`)
- * - `send_result` with any other `error` → `rejected`
+ * - `send_result` with an explicit nonzero integer `error` → `rejected`
+ * - incomplete / malformed acknowledgment → `unknown`
  * - no matching ack within the timeout → `unknown`
  * `unknown` triggers NO resend and NO extra HTTP fallback: the official SDK
  * already falls back to `11679/SendMessage.json` on its own when the
@@ -165,11 +166,13 @@ export interface SendResult {
 
 function classifyAck(ack: SdkSendResultEvent, fallbackTime: number): SendDisposition {
   const error = typeof ack.error === 'number' ? ack.error : typeof ack.error === 'string' && /^-?\d+$/.test(ack.error) ? Number(ack.error) : null;
+  if (error === null || !Number.isSafeInteger(error)) return { kind: 'unknown' };
   if (error === 0) {
-    const tid = typeof ack.tid === 'string' ? ack.tid : typeof ack.tid === 'number' ? String(ack.tid) : '';
+    const tid = typeof ack.tid === 'string' && ack.tid.trim() !== '' ? ack.tid : typeof ack.tid === 'number' && Number.isSafeInteger(ack.tid) && ack.tid >= 0 ? String(ack.tid) : null;
+    if (tid === null) return { kind: 'unknown' };
     return { kind: 'confirmed', server_message_id: tid, server_time_ms: normalizeTimeMs(ack.create_time) ?? normalizeTimeMs(ack.ts) ?? fallbackTime };
   }
-  return { kind: 'rejected', code: error === null ? 'unknown_error' : String(error), reason: typeof ack.reason === 'string' ? ack.reason : '' };
+  return { kind: 'rejected', code: String(error), reason: typeof ack.reason === 'string' ? ack.reason : '' };
 }
 
 function factFor(intent: SendIntent, disposition: SendDisposition): MessageFact {

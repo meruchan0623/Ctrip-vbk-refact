@@ -6,6 +6,33 @@ import { OK_STATUS, jsonResponse, makeDeps } from './testing.ts';
 
 const conv = { serviceType: '1513', threadId: '' };
 
+test('submit: incomplete acknowledgments stay unknown without resending or inventing server IDs', async () => {
+  const malformed = [
+    { error: 0 }, { error: 0, tid: '' }, { error: 0, tid: '   ' },
+    { error: 0, tid: 9007199254740992 }, { error: 0, tid: 1.5 },
+    { tid: 'server-id' }, { error: 'not-a-code', tid: 'server-id' },
+    { error: Number.NaN, tid: 'server-id' },
+  ];
+  for (const ack of malformed) {
+    const deps = makeDeps();
+    const intent = createSendIntent(deps, 'g1', 'synthetic body', conv);
+    const pending = submitIntent(deps, deps.fakeSdk, intent);
+    deps.fakeSdk.emit('send_result', { ...ack, localid: intent.localId });
+    const result = await pending;
+    assert.deepEqual(result.disposition, { kind: 'unknown' }, JSON.stringify(ack));
+    assert.equal(result.fact.message_id, null);
+    await deps.clock.advance(10000);
+    assert.equal(deps.fakeSdk.sent.length, 1);
+    assert.equal(deps.fakeFetch.calls.length, 0);
+    assert.equal(deps.fakeSdk.listenerCount('send_result'), 0);
+  }
+  const deps = makeDeps();
+  const intent = createSendIntent(deps, 'g1', 'synthetic body', conv);
+  const pending = submitIntent(deps, deps.fakeSdk, intent);
+  deps.fakeSdk.emit('send_result', { error: '0', tid: '9223372036854775806', localid: intent.localId, create_time: '1700000000999' });
+  assert.deepEqual((await pending).disposition, { kind: 'confirmed', server_message_id: '9223372036854775806', server_time_ms: 1700000000999 });
+});
+
 test('send intent: body fields exactly as documented, biztype from the conversation, threadid as-is', () => {
   const deps = makeDeps();
   const a = createSendIntent(deps, 'g1', 'hello "<&>"\nline', conv);
