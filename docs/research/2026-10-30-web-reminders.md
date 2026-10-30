@@ -1,6 +1,6 @@
 # 网页消息提醒与“强提醒”调查
 
-2026-10-30，Asia/Singapore。解释网页实际提醒链路，落实[只做网页版已有功能](../decisions/2026-10-30-web-only-scope.md)的决定。覆盖新版 `vbooking.ctrip.com/vbk/im/main`，并对照订单联系入口打开的旧版 `imvendor.ctrip.com/main`。
+2026-10-30，Asia/Singapore。解释网页实际提醒链路。当前范围以[范围决定](../decisions/2026-10-30-web-only-scope.md)为准：网页能力为基准，独立强提醒窗口为用户明确保留的唯一扩展。覆盖新版 `vbooking.ctrip.com/vbk/im/main`，并对照订单联系入口打开的旧版 `imvendor.ctrip.com/main`。
 
 ## 1. 结论
 
@@ -9,7 +9,7 @@
 | 能力 | 当前证据 | 开发处理 |
 | --- | --- | --- |
 | 新消息/系统通知提醒 | 实际出现右下角“系统通知”；旧版标签实际出现“您有新消息”；代码有浏览器通知和单次声音 | 保留网页语义 |
-| 回复超时强提醒 | 新版共享业务代码计算超时，但网页适配器没有承接 `reply_timeout`；未发现可用的对应独立弹窗入口或 API | 不移植桌面 alarm，不新增持续置顶、循环声音或升级策略 |
+| 回复超时强提醒 | 新版共享业务代码计算超时，但网页适配器没有承接 `reply_timeout`；未发现可用的对应独立弹窗入口或 API | 用户明确保留独立窗口作为本项目扩展，使用已有消息事实本地计算；不新增循环声音或分级升级 |
 | 通知分类“特别关注” | 有 `optStatus=alert` 分支，但分类右键菜单在 `platform==web` 时 disabled，星标入口也排除 web | 不把共享代码中未启用的菜单做成网页能力 |
 
 这不是对所有账号和网页版本的永久性结论；目标网页若以后出现真实入口，应先补证据调整范围。默认设置字段、枚举或未启用代码不能单独成为开发任务。
@@ -52,7 +52,7 @@ flowchart TD
 4. 时间比较为 `Date.now() - createTime + (__server_client_timediff__ || 0)` 与阈值比较；没有调用平台 SLA、首响考核或后端倒计时接口。
 5. 结果经 `nT.sendCommonEvent(en.replyTimeout, list, user)` 发出。但 `nT` 绑定到浏览器适配对象 `nx`，其 `sendCommonEvent` **只处理 `openExtraWindow` 并调用 `window.open`**，没有 `reply_timeout` 分支；`listenToCommonEvent` 也返回空解除函数。
 
-所以默认值 `replyTimeoutAlarm=true`、枚举 `reply_timeout` 都不能证明网页会显示桌面强提醒窗。这里不是一个待补 URL 的后端接口，而是当前网页没有承接的展示分支；按用户决定，该分支不做。
+所以默认值 `replyTimeoutAlarm=true`、枚举 `reply_timeout` 都不能证明网页会显示桌面强提醒窗。这里不是一个待补 URL 的后端接口，而是当前网页没有承接的展示分支。用户随后明确保留独立窗口，因此由本项目在网页事实之上新增本地实现，不能宣称为网页原有功能。
 
 ## 4. 普通提醒的数据与展示
 
@@ -99,8 +99,8 @@ flowchart TD
 
 ## 6. 开发处理与证据
 
-原 [03 强提醒](../dev/03-strong-alert.md) 的 L0–L4 升级、持续置顶、循环声音、alarm/notifier/tooltip 窗口、托盘闪烁等旧桌面对齐/扩展要求取消。
+原方案的 L0–L4 升级、循环声音、独立普通横幅/托盘预览窗口等要求取消。**单一独立 alarm 窗口按用户后续要求保留**，它是明确授权的本地扩展；采用置顶但不抢焦点显示，不反复抢置顶，设计见[03 强提醒](../dev/03-strong-alert.md)。
 
-只实现网页已确认的消息/通知计数、普通横幅、标题/浏览器通知与单次声音。保持网页触发条件、去重、声音开关、权限失败处理和会话定位；不将本地计时描述成平台考核。后台调度、自动播放是否被阻止等仍需在新实现中验收。
+网页基准仍保留已确认的消息/通知计数、普通横幅、标题/浏览器通知与单次声音。新增独立窗口复用同一份消息/会话事实，由 Rust 维护等待轮次和期限；其他扩展不恢复。不将本地计时描述成平台考核。后台消息接入、恢复对账和窗口行为仍需实际原型验收。
 
 当前源码 SHA、字符偏移和摘录见[网页静态证据](evidence/web-message-notice-static-20261030.json)，重点标签为 `timeout-scheduler`、`timeout-calculation`、`timeout-dispatch`、`web-adapter-common-event-no-timeout-handler`、`browser-notification-and-title`、`web-notice-category-controls-disabled`。
