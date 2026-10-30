@@ -31,6 +31,7 @@
 - [03 独立强提醒](03-shell-business-notification.md)
 - [04 已取消的额外工作包](04-media-and-assistant.md)
 - [05 当前验收](05-release-validation.md)
+- [前端原型删减清单](2026-10-30-frontend-prototype-pruning.md)
 
 任务完成须有代码、具体网页版本、受控样本和实际结果，不能把本计划或既有自然流量观测当成验收。调度由执行时决定，不要求创建固定数量代理。
 
