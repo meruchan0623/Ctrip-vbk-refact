@@ -110,7 +110,7 @@ export class ConversationStore {
 /** Room jid of a gid from an HTTP message object (`toJid` / `partner` whose local part is the gid). */
 export function roomJidFromMessage(gid: string, msg: HttpMessageObject | null): string | null {
   if (!msg) return null;
-  for (const c of [msg.partner, msg.toJid]) {
+  for (const c of [msg.partner, msg.toJid, msg.fromJid]) {
     if (typeof c === 'string' && c.includes('@') && jidLocal(c) === gid) {
       const slash = c.indexOf('/');
       return slash >= 0 ? c.slice(0, slash) : c;

@@ -258,9 +258,9 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
   if (createTime === null) return null;
   const partner = str(msg.partner);
   const to = str(msg.toJid);
-  const g = gid ?? (partner ? jidLocal(partner) : to ? jidLocal(to) : null);
-  if (!g) return null;
   const from = str(msg.fromJid);
+  const g = gid ?? (partner ? jidLocal(partner) : from?.includes('/') ? jidLocal(from) : to ? jidLocal(to) : null);
+  if (!g) return null;
   const sender = from ? jidSender(from) : '';
   const cite = idStr((msg as { citeMsgId?: unknown }).citeMsgId);
   return {

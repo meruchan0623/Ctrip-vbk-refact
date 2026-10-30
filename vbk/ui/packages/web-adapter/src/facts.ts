@@ -176,9 +176,9 @@ export function normalizeHttpMessage(msg: HttpMessageObject, opts: NormalizeHttp
   if (createTime === null) return null;
   const partner = s(msg.partner);
   const to = s(msg.toJid);
-  const gid = opts.gid ?? (partner ? jidLocal(partner) : to ? jidLocal(to) : null);
-  if (!gid) return null;
   const from = s(msg.fromJid);
+  const gid = opts.gid ?? (partner ? jidLocal(partner) : from?.includes('/') ? jidLocal(from) : to ? jidLocal(to) : null);
+  if (!gid) return null;
   const senderId = from ? jidSender(from) : '';
   return {
     gid,
