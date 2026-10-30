@@ -71,8 +71,9 @@ fn run(app: AppHandle) {
                     }
                 }
                 Effect::Unread { total, badge } => {
-                    tray::set_unread_tooltip(&app, badge.text());
-                    set_taskbar_badge(&app, badge.text(), total);
+                    let text = badge.text();
+                    tray::set_unread_tooltip(&app, text.as_deref());
+                    set_taskbar_badge(&app, text.as_deref(), total);
                 }
                 Effect::Banner {
                     account,
