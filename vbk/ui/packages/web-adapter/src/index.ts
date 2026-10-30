@@ -6,6 +6,11 @@
  * conversation-list poller(s), compensation loop and the bridge. `start()`
  * subscribes to the SDK first, then starts the pollers; `stop()` tears
  * everything down; a restart bumps the epoch so the host re-handshakes.
+ *
+ * `auth_invalid` is reported by whichever loop sees it first: the adapter
+ * stops every loop and pushes the fact once per run (a restart after
+ * re-login reports again). The SDK listeners stay attached so transport
+ * facts keep flowing; the host decides when to `stop()`/`start()`.
  */
 
 export * from './deps.ts';
@@ -27,7 +32,7 @@ export * from './translation.ts';
 export * from './settings.ts';
 export * from './bridge.ts';
 
-import type { AccountContext, TransportState } from '../../ipc/src/contracts.ts';
+import type { AccountContext, AdapterFact, TransportState } from '../../ipc/src/contracts.ts';
 import type { AdapterDeps, SdkSocketStatus } from './deps.ts';
 import { AdapterBridge } from './bridge.ts';
 import { SoaClient, type ServerTimeSample } from './soa.ts';
@@ -62,8 +67,11 @@ export interface Adapter {
   readonly running: boolean;
 }
 
+const TRANSPORT_STATES: ReadonlySet<string> = new Set<TransportState>(['connecting', 'connected', 'disconnected', 'reconnecting']);
+
+/** The page glue is unverified: anything outside the contract is treated as "not connected", never forwarded verbatim. */
 function toTransport(status: SdkSocketStatus): TransportState {
-  return status;
+  return typeof status === 'string' && TRANSPORT_STATES.has(status) ? status : 'disconnected';
 }
 
 export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter {
@@ -73,8 +81,23 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
   let roles: MemberRoles = opts.roles ?? UNKNOWN_ROLES;
   const rolesProxy: MemberRoles = { roleOf: (uid) => roles.roleOf(uid) };
 
+  let authInvalidSeen = false;
+  const stopLoops = (): void => {
+    compensation.stop();
+    for (const p of conversationPollers) p.stop();
+  };
+  /** Each loop reports auth failure on its own; the host hears it once per run and every loop stops. */
+  const emit = (fact: AdapterFact): void => {
+    if (fact.kind === 'auth_invalid') {
+      if (authInvalidSeen) return;
+      authInvalidSeen = true;
+      stopLoops();
+    }
+    bridge.emit(fact);
+  };
+
   const compensation = createCompensationLoop(deps, soa, {
-    emit: bridge.emit,
+    emit,
     roles: rolesProxy,
     initialBeginMsgTime: opts.initialBeginMsgTime,
     ...(opts.stopNormalLoopAfterLimit !== undefined ? { stopNormalLoopAfterLimit: opts.stopNormalLoopAfterLimit } : {}),
@@ -83,7 +106,7 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
   const conversationPollers = (opts.conversationListVariants ?? ['plain']).map((variant) =>
     createConversationListPoller(deps, soa, {
       variant,
-      emit: bridge.emit,
+      emit,
       includeLocale: opts.includeLocaleInConversationList ?? false,
       ...(opts.unread ? { unread: opts.unread } : {}),
     }),
@@ -107,6 +130,7 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
     start() {
       if (running) return;
       running = true;
+      authInvalidSeen = false;
       if (started) bridge.bumpEpoch();
       started = true;
       // subscribe before any snapshot so nothing is missed between the two

@@ -2,6 +2,9 @@
  * Order → conversation entry (docs/dev/04-business-pages.md,
  * docs/research/2026-10-30-web-order-conversation.md).
  *
+ * Both 14361 requests carry the platform head (`cver:"1.0"`, empty
+ * extension, no appId) exactly as sampled, not the IM business head.
+ *
  * - `searchOrderExact(ttdOrderId)`: `sec-m.ctrip.com/14361/searchorderlist`
  *   with `ttdOrderId` as a STRING; the other observed fields are copied as
  *   defaults where the doc recorded a value (`contentType:"json",
@@ -20,7 +23,7 @@
 
 import type { AdapterDeps } from './deps.ts';
 import { Endpoints } from './endpoints.ts';
-import { businessHead } from './heads.ts';
+import { businessHead, platformHead } from './heads.ts';
 import { isBizSuccess, recordOrNull, type SoaClient, type SoaOutcome } from './soa.ts';
 import { mapConversationStatus } from './conversationList.ts';
 import type { ConversationStatus } from '../../ipc/src/contracts.ts';
@@ -44,7 +47,7 @@ export const ORDER_SEARCH_DEFAULTS = { contentType: 'json', pageIndex: 1, pageSi
 export function searchOrderListBody(deps: AdapterDeps, ttdOrderId: string, p: OrderSearchParams): Record<string, unknown> {
   return {
     contentType: ORDER_SEARCH_DEFAULTS.contentType,
-    head: businessHead(deps.context),
+    head: platformHead(deps.context),
     page: p.page,
     ttdOrderId,
     pageIndex: p.pageIndex ?? ORDER_SEARCH_DEFAULTS.pageIndex,
@@ -108,7 +111,7 @@ interface CreateImChatResponse {
 }
 
 export async function createImChat(deps: AdapterDeps, soa: SoaClient, ttdOrderId: string): Promise<CreateImChatResult> {
-  const body = { contentType: 'json', head: businessHead(deps.context), ttdOrderId };
+  const body = { contentType: 'json', head: platformHead(deps.context), ttdOrderId };
   const outcome = await soa.post<CreateImChatResponse>(Endpoints.CREATE_IM_CHAT, body);
   if (outcome.kind === 'unknown') return { kind: 'unknown_may_have_created' };
   if (outcome.kind !== 'success') return { kind: 'rejected', outcome, errorCode: null, errorMsg: '' };

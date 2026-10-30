@@ -4,6 +4,7 @@
  * nothing beyond the observed fields may be assumed.
  *
  * - `17092/listNoticeReceiveConfig` (online.ctrip.com) `{scene, head}` → `configList[]`
+ *   (platform head: `cver:"1.0"`, empty extension, no appId — sample 63)
  * - `16037/getAgentWorkingSchedule` `{head, locale, venAgentUid}` → `workingSchedule`
  * - `16037/getVenAgentByUid` `{head}` → `venAgent`, `venAgentOption`
  * - `16037/syncVenAgentInfo` `{head}` (write; read back with getVenAgentByUid afterwards)
@@ -11,7 +12,7 @@
 
 import type { AdapterDeps } from './deps.ts';
 import { Endpoints } from './endpoints.ts';
-import { businessHead } from './heads.ts';
+import { businessHead, platformHead } from './heads.ts';
 import { isBizSuccess, recordOrNull, type SoaClient, type SoaOutcome } from './soa.ts';
 
 export type ReadResult<T> = { readonly kind: 'ok'; readonly value: T; readonly raw: unknown } | { readonly kind: 'failed'; readonly outcome: SoaOutcome<unknown> } | { readonly kind: 'biz_failure'; readonly raw: unknown };
@@ -25,7 +26,7 @@ export interface NoticeReceiveConfig {
 }
 
 export async function listNoticeReceiveConfig(deps: AdapterDeps, soa: SoaClient, scene: string = NOTICE_SCENE_OBSERVED): Promise<ReadResult<readonly NoticeReceiveConfig[]>> {
-  const outcome = await soa.post<{ configList?: unknown }>(Endpoints.LIST_NOTICE_RECEIVE_CONFIG, { scene, head: businessHead(deps.context) });
+  const outcome = await soa.post<{ configList?: unknown }>(Endpoints.LIST_NOTICE_RECEIVE_CONFIG, { scene, head: platformHead(deps.context) });
   if (outcome.kind !== 'success') return { kind: 'failed', outcome };
   const list = Array.isArray(outcome.body.configList) ? outcome.body.configList : [];
   const value: NoticeReceiveConfig[] = [];

@@ -8,6 +8,11 @@
  *   GetMyInfo.json, SendMessage.json). `protocol` with a colon, lowercase
  *   `vbk`, empty `client-source`.
  *
+ * - `platformHead`: the third observed shape (`cver:"1.0"`, empty
+ *   `extension`, no `appId`), documented verbatim for
+ *   `14361/searchorderlist`, `14361/createimchat`,
+ *   `15529/sendCardMessageForOffline` and `17092/listNoticeReceiveConfig`.
+ *
  * Other services have their own head and must NOT reuse these templates:
  * `18088/getAppConfig.json` was observed with an independent head, and
  * `12405/getCurrentUserInfo` (online.ctrip.com) carries extra top-level
@@ -39,6 +44,18 @@ export interface SdkHead {
   readonly extension: readonly HeadExtension[];
 }
 
+export interface PlatformHead {
+  readonly cid: string;
+  readonly ctok: '';
+  readonly cver: '1.0';
+  readonly lang: '01';
+  readonly sid: string;
+  readonly syscode: '09';
+  readonly auth: '';
+  readonly xsid: '';
+  readonly extension: readonly HeadExtension[];
+}
+
 export const BUSINESS_APP_ID = '900004';
 export const SDK_APP_ID = '100067816';
 
@@ -62,6 +79,25 @@ export function businessHead(ctx: PageContext): BusinessHead {
       { name: 'locale', value: ctx.locale },
     ],
     appId: BUSINESS_APP_ID,
+  };
+}
+
+/**
+ * Exactly the observed "公共 SOA 包装层" head: `cver:"1.0"`, empty
+ * `extension`, no `appId` (samples 58/59/61/39/63). Used by the order
+ * entry (14361), the product card (15529) and notice settings (17092).
+ */
+export function platformHead(ctx: PageContext): PlatformHead {
+  return {
+    cid: ctx.cid,
+    ctok: '',
+    cver: '1.0',
+    lang: '01',
+    sid: ctx.sid,
+    syscode: '09',
+    auth: '',
+    xsid: '',
+    extension: [],
   };
 }
 

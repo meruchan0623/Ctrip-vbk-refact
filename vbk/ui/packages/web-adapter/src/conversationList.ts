@@ -69,6 +69,7 @@ export const NO_UNREAD: UnreadLookup = { unreadOf: () => null };
  * 0 when unknown — see the contract change request in the module report.
  */
 export function toConversationFact(item: ConversationListItem, isFullSnapshot: boolean, unread: UnreadLookup = NO_UNREAD): ConversationFact | null {
+  if (typeof item !== 'object' || item === null) return null;
   if (typeof item.gid !== 'string' || item.gid === '') return null;
   return {
     gid: item.gid,

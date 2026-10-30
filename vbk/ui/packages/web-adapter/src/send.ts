@@ -20,13 +20,14 @@
  *
  * Media: `msgtype:"1"` image, `"3"` video, `"5"` file; `msg` is the inner
  * JSON *as a string* (one serialization, never double-encoded).
- * Product cards go through HTTP `15529/sendCardMessageForOffline`.
+ * Product cards go through HTTP `15529/sendCardMessageForOffline` with the
+ * platform head (`cver:"1.0"`, empty extension) exactly as sampled (39).
  */
 
 import type { MessageFact, SendDisposition } from '../../ipc/src/contracts.ts';
 import type { AdapterDeps, ImSdkHandle, SdkSendBody, SdkSendResultEvent } from './deps.ts';
 import { Endpoints } from './endpoints.ts';
-import { businessHead } from './heads.ts';
+import { platformHead } from './heads.ts';
 import type { SoaClient, SoaOutcome } from './soa.ts';
 import { normalizeTimeMs } from './facts.ts';
 
@@ -202,7 +203,8 @@ export function submitIntent(deps: AdapterDeps, sdk: ImSdkHandle, intent: SendIn
       resolve({ intent, disposition, fact: factFor(intent, disposition) });
     };
     unsubscribe = sdk.on('send_result', (ack) => {
-      if (ack.localid !== intent.localId) return;
+      // the page glue is unverified: a non-object ack is noise, never a throw inside the SDK dispatch
+      if (typeof ack !== 'object' || ack === null || ack.localid !== intent.localId) return;
       finish(classifyAck(ack, deps.now()));
     });
     timer = deps.setTimeout(() => finish({ kind: 'unknown' }), timeoutMs);
@@ -238,7 +240,7 @@ export type ProductCardResult =
 export async function sendProductCard(deps: AdapterDeps, soa: SoaClient, req: ProductCardRequest): Promise<ProductCardResult> {
   const body = {
     contentType: 'json',
-    head: businessHead(deps.context),
+    head: platformHead(deps.context),
     inSession: req.inSession ?? true,
     senderRole: 'Advisor',
     platformId: 0,

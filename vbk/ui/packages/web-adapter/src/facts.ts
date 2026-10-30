@@ -62,8 +62,9 @@ function norm(uid: string): string {
 export function buildMemberRoles(input: MemberRolesInput): MemberRoles {
   const map = new Map<string, SenderRole>();
   const self = norm(input.selfUid);
-  for (const m of input.members) {
-    if (typeof m.uid !== 'string' || m.uid === '') continue;
+  const members = Array.isArray(input.members) ? input.members : [];
+  for (const m of members) {
+    if (typeof m !== 'object' || m === null || typeof m.uid !== 'string' || m.uid === '') continue;
     const roles = Array.isArray(m.roles) ? m.roles : [];
     const isMerchant = roles[1] === 4 || roles[2] === 4;
     if (isMerchant) map.set(norm(m.uid), norm(m.uid) === self ? 'merchant_self' : 'merchant_other');
@@ -168,8 +169,9 @@ function s(x: unknown): string | null {
   return typeof x === 'string' && x !== '' ? x : null;
 }
 
-/** Returns `null` when the object lacks a usable create time or gid; callers skip such rows. */
+/** Returns `null` when the row is not an object or lacks a usable create time or gid; callers skip such rows. */
 export function normalizeHttpMessage(msg: HttpMessageObject, opts: NormalizeHttpOptions): MessageFact | null {
+  if (typeof msg !== 'object' || msg === null) return null;
   const createTime = normalizeTimeMs(msg.createTime);
   if (createTime === null) return null;
   const partner = s(msg.partner);
@@ -204,6 +206,7 @@ export interface NormalizeSdkOptions {
  * `input_state` becomes a `typing` fact (no message id).
  */
 export function normalizeSdkMessage(evt: SdkMessageEvent, opts: NormalizeSdkOptions): MessageFact | null {
+  if (typeof evt !== 'object' || evt === null) return null;
   const type = s(evt.type);
   if (type === 'notify_ack' || type === 'send_result') return null;
   const from = s(evt.from);
