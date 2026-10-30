@@ -9,3 +9,5 @@
 回归文件：`vbk/ui/packages/web-adapter/src/history-unread.test.ts`。它使用真实页面 session、RPC、history 和 unread 逻辑，仅 SOA/SDK 传输由仓库已有 fake 模拟；验证历史确实返回消息、读取本身零回执、UI 的未读门槛仍会触发回执及服务端零值可更新。
 
 本轮继承的未提交 `rpc.ts` 历史补全会重投影会话，缺少 unread lookup 时产生零值；修复前该测试实际失败 `0 !== 3`，修复后 1/1 通过。原始输出仅存本机 `/tmp/vbk-history-unread-red.tap`、`/tmp/vbk-history-unread-green.tap`，不将日志入 Git。此行为提交是统一出口的不变量防护，不包含继承的分页/身份/订单功能，亦不把离线回归等同于三端实机验收。
+
+宿主补充：`im_mark_read` 收到 SDK ack 后只返回调用结果，不再调用 core.on_open_conversation 或 DisplayCache.clear_unread；DisplayCache 的此本地清零入口移除。真实服务端计数经既有 adapter fact/display 路径进入核心和界面。新增 Rust cache 回归验证3→同值3不产生变化→服务端0才清零；它不模拟 Tauri 窗口，结合session回归和宿主实际diff评审作为离线证据，原生验收另计。

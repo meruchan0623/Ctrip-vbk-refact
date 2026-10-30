@@ -837,16 +837,8 @@ pub async fn im_mark_read(
     )
     .await
     .map_err(e2dto)?;
-    // Clears unread only; a waiting round is never ended by reading.
-    if let Some(core) = state.lock().im.get_mut(&ctx) {
-        core.on_open_conversation(&gid);
-    }
-    let m = module(&app).map_err(e2dto)?;
-    let changed = lock(&m.display).clear_unread(&ctx, &gid).unwrap_or(false);
-    if changed {
-        emit_conversations(&app, &ctx, &[gid]);
-        sync_unread(&app, &ctx);
-    }
+    // An SDK acknowledgment is not an authoritative unread snapshot. Keep both
+    // core and display counts until the account adapter reports the server count.
     Ok(())
 }
 

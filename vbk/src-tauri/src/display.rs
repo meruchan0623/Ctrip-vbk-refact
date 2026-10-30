@@ -594,18 +594,6 @@ impl DisplayCache {
         Ok(fresh)
     }
 
-    /// Local echo after a confirmed `im.mark_read`.
-    pub fn clear_unread(&mut self, ctx: &AccountContext, gid: &str) -> Result<bool, AppError> {
-        let acc = self.entry_mut(ctx)?;
-        Ok(match acc.conversations.get_mut(gid) {
-            Some(c) if c.fact.unread_count != 0 => {
-                c.fact.unread_count = 0;
-                true
-            }
-            _ => false,
-        })
-    }
-
     /// Local echo after a confirmed `im.set_mark`.
     pub fn set_mark(
         &mut self,
@@ -760,6 +748,19 @@ mod tests {
             order_id: None,
             disposition: None,
         }
+    }
+
+    #[test]
+    fn unread_requires_authoritative_server_snapshot_and_preserves_same_value() {
+        let mut cache = DisplayCache::new();
+        cache.apply(&ctx(1), convs(true, &[("g1", 3)], &[])).unwrap();
+        assert_eq!(cache.total_unread(&ctx(1)), 3);
+        let unchanged = cache.apply(&ctx(1), convs(false, &[("g1", 3)], &[])).unwrap();
+        assert_eq!(unchanged, DisplayDelta::Conversations { changed: vec![], removed: vec![] });
+        assert_eq!(cache.total_unread(&ctx(1)), 3);
+        let cleared = cache.apply(&ctx(1), convs(false, &[("g1", 0)], &[])).unwrap();
+        assert_eq!(cleared, DisplayDelta::Conversations { changed: vec!["g1".into()], removed: vec![] });
+        assert_eq!(cache.total_unread(&ctx(1)), 0);
     }
 
     #[test]
