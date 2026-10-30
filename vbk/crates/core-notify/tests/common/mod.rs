@@ -33,9 +33,18 @@ pub fn started(round: WaitingRoundRef, start_time_ms: Option<i64>, confirmed: bo
 }
 
 /// Opens a confirmed round for `gid` starting at `now`.
-pub fn open_round(core: &mut NotifyCore, account: &AccountContext, gid: &str, now: &Now) -> Vec<Effect> {
+pub fn open_round(
+    core: &mut NotifyCore,
+    account: &AccountContext,
+    gid: &str,
+    now: &Now,
+) -> Vec<Effect> {
     core.apply_round_event(
-        started(rref(account, gid, &format!("r-{gid}"), 1), Some(now.server_now_ms), true),
+        started(
+            rref(account, gid, &format!("r-{gid}"), 1),
+            Some(now.server_now_ms),
+            true,
+        ),
         now,
     )
 }

@@ -120,8 +120,11 @@ impl FileStore {
     fn load(&self, ns: &Namespace) -> Result<NsState, AppError> {
         let pending = self.unacknowledged_quarantine(ns)?;
         if !pending.is_empty() {
-            return Err(err(codes::STORE_CORRUPT, "namespace has unacknowledged quarantined data")
-                .with_detail(pending.join(",")));
+            return Err(err(
+                codes::STORE_CORRUPT,
+                "namespace has unacknowledged quarantined data",
+            )
+            .with_detail(pending.join(",")));
         }
         let dir = self.namespace_dir(ns);
         let path = dir.join(STATE_FILE);
@@ -138,11 +141,17 @@ impl FileStore {
             Err(reason) => {
                 let quarantine = dir.join(format!("{CORRUPT_PREFIX}{}", now_ms()));
                 fs::rename(&path, &quarantine).map_err(|e| io_err("quarantine", &e))?;
-                Err(err(codes::STORE_CORRUPT, "state document could not be decoded; quarantined")
-                    .with_detail(format!(
-                        "{reason}; file={}",
-                        quarantine.file_name().and_then(|n| n.to_str()).unwrap_or("?")
-                    )))
+                Err(err(
+                    codes::STORE_CORRUPT,
+                    "state document could not be decoded; quarantined",
+                )
+                .with_detail(format!(
+                    "{reason}; file={}",
+                    quarantine
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("?")
+                )))
             }
         }
     }
@@ -182,7 +191,12 @@ impl Store for FileStore {
         Ok(fact)
     }
 
-    fn get(&self, ns: &Namespace, collection: &str, key: &str) -> Result<Option<JsonValue>, AppError> {
+    fn get(
+        &self,
+        ns: &Namespace,
+        collection: &str,
+        key: &str,
+    ) -> Result<Option<JsonValue>, AppError> {
         Ok(self.load(ns)?.get(collection, key).cloned())
     }
 

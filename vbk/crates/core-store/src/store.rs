@@ -130,7 +130,10 @@ impl Txn {
         self.writes.len()
     }
 
-    pub(crate) fn into_parts(self, store_tag: u64) -> Result<(Namespace, Vec<Write>, Vec<Expectation>), AppError> {
+    pub(crate) fn into_parts(
+        self,
+        store_tag: u64,
+    ) -> Result<(Namespace, Vec<Write>, Vec<Expectation>), AppError> {
         if self.store_tag != store_tag {
             return Err(err(
                 codes::STORE_TXN_MISMATCH,
@@ -150,7 +153,12 @@ pub trait Store {
     /// Applies the transaction atomically. Nothing is visible before this
     /// returns `Ok`.
     fn commit(&self, txn: Txn) -> Result<CommitFact, AppError>;
-    fn get(&self, ns: &Namespace, collection: &str, key: &str) -> Result<Option<JsonValue>, AppError>;
+    fn get(
+        &self,
+        ns: &Namespace,
+        collection: &str,
+        key: &str,
+    ) -> Result<Option<JsonValue>, AppError>;
     /// All records of a collection, sorted by key.
     fn list(&self, ns: &Namespace, collection: &str) -> Result<Vec<(String, JsonValue)>, AppError>;
     /// Last commit fact; `None` when the namespace was never committed.
@@ -245,7 +253,10 @@ impl NsState {
         meta.insert("environment", JsonValue::string(ns.environment.as_str()));
         meta.insert("account_id", JsonValue::string(ns.account_id.as_str()));
         meta.insert("revision", JsonValue::number_from_i64(self.revision as i64));
-        meta.insert("committed_at_ms", JsonValue::number_from_i64(self.committed_at_ms));
+        meta.insert(
+            "committed_at_ms",
+            JsonValue::number_from_i64(self.committed_at_ms),
+        );
         let mut collections = JsonValue::object();
         for (name, records) in &self.collections {
             let mut obj = JsonValue::object();
@@ -264,16 +275,28 @@ impl NsState {
     /// is a non-sensitive reason for the quarantine marker.
     pub fn from_json(doc: &JsonValue, ns: &Namespace) -> Result<Self, String> {
         let meta = doc.get("meta").ok_or("missing meta")?;
-        let env = meta.get("environment").and_then(JsonValue::as_str).ok_or("missing environment")?;
-        let acc = meta.get("account_id").and_then(JsonValue::as_str).ok_or("missing account_id")?;
+        let env = meta
+            .get("environment")
+            .and_then(JsonValue::as_str)
+            .ok_or("missing environment")?;
+        let acc = meta
+            .get("account_id")
+            .and_then(JsonValue::as_str)
+            .ok_or("missing account_id")?;
         if env != ns.environment.as_str() || acc != ns.account_id.as_str() {
             return Err("identity mismatch".to_string());
         }
-        let revision = meta.get("revision").and_then(JsonValue::as_i64).ok_or("missing revision")?;
+        let revision = meta
+            .get("revision")
+            .and_then(JsonValue::as_i64)
+            .ok_or("missing revision")?;
         if revision < 0 {
             return Err("negative revision".to_string());
         }
-        let committed_at_ms = meta.get("committed_at_ms").and_then(JsonValue::as_i64).unwrap_or(0);
+        let committed_at_ms = meta
+            .get("committed_at_ms")
+            .and_then(JsonValue::as_i64)
+            .unwrap_or(0);
         let mut collections = BTreeMap::new();
         if let Some(cols) = doc.get("collections") {
             let cols = cols.as_object().ok_or("collections is not an object")?;
@@ -326,9 +349,13 @@ mod tests {
         assert!(e.is(codes::STORE_CAS_CONFLICT));
 
         let doc = next.to_json(&ns());
-        let back = NsState::from_json(&JsonValue::parse(&doc.to_json()).expect("parse"), &ns()).expect("decode");
+        let back = NsState::from_json(&JsonValue::parse(&doc.to_json()).expect("parse"), &ns())
+            .expect("decode");
         assert_eq!(back, next);
         let other = Namespace::new(Environment::named("t"), AccountId::new("acc_2"));
-        assert_eq!(NsState::from_json(&doc, &other), Err("identity mismatch".to_string()));
+        assert_eq!(
+            NsState::from_json(&doc, &other),
+            Err("identity mismatch".to_string())
+        );
     }
 }

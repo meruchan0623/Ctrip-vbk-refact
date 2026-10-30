@@ -79,8 +79,15 @@ fn l1_flashes_until_main_focus_or_zero_unread() {
     let a = acc("a", 1);
     let base = t0();
     let fx = core.on_new_message(&a, "g1", false, &base);
-    assert_eq!(fx, vec![Effect::TrayFlash(true)], "non-customer message: L1 only");
-    assert!(core.on_new_message(&a, "g1", false, &base).is_empty(), "already flashing");
+    assert_eq!(
+        fx,
+        vec![Effect::TrayFlash(true)],
+        "non-customer message: L1 only"
+    );
+    assert!(
+        core.on_new_message(&a, "g1", false, &base).is_empty(),
+        "already flashing"
+    );
     let fx = core.set_system_state(
         SystemState {
             main_window_focused: true,
@@ -89,11 +96,17 @@ fn l1_flashes_until_main_focus_or_zero_unread() {
         &base,
     );
     assert_eq!(fx, vec![Effect::TrayFlash(false)]);
-    assert!(core.on_new_message(&a, "g1", false, &base).is_empty(), "focused: no flash");
+    assert!(
+        core.on_new_message(&a, "g1", false, &base).is_empty(),
+        "focused: no flash"
+    );
 
     let _ = core.set_system_state(SystemState::default(), &base);
     let _ = core.on_unread_changed(&a, "g1", 2);
-    assert_eq!(core.on_new_message(&a, "g1", false, &base), vec![Effect::TrayFlash(true)]);
+    assert_eq!(
+        core.on_new_message(&a, "g1", false, &base),
+        vec![Effect::TrayFlash(true)]
+    );
     assert_eq!(
         core.on_unread_changed(&a, "g1", 0),
         vec![
@@ -141,15 +154,28 @@ fn banners_merge_per_conversation_and_sound_is_throttled() {
         ]
     );
     let fx = core.on_new_message(&a, "g1", true, &base.plus_ms(1_000));
-    assert_eq!(fx, vec![banner(2, "g1")], "merged; sound throttled (1 s < 1.5 s)");
+    assert_eq!(
+        fx,
+        vec![banner(2, "g1")],
+        "merged; sound throttled (1 s < 1.5 s)"
+    );
     let fx = core.on_new_message(&a, "g2", true, &base.plus_ms(1_500));
-    assert_eq!(fx, vec![banner(1, "g2"), Effect::PlaySound(Sound::NewMessage)]);
+    assert_eq!(
+        fx,
+        vec![banner(1, "g2"), Effect::PlaySound(Sound::NewMessage)]
+    );
     let fx = core.on_new_message(&a, "g1", true, &base.plus_ms(5_000));
-    assert_eq!(fx, vec![banner(3, "g1"), Effect::PlaySound(Sound::NewMessage)]);
+    assert_eq!(
+        fx,
+        vec![banner(3, "g1"), Effect::PlaySound(Sound::NewMessage)]
+    );
     // Stay window elapsed since the last g1 bump → count restarts.
     let _ = core.tick(&base.plus_ms(11_000));
     let fx = core.on_new_message(&a, "g1", true, &base.plus_ms(11_000));
-    assert_eq!(fx, vec![banner(1, "g1"), Effect::PlaySound(Sound::NewMessage)]);
+    assert_eq!(
+        fx,
+        vec![banner(1, "g1"), Effect::PlaySound(Sound::NewMessage)]
+    );
 }
 
 #[test]
@@ -167,8 +193,13 @@ fn banner_suppressed_while_viewing_that_conversation_in_focused_main() {
     );
     assert!(core.on_new_message(&a, "g1", true, &base).is_empty());
     let fx = core.on_new_message(&a, "g2", true, &base);
-    assert!(fx.iter().any(|e| matches!(e, Effect::Banner { gid, count: 1, .. } if gid == "g2")));
-    assert!(!fx.iter().any(|e| matches!(e, Effect::TrayFlash(_))), "focused: no L1");
+    assert!(fx
+        .iter()
+        .any(|e| matches!(e, Effect::Banner { gid, count: 1, .. } if gid == "g2")));
+    assert!(
+        !fx.iter().any(|e| matches!(e, Effect::TrayFlash(_))),
+        "focused: no L1"
+    );
 
     // Viewing g1 but main unfocused: the banner shows.
     let _ = core.set_system_state(
@@ -180,5 +211,7 @@ fn banner_suppressed_while_viewing_that_conversation_in_focused_main() {
         &base,
     );
     let fx = core.on_new_message(&a, "g1", true, &base.plus_ms(10_000));
-    assert!(fx.iter().any(|e| matches!(e, Effect::Banner { gid, .. } if gid == "g1")));
+    assert!(fx
+        .iter()
+        .any(|e| matches!(e, Effect::Banner { gid, .. } if gid == "g1")));
 }

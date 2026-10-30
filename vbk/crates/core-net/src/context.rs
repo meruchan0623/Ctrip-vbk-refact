@@ -46,7 +46,11 @@ pub fn nephele_random_string(len: usize, mut rng: impl FnMut() -> f64) -> String
     let mut s = String::with_capacity(len);
     for _ in 0..len {
         let r = rng();
-        let r = if r.is_finite() { r.clamp(0.0, 0.999_999_999) } else { 0.0 };
+        let r = if r.is_finite() {
+            r.clamp(0.0, 0.999_999_999)
+        } else {
+            0.0
+        };
         let idx = ((r * n as f64).floor() as usize).min(n - 1);
         s.push(alphabet[idx]);
     }
@@ -69,7 +73,12 @@ pub fn format_local_yyyymmddhhmm(y: u32, m: u32, d: u32, h: u32, min: u32) -> Op
 /// `Nephele {rand}/{time}/{channel}/{base64("token:" + token)}` — the
 /// upload `Authorization` header. The token is a per-upload value returned by
 /// `16037/uploadTokenCreate`; it is neither logged nor persisted here.
-pub fn nephele_authorization(rand32: &str, yyyymmddhhmm: &str, channel: &str, token: &str) -> String {
+pub fn nephele_authorization(
+    rand32: &str,
+    yyyymmddhhmm: &str,
+    channel: &str,
+    token: &str,
+) -> String {
     let encoded = base64_encode(format!("token:{token}").as_bytes());
     format!("Nephele {rand32}/{yyyymmddhhmm}/{channel}/{encoded}")
 }
@@ -106,7 +115,10 @@ mod tests {
 
     #[test]
     fn trace_id_format() {
-        assert_eq!(trace_id("abc", 1_761_800_000_000, 0.5), "abc-1761800000000-5000000");
+        assert_eq!(
+            trace_id("abc", 1_761_800_000_000, 0.5),
+            "abc-1761800000000-5000000"
+        );
         assert_eq!(trace_id("abc", 1, 0.0), "abc-1-0");
         // 1e7 * 0.99999999 floors to 9999999, never 10000000.
         assert_eq!(trace_id("t", 2, 0.999_999_99), "t-2-9999999");
@@ -143,12 +155,23 @@ mod tests {
     #[test]
     fn nephele_authorization_exact() {
         // btoa("token:abc123") == "dG9rZW46YWJjMTIz"
-        let s = nephele_authorization("R".repeat(32).as_str(), "202610301530", "im_business", "abc123");
+        let s = nephele_authorization(
+            "R".repeat(32).as_str(),
+            "202610301530",
+            "im_business",
+            "abc123",
+        );
         assert_eq!(
             s,
-            format!("Nephele {}/202610301530/im_business/dG9rZW46YWJjMTIz", "R".repeat(32))
+            format!(
+                "Nephele {}/202610301530/im_business/dG9rZW46YWJjMTIz",
+                "R".repeat(32)
+            )
         );
-        assert!(!s.contains("abc123"), "raw token must not appear in the header");
+        assert!(
+            !s.contains("abc123"),
+            "raw token must not appear in the header"
+        );
     }
 
     #[test]

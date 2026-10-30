@@ -48,7 +48,13 @@ pub fn run() {
             let state = HostState::new(store, boot_epoch);
             {
                 let mut cores = state.lock();
-                for label in [views::MAIN, views::ALARM, views::SETTING, views::UPDATE, views::LOGIN] {
+                for label in [
+                    views::MAIN,
+                    views::ALARM,
+                    views::SETTING,
+                    views::UPDATE,
+                    views::LOGIN,
+                ] {
                     cores.views.register(label);
                 }
             }

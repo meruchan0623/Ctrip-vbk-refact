@@ -6,8 +6,8 @@
 
 use contracts::{codes, AccountContext, AlarmCommand, AlarmSnapshot, AppError, ReminderSettings};
 
-use crate::engine::{codes as local_codes, NotifyCore};
 use crate::effects::Effect;
+use crate::engine::{codes as local_codes, NotifyCore};
 use crate::now::Now;
 
 /// Which window issued the command. The host validates the source view;
@@ -28,11 +28,18 @@ pub enum CommandAck {
     Snapshot(AlarmSnapshot),
     /// Activate main and locate the conversation through the existing
     /// account/session identity. No URL, no send, no ack of the round.
-    Navigate { account: AccountContext, gid: String },
+    Navigate {
+        account: AccountContext,
+        gid: String,
+    },
     /// Number of rounds hidden by `HideRound` / `HideAll`.
-    Hidden { count: usize },
+    Hidden {
+        count: usize,
+    },
     /// Snoozed until this server time.
-    Snoozed { until_ms: i64 },
+    Snoozed {
+        until_ms: i64,
+    },
     Settings(ReminderSettings),
 }
 

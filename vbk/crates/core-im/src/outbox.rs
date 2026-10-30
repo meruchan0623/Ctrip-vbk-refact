@@ -490,7 +490,9 @@ mod tests {
             },
         )
         .unwrap();
-        let st = ob.confirm_from_server_evidence("l1", "t1".into(), 5).unwrap();
+        let st = ob
+            .confirm_from_server_evidence("l1", "t1".into(), 5)
+            .unwrap();
         assert_eq!(
             st,
             SendState::Confirmed {
@@ -499,7 +501,11 @@ mod tests {
             }
         );
         // Idempotent for the same id, a conflict for another.
-        assert_eq!(ob.confirm_from_server_evidence("l1", "t1".into(), 9).unwrap(), st);
+        assert_eq!(
+            ob.confirm_from_server_evidence("l1", "t1".into(), 9)
+                .unwrap(),
+            st
+        );
         assert!(ob
             .confirm_from_server_evidence("l1", "t2".into(), 9)
             .unwrap_err()

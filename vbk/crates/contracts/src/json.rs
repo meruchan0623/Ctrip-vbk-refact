@@ -16,7 +16,10 @@ pub enum JsonValue {
     Bool(bool),
     /// Numeric value. `raw` preserves the original lexical form (e.g. an
     /// integer beyond 2^53) so re-serialization is lossless.
-    Number { value: f64, raw: String },
+    Number {
+        value: f64,
+        raw: String,
+    },
     String(String),
     Array(Vec<JsonValue>),
     Object(BTreeMap<String, JsonValue>),
@@ -79,10 +82,13 @@ impl JsonValue {
     /// Integer view: exact when the raw text is an integer literal.
     pub fn as_i64(&self) -> Option<i64> {
         match self {
-            JsonValue::Number { value, raw } => raw
-                .parse::<i64>()
-                .ok()
-                .or_else(|| if value.fract() == 0.0 { Some(*value as i64) } else { None }),
+            JsonValue::Number { value, raw } => raw.parse::<i64>().ok().or_else(|| {
+                if value.fract() == 0.0 {
+                    Some(*value as i64)
+                } else {
+                    None
+                }
+            }),
             _ => None,
         }
     }
@@ -397,7 +403,8 @@ impl<'a> Parser<'a> {
         }
         let s = std::str::from_utf8(&self.bytes[self.pos..self.pos + 4])
             .map_err(|_| JsonError::at(self.pos, "invalid \\u escape"))?;
-        let v = u32::from_str_radix(s, 16).map_err(|_| JsonError::at(self.pos, "invalid \\u escape"))?;
+        let v = u32::from_str_radix(s, 16)
+            .map_err(|_| JsonError::at(self.pos, "invalid \\u escape"))?;
         self.pos += 4;
         Ok(v)
     }
@@ -447,14 +454,17 @@ impl<'a> Parser<'a> {
                             } else {
                                 hi
                             };
-                            out.push(char::from_u32(cp).ok_or_else(|| {
-                                JsonError::at(self.pos, "invalid code point")
-                            })?);
+                            out.push(
+                                char::from_u32(cp)
+                                    .ok_or_else(|| JsonError::at(self.pos, "invalid code point"))?,
+                            );
                         }
                         _ => return Err(JsonError::at(self.pos, "invalid escape")),
                     }
                 }
-                b if b < 0x20 => return Err(JsonError::at(self.pos, "control character in string")),
+                b if b < 0x20 => {
+                    return Err(JsonError::at(self.pos, "control character in string"))
+                }
                 _ => {
                     // Copy one UTF-8 scalar.
                     let rest = std::str::from_utf8(&self.bytes[self.pos..])
@@ -482,8 +492,14 @@ mod tests {
     fn round_trips_soa_like_payload() {
         let src = r#"{"ResponseStatus":{"Ack":"Success","Timestamp":"/Date(1761800000000+0800)/"},"conversationList":[{"gid":"g\"1","lastMessageTime":1761800000123,"isOwner":false,"n":null,"f":1.5e3}],"lastUpdateTime":1761800000999}"#;
         let v = JsonValue::parse(src).expect("parse");
-        assert_eq!(v.path("ResponseStatus.Ack").and_then(JsonValue::as_str), Some("Success"));
-        let list = v.get("conversationList").and_then(JsonValue::as_array).expect("list");
+        assert_eq!(
+            v.path("ResponseStatus.Ack").and_then(JsonValue::as_str),
+            Some("Success")
+        );
+        let list = v
+            .get("conversationList")
+            .and_then(JsonValue::as_array)
+            .expect("list");
         assert_eq!(list[0].get("gid").and_then(JsonValue::as_str), Some("g\"1"));
         assert_eq!(
             list[0].get("lastMessageTime").and_then(JsonValue::as_i64),
@@ -499,7 +515,10 @@ mod tests {
     fn big_integer_round_trips_textually() {
         let v = JsonValue::parse("{\"id\":9007199254740993}").expect("parse");
         assert_eq!(v.to_json(), "{\"id\":9007199254740993}");
-        assert_eq!(v.get("id").and_then(JsonValue::as_i64), Some(9007199254740993));
+        assert_eq!(
+            v.get("id").and_then(JsonValue::as_i64),
+            Some(9007199254740993)
+        );
     }
 
     #[test]

@@ -53,11 +53,22 @@ pub fn notify_snapshot(window: Window, state: State<'_, HostState>) -> CmdResult
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AckDto {
-    Navigate { account: crate::dto::AccountContextDto, gid: String },
-    Hidden { count: usize },
-    Snoozed { until_ms: i64 },
-    Settings { settings: ReminderSettingsDto },
-    Snapshot { snapshot: AlarmSnapshotDto },
+    Navigate {
+        account: crate::dto::AccountContextDto,
+        gid: String,
+    },
+    Hidden {
+        count: usize,
+    },
+    Snoozed {
+        until_ms: i64,
+    },
+    Settings {
+        settings: ReminderSettingsDto,
+    },
+    Snapshot {
+        snapshot: AlarmSnapshotDto,
+    },
 }
 
 fn ack_dto(ack: CommandAck) -> AckDto {
@@ -102,7 +113,11 @@ pub fn notify_open_conversation(
 }
 
 #[tauri::command]
-pub fn notify_hide_round(window: Window, state: State<'_, HostState>, round: RoundRefDto) -> CmdResult<AckDto> {
+pub fn notify_hide_round(
+    window: Window,
+    state: State<'_, HostState>,
+    round: RoundRefDto,
+) -> CmdResult<AckDto> {
     guard(&state, &window, "notify_hide_round")?;
     state
         .alarm_command(hide_round_cmd(round), source_for(&window))
@@ -111,7 +126,11 @@ pub fn notify_hide_round(window: Window, state: State<'_, HostState>, round: Rou
 }
 
 #[tauri::command]
-pub fn notify_hide_all(window: Window, state: State<'_, HostState>, seen: Vec<SeenRoundDto>) -> CmdResult<AckDto> {
+pub fn notify_hide_all(
+    window: Window,
+    state: State<'_, HostState>,
+    seen: Vec<SeenRoundDto>,
+) -> CmdResult<AckDto> {
     guard(&state, &window, "notify_hide_all")?;
     state
         .alarm_command(hide_all_cmd(seen), source_for(&window))
@@ -135,7 +154,11 @@ pub fn notify_snooze(
 }
 
 #[tauri::command]
-pub fn notify_set_enabled(window: Window, state: State<'_, HostState>, enabled: bool) -> CmdResult<AckDto> {
+pub fn notify_set_enabled(
+    window: Window,
+    state: State<'_, HostState>,
+    enabled: bool,
+) -> CmdResult<AckDto> {
     guard(&state, &window, "notify_set_enabled")?;
     state
         .alarm_command(AlarmCommand::SetEnabled(enabled), source_for(&window))
@@ -144,16 +167,27 @@ pub fn notify_set_enabled(window: Window, state: State<'_, HostState>, enabled: 
 }
 
 #[tauri::command]
-pub fn notify_set_threshold(window: Window, state: State<'_, HostState>, t1_seconds: u32) -> CmdResult<AckDto> {
+pub fn notify_set_threshold(
+    window: Window,
+    state: State<'_, HostState>,
+    t1_seconds: u32,
+) -> CmdResult<AckDto> {
     guard(&state, &window, "notify_set_threshold")?;
     state
-        .alarm_command(AlarmCommand::SetThreshold { t1_seconds }, source_for(&window))
+        .alarm_command(
+            AlarmCommand::SetThreshold { t1_seconds },
+            source_for(&window),
+        )
         .map(ack_dto)
         .map_err(err)
 }
 
 #[tauri::command]
-pub fn notify_set_sound_enabled(window: Window, state: State<'_, HostState>, enabled: bool) -> CmdResult<AckDto> {
+pub fn notify_set_sound_enabled(
+    window: Window,
+    state: State<'_, HostState>,
+    enabled: bool,
+) -> CmdResult<AckDto> {
     guard(&state, &window, "notify_set_sound_enabled")?;
     state
         .alarm_command(AlarmCommand::SetSoundEnabled(enabled), source_for(&window))
@@ -215,7 +249,10 @@ pub struct LoginAttemptDto {
 }
 
 #[tauri::command]
-pub fn account_start_login(window: Window, state: State<'_, HostState>) -> CmdResult<LoginAttemptDto> {
+pub fn account_start_login(
+    window: Window,
+    state: State<'_, HostState>,
+) -> CmdResult<LoginAttemptDto> {
     guard(&state, &window, "account_start_login")?;
     let mut cores = state.lock();
     let handle = cores.accounts.start_login(Environment::production());
@@ -227,22 +264,31 @@ pub fn account_start_login(window: Window, state: State<'_, HostState>) -> CmdRe
 }
 
 #[tauri::command]
-pub fn account_switch(window: Window, state: State<'_, HostState>, account_id: String) -> CmdResult<()> {
+pub fn account_switch(
+    window: Window,
+    state: State<'_, HostState>,
+    account_id: String,
+) -> CmdResult<()> {
     guard(&state, &window, "account_switch")?;
     // Switching only changes navigation; in-flight work stays bound to its
     // own AccountContext (archive §4.0). The main shell keeps the current
     // selection; the host validates the id exists.
     let cores = state.lock();
     let id = contracts::AccountId::new(account_id);
-    cores
-        .accounts
-        .state(&id)
-        .map(|_| ())
-        .ok_or_else(|| AppErrorDto::from(AppError::new(contracts::codes::ACCOUNT_UNKNOWN, "no such account")))
+    cores.accounts.state(&id).map(|_| ()).ok_or_else(|| {
+        AppErrorDto::from(AppError::new(
+            contracts::codes::ACCOUNT_UNKNOWN,
+            "no such account",
+        ))
+    })
 }
 
 #[tauri::command]
-pub fn account_suspend(window: Window, state: State<'_, HostState>, account_id: String) -> CmdResult<()> {
+pub fn account_suspend(
+    window: Window,
+    state: State<'_, HostState>,
+    account_id: String,
+) -> CmdResult<()> {
     guard(&state, &window, "account_suspend")?;
     state
         .logout(&account_id, LogoutMode::ExitOnline)
@@ -251,7 +297,11 @@ pub fn account_suspend(window: Window, state: State<'_, HostState>, account_id: 
 }
 
 #[tauri::command]
-pub fn account_logout(window: Window, state: State<'_, HostState>, account_id: String) -> CmdResult<()> {
+pub fn account_logout(
+    window: Window,
+    state: State<'_, HostState>,
+    account_id: String,
+) -> CmdResult<()> {
     guard(&state, &window, "account_logout")?;
     state
         .logout(&account_id, LogoutMode::Logout)
@@ -260,7 +310,11 @@ pub fn account_logout(window: Window, state: State<'_, HostState>, account_id: S
 }
 
 #[tauri::command]
-pub fn account_forget(window: Window, state: State<'_, HostState>, account_id: String) -> CmdResult<()> {
+pub fn account_forget(
+    window: Window,
+    state: State<'_, HostState>,
+    account_id: String,
+) -> CmdResult<()> {
     guard(&state, &window, "account_forget")?;
     state
         .logout(&account_id, LogoutMode::Forget)
@@ -279,7 +333,11 @@ pub struct IngestReportDto {
 }
 
 #[tauri::command]
-pub fn im_push_fact(window: Window, state: State<'_, HostState>, envelope: AdapterFactEnvelopeDto) -> CmdResult<IngestReportDto> {
+pub fn im_push_fact(
+    window: Window,
+    state: State<'_, HostState>,
+    envelope: AdapterFactEnvelopeDto,
+) -> CmdResult<IngestReportDto> {
     guard(&state, &window, "im_push_fact")?;
     let r = state.push_fact(envelope).map_err(err)?;
     Ok(IngestReportDto {
@@ -360,7 +418,11 @@ pub struct ImLaunchUrlDto {
 }
 
 #[tauri::command]
-pub fn order_validate_im_url(window: Window, state: State<'_, HostState>, url: String) -> CmdResult<ImLaunchUrlDto> {
+pub fn order_validate_im_url(
+    window: Window,
+    state: State<'_, HostState>,
+    url: String,
+) -> CmdResult<ImLaunchUrlDto> {
     guard(&state, &window, "order_validate_im_url")?;
     let u = validate_official_im_url(&url, &UrlPolicy::official_im()).map_err(err)?;
     Ok(ImLaunchUrlDto {

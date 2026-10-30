@@ -118,7 +118,10 @@ mod tests {
                 got: 13
             }
         );
-        assert_eq!(c.classify(StreamCursor::new(3, 0)), CursorStep::EpochChanged);
+        assert_eq!(
+            c.classify(StreamCursor::new(3, 0)),
+            CursorStep::EpochChanged
+        );
         // A rebuilt stream that wrongly kept the epoch and reset seq must not
         // look like a fresh start; it is classified as a duplicate and the
         // consumer will notice the stall and re-handshake.

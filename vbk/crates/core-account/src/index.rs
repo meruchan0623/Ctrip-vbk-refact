@@ -115,7 +115,12 @@ impl IdentityIndex {
                 row.get(k)
                     .and_then(JsonValue::as_str)
                     .map(str::to_string)
-                    .ok_or_else(|| err(codes::ACCOUNT_RESTORE_CORRUPT, format!("index: missing {k}")))
+                    .ok_or_else(|| {
+                        err(
+                            codes::ACCOUNT_RESTORE_CORRUPT,
+                            format!("index: missing {k}"),
+                        )
+                    })
             };
             let entry = IndexEntry {
                 environment: Environment::named(s("environment")?),
@@ -128,7 +133,10 @@ impl IdentityIndex {
                     .max(0) as u64,
             };
             if idx.by_account.contains_key(&entry.account_id) {
-                return Err(err(codes::ACCOUNT_RESTORE_CORRUPT, "index: duplicate account_id"));
+                return Err(err(
+                    codes::ACCOUNT_RESTORE_CORRUPT,
+                    "index: duplicate account_id",
+                ));
             }
             let key = (entry.environment.clone(), entry.buid.clone());
             idx.by_account.insert(entry.account_id.clone(), key.clone());
@@ -146,9 +154,18 @@ mod tests {
     fn same_upstream_maps_to_same_id_and_round_trips() {
         let env = Environment::named("test");
         let mut idx = IdentityIndex::new();
-        let a = idx.resolve_or_mint(&env, &Buid::new("buid-a")).account_id.clone();
-        let a2 = idx.resolve_or_mint(&env, &Buid::new("buid-a")).account_id.clone();
-        let b = idx.resolve_or_mint(&env, &Buid::new("buid-b")).account_id.clone();
+        let a = idx
+            .resolve_or_mint(&env, &Buid::new("buid-a"))
+            .account_id
+            .clone();
+        let a2 = idx
+            .resolve_or_mint(&env, &Buid::new("buid-a"))
+            .account_id
+            .clone();
+        let b = idx
+            .resolve_or_mint(&env, &Buid::new("buid-b"))
+            .account_id
+            .clone();
         assert_eq!(a, a2);
         assert_ne!(a, b);
         idx.entry_for_mut(&a).expect("entry").last_generation = 7;
@@ -156,8 +173,13 @@ mod tests {
         let doc = idx.to_json();
         let text = doc.to_json();
         assert!(!text.contains("ticket"));
-        let back = IdentityIndex::from_json(&JsonValue::parse(&text).expect("parse")).expect("restore");
-        assert_eq!(back.lookup(&env, &Buid::new("buid-a")).map(|e| &e.account_id), Some(&a));
+        let back =
+            IdentityIndex::from_json(&JsonValue::parse(&text).expect("parse")).expect("restore");
+        assert_eq!(
+            back.lookup(&env, &Buid::new("buid-a"))
+                .map(|e| &e.account_id),
+            Some(&a)
+        );
         assert_eq!(back.entry_for(&a).map(|e| e.last_generation), Some(7));
         assert_eq!(back.len(), 2);
     }

@@ -106,7 +106,10 @@ pub enum Body {
     /// Serialized JSON document; `Content-Type: application/json`.
     Json(String),
     /// `multipart/form-data; boundary=<boundary>`.
-    Multipart { boundary: String, parts: Vec<MultipartPart> },
+    Multipart {
+        boundary: String,
+        parts: Vec<MultipartPart>,
+    },
     Empty,
 }
 
@@ -116,14 +119,20 @@ pub fn validate_boundary(boundary: &str, parts: &[MultipartPart]) -> Result<(), 
     if boundary.is_empty() || boundary.len() > 70 {
         return Err("boundary length must be 1..=70");
     }
-    if !boundary
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'\'' | b'(' | b')' | b'+' | b',' | b'.' | b'/' | b':' | b'=' | b'?'))
-        || boundary.ends_with(' ')
+    if !boundary.bytes().all(|b| {
+        b.is_ascii_alphanumeric()
+            || matches!(
+                b,
+                b'-' | b'_' | b'\'' | b'(' | b')' | b'+' | b',' | b'.' | b'/' | b':' | b'=' | b'?'
+            )
+    }) || boundary.ends_with(' ')
     {
         return Err("boundary contains an invalid character");
     }
-    if parts.iter().any(|p| p.value.contains(boundary) || p.name.contains(boundary)) {
+    if parts
+        .iter()
+        .any(|p| p.value.contains(boundary) || p.name.contains(boundary))
+    {
         return Err("boundary occurs in a part");
     }
     Ok(())
@@ -176,7 +185,9 @@ impl Body {
 }
 
 fn escape_disposition(name: &str) -> String {
-    name.replace('"', "%22").replace('\r', "%0D").replace('\n', "%0A")
+    name.replace('"', "%22")
+        .replace('\r', "%0D")
+        .replace('\n', "%0A")
 }
 
 /// Fully described request. `Debug` is safe to log: the bearer token and
@@ -239,15 +250,30 @@ impl TsimRequest {
     }
 
     pub fn get(path_and_query: &str, bearer: &str) -> Self {
-        Self::base(Method::Get, format!("{API_ORIGIN}{path_and_query}"), Some(bearer), Body::Empty)
+        Self::base(
+            Method::Get,
+            format!("{API_ORIGIN}{path_and_query}"),
+            Some(bearer),
+            Body::Empty,
+        )
     }
 
     pub fn post_json(path: &str, bearer: &str, json: String) -> Self {
-        Self::base(Method::Post, format!("{API_ORIGIN}{path}"), Some(bearer), Body::Json(json))
+        Self::base(
+            Method::Post,
+            format!("{API_ORIGIN}{path}"),
+            Some(bearer),
+            Body::Json(json),
+        )
     }
 
     pub fn post_empty(path: &str, bearer: &str) -> Self {
-        Self::base(Method::Post, format!("{API_ORIGIN}{path}"), Some(bearer), Body::Empty)
+        Self::base(
+            Method::Post,
+            format!("{API_ORIGIN}{path}"),
+            Some(bearer),
+            Body::Empty,
+        )
     }
 
     /// Multipart POST without bearer (login).

@@ -6,9 +6,7 @@
 //! anchor used to derive it is kept so that a threshold change or a clock
 //! re-verification can recompute the deadline without a new event.
 
-use contracts::{
-    AccountContext, AlarmLevel, ReminderSettings, SnoozeMinutes, WaitingRoundRef,
-};
+use contracts::{AccountContext, AlarmLevel, ReminderSettings, SnoozeMinutes, WaitingRoundRef};
 
 use contracts::notify::T2_SECONDS;
 

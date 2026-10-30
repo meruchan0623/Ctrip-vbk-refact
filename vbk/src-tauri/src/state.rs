@@ -16,8 +16,11 @@ use contracts::{
 use core_account::{AccountRegistry, LogoutMode};
 use core_im::{Fact, FactEnvelope, ImCore, ImCores, StreamId, TransportState};
 use core_net::clock::{ClockService, ReconcileCoordinator, ReconcileReason};
-use core_notify::{CommandAck, CommandSource, DndMode, Effect, NotifyCore, Now, SystemState};
-use core_store::{FileStore, Namespace, Store};
+use core_notify::{
+    mask_label, CommandAck, CommandSource, DndMode, Effect, NotifyCore, Now, RestoredRound,
+    SystemState,
+};
+use core_store::{FileStore, Namespace, ReminderStateRepo, RoundRecord, Store};
 use tauri::AppHandle;
 
 use crate::dto::{AdapterFactDto, AdapterFactEnvelopeDto};
@@ -149,15 +152,26 @@ impl HostState {
     /// envelope is checked against core-account's current generation
     /// before anything is applied (strong-alert §3: payload identity is
     /// never trusted on its own).
-    pub fn push_fact(&self, dto: AdapterFactEnvelopeDto) -> Result<core_im::IngestReport, AppError> {
+    pub fn push_fact(
+        &self,
+        dto: AdapterFactEnvelopeDto,
+    ) -> Result<core_im::IngestReport, AppError> {
         let mut cores = self.lock();
         let account: AccountContext = dto.account.clone().into();
         cores.accounts.validate(&account)?;
-        let stream = StreamId::from_name(&dto.stream)
-            .ok_or_else(|| AppError::new("im.invalid_fact", format!("unknown stream {:?}", dto.stream)))?;
+        let stream = StreamId::from_name(&dto.stream).ok_or_else(|| {
+            AppError::new(
+                "im.invalid_fact",
+                format!("unknown stream {:?}", dto.stream),
+            )
+        })?;
         let fact = convert_fact(dto.fact)?;
         if cores.im.get(&account).is_none() {
             cores.im.insert(ImCore::new(account.clone()));
+            // First facts after (re-)login: rounds persisted under this
+            // identity come back as "待核对" and stay silent until the
+            // reconcile barrier lifts (strong-alert §5, review O03).
+            self.restore_rounds_for(&mut cores, &account);
         }
         let env = FactEnvelope {
             account: account.clone(),
@@ -171,7 +185,10 @@ impl HostState {
             // core-account decides the generation change; the host just
             // records the signal and revokes.
             let id = account.account_id.clone();
-            if let Ok(revoke) = cores.accounts.invalidate(&id, "web session reported auth invalid") {
+            if let Ok(revoke) = cores
+                .accounts
+                .invalidate(&id, "web session reported auth invalid")
+            {
                 let new_ctx = cores
                     .accounts
                     .current_context(&id)
@@ -223,15 +240,106 @@ impl HostState {
             ReconcileState::Normal
         };
         effects.extend(cores.notify.apply_reconcile_state(state, &now));
-        let total = cores.im.total_unread();
-        // L0 aggregate is recomputed from the im cores; notify keeps its own
-        // per-gid map, so we feed it per conversation when it changed.
-        let _ = total;
         cores.pending_effects.extend(effects);
+        self.persist_rounds(cores);
+    }
+
+    /// Writes the minimal round state (strong-alert §5 / docs/dev/05) for
+    /// every account into its own namespace. Labels are not persisted; on
+    /// restore they fall back to the masked gid until facts re-confirm.
+    fn persist_rounds(&self, cores: &mut Cores) {
+        let Some(store) = cores.store.as_ref() else {
+            return;
+        };
+        let mut by_ns: HashMap<Namespace, Vec<RoundRecord>> = HashMap::new();
+        for r in cores.notify.persistable() {
+            let ns = Namespace::from_context(&r.round.account);
+            by_ns.entry(ns).or_default().push(RoundRecord {
+                gid: r.round.gid.clone(),
+                round_id: r.round.round_id.clone(),
+                version: r.round.version,
+                start_message_id: None,
+                start_time_ms: r.start_time_ms,
+                start_confirmed: r.start_confirmed,
+                reminded_version: r.round.version,
+                hidden_version: r.hidden_version.unwrap_or(0),
+                snoozed_until_ms: r.snoozed_until_ms,
+            });
+        }
+        for (ns, records) in by_ns {
+            let mut txn = match store.begin(&ns) {
+                Ok(t) => t,
+                Err(e) => {
+                    log::warn!("round persistence skipped for {}: {e}", ns.key());
+                    continue;
+                }
+            };
+            for rec in &records {
+                ReminderStateRepo::put(&mut txn, rec);
+            }
+            if let Err(e) = store.commit(txn) {
+                log::warn!("round persistence failed for {}: {e}", ns.key());
+            }
+        }
+    }
+
+    /// Loads persisted rounds for `account` into notify as pending
+    /// verification. `PendingVerification` is only ever consumed here with
+    /// the restore barrier, never turned into a popup directly.
+    fn restore_rounds_for(&self, cores: &mut Cores, account: &AccountContext) {
+        let Some(store) = cores.store.as_ref() else {
+            return;
+        };
+        let ns = Namespace::from_context(account);
+        let pending = match ReminderStateRepo::load_all(store, &ns) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("round restore skipped for {}: {e}", ns.key());
+                return;
+            }
+        };
+        // The store's evidence gate is satisfied by notify's own restore
+        // barrier plus core-im's reconcile state, which together hold the
+        // rounds silent until compensation and list read-back complete.
+        let records = match pending.reconcile(core_store::ReconcileEvidence::complete()) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        let restored: Vec<RestoredRound> = records
+            .into_iter()
+            .map(|r| RestoredRound {
+                round: contracts::WaitingRoundRef {
+                    account: account.clone(),
+                    gid: r.gid.clone(),
+                    round_id: r.round_id,
+                    version: r.version,
+                },
+                label: mask_label(&r.gid),
+                start_time_ms: r.start_time_ms,
+                start_confirmed: false,
+                hidden_version: if r.hidden_version == 0 {
+                    None
+                } else {
+                    Some(r.hidden_version)
+                },
+                snoozed_until_ms: r.snoozed_until_ms,
+            })
+            .collect();
+        if restored.is_empty() {
+            return;
+        }
+        let now = self.now(cores);
+        cores.notify.restore(restored, &now);
     }
 
     /// Called by the adapter after it re-handshaked a stream.
-    pub fn resync_complete(&self, account: AccountContext, stream: &str, epoch: u64, seq: u64) -> Result<(), AppError> {
+    pub fn resync_complete(
+        &self,
+        account: AccountContext,
+        stream: &str,
+        epoch: u64,
+        seq: u64,
+    ) -> Result<(), AppError> {
         let mut cores = self.lock();
         cores.accounts.validate(&account)?;
         let stream = StreamId::from_name(stream)
@@ -258,7 +366,11 @@ impl HostState {
         cores.notify.snapshot(&now)
     }
 
-    pub fn alarm_command(&self, cmd: AlarmCommand, source: CommandSource) -> Result<CommandAck, AppError> {
+    pub fn alarm_command(
+        &self,
+        cmd: AlarmCommand,
+        source: CommandSource,
+    ) -> Result<CommandAck, AppError> {
         let mut cores = self.lock();
         let now = self.now(&mut cores);
         let (ack, effects) = cores.notify.handle_command(cmd, source, &now)?;
@@ -302,7 +414,9 @@ impl HostState {
         // server time, which is documented as an approximation.
         let day_ms = 86_400_000;
         let until_ms = (now.server_now_ms / day_ms + 1) * day_ms + 8 * 3_600_000;
-        let effects = cores.notify.set_dnd(DndMode::UntilTomorrow { until_ms }, &now);
+        let effects = cores
+            .notify
+            .set_dnd(DndMode::UntilTomorrow { until_ms }, &now);
         cores.pending_effects.extend(effects);
     }
 
@@ -315,7 +429,11 @@ impl HostState {
 
     // ------------------------------------------------------------ accounts
 
-    pub fn logout(&self, account_id: &str, mode: LogoutMode) -> Result<core_account::RevokeList, AppError> {
+    pub fn logout(
+        &self,
+        account_id: &str,
+        mode: LogoutMode,
+    ) -> Result<core_account::RevokeList, AppError> {
         let mut cores = self.lock();
         let id = AccountId::new(account_id);
         let old_ctx = cores.accounts.current_context(&id);

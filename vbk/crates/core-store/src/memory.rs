@@ -73,12 +73,24 @@ impl Store for MemoryStore {
         })
     }
 
-    fn get(&self, ns: &Namespace, collection: &str, key: &str) -> Result<Option<JsonValue>, AppError> {
-        Ok(self.with(|m| m.get(ns).and_then(|s| s.state.get(collection, key).cloned())))
+    fn get(
+        &self,
+        ns: &Namespace,
+        collection: &str,
+        key: &str,
+    ) -> Result<Option<JsonValue>, AppError> {
+        Ok(self.with(|m| {
+            m.get(ns)
+                .and_then(|s| s.state.get(collection, key).cloned())
+        }))
     }
 
     fn list(&self, ns: &Namespace, collection: &str) -> Result<Vec<(String, JsonValue)>, AppError> {
-        Ok(self.with(|m| m.get(ns).map(|s| s.state.list(collection)).unwrap_or_default()))
+        Ok(self.with(|m| {
+            m.get(ns)
+                .map(|s| s.state.list(collection))
+                .unwrap_or_default()
+        }))
     }
 
     fn last_commit(&self, ns: &Namespace) -> Result<Option<CommitFact>, AppError> {

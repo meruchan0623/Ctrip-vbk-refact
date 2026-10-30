@@ -154,7 +154,9 @@ pub enum AlarmCommand {
         minutes: SnoozeMinutes,
     },
     SetEnabled(bool),
-    SetThreshold { t1_seconds: u32 },
+    SetThreshold {
+        t1_seconds: u32,
+    },
     SetSoundEnabled(bool),
 }
 

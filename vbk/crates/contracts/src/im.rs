@@ -210,7 +210,9 @@ mod tests {
 
     #[test]
     fn reply_validity_requires_confirmation_and_merchant_role() {
-        assert!(fact(SenderRole::MerchantSelf, MsgKind::Business, None).is_confirmed_merchant_reply());
+        assert!(
+            fact(SenderRole::MerchantSelf, MsgKind::Business, None).is_confirmed_merchant_reply()
+        );
         assert!(fact(
             SenderRole::MerchantSelf,
             MsgKind::Business,
@@ -220,11 +222,18 @@ mod tests {
             })
         )
         .is_confirmed_merchant_reply());
-        assert!(!fact(SenderRole::MerchantSelf, MsgKind::Business, Some(SendDisposition::Unknown))
-            .is_confirmed_merchant_reply());
+        assert!(!fact(
+            SenderRole::MerchantSelf,
+            MsgKind::Business,
+            Some(SendDisposition::Unknown)
+        )
+        .is_confirmed_merchant_reply());
         assert!(!fact(SenderRole::Robot, MsgKind::Business, None).is_confirmed_merchant_reply());
-        assert!(!fact(SenderRole::CtripAgent, MsgKind::Business, None).is_confirmed_merchant_reply());
-        assert!(!fact(SenderRole::MerchantSelf, MsgKind::ReadReceipt, None).is_confirmed_merchant_reply());
+        assert!(
+            !fact(SenderRole::CtripAgent, MsgKind::Business, None).is_confirmed_merchant_reply()
+        );
+        assert!(!fact(SenderRole::MerchantSelf, MsgKind::ReadReceipt, None)
+            .is_confirmed_merchant_reply());
         assert!(!fact(SenderRole::Unknown, MsgKind::Business, None).is_confirmed_merchant_reply());
     }
 
@@ -311,5 +320,7 @@ pub enum ReconcileState {
     Normal,
     /// Sleep/offline/gap/stale snapshot: keep unfinished rounds, pause new
     /// popups and sounds until compensation and list refresh complete.
-    Reconciling { generation: u64 },
+    Reconciling {
+        generation: u64,
+    },
 }

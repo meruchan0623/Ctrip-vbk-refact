@@ -315,7 +315,10 @@ mod tests {
         let r = c.reading(10_100 + 300_000, 200);
         assert_eq!(r.quality, ClockQuality::Stale);
         // Sticky even when later deltas agree.
-        assert_eq!(c.reading(10_100 + 300_100, 300).quality, ClockQuality::Stale);
+        assert_eq!(
+            c.reading(10_100 + 300_100, 300).quality,
+            ClockQuality::Stale
+        );
         // Sleep: monotonic stalls while wall advances.
         let mut s = ClockService::default();
         s.anchor_from_server(10_000, 10_000, 0, 0);
@@ -342,8 +345,14 @@ mod tests {
 
     #[test]
     fn soa_timestamp_parsing() {
-        assert_eq!(parse_soa_timestamp("/Date(1761800000000+0800)/"), Some(1_761_800_000_000));
-        assert_eq!(parse_soa_timestamp("/Date(1761800000000)/"), Some(1_761_800_000_000));
+        assert_eq!(
+            parse_soa_timestamp("/Date(1761800000000+0800)/"),
+            Some(1_761_800_000_000)
+        );
+        assert_eq!(
+            parse_soa_timestamp("/Date(1761800000000)/"),
+            Some(1_761_800_000_000)
+        );
         assert_eq!(parse_soa_timestamp("/Date(-1000-0500)/"), Some(-1000));
         assert_eq!(parse_soa_timestamp(" /Date(5+0000)/ "), Some(5));
         assert_eq!(parse_soa_timestamp("/Date()/"), None);

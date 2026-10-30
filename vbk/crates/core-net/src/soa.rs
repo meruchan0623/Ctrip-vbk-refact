@@ -170,7 +170,10 @@ pub fn classify_biz_status(http_status: u16, body: &str) -> SoaOutcome {
     let SoaOutcome::Success { body } = outcome else {
         return outcome;
     };
-    match body.path("bizResponseStatus.resultCode").and_then(JsonValue::as_str) {
+    match body
+        .path("bizResponseStatus.resultCode")
+        .and_then(JsonValue::as_str)
+    {
         Some("SUCCESS") => SoaOutcome::Success { body },
         Some(code) => SoaOutcome::BusinessFailure {
             ack: "Success".to_string(),
@@ -215,8 +218,11 @@ impl NepheleOutcome {
         match self {
             NepheleOutcome::Success { .. } => None,
             NepheleOutcome::Failure { code, .. } => Some(
-                AppError::new(net_codes::NET_BUSINESS_FAILURE, format!("nephele code {code}"))
-                    .with_detail(code.to_string()),
+                AppError::new(
+                    net_codes::NET_BUSINESS_FAILURE,
+                    format!("nephele code {code}"),
+                )
+                .with_detail(code.to_string()),
             ),
             NepheleOutcome::HttpError(s) => Some(AppError::new(
                 net_codes::NET_HTTP_ERROR,
@@ -292,8 +298,14 @@ mod tests {
         assert_eq!(classify_soa(200, ""), SoaOutcome::Malformed);
         assert_eq!(classify_soa(200, "{}"), SoaOutcome::Malformed);
         assert_eq!(classify_soa(200, "<html></html>"), SoaOutcome::Malformed);
-        assert_eq!(classify_soa(200, r#"{"ResponseStatus":"x"}"#), SoaOutcome::Malformed);
-        assert_eq!(classify_soa(200, r#"{"ResponseStatus":{}}"#), SoaOutcome::Malformed);
+        assert_eq!(
+            classify_soa(200, r#"{"ResponseStatus":"x"}"#),
+            SoaOutcome::Malformed
+        );
+        assert_eq!(
+            classify_soa(200, r#"{"ResponseStatus":{}}"#),
+            SoaOutcome::Malformed
+        );
     }
 
     #[test]
@@ -325,18 +337,25 @@ mod tests {
         match classify_soa(200, body) {
             SoaOutcome::BusinessFailure { ack, errors } => {
                 assert_eq!(ack, "Failure");
-                assert_eq!(errors, vec!["SomeOtherError".to_string(), "bad".to_string()]);
+                assert_eq!(
+                    errors,
+                    vec!["SomeOtherError".to_string(), "bad".to_string()]
+                );
             }
             other => panic!("unexpected {other:?}"),
         }
         let e = classify_soa(200, body).to_app_error().expect("err");
         assert!(e.is(net_codes::NET_BUSINESS_FAILURE));
-        assert!(!e.message.contains("bad"), "message must not carry body text");
+        assert!(
+            !e.message.contains("bad"),
+            "message must not carry body text"
+        );
     }
 
     #[test]
     fn biz_status_requires_success_code() {
-        let ok = r#"{"ResponseStatus":{"Ack":"Success"},"bizResponseStatus":{"resultCode":"SUCCESS"}}"#;
+        let ok =
+            r#"{"ResponseStatus":{"Ack":"Success"},"bizResponseStatus":{"resultCode":"SUCCESS"}}"#;
         assert!(classify_biz_status(200, ok).is_success());
         let fail = r#"{"ResponseStatus":{"Ack":"Success"},"bizResponseStatus":{"resultCode":"NO_PERMISSION"}}"#;
         assert!(matches!(
@@ -381,7 +400,10 @@ mod tests {
                 message: "auth failed".into()
             }
         );
-        assert_eq!(classify_nephele(200, r#"{"Code":2000}"#), NepheleOutcome::Malformed);
+        assert_eq!(
+            classify_nephele(200, r#"{"Code":2000}"#),
+            NepheleOutcome::Malformed
+        );
         assert_eq!(classify_nephele(200, "not json"), NepheleOutcome::Malformed);
         assert_eq!(classify_nephele(403, ok), NepheleOutcome::HttpError(403));
         assert!(classify_nephele(200, fail).to_app_error().is_some());

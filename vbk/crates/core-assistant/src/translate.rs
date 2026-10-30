@@ -35,7 +35,10 @@ pub fn validate_draft_request_id(id: &str) -> Result<(), AppError> {
     if id.is_empty() || id.len() > 100 {
         return Err(invalid("draft_request_id length must be 1..=100"));
     }
-    if !id.bytes().all(|b| b == b'-' || b.is_ascii_lowercase() || b.is_ascii_digit()) {
+    if !id
+        .bytes()
+        .all(|b| b == b'-' || b.is_ascii_lowercase() || b.is_ascii_digit())
+    {
         return Err(invalid("draft_request_id must match [-a-z0-9]"));
     }
     Ok(())
@@ -82,8 +85,15 @@ pub fn translate_request(
     body.insert("source_lang", JsonValue::string(SOURCE_LANG));
     body.insert("purpose", JsonValue::string(PURPOSE));
     body.insert("draft_request_id", JsonValue::string(draft_request_id));
-    body.insert("composer_content_version", JsonValue::string(composer_content_version));
-    let req = TsimRequest::post_json("/agent/translate", session.access_token.expose(), body.to_json());
+    body.insert(
+        "composer_content_version",
+        JsonValue::string(composer_content_version),
+    );
+    let req = TsimRequest::post_json(
+        "/agent/translate",
+        session.access_token.expose(),
+        body.to_json(),
+    );
     Ok((
         req,
         TranslateParams {
@@ -97,11 +107,19 @@ pub fn translate_request(
 
 /// Parses `success:true, data.translated_text` and verifies the echoed
 /// `draft_request_id` / `composer_content_version` equal the request's.
-pub fn parse_translate_response(status: u16, body: &str, sent: &TranslateParams) -> Result<String, AppError> {
+pub fn parse_translate_response(
+    status: u16,
+    body: &str,
+    sent: &TranslateParams,
+) -> Result<String, AppError> {
     let data = parse_envelope(status, body)?;
     let echo_id = data.get("draft_request_id").and_then(JsonValue::as_str);
-    let echo_ver = data.get("composer_content_version").and_then(JsonValue::as_str);
-    if echo_id != Some(sent.draft_request_id.as_str()) || echo_ver != Some(sent.composer_content_version.as_str()) {
+    let echo_ver = data
+        .get("composer_content_version")
+        .and_then(JsonValue::as_str);
+    if echo_id != Some(sent.draft_request_id.as_str())
+        || echo_ver != Some(sent.composer_content_version.as_str())
+    {
         return Err(AppError::new(
             codes::TRANSLATION_MISMATCH,
             "echoed draft id / content version differ from the request",
@@ -112,10 +130,16 @@ pub fn parse_translate_response(status: u16, body: &str, sent: &TranslateParams)
         .and_then(JsonValue::as_str)
         .ok_or_else(|| AppError::new(codes::MALFORMED_RESPONSE, "missing translated_text"))?;
     if translated.trim().is_empty() {
-        return Err(AppError::new(codes::MALFORMED_RESPONSE, "empty translated_text"));
+        return Err(AppError::new(
+            codes::MALFORMED_RESPONSE,
+            "empty translated_text",
+        ));
     }
     if translated.chars().count() > MAX_TRANSLATED_CHARS {
-        return Err(AppError::new(codes::MALFORMED_RESPONSE, "translated_text exceeds 50000 characters"));
+        return Err(AppError::new(
+            codes::MALFORMED_RESPONSE,
+            "translated_text exceeds 50000 characters",
+        ));
     }
     Ok(translated.to_string())
 }
@@ -132,21 +156,36 @@ pub struct TranslationBinding {
 /// Accepts a result only when its binding is exactly the current one
 /// (F12): older session generation → `account.stale_generation`; other
 /// conversation / draft version / identity → `assistant.stale_binding`.
-pub fn accept_result(binding_in_result: &TranslationBinding, current: &TranslationBinding) -> Result<(), AppError> {
-    if current.account.is_stale_generation_of(&binding_in_result.account) {
+pub fn accept_result(
+    binding_in_result: &TranslationBinding,
+    current: &TranslationBinding,
+) -> Result<(), AppError> {
+    if current
+        .account
+        .is_stale_generation_of(&binding_in_result.account)
+    {
         return Err(AppError::new(
             shared_codes::ACCOUNT_STALE_GENERATION,
             "translation result from an older session generation",
         ));
     }
     if !current.account.is_current_for(&binding_in_result.account) {
-        return Err(AppError::new(codes::STALE_BINDING, "translation result for another account"));
+        return Err(AppError::new(
+            codes::STALE_BINDING,
+            "translation result for another account",
+        ));
     }
     if binding_in_result.gid != current.gid {
-        return Err(AppError::new(codes::STALE_BINDING, "translation result for another conversation"));
+        return Err(AppError::new(
+            codes::STALE_BINDING,
+            "translation result for another conversation",
+        ));
     }
     if binding_in_result.draft_version != current.draft_version {
-        return Err(AppError::new(codes::STALE_BINDING, "draft changed after translation"));
+        return Err(AppError::new(
+            codes::STALE_BINDING,
+            "draft changed after translation",
+        ));
     }
     Ok(())
 }
@@ -176,19 +215,32 @@ pub enum TranslationState {
     /// No translation needed (customer language is zh / translation off).
     NotNeeded,
     Idle,
-    Pending { for_draft_version: u64 },
-    Ready { text: String, for_draft_version: u64 },
-    Failed { error: AppError, for_draft_version: u64 },
+    Pending {
+        for_draft_version: u64,
+    },
+    Ready {
+        text: String,
+        for_draft_version: u64,
+    },
+    Failed {
+        error: AppError,
+        for_draft_version: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SendPlan {
     SendOriginal,
-    SendTranslated { text: String, original: String },
+    SendTranslated {
+        text: String,
+        original: String,
+    },
     /// Translate (or wait for the in-flight translation) first.
     NeedTranslation,
     /// Explicit user choice required; nothing is sent.
-    PromptRetryOrSendOriginal { error: AppError },
+    PromptRetryOrSendOriginal {
+        error: AppError,
+    },
 }
 
 /// Decides what pressing send does. A translation failure never silently
@@ -199,9 +251,17 @@ pub fn on_send_pressed(mode: OutboundMode, draft: &Draft, state: &TranslationSta
     }
     match (mode, state) {
         (_, TranslationState::NotNeeded) => SendPlan::SendOriginal,
-        (_, TranslationState::Failed { error, for_draft_version }) => {
+        (
+            _,
+            TranslationState::Failed {
+                error,
+                for_draft_version,
+            },
+        ) => {
             if *for_draft_version == draft.version {
-                SendPlan::PromptRetryOrSendOriginal { error: error.clone() }
+                SendPlan::PromptRetryOrSendOriginal {
+                    error: error.clone(),
+                }
             } else if mode == OutboundMode::SendDirect {
                 SendPlan::NeedTranslation
             } else {
@@ -209,7 +269,13 @@ pub fn on_send_pressed(mode: OutboundMode, draft: &Draft, state: &TranslationSta
             }
         }
         (OutboundMode::ReplaceDraft, _) => SendPlan::SendOriginal,
-        (OutboundMode::SendDirect, TranslationState::Ready { text, for_draft_version }) => {
+        (
+            OutboundMode::SendDirect,
+            TranslationState::Ready {
+                text,
+                for_draft_version,
+            },
+        ) => {
             if *for_draft_version == draft.version && !text.trim().is_empty() {
                 SendPlan::SendTranslated {
                     text: text.clone(),
@@ -282,15 +348,29 @@ impl TranslationCache {
         self.slots.is_empty()
     }
 
-    pub fn get(&self, account: &AccountContext, text: &str, target_lang: &str, now_ms: i64) -> Option<String> {
+    pub fn get(
+        &self,
+        account: &AccountContext,
+        text: &str,
+        target_lang: &str,
+        now_ms: i64,
+    ) -> Option<String> {
         match self.slots.get(&Self::key(account, text, target_lang)) {
-            Some(Slot::Done { text, at_ms }) if now_ms - at_ms <= CACHE_TTL_MS => Some(text.clone()),
+            Some(Slot::Done { text, at_ms }) if now_ms - at_ms <= CACHE_TTL_MS => {
+                Some(text.clone())
+            }
             _ => None,
         }
     }
 
     /// Looks up or claims the key for a single in-flight request.
-    pub fn claim(&mut self, account: &AccountContext, text: &str, target_lang: &str, now_ms: i64) -> CacheClaim {
+    pub fn claim(
+        &mut self,
+        account: &AccountContext,
+        text: &str,
+        target_lang: &str,
+        now_ms: i64,
+    ) -> CacheClaim {
         let key = Self::key(account, text, target_lang);
         match self.slots.get(&key) {
             Some(Slot::Done { text, at_ms }) if now_ms - at_ms <= CACHE_TTL_MS => {
@@ -306,7 +386,14 @@ impl TranslationCache {
         CacheClaim::Claimed
     }
 
-    pub fn complete(&mut self, account: &AccountContext, text: &str, target_lang: &str, translated: String, now_ms: i64) {
+    pub fn complete(
+        &mut self,
+        account: &AccountContext,
+        text: &str,
+        target_lang: &str,
+        translated: String,
+        now_ms: i64,
+    ) {
         self.slots.insert(
             Self::key(account, text, target_lang),
             Slot::Done {
@@ -318,7 +405,8 @@ impl TranslationCache {
 
     /// Releases the single-flight marker without storing anything.
     pub fn fail(&mut self, account: &AccountContext, text: &str, target_lang: &str) {
-        if let Some(Slot::InFlight { .. }) = self.slots.get(&Self::key(account, text, target_lang)) {
+        if let Some(Slot::InFlight { .. }) = self.slots.get(&Self::key(account, text, target_lang))
+        {
             self.slots.remove(&Self::key(account, text, target_lang));
         }
     }
@@ -392,11 +480,31 @@ mod tests {
             panic!("json body");
         };
         let doc = JsonValue::parse(json).expect("json");
-        let keys: BTreeSet<&str> = doc.as_object().expect("obj").keys().map(String::as_str).collect();
-        let expected: BTreeSet<&str> = ["text", "target_lang", "source_lang", "purpose", "draft_request_id", "composer_content_version"].into_iter().collect();
+        let keys: BTreeSet<&str> = doc
+            .as_object()
+            .expect("obj")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let expected: BTreeSet<&str> = [
+            "text",
+            "target_lang",
+            "source_lang",
+            "purpose",
+            "draft_request_id",
+            "composer_content_version",
+        ]
+        .into_iter()
+        .collect();
         assert_eq!(keys, expected);
-        assert_eq!(doc.get("source_lang").and_then(JsonValue::as_str), Some("zh"));
-        assert_eq!(doc.get("purpose").and_then(JsonValue::as_str), Some("outbound"));
+        assert_eq!(
+            doc.get("source_lang").and_then(JsonValue::as_str),
+            Some("zh")
+        );
+        assert_eq!(
+            doc.get("purpose").and_then(JsonValue::as_str),
+            Some("outbound")
+        );
         assert_eq!(doc.get("text").and_then(JsonValue::as_str), Some("你好"));
         assert_eq!(params.draft_request_id, "draft-1");
     }
@@ -419,7 +527,9 @@ mod tests {
         assert!(translate_request(&s, "x", "en", "d", &"v".repeat(25_001)).is_err());
         let mut inactive = session();
         inactive.is_active = false;
-        assert!(translate_request(&inactive, "x", "en", "d", "v").expect_err("inactive").is(codes::NOT_LOGGED_IN));
+        assert!(translate_request(&inactive, "x", "en", "d", "v")
+            .expect_err("inactive")
+            .is(codes::NOT_LOGGED_IN));
         for e in [
             translate_request(&s, "", "en", "d", "v"),
             translate_request(&s, "x", "xx", "d", "v"),
@@ -437,24 +547,41 @@ mod tests {
             composer_content_version: "v7".into(),
         };
         let ok = r#"{"success":true,"data":{"translated_text":"Hello","draft_request_id":"draft-1","composer_content_version":"v7"}}"#;
-        assert_eq!(parse_translate_response(200, ok, &sent).expect("ok"), "Hello");
+        assert_eq!(
+            parse_translate_response(200, ok, &sent).expect("ok"),
+            "Hello"
+        );
         let wrong_id = r#"{"success":true,"data":{"translated_text":"Hello","draft_request_id":"draft-2","composer_content_version":"v7"}}"#;
-        assert!(parse_translate_response(200, wrong_id, &sent).expect_err("id").is(codes::TRANSLATION_MISMATCH));
+        assert!(parse_translate_response(200, wrong_id, &sent)
+            .expect_err("id")
+            .is(codes::TRANSLATION_MISMATCH));
         let wrong_ver = r#"{"success":true,"data":{"translated_text":"Hello","draft_request_id":"draft-1","composer_content_version":"v8"}}"#;
-        assert!(parse_translate_response(200, wrong_ver, &sent).expect_err("ver").is(codes::TRANSLATION_MISMATCH));
+        assert!(parse_translate_response(200, wrong_ver, &sent)
+            .expect_err("ver")
+            .is(codes::TRANSLATION_MISMATCH));
         let no_echo = r#"{"success":true,"data":{"translated_text":"Hello"}}"#;
-        assert!(parse_translate_response(200, no_echo, &sent).expect_err("echo").is(codes::TRANSLATION_MISMATCH));
+        assert!(parse_translate_response(200, no_echo, &sent)
+            .expect_err("echo")
+            .is(codes::TRANSLATION_MISMATCH));
         let empty = r#"{"success":true,"data":{"translated_text":"  ","draft_request_id":"draft-1","composer_content_version":"v7"}}"#;
-        assert!(parse_translate_response(200, empty, &sent).expect_err("empty").is(codes::MALFORMED_RESPONSE));
+        assert!(parse_translate_response(200, empty, &sent)
+            .expect_err("empty")
+            .is(codes::MALFORMED_RESPONSE));
         let huge = format!(
             r#"{{"success":true,"data":{{"translated_text":"{}","draft_request_id":"draft-1","composer_content_version":"v7"}}}}"#,
             "a".repeat(50_001)
         );
         assert!(parse_translate_response(200, &huge, &sent).is_err());
-        assert!(parse_translate_response(429, ok, &sent).expect_err("429").is(codes::SERVICE_UNAVAILABLE));
-        assert!(parse_translate_response(403, ok, &sent).expect_err("403").is(codes::FORBIDDEN));
+        assert!(parse_translate_response(429, ok, &sent)
+            .expect_err("429")
+            .is(codes::SERVICE_UNAVAILABLE));
+        assert!(parse_translate_response(403, ok, &sent)
+            .expect_err("403")
+            .is(codes::FORBIDDEN));
         let fail = r#"{"success":false,"message":"quota"}"#;
-        assert!(parse_translate_response(200, fail, &sent).expect_err("fail").is(codes::UPSTREAM_FAILURE));
+        assert!(parse_translate_response(200, fail, &sent)
+            .expect_err("fail")
+            .is(codes::UPSTREAM_FAILURE));
     }
 
     #[test]
@@ -465,21 +592,47 @@ mod tests {
             draft_version: 5,
         };
         assert!(accept_result(&current, &current).is_ok());
-        let older = TranslationBinding { account: ctx("a", 2), ..current.clone() };
-        assert!(accept_result(&older, &current).expect_err("gen").is(shared_codes::ACCOUNT_STALE_GENERATION));
-        let other_account = TranslationBinding { account: ctx("b", 3), ..current.clone() };
-        assert!(accept_result(&other_account, &current).expect_err("acct").is(codes::STALE_BINDING));
-        let other_gid = TranslationBinding { gid: "g2".into(), ..current.clone() };
-        assert!(accept_result(&other_gid, &current).expect_err("gid").is(codes::STALE_BINDING));
-        let old_draft = TranslationBinding { draft_version: 4, ..current.clone() };
-        assert!(accept_result(&old_draft, &current).expect_err("draft").is(codes::STALE_BINDING));
+        let older = TranslationBinding {
+            account: ctx("a", 2),
+            ..current.clone()
+        };
+        assert!(accept_result(&older, &current)
+            .expect_err("gen")
+            .is(shared_codes::ACCOUNT_STALE_GENERATION));
+        let other_account = TranslationBinding {
+            account: ctx("b", 3),
+            ..current.clone()
+        };
+        assert!(accept_result(&other_account, &current)
+            .expect_err("acct")
+            .is(codes::STALE_BINDING));
+        let other_gid = TranslationBinding {
+            gid: "g2".into(),
+            ..current.clone()
+        };
+        assert!(accept_result(&other_gid, &current)
+            .expect_err("gid")
+            .is(codes::STALE_BINDING));
+        let old_draft = TranslationBinding {
+            draft_version: 4,
+            ..current.clone()
+        };
+        assert!(accept_result(&old_draft, &current)
+            .expect_err("draft")
+            .is(codes::STALE_BINDING));
     }
 
     #[test]
     fn send_mode_state_machine() {
-        let draft = Draft { text: "你好".into(), version: 2 };
+        let draft = Draft {
+            text: "你好".into(),
+            version: 2,
+        };
         let err = AppError::new(codes::SERVICE_UNAVAILABLE, "down");
-        let failed = TranslationState::Failed { error: err.clone(), for_draft_version: 2 };
+        let failed = TranslationState::Failed {
+            error: err.clone(),
+            for_draft_version: 2,
+        };
         // Failure never silently sends the original, in either mode.
         assert_eq!(
             on_send_pressed(OutboundMode::SendDirect, &draft, &failed),
@@ -490,35 +643,95 @@ mod tests {
             SendPlan::PromptRetryOrSendOriginal { error: err.clone() }
         );
         // Ready for the current version → translated with original kept.
-        let ready = TranslationState::Ready { text: "Hello".into(), for_draft_version: 2 };
+        let ready = TranslationState::Ready {
+            text: "Hello".into(),
+            for_draft_version: 2,
+        };
         assert_eq!(
             on_send_pressed(OutboundMode::SendDirect, &draft, &ready),
-            SendPlan::SendTranslated { text: "Hello".into(), original: "你好".into() }
+            SendPlan::SendTranslated {
+                text: "Hello".into(),
+                original: "你好".into()
+            }
         );
         // Draft edited after translation → re-translate.
-        let stale = TranslationState::Ready { text: "Hello".into(), for_draft_version: 1 };
-        assert_eq!(on_send_pressed(OutboundMode::SendDirect, &draft, &stale), SendPlan::NeedTranslation);
-        assert_eq!(on_send_pressed(OutboundMode::SendDirect, &draft, &TranslationState::Idle), SendPlan::NeedTranslation);
+        let stale = TranslationState::Ready {
+            text: "Hello".into(),
+            for_draft_version: 1,
+        };
         assert_eq!(
-            on_send_pressed(OutboundMode::SendDirect, &draft, &TranslationState::Pending { for_draft_version: 2 }),
+            on_send_pressed(OutboundMode::SendDirect, &draft, &stale),
+            SendPlan::NeedTranslation
+        );
+        assert_eq!(
+            on_send_pressed(OutboundMode::SendDirect, &draft, &TranslationState::Idle),
+            SendPlan::NeedTranslation
+        );
+        assert_eq!(
+            on_send_pressed(
+                OutboundMode::SendDirect,
+                &draft,
+                &TranslationState::Pending {
+                    for_draft_version: 2
+                }
+            ),
             SendPlan::NeedTranslation
         );
         // Stale failure in SendDirect: translate again rather than prompt.
-        let old_fail = TranslationState::Failed { error: err.clone(), for_draft_version: 1 };
-        assert_eq!(on_send_pressed(OutboundMode::SendDirect, &draft, &old_fail), SendPlan::NeedTranslation);
-        assert_eq!(on_send_pressed(OutboundMode::ReplaceDraft, &draft, &old_fail), SendPlan::SendOriginal);
+        let old_fail = TranslationState::Failed {
+            error: err.clone(),
+            for_draft_version: 1,
+        };
+        assert_eq!(
+            on_send_pressed(OutboundMode::SendDirect, &draft, &old_fail),
+            SendPlan::NeedTranslation
+        );
+        assert_eq!(
+            on_send_pressed(OutboundMode::ReplaceDraft, &draft, &old_fail),
+            SendPlan::SendOriginal
+        );
         // ReplaceDraft sends the composer content as is.
-        assert_eq!(on_send_pressed(OutboundMode::ReplaceDraft, &draft, &ready), SendPlan::SendOriginal);
-        assert_eq!(on_send_pressed(OutboundMode::ReplaceDraft, &draft, &TranslationState::Idle), SendPlan::SendOriginal);
+        assert_eq!(
+            on_send_pressed(OutboundMode::ReplaceDraft, &draft, &ready),
+            SendPlan::SendOriginal
+        );
+        assert_eq!(
+            on_send_pressed(OutboundMode::ReplaceDraft, &draft, &TranslationState::Idle),
+            SendPlan::SendOriginal
+        );
         // Not needed → original in both modes.
-        assert_eq!(on_send_pressed(OutboundMode::SendDirect, &draft, &TranslationState::NotNeeded), SendPlan::SendOriginal);
+        assert_eq!(
+            on_send_pressed(
+                OutboundMode::SendDirect,
+                &draft,
+                &TranslationState::NotNeeded
+            ),
+            SendPlan::SendOriginal
+        );
         // Empty draft never sends.
-        let empty = Draft { text: " ".into(), version: 2 };
-        assert_eq!(on_send_pressed(OutboundMode::ReplaceDraft, &empty, &TranslationState::Idle), SendPlan::NeedTranslation);
+        let empty = Draft {
+            text: " ".into(),
+            version: 2,
+        };
+        assert_eq!(
+            on_send_pressed(OutboundMode::ReplaceDraft, &empty, &TranslationState::Idle),
+            SendPlan::NeedTranslation
+        );
         assert_eq!(OutboundMode::default(), OutboundMode::ReplaceDraft);
         // SendDirect never yields SendOriginal unless NotNeeded or stale-failure in ReplaceDraft.
-        for st in [TranslationState::Idle, TranslationState::Pending { for_draft_version: 2 }, failed.clone(), ready.clone(), stale.clone()] {
-            assert_ne!(on_send_pressed(OutboundMode::SendDirect, &draft, &st), SendPlan::SendOriginal);
+        for st in [
+            TranslationState::Idle,
+            TranslationState::Pending {
+                for_draft_version: 2,
+            },
+            failed.clone(),
+            ready.clone(),
+            stale.clone(),
+        ] {
+            assert_ne!(
+                on_send_pressed(OutboundMode::SendDirect, &draft, &st),
+                SendPlan::SendOriginal
+            );
         }
     }
 
@@ -529,23 +742,46 @@ mod tests {
         let b = ctx("b", 1);
         assert_eq!(c.claim(&a, "你好", "en", 0), CacheClaim::Claimed);
         assert_eq!(c.claim(&a, "你好", "en", 1), CacheClaim::InFlight);
-        assert_eq!(c.claim(&b, "你好", "en", 1), CacheClaim::Claimed, "other account is independent");
+        assert_eq!(
+            c.claim(&b, "你好", "en", 1),
+            CacheClaim::Claimed,
+            "other account is independent"
+        );
         c.complete(&a, "你好", "en", "Hello".into(), 10);
-        assert_eq!(c.claim(&a, "你好", "en", 20), CacheClaim::Hit("Hello".into()));
+        assert_eq!(
+            c.claim(&a, "你好", "en", 20),
+            CacheClaim::Hit("Hello".into())
+        );
         assert_eq!(c.get(&a, "你好", "en", 20), Some("Hello".into()));
-        assert_eq!(c.get(&b, "你好", "en", 20), None, "never shared across accounts");
+        assert_eq!(
+            c.get(&b, "你好", "en", 20),
+            None,
+            "never shared across accounts"
+        );
         assert_eq!(c.get(&a, "你好", "ja", 20), None);
         // Next generation of the same identity does not see the old entry.
         assert_eq!(c.get(&a.next_generation(), "你好", "en", 20), None);
         // TTL.
-        assert_eq!(c.get(&a, "你好", "en", 10 + CACHE_TTL_MS), Some("Hello".into()));
+        assert_eq!(
+            c.get(&a, "你好", "en", 10 + CACHE_TTL_MS),
+            Some("Hello".into())
+        );
         assert_eq!(c.get(&a, "你好", "en", 11 + CACHE_TTL_MS), None);
-        assert_eq!(c.claim(&a, "你好", "en", 11 + CACHE_TTL_MS), CacheClaim::Claimed);
+        assert_eq!(
+            c.claim(&a, "你好", "en", 11 + CACHE_TTL_MS),
+            CacheClaim::Claimed
+        );
         c.fail(&a, "你好", "en");
-        assert_eq!(c.claim(&a, "你好", "en", 12 + CACHE_TTL_MS), CacheClaim::Claimed);
+        assert_eq!(
+            c.claim(&a, "你好", "en", 12 + CACHE_TTL_MS),
+            CacheClaim::Claimed
+        );
         // An in-flight marker older than the TTL is released too (b's claim
         // from t=1 is gone by now), so a stuck request cannot block forever.
-        assert_eq!(c.claim(&b, "你好", "en", 12 + CACHE_TTL_MS), CacheClaim::Claimed);
+        assert_eq!(
+            c.claim(&b, "你好", "en", 12 + CACHE_TTL_MS),
+            CacheClaim::Claimed
+        );
         // fail() never removes a completed entry.
         let t = 20 + CACHE_TTL_MS;
         c.complete(&a, "x", "en", "X".into(), t);
@@ -555,7 +791,11 @@ mod tests {
         c.clear_account(&a);
         assert_eq!(c.get(&a, "x", "en", t + 1), None);
         assert_eq!(c.get(&b, "y", "en", t + 1), Some("Y".into()), "b untouched");
-        assert_eq!(c.claim(&b, "你好", "en", t + 1), CacheClaim::InFlight, "b's marker untouched");
+        assert_eq!(
+            c.claim(&b, "你好", "en", t + 1),
+            CacheClaim::InFlight,
+            "b's marker untouched"
+        );
         c.clear();
         assert!(c.is_empty());
     }
@@ -571,6 +811,8 @@ mod tests {
         }
         assert!(c.len() <= CACHE_CAPACITY);
         assert_eq!(c.get(&a, "t0", "en", 600), None, "oldest evicted");
-        assert!(c.get(&a, &format!("t{}", CACHE_CAPACITY + 49), "en", 600).is_some());
+        assert!(c
+            .get(&a, &format!("t{}", CACHE_CAPACITY + 49), "en", 600)
+            .is_some());
     }
 }

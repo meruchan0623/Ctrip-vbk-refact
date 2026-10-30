@@ -48,11 +48,31 @@ pub fn map_http_status(status: u16) -> Option<StatusError> {
         return None;
     }
     let (code, msg, clears, retryable) = match status {
-        401 | 423 => (codes::SESSION_CLEARED, "tsim session invalid or locked", true, false),
-        403 => (codes::FORBIDDEN, "tsim forbidden (not a logout)", false, false),
-        422 | 413 => (codes::INVALID_INPUT, "tsim rejected the input", false, false),
+        401 | 423 => (
+            codes::SESSION_CLEARED,
+            "tsim session invalid or locked",
+            true,
+            false,
+        ),
+        403 => (
+            codes::FORBIDDEN,
+            "tsim forbidden (not a logout)",
+            false,
+            false,
+        ),
+        422 | 413 => (
+            codes::INVALID_INPUT,
+            "tsim rejected the input",
+            false,
+            false,
+        ),
         429 | 500..=599 => (codes::SERVICE_UNAVAILABLE, "tsim unavailable", false, true),
-        _ => (codes::HTTP_ERROR, "unexpected tsim http status", false, false),
+        _ => (
+            codes::HTTP_ERROR,
+            "unexpected tsim http status",
+            false,
+            false,
+        ),
     };
     let mut error = AppError::new(code, msg).with_detail(status.to_string());
     if retryable {
@@ -86,8 +106,10 @@ pub fn parse_envelope(status: u16, body: &str) -> Result<JsonValue, AppError> {
                 .and_then(JsonValue::as_str)
                 .unwrap_or("")
                 .to_string();
-            Err(AppError::new(codes::UPSTREAM_FAILURE, "tsim reported failure")
-                .with_detail(truncate(&message, 200)))
+            Err(
+                AppError::new(codes::UPSTREAM_FAILURE, "tsim reported failure")
+                    .with_detail(truncate(&message, 200)),
+            )
         }
         None => Err(malformed("missing success flag")),
     }
@@ -107,7 +129,10 @@ pub struct LoginForm {
 /// `POST /agent/login` — multipart, no bearer.
 pub fn login(form: &LoginForm, boundary: &str) -> Result<TsimRequest, AppError> {
     if form.username.trim().is_empty() || form.password.is_empty() {
-        return Err(AppError::new(codes::INVALID_INPUT, "username and password are required"));
+        return Err(AppError::new(
+            codes::INVALID_INPUT,
+            "username and password are required",
+        ));
     }
     let parts = vec![
         MultipartPart::text("username", form.username.clone()),
@@ -115,7 +140,11 @@ pub fn login(form: &LoginForm, boundary: &str) -> Result<TsimRequest, AppError> 
     ];
     validate_boundary(boundary, &parts)
         .map_err(|m| AppError::new(codes::INVALID_INPUT, format!("multipart boundary: {m}")))?;
-    Ok(TsimRequest::post_multipart("/agent/login", boundary.to_string(), parts))
+    Ok(TsimRequest::post_multipart(
+        "/agent/login",
+        boundary.to_string(),
+        parts,
+    ))
 }
 
 /// `GET /agent/profile`.
@@ -174,7 +203,9 @@ fn parse_token_data(data: &JsonValue, require_expires: bool) -> Result<TokenData
         .ok_or_else(|| malformed("missing session_ref"))?
         .to_string();
     let expires_at_ms = match data.get("expires_at") {
-        Some(JsonValue::String(s)) => Some(parse_iso8601_ms(s).ok_or_else(|| malformed("expires_at not iso-8601"))?),
+        Some(JsonValue::String(s)) => {
+            Some(parse_iso8601_ms(s).ok_or_else(|| malformed("expires_at not iso-8601"))?)
+        }
         Some(JsonValue::Null) | None if !require_expires => None,
         _ => return Err(malformed("expires_at")),
     };
@@ -212,14 +243,25 @@ pub fn parse_profile_response(status: u16, body: &str) -> Result<Profile, AppErr
     let data = parse_envelope(status, body)?;
     let id = match data.get("id") {
         Some(JsonValue::String(s)) => s.clone(),
-        Some(n @ JsonValue::Number { .. }) => n.as_i64().map(|i| i.to_string()).ok_or_else(|| malformed("id"))?,
+        Some(n @ JsonValue::Number { .. }) => n
+            .as_i64()
+            .map(|i| i.to_string())
+            .ok_or_else(|| malformed("id"))?,
         _ => return Err(malformed("missing id")),
     };
-    let is_active = data.get("is_active").and_then(JsonValue::as_bool).unwrap_or(false);
+    let is_active = data
+        .get("is_active")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
     let permissions = data
         .get("permissions")
         .and_then(JsonValue::as_array)
-        .map(|a| a.iter().filter_map(JsonValue::as_str).map(str::to_string).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(JsonValue::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
     let outbound_wait = data.get("outbound_wait").and_then(JsonValue::as_i64);
     Ok(Profile {
@@ -353,7 +395,8 @@ mod tests {
     fn jwt_with_exp(exp_s: i64) -> String {
         // header "{}" and payload {"exp":N}; signature irrelevant.
         fn b64url(s: &str) -> String {
-            const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+            const A: &[u8; 64] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
             let b = s.as_bytes();
             let mut out = String::new();
             for chunk in b.chunks(3) {
@@ -371,7 +414,11 @@ mod tests {
             }
             out
         }
-        format!("{}.{}.sig", b64url("{\"alg\":\"HS256\"}"), b64url(&format!("{{\"exp\":{exp_s},\"sub\":\"a\"}}")))
+        format!(
+            "{}.{}.sig",
+            b64url("{\"alg\":\"HS256\"}"),
+            b64url(&format!("{{\"exp\":{exp_s},\"sub\":\"a\"}}"))
+        )
     }
 
     #[test]
@@ -382,14 +429,27 @@ mod tests {
         };
         let r = login(&form, "BoundaryXYZ").expect("request");
         assert_eq!(r.url, "https://csapi.tsim.tech/agent/login");
-        assert!(r.header("Authorization").is_none(), "login carries no bearer");
-        assert_eq!(r.header("Content-Type"), Some("multipart/form-data; boundary=BoundaryXYZ"));
+        assert!(
+            r.header("Authorization").is_none(),
+            "login carries no bearer"
+        );
+        assert_eq!(
+            r.header("Content-Type"),
+            Some("multipart/form-data; boundary=BoundaryXYZ")
+        );
         let expected = "--BoundaryXYZ\r\nContent-Disposition: form-data; name=\"username\"\r\n\r\nalice\r\n--BoundaryXYZ\r\nContent-Disposition: form-data; name=\"password\"\r\n\r\nsecret-pw\r\n--BoundaryXYZ--\r\n";
         assert_eq!(r.body.encode(), expected.as_bytes());
         assert!(matches!(r.body, Body::Multipart { .. }));
         assert!(!format!("{r:?}").contains("secret-pw"));
         assert!(!format!("{form:?}").contains("secret-pw"));
-        assert!(login(&LoginForm { username: "".into(), password: SecretString::new("x") }, "b").is_err());
+        assert!(login(
+            &LoginForm {
+                username: "".into(),
+                password: SecretString::new("x")
+            },
+            "b"
+        )
+        .is_err());
         assert!(login(&form, "bad boundary").is_err());
     }
 
@@ -417,15 +477,24 @@ mod tests {
         let e = map_http_status(403).expect("403");
         assert!(!e.clears_session);
         assert!(e.error.is(codes::FORBIDDEN));
-        assert!(map_http_status(422).expect("422").error.is(codes::INVALID_INPUT));
-        assert!(map_http_status(413).expect("413").error.is(codes::INVALID_INPUT));
+        assert!(map_http_status(422)
+            .expect("422")
+            .error
+            .is(codes::INVALID_INPUT));
+        assert!(map_http_status(413)
+            .expect("413")
+            .error
+            .is(codes::INVALID_INPUT));
         for s in [429, 500, 503] {
             let e = map_http_status(s).expect("unavailable");
             assert!(e.error.is(codes::SERVICE_UNAVAILABLE), "{s}");
             assert!(!e.clears_session);
             assert!(e.error.retryable);
         }
-        assert!(map_http_status(404).expect("404").error.is(codes::HTTP_ERROR));
+        assert!(map_http_status(404)
+            .expect("404")
+            .error
+            .is(codes::HTTP_ERROR));
         assert!(map_http_status(200).is_none());
         assert!(map_http_status(204).is_none());
     }
@@ -444,22 +513,30 @@ mod tests {
         assert!(parse_login_response(200, "{}").is_err());
         assert!(parse_login_response(200, "[]").is_err());
         assert!(parse_login_response(200, "nope").is_err());
-        assert!(parse_login_response(401, ok).expect_err("401").is(codes::SESSION_CLEARED));
+        assert!(parse_login_response(401, ok)
+            .expect_err("401")
+            .is(codes::SESSION_CLEARED));
         // Refresh requires expires_at.
         let refresh_ok = r#"{"success":true,"data":{"access_token":"t2","token_type":"bearer","expires_at":"2026-10-30T12:00:00Z","session_ref":"s2"}}"#;
         let t = parse_refresh_response(200, refresh_ok).expect("refresh");
         assert_eq!(t.expires_at_ms, Some(1_793_361_600_000));
         assert!(parse_refresh_response(200, ok).is_err());
-        let bad_type = r#"{"success":true,"data":{"access_token":"t","token_type":"mac","session_ref":"s"}}"#;
+        let bad_type =
+            r#"{"success":true,"data":{"access_token":"t","token_type":"mac","session_ref":"s"}}"#;
         assert!(parse_login_response(200, bad_type).is_err());
         // Profile.
         let prof = r#"{"success":true,"data":{"id":7,"is_active":true,"permissions":["complaint_records","x"],"outbound_wait":3,"extra":1}}"#;
         let p = parse_profile_response(200, prof).expect("profile");
         assert_eq!(p.id, "7");
         assert!(p.is_active);
-        assert_eq!(p.permissions, vec!["complaint_records".to_string(), "x".to_string()]);
+        assert_eq!(
+            p.permissions,
+            vec!["complaint_records".to_string(), "x".to_string()]
+        );
         assert_eq!(p.outbound_wait, Some(3));
-        assert!(parse_logout_response(200, r#"{"success":true,"message":"bye","data":null}"#).is_ok());
+        assert!(
+            parse_logout_response(200, r#"{"success":true,"message":"bye","data":null}"#).is_ok()
+        );
     }
 
     #[test]
@@ -495,7 +572,10 @@ mod tests {
         };
         let s = TsimSession::from_token(opaque, 1_000_000, 1);
         assert_eq!(s.expires_at_ms, None);
-        assert_eq!(s.refresh_deadline_ms(), 1_000_000 + FALLBACK_REFRESH_CYCLE_MS);
+        assert_eq!(
+            s.refresh_deadline_ms(),
+            1_000_000 + FALLBACK_REFRESH_CYCLE_MS
+        );
         assert!(!s.refresh_due(1_000_000 + FALLBACK_REFRESH_CYCLE_MS - 1));
         assert!(s.refresh_due(1_000_000 + FALLBACK_REFRESH_CYCLE_MS));
         assert!(!s.is_expired(i64::MAX));

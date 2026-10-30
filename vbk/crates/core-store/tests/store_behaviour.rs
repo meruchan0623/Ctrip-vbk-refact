@@ -40,7 +40,11 @@ fn ns(account: &str) -> Namespace {
 }
 
 fn ctx(account: &str, generation: u64) -> AccountContext {
-    AccountContext::new(AccountId::new(account), Environment::named("test-env"), generation)
+    AccountContext::new(
+        AccountId::new(account),
+        Environment::named("test-env"),
+        generation,
+    )
 }
 
 fn round(gid: &str, round_id: &str) -> RoundRecord {
@@ -76,7 +80,9 @@ fn uncommitted_transaction_is_invisible_until_commit() {
         assert!(!txn.is_empty());
 
         // Nothing visible, no commit fact yet.
-        assert!(ReminderStateRepo::get(store, &ns, "g1", "r1").expect("get").is_none());
+        assert!(ReminderStateRepo::get(store, &ns, "g1", "r1")
+            .expect("get")
+            .is_none());
         assert!(!PinnedRepo::is_pinned(store, &ns, "g1").expect("pinned"));
         assert_eq!(store.last_commit(&ns).expect("fact"), None);
 
@@ -92,8 +98,14 @@ fn uncommitted_transaction_is_invisible_until_commit() {
         let mut dropped = store.begin(&ns).expect("begin");
         ReminderStateRepo::put(&mut dropped, &round("g2", "r9"));
         drop(dropped);
-        assert_eq!(ReminderStateRepo::load_all(store, &ns).expect("load").len(), 1);
-        assert_eq!(store.last_commit(&ns).expect("fact").map(|f| f.revision), Some(1));
+        assert_eq!(
+            ReminderStateRepo::load_all(store, &ns).expect("load").len(),
+            1
+        );
+        assert_eq!(
+            store.last_commit(&ns).expect("fact").map(|f| f.revision),
+            Some(1)
+        );
     });
 }
 
@@ -116,7 +128,9 @@ fn load_all_returns_pending_verification_that_needs_evidence() {
         assert!(e.is(codes::STORE_NOT_RECONCILED));
 
         let pending = ReminderStateRepo::load_all(store, &ns).expect("load");
-        let rounds = pending.reconcile(ReconcileEvidence::complete()).expect("reconciled");
+        let rounds = pending
+            .reconcile(ReconcileEvidence::complete())
+            .expect("reconciled");
         assert_eq!(rounds, vec![round("g1", "r1")]);
     });
 }
@@ -132,13 +146,19 @@ fn file_store_atomic_rename_survives_partial_temp_write() {
 
     let dir = store.namespace_dir(&ns);
     assert!(dir.join("state.json").exists());
-    assert!(fs::read_dir(&dir)
-        .expect("dir")
-        .all(|e| !e.expect("entry").file_name().to_string_lossy().contains(".tmp-")));
+    assert!(fs::read_dir(&dir).expect("dir").all(|e| !e
+        .expect("entry")
+        .file_name()
+        .to_string_lossy()
+        .contains(".tmp-")));
 
     // Simulate a crash in the middle of the next write: a truncated temp
     // file sits next to the intact document.
-    fs::write(dir.join("state.json.tmp-deadbeef"), b"{\"meta\":{\"environment\":\"test-").expect("partial");
+    fs::write(
+        dir.join("state.json.tmp-deadbeef"),
+        b"{\"meta\":{\"environment\":\"test-",
+    )
+    .expect("partial");
     let loaded = ReminderStateRepo::load_all(&store, &ns).expect("intact document still loads");
     assert_eq!(loaded.len(), 1);
 
@@ -149,7 +169,12 @@ fn file_store_atomic_rename_survives_partial_temp_write() {
     assert_eq!(fact.revision, 2);
     assert!(!dir.join("state.json.tmp-deadbeef").exists());
     let reopened = FileStore::open(&root.0).expect("reopen");
-    assert_eq!(ReminderStateRepo::load_all(&reopened, &ns).expect("load").len(), 2);
+    assert_eq!(
+        ReminderStateRepo::load_all(&reopened, &ns)
+            .expect("load")
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -172,26 +197,48 @@ fn corrupt_document_is_quarantined_and_reported_not_wiped() {
         .expect("name")
         .to_string_lossy()
         .starts_with("state.json.corrupt-"));
-    assert_eq!(fs::read(&quarantined[0]).expect("evidence"), b"{ this is not json");
+    assert_eq!(
+        fs::read(&quarantined[0]).expect("evidence"),
+        b"{ this is not json"
+    );
     assert!(!dir.join("state.json").exists());
 
     // Still blocked (reads and writes) until the host acknowledges.
-    assert!(store.begin(&ns).expect_err("blocked").is(codes::STORE_CORRUPT));
-    assert!(store.get(&ns, "rounds", "x").expect_err("blocked").is(codes::STORE_CORRUPT));
+    assert!(store
+        .begin(&ns)
+        .expect_err("blocked")
+        .is(codes::STORE_CORRUPT));
+    assert!(store
+        .get(&ns, "rounds", "x")
+        .expect_err("blocked")
+        .is(codes::STORE_CORRUPT));
     let acked = store.acknowledge_corruption(&ns).expect("ack");
     assert_eq!(acked, quarantined);
     assert!(quarantined[0].exists(), "evidence is never deleted here");
-    assert_eq!(ReminderStateRepo::load_all(&store, &ns).expect("fresh").len(), 0);
+    assert_eq!(
+        ReminderStateRepo::load_all(&store, &ns)
+            .expect("fresh")
+            .len(),
+        0
+    );
 
     // A document carrying another account's identity is corrupt too.
     let other = Namespace::new(Environment::named("test-env"), AccountId::new("acc_2"));
     let mut txn = store.begin(&other).expect("begin");
     PinnedRepo::set_pinned(&mut txn, "g1", true);
     store.commit(txn).expect("commit");
-    fs::copy(store.namespace_dir(&other).join("state.json"), dir.join("state.json")).expect("copy");
+    fs::copy(
+        store.namespace_dir(&other).join("state.json"),
+        dir.join("state.json"),
+    )
+    .expect("copy");
     let e = store.begin(&ns).expect_err("identity mismatch");
     assert!(e.is(codes::STORE_CORRUPT));
-    assert!(e.detail.as_deref().unwrap_or("").contains("identity mismatch"));
+    assert!(e
+        .detail
+        .as_deref()
+        .unwrap_or("")
+        .contains("identity mismatch"));
     assert_eq!(store.quarantined_files(&ns).expect("list").len(), 2);
 }
 
@@ -219,12 +266,20 @@ fn logout_lock_blocks_writes_but_keeps_data_and_files() {
 
         store.logout_lock(&ns).expect("lock");
         assert!(store.is_locked(&ns).expect("locked"));
-        assert!(store.begin(&ns).expect_err("locked").is(codes::STORE_LOCKED));
+        assert!(store
+            .begin(&ns)
+            .expect_err("locked")
+            .is(codes::STORE_LOCKED));
 
         // Reads still work; data is intact.
-        assert_eq!(ReminderStateRepo::load_all(store, &ns).expect("load").len(), 1);
         assert_eq!(
-            DraftRepo::load(store, &ns, "g1").expect("draft").map(|d| d.text),
+            ReminderStateRepo::load_all(store, &ns).expect("load").len(),
+            1
+        );
+        assert_eq!(
+            DraftRepo::load(store, &ns, "g1")
+                .expect("draft")
+                .map(|d| d.text),
             Some("draft text".to_string())
         );
 
@@ -233,7 +288,10 @@ fn logout_lock_blocks_writes_but_keeps_data_and_files() {
         let mut early = store.begin(&ns).expect("begin");
         PinnedRepo::set_pinned(&mut early, "g1", true);
         store.logout_lock(&ns).expect("lock");
-        assert!(store.commit(early).expect_err("locked").is(codes::STORE_LOCKED));
+        assert!(store
+            .commit(early)
+            .expect_err("locked")
+            .is(codes::STORE_LOCKED));
         assert!(!PinnedRepo::is_pinned(store, &ns, "g1").expect("pinned"));
 
         store.unlock_after_reauth(&ns).expect("unlock");
@@ -301,15 +359,27 @@ fn unknown_send_intent_survives_reload_and_is_never_marked_resend() {
     assert_eq!(unknown[0].local_id, "local-1");
     assert_eq!(unknown[0].disposition, SendDisposition::Unknown);
     assert!(unknown[0].needs_reconciliation());
-    assert_eq!(unknown[0].account, ctx("acc_1", 3), "generation is kept for stale checks");
+    assert_eq!(
+        unknown[0].account,
+        ctx("acc_1", 3),
+        "generation is kept for stale checks"
+    );
     assert_eq!(unknown[0].frozen_round_id.as_deref(), Some("r1"));
-    assert_eq!(unknown[0].customer_boundary_message_id.as_deref(), Some("m-7"));
+    assert_eq!(
+        unknown[0].customer_boundary_message_id.as_deref(),
+        Some("m-7")
+    );
     // Loading changed nothing on disk.
-    assert_eq!(store.last_commit(&ns).expect("fact").map(|f| f.revision), Some(2));
+    assert_eq!(
+        store.last_commit(&ns).expect("fact").map(|f| f.revision),
+        Some(2)
+    );
 
     // Later "unknown" evidence never downgrades a confirmed intent.
     let mut txn = store.begin(&ns).expect("begin");
-    let rec = SendIntentRepo::apply_disposition(&store, &mut txn, "local-2", SendDisposition::Unknown).expect("noop");
+    let rec =
+        SendIntentRepo::apply_disposition(&store, &mut txn, "local-2", SendDisposition::Unknown)
+            .expect("noop");
     assert!(rec.disposition.is_confirmed());
     assert_eq!(rec.server_message_id.as_deref(), Some("srv-2"));
 }
@@ -328,12 +398,15 @@ fn draft_cas_conflict_rejects_stale_writer() {
         let v2 = DraftRepo::save_draft(store, &mut a, "g1", "hello world", 1).expect("save a");
         assert_eq!(v2, 2);
         let mut b = store.begin(&ns).expect("begin");
-        DraftRepo::save_draft(store, &mut b, "g1", "late translation", 1).expect("prepared before a committed");
+        DraftRepo::save_draft(store, &mut b, "g1", "late translation", 1)
+            .expect("prepared before a committed");
         store.commit(a).expect("commit a");
         let e = store.commit(b).expect_err("stale");
         assert!(e.is(codes::STORE_CAS_CONFLICT));
         assert_eq!(
-            DraftRepo::load(store, &ns, "g1").expect("load").map(|d| (d.text, d.version)),
+            DraftRepo::load(store, &ns, "g1")
+                .expect("load")
+                .map(|d| (d.text, d.version)),
             Some(("hello world".to_string(), 2))
         );
 
@@ -357,7 +430,10 @@ fn complete_watermark_only_moves_with_prove_complete() {
 
         let wm = SyncWatermarkRepo::history(store, &ns, "g1").expect("wm");
         assert_eq!(wm.page_breakpoint_ms, Some(900));
-        assert_eq!(wm.complete_watermark_ms, None, "a page never implies completeness");
+        assert_eq!(
+            wm.complete_watermark_ms, None,
+            "a page never implies completeness"
+        );
 
         let mut txn = store.begin(&ns).expect("begin");
         SyncWatermarkRepo::set_page_breakpoint(store, &mut txn, "g1", 800).expect("page");
@@ -373,9 +449,18 @@ fn complete_watermark_only_moves_with_prove_complete() {
         assert_eq!(wm.page_breakpoint_ms, Some(800), "breakpoint preserved");
         assert_eq!(wm.complete_watermark_ms, Some(800));
 
-        assert_eq!(SyncWatermarkRepo::conversation_cursor(store, &ns).expect("c"), Some(1_000));
-        assert_eq!(SyncWatermarkRepo::compensation_cursor(store, &ns).expect("c"), Some(2_000));
-        assert_eq!(SyncWatermarkRepo::history(store, &ns, "g-other").expect("wm"), Default::default());
+        assert_eq!(
+            SyncWatermarkRepo::conversation_cursor(store, &ns).expect("c"),
+            Some(1_000)
+        );
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(store, &ns).expect("c"),
+            Some(2_000)
+        );
+        assert_eq!(
+            SyncWatermarkRepo::history(store, &ns, "g-other").expect("wm"),
+            Default::default()
+        );
     });
 }
 
@@ -397,17 +482,33 @@ fn two_namespaces_are_isolated_on_disk() {
     DraftRepo::save_draft(&store, &mut txn, "g1", "B other env", 0).expect("draft");
     store.commit(txn).expect("commit");
 
-    let dirs = [store.namespace_dir(&a), store.namespace_dir(&b), store.namespace_dir(&b_other_env)];
+    let dirs = [
+        store.namespace_dir(&a),
+        store.namespace_dir(&b),
+        store.namespace_dir(&b_other_env),
+    ];
     assert_ne!(dirs[0], dirs[1]);
     assert_ne!(dirs[1], dirs[2]);
     for d in &dirs {
         assert!(d.starts_with(&root.0));
         assert!(d.join("state.json").exists());
     }
-    assert_eq!(DraftRepo::load(&store, &a, "g1").expect("a").map(|d| d.text), Some("A's draft".into()));
-    assert_eq!(DraftRepo::load(&store, &b, "g1").expect("b").map(|d| d.text), Some("B's draft".into()));
     assert_eq!(
-        DraftRepo::load(&store, &b_other_env, "g1").expect("b2").map(|d| d.text),
+        DraftRepo::load(&store, &a, "g1")
+            .expect("a")
+            .map(|d| d.text),
+        Some("A's draft".into())
+    );
+    assert_eq!(
+        DraftRepo::load(&store, &b, "g1")
+            .expect("b")
+            .map(|d| d.text),
+        Some("B's draft".into())
+    );
+    assert_eq!(
+        DraftRepo::load(&store, &b_other_env, "g1")
+            .expect("b2")
+            .map(|d| d.text),
         Some("B other env".into())
     );
 
@@ -417,12 +518,17 @@ fn two_namespaces_are_isolated_on_disk() {
     fs::write(dirs[1].join("state.json"), b"garbage").expect("corrupt b");
     assert!(DraftRepo::load(&store, &b, "g1").is_err());
     assert_eq!(
-        DraftRepo::load(&store, &b_other_env, "g1").expect("b2").map(|d| d.version),
+        DraftRepo::load(&store, &b_other_env, "g1")
+            .expect("b2")
+            .map(|d| d.version),
         Some(1)
     );
     // The on-disk document contains nothing credential-like.
     let text = fs::read_to_string(dirs[0].join("state.json")).expect("read");
     assert!(!core_store::looks_secret_like(&text));
     let doc = JsonValue::parse(&text).expect("json");
-    assert_eq!(doc.path("meta.account_id").and_then(JsonValue::as_str), Some("acc_a"));
+    assert_eq!(
+        doc.path("meta.account_id").and_then(JsonValue::as_str),
+        Some("acc_a")
+    );
 }

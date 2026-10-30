@@ -25,7 +25,10 @@ fn invalid(msg: &str) -> AppError {
 }
 
 fn malformed(what: &str) -> AppError {
-    AppError::new(codes::MALFORMED_RESPONSE, format!("tsim package response: {what}"))
+    AppError::new(
+        codes::MALFORMED_RESPONSE,
+        format!("tsim package response: {what}"),
+    )
 }
 
 /// `order_nums`: trimmed, non-empty, ≤ 128 chars, no CR/LF/NUL.
@@ -48,7 +51,10 @@ pub fn validate_query_id(id: &str) -> Result<&str, AppError> {
     if id.is_empty() || id.len() > 128 {
         return Err(invalid("id length must be 1..=128"));
     }
-    if !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+    if !id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
         return Err(invalid("id must match [-A-Za-z0-9_]"));
     }
     Ok(id)
@@ -86,7 +92,11 @@ pub fn perform_request(session: &TsimSession, order_nums: &str) -> Result<TsimRe
     let nums = validate_order_nums(order_nums)?;
     let mut body = JsonValue::object();
     body.insert("order_nums", JsonValue::string(nums));
-    Ok(TsimRequest::post_json("/agent/package-query/perform", token, body.to_json()))
+    Ok(TsimRequest::post_json(
+        "/agent/package-query/perform",
+        token,
+        body.to_json(),
+    ))
 }
 
 /// Parses the raw `code/result` envelope; `ok_codes` are accepted codes.
@@ -100,9 +110,16 @@ fn parse_raw_envelope(status: u16, body: &str, ok_codes: &[i64]) -> Result<JsonV
         .and_then(JsonValue::as_i64)
         .ok_or_else(|| malformed("missing code"))?;
     if !ok_codes.contains(&code) {
-        let msg = doc.get("msg").or_else(|| doc.get("message")).and_then(JsonValue::as_str).unwrap_or("");
-        return Err(AppError::new(codes::UPSTREAM_FAILURE, format!("package query code {code}"))
-            .with_detail(msg.chars().take(200).collect::<String>()));
+        let msg = doc
+            .get("msg")
+            .or_else(|| doc.get("message"))
+            .and_then(JsonValue::as_str)
+            .unwrap_or("");
+        return Err(AppError::new(
+            codes::UPSTREAM_FAILURE,
+            format!("package query code {code}"),
+        )
+        .with_detail(msg.chars().take(200).collect::<String>()));
     }
     Ok(doc.get("result").cloned().unwrap_or(JsonValue::Null))
 }
@@ -119,21 +136,33 @@ pub fn parse_perform(status: u16, body: &str) -> Result<String, AppError> {
 }
 
 /// Step 2: `GET /agent/package-query/dataplan-list?query_id=…`.
-pub fn dataplan_list_request(session: &TsimSession, query_id: &str) -> Result<TsimRequest, AppError> {
+pub fn dataplan_list_request(
+    session: &TsimSession,
+    query_id: &str,
+) -> Result<TsimRequest, AppError> {
     let token = require_session(session)?;
     let id = validate_query_id(query_id)?;
     let q = encode_query(&[("query_id", id)]);
-    Ok(TsimRequest::get(&format!("/agent/package-query/dataplan-list?{q}"), token))
+    Ok(TsimRequest::get(
+        &format!("/agent/package-query/dataplan-list?{q}"),
+        token,
+    ))
 }
 
 /// `code == 1`, `result` array, capped at 100 items.
 pub fn parse_dataplan_list(status: u16, body: &str) -> Result<Vec<JsonValue>, AppError> {
     let result = parse_raw_envelope(status, body, &[1])?;
-    let items = result.as_array().ok_or_else(|| malformed("result is not an array"))?;
+    let items = result
+        .as_array()
+        .ok_or_else(|| malformed("result is not an array"))?;
     Ok(items.iter().take(MAX_DATAPLANS).cloned().collect())
 }
 
-fn card_request(session: &TsimSession, path: &str, card_dataplan_id: &str) -> Result<TsimRequest, AppError> {
+fn card_request(
+    session: &TsimSession,
+    path: &str,
+    card_dataplan_id: &str,
+) -> Result<TsimRequest, AppError> {
     let token = require_session(session)?;
     let id = validate_query_id(card_dataplan_id)?;
     let q = encode_query(&[("card_dataplan_id", id)]);
@@ -141,7 +170,10 @@ fn card_request(session: &TsimSession, path: &str, card_dataplan_id: &str) -> Re
 }
 
 /// Step 3: `GET /agent/package-query/detail?card_dataplan_id=…`.
-pub fn detail_request(session: &TsimSession, card_dataplan_id: &str) -> Result<TsimRequest, AppError> {
+pub fn detail_request(
+    session: &TsimSession,
+    card_dataplan_id: &str,
+) -> Result<TsimRequest, AppError> {
     card_request(session, "/agent/package-query/detail", card_dataplan_id)
 }
 
@@ -155,12 +187,22 @@ pub fn parse_detail(status: u16, body: &str) -> Result<JsonValue, AppError> {
 }
 
 /// Optional step 4: `GET /agent/package-query/live-detail`.
-pub fn live_detail_request(session: &TsimSession, card_dataplan_id: &str) -> Result<TsimRequest, AppError> {
-    card_request(session, "/agent/package-query/live-detail", card_dataplan_id)
+pub fn live_detail_request(
+    session: &TsimSession,
+    card_dataplan_id: &str,
+) -> Result<TsimRequest, AppError> {
+    card_request(
+        session,
+        "/agent/package-query/live-detail",
+        card_dataplan_id,
+    )
 }
 
 /// Optional step 5: `GET /agent/package-query/cdr-more`.
-pub fn cdr_more_request(session: &TsimSession, card_dataplan_id: &str) -> Result<TsimRequest, AppError> {
+pub fn cdr_more_request(
+    session: &TsimSession,
+    card_dataplan_id: &str,
+) -> Result<TsimRequest, AppError> {
     card_request(session, "/agent/package-query/cdr-more", card_dataplan_id)
 }
 
@@ -273,7 +315,10 @@ impl PackagePermission {
         if self.allowed() {
             Ok(())
         } else {
-            Err(AppError::new(codes::PERMISSION_DENIED, "package lookup requires complaint_records"))
+            Err(AppError::new(
+                codes::PERMISSION_DENIED,
+                "package lookup requires complaint_records",
+            ))
         }
     }
 }
@@ -367,21 +412,42 @@ mod tests {
         assert_eq!(r.url, "https://csapi.tsim.tech/agent/package-query/perform");
         assert_eq!(r.body, Body::Json("{\"order_nums\":\"123\"}".into()));
         assert_eq!(r.header("Authorization"), Some("Bearer tok"));
-        assert_eq!(parse_perform(200, r#"{"code":1,"result":{"query_id":"q-1"}}"#).expect("q"), "q-1");
-        assert_eq!(parse_perform(200, r#"{"code":2,"result":{"query_id":"q_2"}}"#).expect("q"), "q_2");
+        assert_eq!(
+            parse_perform(200, r#"{"code":1,"result":{"query_id":"q-1"}}"#).expect("q"),
+            "q-1"
+        );
+        assert_eq!(
+            parse_perform(200, r#"{"code":2,"result":{"query_id":"q_2"}}"#).expect("q"),
+            "q_2"
+        );
         // Large integer id is taken from its raw text, never via f64.
         assert_eq!(
-            parse_perform(200, r#"{"code":1,"result":{"query_id":12345678901234567890123}}"#).expect("q"),
+            parse_perform(
+                200,
+                r#"{"code":1,"result":{"query_id":12345678901234567890123}}"#
+            )
+            .expect("q"),
             "12345678901234567890123"
         );
         assert!(parse_perform(200, r#"{"code":1,"result":{"query_id":1.5}}"#).is_err());
         assert!(parse_perform(200, r#"{"code":1,"result":{"query_id":1e3}}"#).is_err());
-        assert!(parse_perform(200, r#"{"code":0,"result":{"query_id":"q"}}"#).expect_err("code").is(codes::UPSTREAM_FAILURE));
+        assert!(
+            parse_perform(200, r#"{"code":0,"result":{"query_id":"q"}}"#)
+                .expect_err("code")
+                .is(codes::UPSTREAM_FAILURE)
+        );
         assert!(parse_perform(200, r#"{"code":1,"result":{}}"#).is_err());
         assert!(parse_perform(200, r#"{"code":1,"result":{"query_id":"bad id"}}"#).is_err());
-        assert!(parse_perform(200, r#"{"success":true,"data":{"query_id":"q"}}"#).is_err(), "different envelope");
-        assert!(parse_perform(401, r#"{"code":1}"#).expect_err("401").is(codes::SESSION_CLEARED));
-        assert!(parse_perform(403, r#"{"code":1}"#).expect_err("403").is(codes::FORBIDDEN));
+        assert!(
+            parse_perform(200, r#"{"success":true,"data":{"query_id":"q"}}"#).is_err(),
+            "different envelope"
+        );
+        assert!(parse_perform(401, r#"{"code":1}"#)
+            .expect_err("401")
+            .is(codes::SESSION_CLEARED));
+        assert!(parse_perform(403, r#"{"code":1}"#)
+            .expect_err("403")
+            .is(codes::FORBIDDEN));
         let mut inactive = session(&[]);
         inactive.is_active = false;
         assert!(perform_request(&inactive, "1").is_err());
@@ -399,13 +465,19 @@ mod tests {
         assert!(validate_query_id(&"a".repeat(129)).is_err());
         assert!(validate_query_id(&"a".repeat(128)).is_ok());
         let r = dataplan_list_request(&s, "q-1").expect("req");
-        assert_eq!(r.url, "https://csapi.tsim.tech/agent/package-query/dataplan-list?query_id=q-1");
+        assert_eq!(
+            r.url,
+            "https://csapi.tsim.tech/agent/package-query/dataplan-list?query_id=q-1"
+        );
         assert_eq!(r.method, crate::request::Method::Get);
         assert_eq!(r.body, Body::Empty);
         assert!(dataplan_list_request(&s, "q 1").is_err());
         assert!(dataplan_list_request(&s, "q&x=1").is_err());
         let d = detail_request(&s, "c_9").expect("req");
-        assert_eq!(d.url, "https://csapi.tsim.tech/agent/package-query/detail?card_dataplan_id=c_9");
+        assert_eq!(
+            d.url,
+            "https://csapi.tsim.tech/agent/package-query/detail?card_dataplan_id=c_9"
+        );
         assert_eq!(
             live_detail_request(&s, "c").expect("req").url,
             "https://csapi.tsim.tech/agent/package-query/live-detail?card_dataplan_id=c"
@@ -415,32 +487,55 @@ mod tests {
             "https://csapi.tsim.tech/agent/package-query/cdr-more?card_dataplan_id=c"
         );
         // Encoder itself escapes anything outside the unreserved set.
-        assert_eq!(encode_query(&[("card_dataplan_id", "a b")]), "card_dataplan_id=a%20b");
+        assert_eq!(
+            encode_query(&[("card_dataplan_id", "a b")]),
+            "card_dataplan_id=a%20b"
+        );
         assert_eq!(id_from_json(&JsonValue::string("x")).as_deref(), Some("x"));
-        assert_eq!(id_from_json(&JsonValue::number_from_i64(-5)).as_deref(), Some("-5"));
+        assert_eq!(
+            id_from_json(&JsonValue::number_from_i64(-5)).as_deref(),
+            Some("-5")
+        );
         assert_eq!(id_from_json(&JsonValue::Bool(true)), None);
     }
 
     #[test]
     fn list_detail_and_supplements() {
-        let list = parse_dataplan_list(200, r#"{"code":1,"result":[{"id":1},{"id":2}]}"#).expect("list");
+        let list =
+            parse_dataplan_list(200, r#"{"code":1,"result":[{"id":1},{"id":2}]}"#).expect("list");
         assert_eq!(list.len(), 2);
         let many = format!(r#"{{"code":1,"result":[{}]}}"#, vec!["{}"; 150].join(","));
-        assert_eq!(parse_dataplan_list(200, &many).expect("cap").len(), MAX_DATAPLANS);
-        assert!(parse_dataplan_list(200, r#"{"code":2,"result":[]}"#).is_err(), "code 2 only valid for perform");
+        assert_eq!(
+            parse_dataplan_list(200, &many).expect("cap").len(),
+            MAX_DATAPLANS
+        );
+        assert!(
+            parse_dataplan_list(200, r#"{"code":2,"result":[]}"#).is_err(),
+            "code 2 only valid for perform"
+        );
         assert!(parse_dataplan_list(200, r#"{"code":1,"result":{}}"#).is_err());
         let d = parse_detail(200, r#"{"code":1,"result":{"iccid":"89..."}}"#).expect("detail");
         assert!(d.get("iccid").is_some());
         assert!(parse_detail(200, r#"{"code":1,"result":[]}"#).is_err());
         assert!(parse_detail(200, r#"{"code":0,"msg":"no"}"#).is_err());
         // Supplement blocks degrade to empty, not failure.
-        assert_eq!(parse_supplement(200, r#"{"code":1,"result":{"live":1}}"#).expect("ok").map(|v| v.get("live").is_some()), Some(true));
-        assert_eq!(parse_supplement(200, r#"{"code":0,"result":null}"#).expect("ok"), None);
+        assert_eq!(
+            parse_supplement(200, r#"{"code":1,"result":{"live":1}}"#)
+                .expect("ok")
+                .map(|v| v.get("live").is_some()),
+            Some(true)
+        );
+        assert_eq!(
+            parse_supplement(200, r#"{"code":0,"result":null}"#).expect("ok"),
+            None
+        );
         assert_eq!(parse_supplement(200, r#"{"code":1}"#).expect("ok"), None);
         assert_eq!(parse_supplement(200, "garbage").expect("ok"), None);
         assert_eq!(parse_supplement(500, "").expect("ok"), None);
         assert_eq!(parse_supplement(403, "").expect("ok"), None);
-        assert!(parse_supplement(401, "").expect_err("401").is(codes::SESSION_CLEARED));
+        assert!(parse_supplement(401, "")
+            .expect_err("401")
+            .is(codes::SESSION_CLEARED));
     }
 
     #[test]
@@ -462,8 +557,13 @@ mod tests {
         assert_eq!(recognize_identifiers("1986012345678901234").len(), 0);
         assert!(recognize_identifiers("").is_empty());
         assert!(recognize_identifiers("没有数字 😀").is_empty());
-        let many: String = (0..20).map(|i| format!("898601234567890123{i:02} ")).collect();
-        assert_eq!(recognize_identifiers(&many).len(), MAX_IDENTIFIER_CANDIDATES);
+        let many: String = (0..20)
+            .map(|i| format!("898601234567890123{i:02} "))
+            .collect();
+        assert_eq!(
+            recognize_identifiers(&many).len(),
+            MAX_IDENTIFIER_CANDIDATES
+        );
         // Unicode before the digits: offsets are char-based.
         let u = recognize_identifiers("卡号：8986012345678901234");
         assert_eq!(u[0].start, 3);
@@ -494,10 +594,21 @@ mod tests {
         let mut c: PackageCache<String> = PackageCache::new();
         assert!(c.is_empty());
         c.put(&a, "8986", "summary".into(), 1_000);
-        assert_eq!(c.get(&a, "8986", 1_000).map(String::as_str), Some("summary"));
-        assert_eq!(c.get(&a, "8986", 1_000 + CACHE_REUSE_MS).map(String::as_str), Some("summary"));
+        assert_eq!(
+            c.get(&a, "8986", 1_000).map(String::as_str),
+            Some("summary")
+        );
+        assert_eq!(
+            c.get(&a, "8986", 1_000 + CACHE_REUSE_MS)
+                .map(String::as_str),
+            Some("summary")
+        );
         assert_eq!(c.get(&a, "8986", 1_001 + CACHE_REUSE_MS), None);
-        assert_eq!(c.get(&a, "8986", 999), None, "clock went backwards: no reuse");
+        assert_eq!(
+            c.get(&a, "8986", 999),
+            None,
+            "clock went backwards: no reuse"
+        );
         assert_eq!(c.get(&b, "8986", 1_000), None);
         assert_eq!(c.get(&a.next_generation(), "8986", 1_000), None);
         c.put(&b, "8986", "other".into(), 1_000);

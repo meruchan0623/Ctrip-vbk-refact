@@ -384,11 +384,22 @@ impl TryFrom<ConversationFactDto> for ConversationFact {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AdapterFactDto {
-    Message { fact: MessageFactDto },
-    Conversation { fact: ConversationFactDto },
-    ConversationListSync { full: bool, last_update_time_ms: Option<i64> },
-    CompensationSync { last_message_timestamp_ms: Option<i64> },
-    Transport { state: String },
+    Message {
+        fact: MessageFactDto,
+    },
+    Conversation {
+        fact: ConversationFactDto,
+    },
+    ConversationListSync {
+        full: bool,
+        last_update_time_ms: Option<i64>,
+    },
+    CompensationSync {
+        last_message_timestamp_ms: Option<i64>,
+    },
+    Transport {
+        state: String,
+    },
     AuthInvalid,
 }
 
@@ -425,9 +436,10 @@ mod tests {
 
     #[test]
     fn disposition_tagged_union() {
-        let d: SendDispositionDto =
-            serde_json::from_str(r#"{"kind":"confirmed","server_message_id":"t","server_time_ms":1}"#)
-                .expect("parse");
+        let d: SendDispositionDto = serde_json::from_str(
+            r#"{"kind":"confirmed","server_message_id":"t","server_time_ms":1}"#,
+        )
+        .expect("parse");
         assert!(matches!(d, SendDispositionDto::Confirmed { .. }));
         let u: SendDispositionDto = serde_json::from_str(r#"{"kind":"unknown"}"#).expect("parse");
         assert_eq!(u, SendDispositionDto::Unknown);

@@ -44,7 +44,11 @@ fn run(app: AppHandle) {
             match effect {
                 Effect::ShowAlarm { raise } => {
                     let bottom_right = state.settings().position_bottom_right;
-                    let corner = if bottom_right { Corner::BottomRight } else { Corner::BottomLeft };
+                    let corner = if bottom_right {
+                        Corner::BottomRight
+                    } else {
+                        Corner::BottomLeft
+                    };
                     if let Err(e) = windows::show_alarm(&app, corner, 320.0, raise) {
                         log::warn!("show alarm failed: {e}");
                     }
@@ -67,7 +71,12 @@ fn run(app: AppHandle) {
                     tray::set_unread_tooltip(&app, badge.text());
                     set_taskbar_badge(&app, badge.text(), total);
                 }
-                Effect::Banner { account, gid, count, stay_ms } => {
+                Effect::Banner {
+                    account,
+                    gid,
+                    count,
+                    stay_ms,
+                } => {
                     let _ = app.emit_to(
                         views::MAIN,
                         "notify://banner",
@@ -77,7 +86,11 @@ fn run(app: AppHandle) {
                         }),
                     );
                 }
-                Effect::SystemToast { account, gid, count } => {
+                Effect::SystemToast {
+                    account,
+                    gid,
+                    count,
+                } => {
                     // System toast integration is REL/NTF-05; until then the
                     // main window shows a plain banner.
                     let _ = app.emit_to(
@@ -131,7 +144,11 @@ fn set_taskbar_badge(app: &AppHandle, text: Option<&str>, total: u32) {
         // Tauri 2 exposes overlay badges on Windows via `set_badge_count`
         // (2.3+); fall back to the title when unavailable.
         #[allow(unused_variables)]
-        let count = if total == 0 { None } else { Some(i64::from(total.min(99))) };
+        let count = if total == 0 {
+            None
+        } else {
+            Some(i64::from(total.min(99)))
+        };
         #[cfg(windows)]
         {
             let _ = win.set_badge_count(count);

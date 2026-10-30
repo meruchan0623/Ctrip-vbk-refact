@@ -1367,9 +1367,17 @@ fn echo_after_local_rejection_confirms_outbox_and_index_and_clears_round() {
         )
         .unwrap();
     h.waiting();
-    let mut echo = msg("t1", 12_000, SenderRole::MerchantSelf, MessageSource::Realtime);
+    let mut echo = msg(
+        "t1",
+        12_000,
+        SenderRole::MerchantSelf,
+        MessageSource::Realtime,
+    );
     echo.local_id = Some(intent.local_id.clone());
-    assert!(matches!(h.message(echo).message, Some(MergeOutcome::Linked { .. })));
+    assert!(matches!(
+        h.message(echo).message,
+        Some(MergeOutcome::Linked { .. })
+    ));
     assert!(h
         .core
         .index()
@@ -1437,8 +1445,16 @@ fn reply_sent_before_the_customer_message_was_indexed_is_judged_by_server_order(
             },
         )
         .unwrap();
-    h.message(msg("c1", 10_000, SenderRole::Customer, MessageSource::Compensation));
-    assert!(h.core.round_state(GID).is_idle(), "c1 was answered: no false alarm");
+    h.message(msg(
+        "c1",
+        10_000,
+        SenderRole::Customer,
+        MessageSource::Compensation,
+    ));
+    assert!(
+        h.core.round_state(GID).is_idle(),
+        "c1 was answered: no false alarm"
+    );
     assert!(h.events().is_empty());
     // Proactive message, then a customer message stamped *after* it: a
     // round starts (the reply cannot have answered it).
@@ -1461,4 +1477,3 @@ fn reply_sent_before_the_customer_message_was_indexed_is_judged_by_server_order(
     h2.message(customer("c3", 5_000));
     assert!(!h2.pending().start_confirmed);
 }
-

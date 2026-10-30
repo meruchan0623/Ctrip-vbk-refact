@@ -52,6 +52,6 @@ pub use index::{IdentityIndex, IndexEntry};
 pub use registry::{
     AccountEvent, AccountListSnapshot, AccountRegistry, AccountState, AccountStateKind,
     AccountSummary, ChangeKind, CredentialAction, CredentialOperation, GenerationReason,
-    LoginAttemptHandle, LogoutMode, ProfileAction, PublishOutcome, RevokeList,
-    UpstreamIdentity, WorkStatus,
+    LoginAttemptHandle, LogoutMode, ProfileAction, PublishOutcome, RevokeList, UpstreamIdentity,
+    WorkStatus,
 };

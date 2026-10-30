@@ -35,7 +35,10 @@ fn l3_raises_once_and_sounds_once_per_round_across_many_ticks() {
     assert_eq!(raises(&later), 0);
     assert_eq!(sounds(&later, Sound::Timeout), 0);
     assert_eq!(sounds(&later, Sound::Loop), 0, "L4 is off by default");
-    assert!(later.iter().all(|e| *e == Effect::UpdateAlarm), "1 Hz refresh only");
+    assert!(
+        later.iter().all(|e| *e == Effect::UpdateAlarm),
+        "1 Hz refresh only"
+    );
 
     let snap = core.snapshot(&base.plus_ms(100_000));
     assert_eq!(snap.entries.len(), 1);
@@ -166,7 +169,10 @@ fn snooze_hides_and_silences_timing_continues_reshows_only_if_still_open() {
             }
         );
         assert_eq!(effects, vec![Effect::StopSound, Effect::HideAlarm]);
-        assert!(core.snapshot(&at).entries.is_empty(), "snoozed entry hidden");
+        assert!(
+            core.snapshot(&at).entries.is_empty(),
+            "snoozed entry hidden"
+        );
 
         let quiet = drive(&mut core, &base, 40, 40 + ms / 1000 - 1);
         assert!(quiet.is_empty(), "no popups or sounds during snooze");
@@ -174,10 +180,18 @@ fn snooze_hides_and_silences_timing_continues_reshows_only_if_still_open() {
         let expiry = base.plus_ms(40_000 + ms);
         let back = core.tick(&expiry);
         assert_eq!(raises(&back), 1, "re-shown once on expiry");
-        assert_eq!(sounds(&back, Sound::Timeout), 0, "timeout sound stays once per round");
+        assert_eq!(
+            sounds(&back, Sound::Timeout),
+            0,
+            "timeout sound stays once per round"
+        );
         let snap = core.snapshot(&expiry);
         assert_eq!(snap.entries.len(), 1);
-        assert_eq!(snap.entries[0].waited_seconds, 40 + ms / 1000, "timing never stopped");
+        assert_eq!(
+            snap.entries[0].waited_seconds,
+            40 + ms / 1000,
+            "timing never stopped"
+        );
     }
 
     // Round ended during snooze → nothing on expiry.
@@ -306,15 +320,26 @@ fn reconcile_barrier_keeps_entries_blocks_popups_and_resumes_with_one_raise() {
     open_round(&mut core, &a, "g2", &base.plus_ms(5_000));
 
     let during = drive(&mut core, &base, 0, 90);
-    assert!(during.is_empty(), "no popups or sounds while reconciling: {during:?}");
+    assert!(
+        during.is_empty(),
+        "no popups or sounds while reconciling: {during:?}"
+    );
     let snap = core.snapshot(&base.plus_ms(90_000));
     assert!(snap.reconciling);
     assert_eq!(snap.entries.len(), 2, "entries are kept");
     assert_eq!(snap.entries[0].level, AlarmLevel::L3);
 
     let resumed = core.apply_reconcile_state(ReconcileState::Normal, &base.plus_ms(91_000));
-    assert_eq!(raises(&resumed), 1, "both overdue rounds merge into one raise");
-    assert_eq!(sounds(&resumed, Sound::Timeout), 1, "one sound for the batch");
+    assert_eq!(
+        raises(&resumed),
+        1,
+        "both overdue rounds merge into one raise"
+    );
+    assert_eq!(
+        sounds(&resumed, Sound::Timeout),
+        1,
+        "one sound for the batch"
+    );
     assert!(!core.snapshot(&base.plus_ms(91_000)).reconciling);
     let after = drive(&mut core, &base, 91, 150);
     assert_eq!(raises(&after), 0);
@@ -351,7 +376,10 @@ fn restore_reminds_at_most_once_after_normal_and_reconfirmation() {
     // Normal first, then re-confirmation.
     let mut core = NotifyCore::new();
     core.restore(vec![restored.clone()], &base);
-    assert!(core.snapshot(&base).entries.is_empty(), "pending until verified");
+    assert!(
+        core.snapshot(&base).entries.is_empty(),
+        "pending until verified"
+    );
     assert!(drive(&mut core, &base, 0, 10).is_empty());
     let fx = core.apply_reconcile_state(ReconcileState::Normal, &base.plus_ms(11_000));
     assert_eq!(raises(&fx), 0, "still needs the round to be re-confirmed");
@@ -361,7 +389,10 @@ fn restore_reminds_at_most_once_after_normal_and_reconfirmation() {
     );
     assert_eq!(raises(&fx), 1);
     assert_eq!(sounds(&fx, Sound::Timeout), 1);
-    assert_eq!(core.snapshot(&base.plus_ms(12_000)).entries[0].waited_seconds, 612);
+    assert_eq!(
+        core.snapshot(&base.plus_ms(12_000)).entries[0].waited_seconds,
+        612
+    );
     // Later level change (L4 opt-in) refreshes but never raises again.
     let fx = core
         .set_settings(
@@ -442,7 +473,11 @@ fn untrusted_clock_flags_estimates_until_a_trusted_reading_arrives() {
     let mut core = NotifyCore::new();
     open_round(&mut core, &a, "g1", &untrusted);
     let _ = drive(&mut core, &untrusted, 0, 40);
-    assert!(!core.snapshot(&Now::new(141_000, T0_SERVER + 41_000, true)).clock_trusted);
+    assert!(
+        !core
+            .snapshot(&Now::new(141_000, T0_SERVER + 41_000, true))
+            .clock_trusted
+    );
 }
 
 #[test]
@@ -492,11 +527,19 @@ fn snapshot_sorted_by_waited_desc_and_masked_only() {
     let a = acc("a", 1);
     let base = t0();
     core.apply_round_event(
-        started(rref(&a, "g-new", "r1", 1), Some(base.server_now_ms - 40_000), true),
+        started(
+            rref(&a, "g-new", "r1", 1),
+            Some(base.server_now_ms - 40_000),
+            true,
+        ),
         &base,
     );
     core.apply_round_event(
-        started(rref(&a, "g-old", "r2", 1), Some(base.server_now_ms - 200_000), true),
+        started(
+            rref(&a, "g-old", "r2", 1),
+            Some(base.server_now_ms - 200_000),
+            true,
+        ),
         &base,
     );
     let _ = core.tick(&base);
@@ -516,17 +559,29 @@ fn settings_disable_hides_and_enable_raises_again() {
     open_round(&mut core, &acc("a", 1), "g1", &base);
     let _ = drive(&mut core, &base, 0, 40);
     let (ack, fx) = core
-        .handle_command(AlarmCommand::SetEnabled(false), CommandSource::Tray, &base.plus_ms(41_000))
+        .handle_command(
+            AlarmCommand::SetEnabled(false),
+            CommandSource::Tray,
+            &base.plus_ms(41_000),
+        )
         .expect("ok");
     assert!(matches!(ack, CommandAck::Settings(s) if !s.enabled));
     assert_eq!(fx, vec![Effect::StopSound, Effect::HideAlarm]);
     assert!(core.snapshot(&base.plus_ms(41_000)).entries.is_empty());
     assert!(drive(&mut core, &base, 41, 60).is_empty());
     let (_, fx) = core
-        .handle_command(AlarmCommand::SetEnabled(true), CommandSource::Setting, &base.plus_ms(61_000))
+        .handle_command(
+            AlarmCommand::SetEnabled(true),
+            CommandSource::Setting,
+            &base.plus_ms(61_000),
+        )
         .expect("ok");
     assert_eq!(raises(&fx), 1);
-    assert_eq!(sounds(&fx, Sound::Timeout), 0, "sound already played for this round");
+    assert_eq!(
+        sounds(&fx, Sound::Timeout),
+        0,
+        "sound already played for this round"
+    );
 }
 
 // ------------------------------------------------------- QA regressions
@@ -570,17 +625,26 @@ fn round_that_becomes_unpresentable_and_presentable_again_is_shown_again() {
     // Same through a clock re-anchor that moves the deadline later.
     let mut core = NotifyCore::new();
     let stale = Now::new(0, 1_000_000, false);
-    let mut fx = core.apply_round_event(started(rref(&a, "g2", "r-g2", 1), Some(1_000_000 - 40_000), true), &stale);
+    let mut fx = core.apply_round_event(
+        started(rref(&a, "g2", "r-g2", 1), Some(1_000_000 - 40_000), true),
+        &stale,
+    );
     fx.extend(core.tick(&stale));
     assert_eq!(raises(&fx), 1, "estimate is overdue");
     // Trusted anchor says the server is 50 s *behind* the estimate.
     core.apply_clock(ClockReading {
         server_now_ms: 1_000_000 - 50_000,
         monotonic_ms: 1_000,
-        quality: ClockQuality::Anchored { offset_ms: 0, error_ms: 10 },
+        quality: ClockQuality::Anchored {
+            offset_ms: 0,
+            error_ms: 10,
+        },
     });
     let fx = core.tick(&Now::new(1_000, 1_000_000 - 50_000, true));
-    assert!(has(&fx, &Effect::HideAlarm), "not due any more on the trusted axis");
+    assert!(
+        has(&fx, &Effect::HideAlarm),
+        "not due any more on the trusted axis"
+    );
     let fx = drive(&mut core, &Now::new(1_000, 1_000_000 - 50_000, true), 0, 41);
     assert_eq!(raises(&fx), 1, "due again → shown again");
 }
@@ -591,7 +655,12 @@ fn invalidated_at_max_generation_does_not_overflow() {
     let a = acc("a", u64::MAX);
     let base = t0();
     open_round(&mut core, &a, "g1", &base);
-    let fx = core.apply_round_event(RoundEvent::Invalidated { round: rref(&a, "g1", "r-g1", 1) }, &base);
+    let fx = core.apply_round_event(
+        RoundEvent::Invalidated {
+            round: rref(&a, "g1", "r-g1", 1),
+        },
+        &base,
+    );
     assert!(core.rounds().is_empty());
     assert!(!has(&fx, &Effect::ShowAlarm { raise: true }));
     // u64::MAX has no successor: the identity simply cannot be re-published

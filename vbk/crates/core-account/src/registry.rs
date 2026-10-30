@@ -36,12 +36,17 @@ pub enum AccountState {
     /// No session, no quick-login credential.
     LoggedOut,
     /// A re-login attempt targets this account. No context is valid.
-    LoginPending { attempt_id: AttemptId },
+    LoginPending {
+        attempt_id: AttemptId,
+    },
     Online(AccountContext),
     /// "退出在线（保留免密）": generation revoked, credential kept.
     Suspended(AccountContext),
     /// Ticket expired / server says not logged in. Generation revoked.
-    Invalid { ctx: AccountContext, reason: String },
+    Invalid {
+        ctx: AccountContext,
+        reason: String,
+    },
 }
 
 impl AccountState {
@@ -407,17 +412,24 @@ impl AccountRegistry {
             profile_id: ProfileId::mint(),
             target: None,
         };
-        self.attempts.insert(handle.attempt_id.clone(), handle.clone());
+        self.attempts
+            .insert(handle.attempt_id.clone(), handle.clone());
         handle
     }
 
     /// Starts a re-login attempt for an existing account. The verified
     /// identity must map to the same account or publishing fails with
     /// `account.identity_mismatch` and the target is untouched.
-    pub fn start_relogin(&mut self, account_id: &AccountId) -> Result<LoginAttemptHandle, AppError> {
+    pub fn start_relogin(
+        &mut self,
+        account_id: &AccountId,
+    ) -> Result<LoginAttemptHandle, AppError> {
         let rec = self.record(account_id)?;
         if let AccountState::LoginPending { .. } = rec.state {
-            return Err(err(codes::ACCOUNT_INVALID_STATE, "a re-login is already pending"));
+            return Err(err(
+                codes::ACCOUNT_INVALID_STATE,
+                "a re-login is already pending",
+            ));
         }
         let handle = LoginAttemptHandle {
             attempt_id: AttemptId::mint(),
@@ -445,7 +457,8 @@ impl AccountRegistry {
                 },
             );
         }
-        self.attempts.insert(handle.attempt_id.clone(), handle.clone());
+        self.attempts
+            .insert(handle.attempt_id.clone(), handle.clone());
         Ok(handle)
     }
 
@@ -464,7 +477,8 @@ impl AccountRegistry {
         self.remember_cancelled(attempt_id.clone());
         if let Some(target) = &handle.target {
             if let Some(rec) = self.accounts.get_mut(target) {
-                if matches!(&rec.state, AccountState::LoginPending { attempt_id: a } if a == attempt_id) {
+                if matches!(&rec.state, AccountState::LoginPending { attempt_id: a } if a == attempt_id)
+                {
                     rec.state = rec
                         .prior_state
                         .take()
@@ -493,7 +507,10 @@ impl AccountRegistry {
 
     fn attempt_error(&self, attempt_id: &AttemptId) -> AppError {
         if self.cancelled.contains(attempt_id) {
-            err(codes::ACCOUNT_ATTEMPT_CANCELLED, "login attempt was cancelled")
+            err(
+                codes::ACCOUNT_ATTEMPT_CANCELLED,
+                "login attempt was cancelled",
+            )
         } else {
             err(codes::ACCOUNT_ATTEMPT_UNKNOWN, "unknown login attempt")
         }
@@ -588,7 +605,8 @@ impl AccountRegistry {
             (AccountState::LoginPending { .. }, Some(prior)) => prior.kind(),
             (s, _) => s.kind(),
         };
-        let had_session = effective_state != AccountStateKind::LoggedOut || rec.profile_id.is_some();
+        let had_session =
+            effective_state != AccountStateKind::LoggedOut || rec.profile_id.is_some();
         let old_profile = rec.profile_id.replace(handle.profile_id);
         rec.prior_state = None;
         rec.state = AccountState::Online(new_ctx.clone());
@@ -639,13 +657,19 @@ impl AccountRegistry {
             .get(&ctx.account_id)
             .ok_or_else(|| err(codes::ACCOUNT_UNKNOWN, "unknown account"))?;
         if rec.environment != ctx.environment {
-            return Err(err(codes::ACCOUNT_UNKNOWN, "environment does not match account"));
+            return Err(err(
+                codes::ACCOUNT_UNKNOWN,
+                "environment does not match account",
+            ));
         }
         let current = rec.last_ctx.session_generation;
         if ctx.session_generation < current {
             return Err(err(
                 codes::ACCOUNT_STALE_GENERATION,
-                format!("generation {} is older than {}", ctx.session_generation, current),
+                format!(
+                    "generation {} is older than {}",
+                    ctx.session_generation, current
+                ),
             )
             .with_detail(format!("account_id={}", ctx.account_id)));
         }
@@ -689,7 +713,9 @@ impl AccountRegistry {
     }
 
     pub fn account_ids(&self) -> Vec<AccountId> {
-        self.sorted_records().map(|r| r.account_id.clone()).collect()
+        self.sorted_records()
+            .map(|r| r.account_id.clone())
+            .collect()
     }
 
     // ----------------------------------------------------- revocations
@@ -699,7 +725,10 @@ impl AccountRegistry {
             .ledger
             .journal()
             .entries()
-            .filter(|e| &e.account_id == account_id && e.stage != crate::credential::CommitStage::IndexCommitted)
+            .filter(|e| {
+                &e.account_id == account_id
+                    && e.stage != crate::credential::CommitStage::IndexCommitted
+            })
             .map(|e| (e.operation_id.clone(), e.staged.clone()))
             .collect();
         let mut staged = Vec::new();
@@ -714,13 +743,20 @@ impl AccountRegistry {
     /// Ticket expired / server says not logged in. Advances the generation,
     /// moves to `Invalid`, keeps the credential reference (the host decides
     /// whether re-auth replaces it).
-    pub fn invalidate(&mut self, account_id: &AccountId, reason: impl Into<String>) -> Result<RevokeList, AppError> {
+    pub fn invalidate(
+        &mut self,
+        account_id: &AccountId,
+        reason: impl Into<String>,
+    ) -> Result<RevokeList, AppError> {
         let rec = self.record(account_id)?;
         if !matches!(
             rec.state,
             AccountState::Online(_) | AccountState::Suspended(_) | AccountState::Invalid { .. }
         ) {
-            return Err(err(codes::ACCOUNT_INVALID_STATE, "no session to invalidate"));
+            return Err(err(
+                codes::ACCOUNT_INVALID_STATE,
+                "no session to invalidate",
+            ));
         }
         let (old, new) = self.advance(account_id, GenerationReason::Invalidated)?;
         let rec = self.record_mut(account_id)?;
@@ -752,18 +788,28 @@ impl AccountRegistry {
     }
 
     /// Logout in one of the three modes. Generation advances first.
-    pub fn logout(&mut self, account_id: &AccountId, mode: LogoutMode) -> Result<RevokeList, AppError> {
+    pub fn logout(
+        &mut self,
+        account_id: &AccountId,
+        mode: LogoutMode,
+    ) -> Result<RevokeList, AppError> {
         let rec = self.record(account_id)?;
         match (mode, &rec.state) {
             (LogoutMode::ExitOnline, AccountState::Online(_)) => {}
             (LogoutMode::ExitOnline, _) => {
-                return Err(err(codes::ACCOUNT_INVALID_STATE, "exit-online requires an online account"))
+                return Err(err(
+                    codes::ACCOUNT_INVALID_STATE,
+                    "exit-online requires an online account",
+                ))
             }
             (LogoutMode::Logout, AccountState::LoggedOut) => {
                 return Err(err(codes::ACCOUNT_INVALID_STATE, "already logged out"))
             }
             (LogoutMode::Logout | LogoutMode::Forget, AccountState::LoginPending { .. }) => {
-                return Err(err(codes::ACCOUNT_INVALID_STATE, "cancel the pending login first"))
+                return Err(err(
+                    codes::ACCOUNT_INVALID_STATE,
+                    "cancel the pending login first",
+                ))
             }
             _ => {}
         }
@@ -828,7 +874,9 @@ impl AccountRegistry {
                     stop_transport: true,
                     profile,
                     profile_action: ProfileAction::ClearSiteData,
-                    credential: cred.map(CredentialAction::Delete).unwrap_or(CredentialAction::Keep),
+                    credential: cred
+                        .map(CredentialAction::Delete)
+                        .unwrap_or(CredentialAction::Keep),
                     staged_to_discard: staged,
                 })
             }
@@ -855,7 +903,9 @@ impl AccountRegistry {
                     stop_transport: true,
                     profile: rec.profile_id,
                     profile_action: ProfileAction::Delete,
-                    credential: cred.map(CredentialAction::Delete).unwrap_or(CredentialAction::Keep),
+                    credential: cred
+                        .map(CredentialAction::Delete)
+                        .unwrap_or(CredentialAction::Keep),
                     staged_to_discard: staged,
                 })
             }
@@ -872,7 +922,10 @@ impl AccountRegistry {
     ) -> Result<(AccountContext, RevokeList), AppError> {
         let rec = self.record(account_id)?;
         if !matches!(rec.state, AccountState::Online(_)) {
-            return Err(err(codes::ACCOUNT_INVALID_STATE, "replace requires an online account"));
+            return Err(err(
+                codes::ACCOUNT_INVALID_STATE,
+                "replace requires an online account",
+            ));
         }
         let (old, new) = self.advance(account_id, GenerationReason::Replaced)?;
         let rec = self.record_mut(account_id)?;
@@ -910,10 +963,19 @@ impl AccountRegistry {
     /// quick-login credential (server confirmed). Issues a fresh generation
     /// and goes online. A pure network failure must **not** call this and
     /// must not clear anything either.
-    pub fn resume_quick_login(&mut self, account_id: &AccountId) -> Result<AccountContext, AppError> {
+    pub fn resume_quick_login(
+        &mut self,
+        account_id: &AccountId,
+    ) -> Result<AccountContext, AppError> {
         let rec = self.record(account_id)?;
-        if !matches!(rec.state, AccountState::Suspended(_) | AccountState::Invalid { .. }) {
-            return Err(err(codes::ACCOUNT_INVALID_STATE, "quick login requires a suspended account"));
+        if !matches!(
+            rec.state,
+            AccountState::Suspended(_) | AccountState::Invalid { .. }
+        ) {
+            return Err(err(
+                codes::ACCOUNT_INVALID_STATE,
+                "quick login requires a suspended account",
+            ));
         }
         if self.ledger.committed(account_id).is_none() {
             return Err(err(codes::ACCOUNT_INVALID_STATE, "no committed credential"));
@@ -938,11 +1000,18 @@ impl AccountRegistry {
     // ------------------------------------------------------ credentials
 
     fn key_prefix(ctx: &AccountContext) -> String {
-        format!("ticket:{}:{}", ctx.environment.as_str(), ctx.account_id.as_str())
+        format!(
+            "ticket:{}:{}",
+            ctx.environment.as_str(),
+            ctx.account_id.as_str()
+        )
     }
 
     /// Step 1 of the commit protocol (journal only).
-    pub fn begin_credential_commit(&mut self, ctx: &AccountContext) -> Result<CredentialOperation, AppError> {
+    pub fn begin_credential_commit(
+        &mut self,
+        ctx: &AccountContext,
+    ) -> Result<CredentialOperation, AppError> {
         self.validate(ctx)?;
         let profile = self
             .record(&ctx.account_id)?
@@ -971,7 +1040,11 @@ impl AccountRegistry {
 
     /// Step 3: atomic index switch, then old revision cleanup. Only after
     /// this returns may the host announce "ready".
-    pub fn commit_credential(&mut self, operation_id: &str, store: &mut dyn SecretStore) -> Result<CredentialRef, AppError> {
+    pub fn commit_credential(
+        &mut self,
+        operation_id: &str,
+        store: &mut dyn SecretStore,
+    ) -> Result<CredentialRef, AppError> {
         let account_id = self
             .ledger
             .journal()
@@ -991,7 +1064,11 @@ impl AccountRegistry {
         Ok(cref)
     }
 
-    pub fn abort_credential(&mut self, operation_id: &str, store: &mut dyn SecretStore) -> Result<(), AppError> {
+    pub fn abort_credential(
+        &mut self,
+        operation_id: &str,
+        store: &mut dyn SecretStore,
+    ) -> Result<(), AppError> {
         self.ledger.abort(operation_id, store)
     }
 
@@ -1018,7 +1095,10 @@ impl AccountRegistry {
     }
 
     pub fn credential_revision(&self, account_id: &AccountId) -> CredentialRevision {
-        self.ledger.committed(account_id).map(|r| r.revision).unwrap_or(0)
+        self.ledger
+            .committed(account_id)
+            .map(|r| r.revision)
+            .unwrap_or(0)
     }
 
     /// Restart resolution. Must run before anything is published. Accounts
@@ -1048,7 +1128,11 @@ impl AccountRegistry {
     // ------------------------------------------------------ work status
 
     /// Server read-back of the agent work status. The only writer.
-    pub fn set_work_status_readback(&mut self, ctx: &AccountContext, status: WorkStatus) -> Result<(), AppError> {
+    pub fn set_work_status_readback(
+        &mut self,
+        ctx: &AccountContext,
+        status: WorkStatus,
+    ) -> Result<(), AppError> {
         self.validate(ctx)?;
         let rec = self.record_mut(&ctx.account_id)?;
         if rec.work_status != status {
@@ -1104,7 +1188,11 @@ impl AccountRegistry {
     }
 
     /// Moves an account to `position` within its environment's list.
-    pub fn move_account(&mut self, account_id: &AccountId, position: usize) -> Result<(), AppError> {
+    pub fn move_account(
+        &mut self,
+        account_id: &AccountId,
+        position: usize,
+    ) -> Result<(), AppError> {
         let environment = self.record(account_id)?.environment.clone();
         let mut order = self.env_order(&environment);
         let from = order
@@ -1119,7 +1207,11 @@ impl AccountRegistry {
 
     /// Replaces the ordering of one environment. The list must contain
     /// exactly the accounts of that environment.
-    pub fn set_order(&mut self, environment: &Environment, order: Vec<AccountId>) -> Result<(), AppError> {
+    pub fn set_order(
+        &mut self,
+        environment: &Environment,
+        order: Vec<AccountId>,
+    ) -> Result<(), AppError> {
         let mut expected = self.env_order(environment);
         expected.sort();
         let mut given = order.clone();
@@ -1146,7 +1238,11 @@ impl AccountRegistry {
         Ok(())
     }
 
-    pub fn set_remark(&mut self, account_id: &AccountId, remark: Option<String>) -> Result<(), AppError> {
+    pub fn set_remark(
+        &mut self,
+        account_id: &AccountId,
+        remark: Option<String>,
+    ) -> Result<(), AppError> {
         let rec = self.record_mut(account_id)?;
         if rec.remark != remark {
             rec.remark = remark;
@@ -1211,15 +1307,24 @@ impl AccountRegistry {
                 o.insert("uid", JsonValue::string(&r.uid));
                 o.insert(
                     "agent_id",
-                    r.agent_id.as_deref().map(JsonValue::string).unwrap_or(JsonValue::Null),
+                    r.agent_id
+                        .as_deref()
+                        .map(JsonValue::string)
+                        .unwrap_or(JsonValue::Null),
                 );
                 o.insert(
                     "profile_id",
-                    r.profile_id.as_ref().map(|p| JsonValue::string(p.as_str())).unwrap_or(JsonValue::Null),
+                    r.profile_id
+                        .as_ref()
+                        .map(|p| JsonValue::string(p.as_str()))
+                        .unwrap_or(JsonValue::Null),
                 );
                 o.insert(
                     "remark",
-                    r.remark.as_deref().map(JsonValue::string).unwrap_or(JsonValue::Null),
+                    r.remark
+                        .as_deref()
+                        .map(JsonValue::string)
+                        .unwrap_or(JsonValue::Null),
                 );
                 o.insert("order", JsonValue::number_from_i64(r.order as i64));
                 let (state, reason) = match &r.state {
@@ -1251,8 +1356,11 @@ impl AccountRegistry {
     /// [`AccountRegistry::recover_credentials`] next.
     pub fn restore(doc: &JsonValue, boot_epoch: u64) -> Result<Self, AppError> {
         let corrupt = |m: &str| err(codes::ACCOUNT_RESTORE_CORRUPT, format!("registry: {m}"));
-        let index = IdentityIndex::from_json(doc.get("index").ok_or_else(|| corrupt("missing index"))?)?;
-        let ledger = CredentialLedger::from_json(doc.get("ledger").ok_or_else(|| corrupt("missing ledger"))?)?;
+        let index =
+            IdentityIndex::from_json(doc.get("index").ok_or_else(|| corrupt("missing index"))?)?;
+        let ledger = CredentialLedger::from_json(
+            doc.get("ledger").ok_or_else(|| corrupt("missing ledger"))?,
+        )?;
         let mut reg = Self::new(boot_epoch);
         reg.index = index;
         reg.ledger = ledger;
@@ -1263,7 +1371,8 @@ impl AccountRegistry {
         for row in rows {
             let s = |k: &str| row.get(k).and_then(JsonValue::as_str).map(str::to_string);
             let account_id = AccountId::new(s("account_id").ok_or_else(|| corrupt("account_id"))?);
-            let environment = Environment::named(s("environment").ok_or_else(|| corrupt("environment"))?);
+            let environment =
+                Environment::named(s("environment").ok_or_else(|| corrupt("environment"))?);
             let entry = reg
                 .index
                 .entry_for_mut(&account_id)
@@ -1276,7 +1385,11 @@ impl AccountRegistry {
             // before (and at least `boot_epoch`, so an older backup cannot
             // bring a used generation back).
             entry.last_generation = (entry.last_generation + 1).max(boot_epoch);
-            let last_ctx = AccountContext::new(account_id.clone(), environment.clone(), entry.last_generation);
+            let last_ctx = AccountContext::new(
+                account_id.clone(),
+                environment.clone(),
+                entry.last_generation,
+            );
             let has_credential = reg.ledger.committed(&account_id).is_some();
             let profile_id = s("profile_id").map(ProfileId::new);
             let state = match s("state").as_deref() {
@@ -1301,8 +1414,13 @@ impl AccountRegistry {
                     agent_id: s("agent_id"),
                     profile_id,
                     remark: s("remark"),
-                    order: u32::try_from(row.get("order").and_then(JsonValue::as_i64).unwrap_or(0).max(0))
-                        .unwrap_or(u32::MAX),
+                    order: u32::try_from(
+                        row.get("order")
+                            .and_then(JsonValue::as_i64)
+                            .unwrap_or(0)
+                            .max(0),
+                    )
+                    .unwrap_or(u32::MAX),
                     work_status: WorkStatus::Unknown,
                     transport_connected: false,
                 },

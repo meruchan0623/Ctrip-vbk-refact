@@ -38,7 +38,13 @@ impl BannerBook {
     /// Merges a new message into the conversation's banner (or opens one)
     /// and returns the merged count. A banner older than the stay window
     /// is replaced, so the count restarts at 1.
-    pub(crate) fn bump(&mut self, account: &AccountContext, gid: &str, now: &Now, held: bool) -> u32 {
+    pub(crate) fn bump(
+        &mut self,
+        account: &AccountContext,
+        gid: &str,
+        now: &Now,
+        held: bool,
+    ) -> u32 {
         self.expire(now);
         if let Some(e) = self
             .entries

@@ -30,7 +30,10 @@ impl HistoryWatermark {
     fn to_json(self) -> JsonValue {
         let mut o = JsonValue::object();
         o.insert("page_breakpoint_ms", json_opt_i64(self.page_breakpoint_ms));
-        o.insert("complete_watermark_ms", json_opt_i64(self.complete_watermark_ms));
+        o.insert(
+            "complete_watermark_ms",
+            json_opt_i64(self.complete_watermark_ms),
+        );
         o
     }
 
@@ -50,8 +53,15 @@ impl SyncWatermarkRepo {
         format!("{HISTORY_PREFIX}{gid}")
     }
 
-    fn single(store: &dyn Store, ns: &Namespace, key: &str, field: &str) -> Result<Option<i64>, AppError> {
-        Ok(store.get(ns, COLLECTION, key)?.and_then(|v| opt_i64(&v, field)))
+    fn single(
+        store: &dyn Store,
+        ns: &Namespace,
+        key: &str,
+        field: &str,
+    ) -> Result<Option<i64>, AppError> {
+        Ok(store
+            .get(ns, COLLECTION, key)?
+            .and_then(|v| opt_i64(&v, field)))
     }
 
     fn put_single(txn: &mut Txn, key: &str, field: &str, ms: i64) {
@@ -65,7 +75,12 @@ impl SyncWatermarkRepo {
     }
 
     pub fn set_conversation_cursor(txn: &mut Txn, last_update_time_ms: i64) {
-        Self::put_single(txn, CONVERSATION_KEY, "last_update_time_ms", last_update_time_ms);
+        Self::put_single(
+            txn,
+            CONVERSATION_KEY,
+            "last_update_time_ms",
+            last_update_time_ms,
+        );
     }
 
     pub fn compensation_cursor(store: &dyn Store, ns: &Namespace) -> Result<Option<i64>, AppError> {
@@ -81,7 +96,11 @@ impl SyncWatermarkRepo {
         );
     }
 
-    pub fn history(store: &dyn Store, ns: &Namespace, gid: &str) -> Result<HistoryWatermark, AppError> {
+    pub fn history(
+        store: &dyn Store,
+        ns: &Namespace,
+        gid: &str,
+    ) -> Result<HistoryWatermark, AppError> {
         Ok(store
             .get(ns, COLLECTION, &Self::history_key(gid))?
             .map(|v| HistoryWatermark::from_json(&v))
@@ -90,7 +109,12 @@ impl SyncWatermarkRepo {
 
     /// A page was committed: records where the next page starts. The
     /// complete watermark is preserved untouched.
-    pub fn set_page_breakpoint(store: &dyn Store, txn: &mut Txn, gid: &str, breakpoint_ms: i64) -> Result<HistoryWatermark, AppError> {
+    pub fn set_page_breakpoint(
+        store: &dyn Store,
+        txn: &mut Txn,
+        gid: &str,
+        breakpoint_ms: i64,
+    ) -> Result<HistoryWatermark, AppError> {
         crate::assert_no_secret_like(gid);
         let mut wm = Self::history(store, txn.namespace(), gid)?;
         wm.page_breakpoint_ms = Some(breakpoint_ms);
@@ -101,7 +125,12 @@ impl SyncWatermarkRepo {
     /// The caller proved the pagination round terminated (server said no
     /// more / reached an existing complete range). Only this moves the
     /// complete watermark; the breakpoint is preserved.
-    pub fn prove_complete(store: &dyn Store, txn: &mut Txn, gid: &str, complete_ms: i64) -> Result<HistoryWatermark, AppError> {
+    pub fn prove_complete(
+        store: &dyn Store,
+        txn: &mut Txn,
+        gid: &str,
+        complete_ms: i64,
+    ) -> Result<HistoryWatermark, AppError> {
         crate::assert_no_secret_like(gid);
         let mut wm = Self::history(store, txn.namespace(), gid)?;
         wm.complete_watermark_ms = Some(complete_ms);

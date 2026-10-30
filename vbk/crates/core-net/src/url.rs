@@ -77,7 +77,10 @@ pub struct ImLaunchUrl {
 }
 
 fn rejected(reason: &str) -> AppError {
-    AppError::new(net_codes::NET_URL_REJECTED, format!("url rejected: {reason}"))
+    AppError::new(
+        net_codes::NET_URL_REJECTED,
+        format!("url rejected: {reason}"),
+    )
 }
 
 /// Parsed pieces of an https URL after structural validation.
@@ -111,18 +114,16 @@ pub fn percent_decode_query(s: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         match b[i] {
-            b'%' if i + 2 < b.len() => {
-                match (hex_val(b[i + 1]), hex_val(b[i + 2])) {
-                    (Some(h), Some(l)) => {
-                        out.push((h << 4) | l);
-                        i += 3;
-                    }
-                    _ => {
-                        out.push(b'%');
-                        i += 1;
-                    }
+            b'%' if i + 2 < b.len() => match (hex_val(b[i + 1]), hex_val(b[i + 2])) {
+                (Some(h), Some(l)) => {
+                    out.push((h << 4) | l);
+                    i += 3;
                 }
-            }
+                _ => {
+                    out.push(b'%');
+                    i += 1;
+                }
+            },
             b'+' => {
                 out.push(b' ');
                 i += 1;
@@ -165,9 +166,7 @@ pub fn parse_https_url(url: &str) -> Result<HttpsUrl, AppError> {
         return Err(rejected("scheme is not https"));
     }
     let rest = &url[idx + 3..];
-    let end_authority = rest
-        .find(['/', '?', '#'])
-        .unwrap_or(rest.len());
+    let end_authority = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..end_authority];
     let after = &rest[end_authority..];
     if authority.contains('@') {
@@ -198,8 +197,13 @@ pub fn parse_https_url(url: &str) -> Result<HttpsUrl, AppError> {
         Some(q) => (&path_query[..q], Some(&path_query[q + 1..])),
         None => (path_query, None),
     };
-    let path = if path.is_empty() { "/".to_string() } else { path.to_string() };
-    if path.contains("/../") || path.ends_with("/..") || path.contains("/./") || path.contains("//") {
+    let path = if path.is_empty() {
+        "/".to_string()
+    } else {
+        path.to_string()
+    };
+    if path.contains("/../") || path.ends_with("/..") || path.contains("/./") || path.contains("//")
+    {
         return Err(rejected("dot segments or empty segments in path"));
     }
     if path.to_ascii_lowercase().contains("%2f") || path.to_ascii_lowercase().contains("%5c") {
@@ -225,7 +229,11 @@ pub fn parse_https_url(url: &str) -> Result<HttpsUrl, AppError> {
 /// fields. Any deviation from the policy fails with `net.url_rejected`.
 pub fn validate_official_im_url(url: &str, policy: &UrlPolicy) -> Result<ImLaunchUrl, AppError> {
     let parsed = parse_https_url(url)?;
-    if !policy.allowed_hosts.iter().any(|h| h.eq_ignore_ascii_case(&parsed.host)) {
+    if !policy
+        .allowed_hosts
+        .iter()
+        .any(|h| h.eq_ignore_ascii_case(&parsed.host))
+    {
         return Err(rejected("host not allowed"));
     }
     if !policy.allowed_paths.iter().any(|p| p == &parsed.path) {
@@ -264,7 +272,10 @@ pub fn validate_official_im_url(url: &str, policy: &UrlPolicy) -> Result<ImLaunc
 /// Validates that `url` is https and its host exactly matches one of
 /// `allowed_https_origins` (each given as `https://host`). Used for the
 /// official login page and the order detail page before navigation.
-pub fn validate_navigation_origin(url: &str, allowed_https_origins: &[&str]) -> Result<HttpsUrl, AppError> {
+pub fn validate_navigation_origin(
+    url: &str,
+    allowed_https_origins: &[&str],
+) -> Result<HttpsUrl, AppError> {
     let parsed = parse_https_url(url)?;
     let origin = parsed.origin();
     let ok = allowed_https_origins.iter().any(|o| {
@@ -317,7 +328,10 @@ mod tests {
     fn bad(url: &str) {
         let r = validate_official_im_url(url, &UrlPolicy::default());
         assert!(r.is_err(), "expected rejection: {url}");
-        assert!(r.err().map(|e| e.is(net_codes::NET_URL_REJECTED)).unwrap_or(false));
+        assert!(r
+            .err()
+            .map(|e| e.is(net_codes::NET_URL_REJECTED))
+            .unwrap_or(false));
     }
 
     #[test]
@@ -389,10 +403,25 @@ mod tests {
     fn navigation_origin() {
         let p = validate_navigation_origin(LOGIN_PAGE_URL, &[VBOOKING_ORIGIN]).expect("login page");
         assert_eq!(p.path, "/ivbk/accountV2/login");
-        assert!(validate_navigation_origin("https://vbooking.ctrip.com.evil.com/ivbk", &[VBOOKING_ORIGIN]).is_err());
-        assert!(validate_navigation_origin("http://vbooking.ctrip.com/ivbk", &[VBOOKING_ORIGIN]).is_err());
-        assert!(validate_navigation_origin("https://vbooking.ctrip.com/x", &["https://imvendor.ctrip.com"]).is_err());
-        assert!(validate_navigation_origin("https://vbooking.ctrip.com/x", &["https://vbooking.ctrip.com/"]).is_ok());
+        assert!(validate_navigation_origin(
+            "https://vbooking.ctrip.com.evil.com/ivbk",
+            &[VBOOKING_ORIGIN]
+        )
+        .is_err());
+        assert!(
+            validate_navigation_origin("http://vbooking.ctrip.com/ivbk", &[VBOOKING_ORIGIN])
+                .is_err()
+        );
+        assert!(validate_navigation_origin(
+            "https://vbooking.ctrip.com/x",
+            &["https://imvendor.ctrip.com"]
+        )
+        .is_err());
+        assert!(validate_navigation_origin(
+            "https://vbooking.ctrip.com/x",
+            &["https://vbooking.ctrip.com/"]
+        )
+        .is_ok());
     }
 
     #[test]
@@ -409,7 +438,9 @@ mod tests {
         assert!(order_detail_url("１２３").is_err());
         assert!(order_detail_url(&"9".repeat(65)).is_err());
         assert!(order_detail_url("AB-12_3").is_ok());
-        let d = validate_navigation_origin(&order_detail_url("42").expect("ok"), &[VBOOKING_ORIGIN]).expect("nav");
+        let d =
+            validate_navigation_origin(&order_detail_url("42").expect("ok"), &[VBOOKING_ORIGIN])
+                .expect("nav");
         assert_eq!(d.query, vec![("orderId".to_string(), "42".to_string())]);
     }
 

@@ -48,8 +48,14 @@ impl RoundRecord {
         o.insert("start_message_id", json_opt_str(&self.start_message_id));
         o.insert("start_time_ms", json_opt_i64(self.start_time_ms));
         o.insert("start_confirmed", JsonValue::Bool(self.start_confirmed));
-        o.insert("reminded_version", JsonValue::number_from_i64(self.reminded_version as i64));
-        o.insert("hidden_version", JsonValue::number_from_i64(self.hidden_version as i64));
+        o.insert(
+            "reminded_version",
+            JsonValue::number_from_i64(self.reminded_version as i64),
+        );
+        o.insert(
+            "hidden_version",
+            JsonValue::number_from_i64(self.hidden_version as i64),
+        );
         o.insert("snoozed_until_ms", json_opt_i64(self.snoozed_until_ms));
         o
     }
@@ -131,14 +137,23 @@ impl ReminderStateRepo {
     pub fn put(txn: &mut Txn, record: &RoundRecord) {
         crate::assert_no_secret_like(&record.gid);
         crate::assert_no_secret_like(&record.round_id);
-        txn.put(COLLECTION, &RoundRecord::key(&record.gid, &record.round_id), record.to_json());
+        txn.put(
+            COLLECTION,
+            &RoundRecord::key(&record.gid, &record.round_id),
+            record.to_json(),
+        );
     }
 
     pub fn remove(txn: &mut Txn, gid: &str, round_id: &str) {
         txn.delete(COLLECTION, &RoundRecord::key(gid, round_id));
     }
 
-    pub fn get(store: &dyn Store, ns: &Namespace, gid: &str, round_id: &str) -> Result<Option<RoundRecord>, AppError> {
+    pub fn get(
+        store: &dyn Store,
+        ns: &Namespace,
+        gid: &str,
+        round_id: &str,
+    ) -> Result<Option<RoundRecord>, AppError> {
         let key = RoundRecord::key(gid, round_id);
         store
             .get(ns, COLLECTION, &key)?
@@ -148,7 +163,10 @@ impl ReminderStateRepo {
 
     /// Everything persisted for the namespace, wrapped as pending
     /// verification.
-    pub fn load_all(store: &dyn Store, ns: &Namespace) -> Result<PendingVerification<Vec<RoundRecord>>, AppError> {
+    pub fn load_all(
+        store: &dyn Store,
+        ns: &Namespace,
+    ) -> Result<PendingVerification<Vec<RoundRecord>>, AppError> {
         let mut out = Vec::new();
         for (key, v) in store.list(ns, COLLECTION)? {
             let rec = RoundRecord::from_json(&key, &v)?;

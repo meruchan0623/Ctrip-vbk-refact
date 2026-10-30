@@ -144,7 +144,8 @@ impl MessageRecord {
                 self.disposition = Some(SendDisposition::Unknown);
                 true
             }
-            (Some(SendDisposition::Unknown), None) | (Some(SendDisposition::Rejected { .. }), None) => {
+            (Some(SendDisposition::Unknown), None)
+            | (Some(SendDisposition::Rejected { .. }), None) => {
                 // Inbound echo of our own outbound message (回推先于 ACK):
                 // a server id is server evidence of acceptance, even after
                 // the SDK reported a local rejection.

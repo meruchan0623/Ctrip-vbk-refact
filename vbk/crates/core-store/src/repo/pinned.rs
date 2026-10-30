@@ -35,7 +35,11 @@ impl PinnedRepo {
         Ok(store
             .list(ns, COLLECTION)?
             .into_iter()
-            .filter(|(_, v)| v.get("is_top").and_then(JsonValue::as_bool).unwrap_or(false))
+            .filter(|(_, v)| {
+                v.get("is_top")
+                    .and_then(JsonValue::as_bool)
+                    .unwrap_or(false)
+            })
             .map(|(k, _)| k)
             .collect())
     }

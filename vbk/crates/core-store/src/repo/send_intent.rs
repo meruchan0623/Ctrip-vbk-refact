@@ -34,7 +34,12 @@ pub struct SendIntentRecord {
 }
 
 impl SendIntentRecord {
-    pub fn new(local_id: impl Into<String>, gid: impl Into<String>, account: AccountContext, created_at_ms: i64) -> Self {
+    pub fn new(
+        local_id: impl Into<String>,
+        gid: impl Into<String>,
+        account: AccountContext,
+        created_at_ms: i64,
+    ) -> Self {
         Self {
             local_id: local_id.into(),
             gid: gid.into(),
@@ -55,8 +60,14 @@ impl SendIntentRecord {
 
     fn to_json(&self) -> JsonValue {
         let mut acc = JsonValue::object();
-        acc.insert("account_id", JsonValue::string(self.account.account_id.as_str()));
-        acc.insert("environment", JsonValue::string(self.account.environment.as_str()));
+        acc.insert(
+            "account_id",
+            JsonValue::string(self.account.account_id.as_str()),
+        );
+        acc.insert(
+            "environment",
+            JsonValue::string(self.account.environment.as_str()),
+        );
         acc.insert(
             "session_generation",
             JsonValue::number_from_i64(self.account.session_generation as i64),
@@ -69,7 +80,10 @@ impl SendIntentRecord {
             } => {
                 disp.insert("kind", JsonValue::string("confirmed"));
                 disp.insert("server_message_id", JsonValue::string(server_message_id));
-                disp.insert("server_time_ms", JsonValue::number_from_i64(*server_time_ms));
+                disp.insert(
+                    "server_time_ms",
+                    JsonValue::number_from_i64(*server_time_ms),
+                );
             }
             SendDisposition::Rejected { code, reason } => {
                 disp.insert("kind", JsonValue::string("rejected"));
@@ -84,7 +98,10 @@ impl SendIntentRecord {
         o.insert("local_id", JsonValue::string(&self.local_id));
         o.insert("gid", JsonValue::string(&self.gid));
         o.insert("account", acc);
-        o.insert("created_at_ms", JsonValue::number_from_i64(self.created_at_ms));
+        o.insert(
+            "created_at_ms",
+            JsonValue::number_from_i64(self.created_at_ms),
+        );
         o.insert("frozen_round_id", json_opt_str(&self.frozen_round_id));
         o.insert(
             "customer_boundary_message_id",
@@ -170,7 +187,10 @@ impl SendIntentRepo {
         if matches!(disposition, SendDisposition::Unknown) && !rec.needs_reconciliation() {
             return Ok(rec);
         }
-        if let SendDisposition::Confirmed { server_message_id, .. } = &disposition {
+        if let SendDisposition::Confirmed {
+            server_message_id, ..
+        } = &disposition
+        {
             rec.server_message_id = Some(server_message_id.clone());
         }
         rec.disposition = disposition;
@@ -183,7 +203,11 @@ impl SendIntentRepo {
         txn.delete(COLLECTION, local_id);
     }
 
-    pub fn get(store: &dyn Store, ns: &Namespace, local_id: &str) -> Result<Option<SendIntentRecord>, AppError> {
+    pub fn get(
+        store: &dyn Store,
+        ns: &Namespace,
+        local_id: &str,
+    ) -> Result<Option<SendIntentRecord>, AppError> {
         store
             .get(ns, COLLECTION, local_id)?
             .map(|v| SendIntentRecord::from_json(local_id, &v))
@@ -200,7 +224,10 @@ impl SendIntentRepo {
 
     /// Intents whose outcome is unknown, **for reconciliation only**. The
     /// records are returned as stored; nothing is marked for resend.
-    pub fn unknown_intents(store: &dyn Store, ns: &Namespace) -> Result<Vec<SendIntentRecord>, AppError> {
+    pub fn unknown_intents(
+        store: &dyn Store,
+        ns: &Namespace,
+    ) -> Result<Vec<SendIntentRecord>, AppError> {
         Ok(Self::load_all(store, ns)?
             .into_iter()
             .filter(SendIntentRecord::needs_reconciliation)

@@ -6,7 +6,12 @@ use common::*;
 use contracts::{codes, AlarmCommand, ReminderSettings, RoundEvent, SnoozeMinutes};
 use core_notify::{codes as notify_codes, CommandAck, CommandSource, Effect, NotifyCore, Sound};
 
-fn hide(account: &contracts::AccountContext, gid: &str, round_id: &str, version: u64) -> AlarmCommand {
+fn hide(
+    account: &contracts::AccountContext,
+    gid: &str,
+    round_id: &str,
+    version: u64,
+) -> AlarmCommand {
     AlarmCommand::HideRound {
         account: account.clone(),
         gid: gid.into(),
@@ -53,7 +58,11 @@ fn hide_binds_to_round_id_not_to_version() {
     open_round(&mut core, &a, "g1", &base);
     let _ = drive(&mut core, &base, 0, 40);
     let _ = core
-        .handle_command(hide(&a, "g1", "r-g1", 1), CommandSource::Alarm, &base.plus_ms(41_000))
+        .handle_command(
+            hide(&a, "g1", "r-g1", 1),
+            CommandSource::Alarm,
+            &base.plus_ms(41_000),
+        )
         .expect("hide ok");
 
     // StartConfirmed on the same round (version 2) stays hidden.
@@ -71,15 +80,26 @@ fn hide_binds_to_round_id_not_to_version() {
 
     // A new round id for the same conversation shows again.
     let fx = core.apply_round_event(
-        started(rref(&a, "g1", "r-g1-next", 1), Some(base.server_now_ms + 100_000), true),
+        started(
+            rref(&a, "g1", "r-g1-next", 1),
+            Some(base.server_now_ms + 100_000),
+            true,
+        ),
         &base.plus_ms(100_000),
     );
     assert_eq!(raises(&fx), 0);
-    assert_eq!(core.rounds().len(), 1, "new round supersedes the hidden one");
+    assert_eq!(
+        core.rounds().len(),
+        1,
+        "new round supersedes the hidden one"
+    );
     let fx = drive(&mut core, &base, 100, 130);
     assert_eq!(raises(&fx), 1);
     assert_eq!(sounds(&fx, Sound::Timeout), 1);
-    assert_eq!(core.snapshot(&base.plus_ms(130_000)).entries[0].round_id, "r-g1-next");
+    assert_eq!(
+        core.snapshot(&base.plus_ms(130_000)).entries[0].round_id,
+        "r-g1-next"
+    );
 }
 
 #[test]
@@ -170,7 +190,11 @@ fn open_conversation_validates_version_and_only_navigates() {
         }
     );
     assert!(fx.is_empty());
-    assert_eq!(core.snapshot(&at).entries.len(), 1, "navigation never acks the round");
+    assert_eq!(
+        core.snapshot(&at).entries.len(),
+        1,
+        "navigation never acks the round"
+    );
 
     let err = core
         .handle_command(
@@ -273,7 +297,11 @@ fn sources_are_restricted() {
         .expect_err("tray cannot change threshold");
     assert!(err.is(notify_codes::NOTIFY_COMMAND_NOT_ALLOWED));
     assert!(core
-        .handle_command(AlarmCommand::SetSoundEnabled(false), CommandSource::Tray, &base)
+        .handle_command(
+            AlarmCommand::SetSoundEnabled(false),
+            CommandSource::Tray,
+            &base
+        )
         .is_ok());
     assert!(core
         .handle_command(AlarmCommand::Snapshot, CommandSource::Tray, &base)
@@ -287,14 +315,23 @@ fn stale_generation_is_rejected_and_invalidated_clears_the_account() {
     let a2 = acc("a", 2);
     let a1 = acc("a", 1);
     open_round(&mut core, &a2, "g1", &base);
-    assert!(core.apply_round_event(started(rref(&a1, "g9", "r9", 1), Some(base.server_now_ms), true), &base).is_empty());
+    assert!(core
+        .apply_round_event(
+            started(rref(&a1, "g9", "r9", 1), Some(base.server_now_ms), true),
+            &base
+        )
+        .is_empty());
     assert_eq!(core.rounds().len(), 1, "older generation ignored");
     assert!(core.on_new_message(&a1, "g9", true, &base).is_empty());
     assert!(core.on_unread_changed(&a1, "g9", 5).is_empty());
     let _ = drive(&mut core, &base, 0, 40);
 
     let err = core
-        .handle_command(hide(&a1, "g1", "r-g1", 1), CommandSource::Alarm, &base.plus_ms(41_000))
+        .handle_command(
+            hide(&a1, "g1", "r-g1", 1),
+            CommandSource::Alarm,
+            &base.plus_ms(41_000),
+        )
         .expect_err("stale generation command");
     assert!(err.is(codes::ACCOUNT_STALE_GENERATION));
 
@@ -308,15 +345,23 @@ fn stale_generation_is_rejected_and_invalidated_clears_the_account() {
     assert!(core.rounds().is_empty());
     assert!(has(&fx, &Effect::HideAlarm));
     assert!(has(&fx, &Effect::StopSound));
-    assert!(fx.iter().any(|e| matches!(e, Effect::Unread { total: 0, .. })));
+    assert!(fx
+        .iter()
+        .any(|e| matches!(e, Effect::Unread { total: 0, .. })));
     assert_eq!(core.unread_total(), 0);
     // The invalidated generation is now stale too.
     assert!(core
-        .apply_round_event(started(rref(&a2, "g1", "r-new", 1), Some(base.server_now_ms), true), &base)
+        .apply_round_event(
+            started(rref(&a2, "g1", "r-new", 1), Some(base.server_now_ms), true),
+            &base
+        )
         .is_empty());
     assert!(core.rounds().is_empty());
     let a3 = acc("a", 3);
-    core.apply_round_event(started(rref(&a3, "g1", "r-new", 1), Some(base.server_now_ms), true), &base);
+    core.apply_round_event(
+        started(rref(&a3, "g1", "r-new", 1), Some(base.server_now_ms), true),
+        &base,
+    );
     assert_eq!(core.rounds().len(), 1);
 
     // A newer generation arriving without Invalidated purges the older one.
@@ -324,7 +369,10 @@ fn stale_generation_is_rejected_and_invalidated_clears_the_account() {
     let b3 = acc("b", 3);
     open_round(&mut core, &b2, "gb", &base);
     open_round(&mut core, &b3, "gb2", &base);
-    assert!(core.rounds().iter().all(|r| r.round.account.session_generation >= 3));
+    assert!(core
+        .rounds()
+        .iter()
+        .all(|r| r.round.account.session_generation >= 3));
 }
 
 #[test]

@@ -75,7 +75,8 @@ fn is_latin(c: char) -> bool {
 /// therefore reads as zh. Returns `None` when the text has no letters
 /// (digits, emoji, punctuation only).
 pub fn suggest_language(text: &str) -> Option<LanguageSuggestion> {
-    let (mut kana, mut hangul, mut thai, mut arabic, mut cyrillic, mut han, mut latin) = (0, 0, 0, 0, 0, 0, 0);
+    let (mut kana, mut hangul, mut thai, mut arabic, mut cyrillic, mut han, mut latin) =
+        (0, 0, 0, 0, 0, 0, 0);
     for c in text.chars() {
         if is_kana(c) {
             kana += 1;
@@ -110,7 +111,11 @@ pub fn suggest_language(text: &str) -> Option<LanguageSuggestion> {
     } else {
         return None;
     };
-    let confidence = if count >= 4 { Confidence::High } else { Confidence::Low };
+    let confidence = if count >= 4 {
+        Confidence::High
+    } else {
+        Confidence::Low
+    };
     Some(LanguageSuggestion { lang, confidence })
 }
 
@@ -132,8 +137,16 @@ mod tests {
         assert_eq!(lang("مرحبا"), Some(Lang::Ar));
         assert_eq!(lang("你好，我想预订门票"), Some(Lang::Zh));
         assert_eq!(lang("Hello, I want to book tickets"), Some(Lang::En));
-        assert_eq!(lang("Xin chào, tôi muốn đặt vé"), Some(Lang::En), "latin fallback");
-        assert_eq!(lang("订单 order 12345 OK"), Some(Lang::Zh), "mixed zh/en reads as zh");
+        assert_eq!(
+            lang("Xin chào, tôi muốn đặt vé"),
+            Some(Lang::En),
+            "latin fallback"
+        );
+        assert_eq!(
+            lang("订单 order 12345 OK"),
+            Some(Lang::Zh),
+            "mixed zh/en reads as zh"
+        );
         assert_eq!(lang("12345 😀 !!!"), None);
         assert_eq!(lang(""), None);
     }
@@ -144,9 +157,20 @@ mod tests {
         assert_eq!(s.confidence, Confidence::Low);
         let s = suggest_language("okay then").expect("latin");
         assert_eq!(s.confidence, Confidence::High);
-        assert_eq!(suggest_language("好").map(|s| s.confidence), Some(Confidence::Low));
+        assert_eq!(
+            suggest_language("好").map(|s| s.confidence),
+            Some(Confidence::Low)
+        );
         assert_eq!(Lang::Ja.as_tsim_target(), "ja");
-        for l in [Lang::Zh, Lang::Ja, Lang::Ko, Lang::Th, Lang::Ru, Lang::Ar, Lang::En] {
+        for l in [
+            Lang::Zh,
+            Lang::Ja,
+            Lang::Ko,
+            Lang::Th,
+            Lang::Ru,
+            Lang::Ar,
+            Lang::En,
+        ] {
             assert!(crate::translate::is_supported_target(l.as_tsim_target()));
         }
     }

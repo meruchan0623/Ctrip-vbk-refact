@@ -66,7 +66,11 @@ fn dnd_without_timeout_exception_holds_l3_until_dnd_ends() {
     );
     assert_eq!(
         fx,
-        vec![Effect::TrayFlash(false), Effect::HideAlarm, Effect::StopSound],
+        vec![
+            Effect::TrayFlash(false),
+            Effect::HideAlarm,
+            Effect::StopSound
+        ],
         "DND cancels L1 flashing, hides the window and cuts the clip"
     );
     let fx = core.set_dnd(DndMode::Off, &base.plus_ms(122_000));
@@ -142,7 +146,11 @@ fn presentation_mode_flashes_only_and_mutes() {
         &base,
     );
     let fx = core.on_new_message(&a, "g1", true, &base);
-    assert_eq!(fx, vec![Effect::TrayFlash(true)], "L2 hidden, L1 flash only");
+    assert_eq!(
+        fx,
+        vec![Effect::TrayFlash(true)],
+        "L2 hidden, L1 flash only"
+    );
 
     open_round(&mut core, &a, "g1", &base);
     let fx = drive(&mut core, &base, 0, 60);
@@ -151,7 +159,11 @@ fn presentation_mode_flashes_only_and_mutes() {
     assert!(fx.is_empty(), "tray already flashing: {fx:?}");
     let fx = core.set_system_state(unfocused(), &base.plus_ms(61_000));
     assert_eq!(raises(&fx), 1);
-    assert_eq!(sounds(&fx, Sound::Timeout), 1, "sound was withheld, plays on recovery");
+    assert_eq!(
+        sounds(&fx, Sound::Timeout),
+        1,
+        "sound was withheld, plays on recovery"
+    );
 }
 
 #[test]
@@ -170,7 +182,9 @@ fn focus_assist_hides_l2_and_delays_l3() {
         &base.plus_ms(41_000),
     );
     assert_eq!(fx, vec![Effect::UpdateAlarm]);
-    assert!(core.on_new_message(&a, "g1", true, &base.plus_ms(41_000)).is_empty());
+    assert!(core
+        .on_new_message(&a, "g1", true, &base.plus_ms(41_000))
+        .is_empty());
     open_round(&mut core, &a, "g1", &base.plus_ms(41_000));
     let fx = drive(&mut core, &base, 41, 100);
     assert_eq!(raises(&fx), 0);
@@ -223,7 +237,10 @@ fn locked_masks_labels_stops_sound_and_waits_for_reconcile_after_unlock() {
     assert_eq!(sounds(&fx, Sound::NewMessage), 1);
     assert!(core.snapshot(&base.plus_ms(81_000)).reconciling);
     assert!(drive(&mut core, &base, 81, 90).is_empty());
-    assert_eq!(core.snapshot(&base.plus_ms(90_000)).entries[0].label, "c***r");
+    assert_eq!(
+        core.snapshot(&base.plus_ms(90_000)).entries[0].label,
+        "c***r"
+    );
 
     let fx = core.apply_reconcile_state(ReconcileState::Normal, &base.plus_ms(91_000));
     assert_eq!(raises(&fx), 1);

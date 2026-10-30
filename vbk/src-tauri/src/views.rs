@@ -139,7 +139,10 @@ mod tests {
         assert!(r.authorize(ALARM, "im_push_fact").is_err());
         assert!(r.authorize(ALARM, "account_logout").is_err());
         assert!(r.authorize("web-remote-1", "prefs_snapshot").is_err());
-        assert!(r.authorize(MAIN, "prefs_snapshot").is_err(), "unregistered main");
+        assert!(
+            r.authorize(MAIN, "prefs_snapshot").is_err(),
+            "unregistered main"
+        );
     }
 
     #[test]

@@ -58,7 +58,10 @@ pub enum Classified {
     Nephele(NepheleOutcome),
     /// HTML / raw body: only the HTTP status is checked here; the adapter
     /// validates the document itself. `ok` is true for 2xx.
-    Document { status: u16, ok: bool },
+    Document {
+        status: u16,
+        ok: bool,
+    },
 }
 
 impl Classified {
@@ -105,7 +108,8 @@ mod tests {
     fn dispatch_by_response_kind() {
         let r = EndpointRegistry::official();
         let star = r.by_id("m:16037/setWorkSheetStar").expect("star");
-        let body = r#"{"ResponseStatus":{"Ack":"Success"},"bizResponseStatus":{"resultCode":"FAIL"}}"#;
+        let body =
+            r#"{"ResponseStatus":{"Ack":"Success"},"bizResponseStatus":{"resultCode":"FAIL"}}"#;
         assert!(!classify_for(star, 200, body).is_success());
         let list = r.by_id("m:16037/getConversationList").expect("list");
         assert!(classify_for(list, 200, r#"{"ResponseStatus":{"Ack":"Success"}}"#).is_success());

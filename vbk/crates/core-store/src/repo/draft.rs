@@ -42,7 +42,11 @@ impl DraftRecord {
 pub struct DraftRepo;
 
 impl DraftRepo {
-    pub fn load(store: &dyn Store, ns: &Namespace, gid: &str) -> Result<Option<DraftRecord>, AppError> {
+    pub fn load(
+        store: &dyn Store,
+        ns: &Namespace,
+        gid: &str,
+    ) -> Result<Option<DraftRecord>, AppError> {
         store
             .get(ns, COLLECTION, gid)?
             .map(|v| DraftRecord::from_json(gid, &v))
@@ -95,7 +99,12 @@ impl DraftRepo {
     }
 
     /// Deletes a draft; CAS on `expected_version`.
-    pub fn delete_draft(store: &dyn Store, txn: &mut Txn, gid: &str, expected_version: u64) -> Result<(), AppError> {
+    pub fn delete_draft(
+        store: &dyn Store,
+        txn: &mut Txn,
+        gid: &str,
+        expected_version: u64,
+    ) -> Result<(), AppError> {
         let ns = txn.namespace().clone();
         let current = store.get(&ns, COLLECTION, gid)?;
         let current_version = current

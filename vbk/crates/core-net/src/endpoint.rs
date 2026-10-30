@@ -173,82 +173,730 @@ type Row = (
 /// The 72 observed combinations (docs/api/README.md, 2026-10-30).
 const TABLE: &[Row] = &[
     // --- m.ctrip.com --------------------------------------------------
-    ("m:11419/getLoginAdvisorOpenInfo", Method::Post, M, "/restapi/soa2/11419/getLoginAdvisorOpenInfo", Cookie, ReadOnly, SoaAck, Core),
-    ("m:11679/GetMyInfo.json", Method::Post, M, "/restapi/soa2/11679/GetMyInfo.json", SdkHead, ReadOnly, SoaAck, Core),
-    ("m:11679/PutAdviceOfReadByMsgId.json", Method::Post, M, "/restapi/soa2/11679/PutAdviceOfReadByMsgId.json", SdkHead, Write, SoaAck, Core),
-    ("m:11679/SendMessage.json", Method::Post, M, "/restapi/soa2/11679/SendMessage.json", SdkHead, Write, SoaAck, Core),
-    ("m:11679/batchTranslateByMsgIds", Method::Post, M, "/restapi/soa2/11679/batchTranslateByMsgIds", SdkHead, ReadOnly, SoaAck, Core),
-    ("m:11679/getIQConversations", Method::Post, M, "/restapi/soa2/11679/getIQConversations", SdkHead, ReadOnly, SoaAck, Core),
-    ("m:11679/getRecentMessages", Method::Post, M, "/restapi/soa2/11679/getRecentMessages", SdkHead, ReadOnly, SoaAck, Core),
-    ("m:11679/recallMessage", Method::Post, M, "/restapi/soa2/11679/recallMessage", SdkHead, Write, SoaAck, Core),
-    ("m:13500/checkMemberStatus", Method::Post, M, "/restapi/soa2/13500/checkMemberStatus", Cookie, ReadOnly, SoaAck, Core),
-    ("m:14735/getOrderDetailsForVbk", Method::Post, M, "/restapi/soa2/14735/getOrderDetailsForVbk", Cookie, ReadOnly, SoaAck, Core),
-    ("m:15529/getSessionEmpathyPhraseInfo", Method::Post, M, "/restapi/soa2/15529/getSessionEmpathyPhraseInfo", Cookie, ReadOnly, SoaAck, Core),
-    ("m:15529/getSessionUrls", Method::Post, M, "/restapi/soa2/15529/getSessionUrls", Cookie, ReadOnly, SoaAck, Core),
-    ("m:15529/queryToken", Method::Post, M, "/restapi/soa2/15529/queryToken", Cookie, ReadOnly, SoaAck, Core),
-    ("m:16037/checkSessionStatus", Method::Post, M, "/restapi/soa2/16037/checkSessionStatus", Cookie, ReadOnly, SoaBizStatus, Core),
-    ("m:16037/finishConversation", Method::Post, M, "/restapi/soa2/16037/finishConversation", Cookie, Write, SoaBizStatus, Core),
-    ("m:16037/getAgentWorkingSchedule", Method::Post, M, "/restapi/soa2/16037/getAgentWorkingSchedule", Cookie, ReadOnly, SoaBizStatus, Core),
-    ("m:16037/getCategories", Method::Post, M, "/restapi/soa2/16037/getCategories", Cookie, ReadOnly, SoaAck, Core),
-    ("m:16037/getConversationInfoByGidList", Method::Post, M, "/restapi/soa2/16037/getConversationInfoByGidList", Cookie, ReadOnly, SoaBizStatus, Core),
-    ("m:16037/getConversationList", Method::Post, M, "/restapi/soa2/16037/getConversationList", Cookie, ReadOnly, SoaAck, Core),
-    ("m:16037/getConversationList.json", Method::Post, M, "/restapi/soa2/16037/getConversationList.json", Cookie, ReadOnly, SoaAck, Core),
-    ("m:16037/getCustomerScripts", Method::Post, M, "/restapi/soa2/16037/getCustomerScripts", Cookie, ReadOnly, SoaAck, Core),
-    ("m:16037/getInviteCtripData", Method::Post, M, "/restapi/soa2/16037/getInviteCtripData", Cookie, ReadOnly, SoaAck, Core),
-    ("m:16037/getInviteMemberListBySkillGroup", Method::Post, M, "/restapi/soa2/16037/getInviteMemberListBySkillGroup", Cookie, ReadOnly, SoaBizStatus, Core),
-    ("m:16037/getLatestConversationByGid", Method::Post, M, "/restapi/soa2/16037/getLatestConversationByGid", Cookie, ReadOnly, SoaBizStatus, Core),
-    ("m:16037/getLatestSingleChat", Method::Post, M, "/restapi/soa2/16037/getLatestSingleChat", Cookie, ReadOnly, SoaBizStatus, Core),
-    ("m:16037/getMessageList", Method::Post, M, "/restapi/soa2/16037/getMessageList", Cookie, ReadOnly, SoaAck, Core),
-    ("m:16037/getRemarkList", Method::Post, M, "/restapi/soa2/16037/getRemarkList", Cookie, ReadOnly, SoaBizStatus, Core),
-    ("m:16037/getTimeZoneList", Method::Post, M, "/restapi/soa2/16037/getTimeZoneList", Cookie, ReadOnly, SoaBizStatus, SettingsReadback),
-    ("m:16037/getVenAgentByUid", Method::Post, M, "/restapi/soa2/16037/getVenAgentByUid", Cookie, ReadOnly, SoaAck, Core),
-    ("m:16037/getVenAgentByUid.json", Method::Post, M, "/restapi/soa2/16037/getVenAgentByUid.json", Cookie, ReadOnly, SoaAck, Core),
-    ("m:16037/getWordsAboves", Method::Post, M, "/restapi/soa2/16037/getWordsAboves", Cookie, ReadOnly, SoaBizStatus, SettingsReadback),
-    ("m:16037/inviteVenAgent", Method::Post, M, "/restapi/soa2/16037/inviteVenAgent", Cookie, Write, SoaAck, Core),
-    ("m:16037/searchConversation", Method::Post, M, "/restapi/soa2/16037/searchConversation", Cookie, ReadOnly, SoaBizStatus, Core),
-    ("m:16037/searchInviteMemberListBySkillGroup", Method::Post, M, "/restapi/soa2/16037/searchInviteMemberListBySkillGroup", Cookie, ReadOnly, SoaBizStatus, Core),
-    ("m:16037/setWorkSheetStar", Method::Post, M, "/restapi/soa2/16037/setWorkSheetStar", Cookie, Write, SoaBizStatus, Core),
-    ("m:16037/startChatB2C", Method::Post, M, "/restapi/soa2/16037/startChatB2C", Cookie, MayCreate, SoaBizStatus, Core),
-    ("m:16037/syncVenAgentInfo", Method::Post, M, "/restapi/soa2/16037/syncVenAgentInfo", Cookie, Write, SoaAck, Core),
-    ("m:16037/transferVenMaster", Method::Post, M, "/restapi/soa2/16037/transferVenMaster", Cookie, Write, SoaBizStatus, Core),
-    ("m:16037/uploadTokenCreate", Method::Post, M, "/restapi/soa2/16037/uploadTokenCreate", Cookie, Write, SoaAck, Core),
-    ("m:16163/saveLogInfo", Method::Post, M, "/restapi/soa2/16163/saveLogInfo", Cookie, Write, SoaAck, PageAux),
-    ("m:18088/getAppConfig.json", Method::Post, M, "/restapi/soa2/18088/getAppConfig.json", Cookie, ReadOnly, SoaAck, Core),
-    ("m:20016/checkVBKRealNameAuthStatus", Method::Post, M, "/restapi/soa2/20016/checkVBKRealNameAuthStatus", Cookie, ReadOnly, SoaAck, Core),
-    ("m:22015/getSceneConfig", Method::Post, M, "/restapi/soa2/22015/getSceneConfig", Cookie, ReadOnly, SoaErr, Core),
-    ("m:36709/createTUid", Method::Post, M, "/restapi/soa2/36709/createTUid", Cookie, Write, SoaAck, PageAux),
+    (
+        "m:11419/getLoginAdvisorOpenInfo",
+        Method::Post,
+        M,
+        "/restapi/soa2/11419/getLoginAdvisorOpenInfo",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:11679/GetMyInfo.json",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/GetMyInfo.json",
+        SdkHead,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:11679/PutAdviceOfReadByMsgId.json",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/PutAdviceOfReadByMsgId.json",
+        SdkHead,
+        Write,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:11679/SendMessage.json",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/SendMessage.json",
+        SdkHead,
+        Write,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:11679/batchTranslateByMsgIds",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/batchTranslateByMsgIds",
+        SdkHead,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:11679/getIQConversations",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/getIQConversations",
+        SdkHead,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:11679/getRecentMessages",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/getRecentMessages",
+        SdkHead,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:11679/recallMessage",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/recallMessage",
+        SdkHead,
+        Write,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:13500/checkMemberStatus",
+        Method::Post,
+        M,
+        "/restapi/soa2/13500/checkMemberStatus",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:14735/getOrderDetailsForVbk",
+        Method::Post,
+        M,
+        "/restapi/soa2/14735/getOrderDetailsForVbk",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:15529/getSessionEmpathyPhraseInfo",
+        Method::Post,
+        M,
+        "/restapi/soa2/15529/getSessionEmpathyPhraseInfo",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:15529/getSessionUrls",
+        Method::Post,
+        M,
+        "/restapi/soa2/15529/getSessionUrls",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:15529/queryToken",
+        Method::Post,
+        M,
+        "/restapi/soa2/15529/queryToken",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/checkSessionStatus",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/checkSessionStatus",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/finishConversation",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/finishConversation",
+        Cookie,
+        Write,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/getAgentWorkingSchedule",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getAgentWorkingSchedule",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/getCategories",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getCategories",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/getConversationInfoByGidList",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getConversationInfoByGidList",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/getConversationList",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getConversationList",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/getConversationList.json",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getConversationList.json",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/getCustomerScripts",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getCustomerScripts",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/getInviteCtripData",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getInviteCtripData",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/getInviteMemberListBySkillGroup",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getInviteMemberListBySkillGroup",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/getLatestConversationByGid",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getLatestConversationByGid",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/getLatestSingleChat",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getLatestSingleChat",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/getMessageList",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getMessageList",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/getRemarkList",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getRemarkList",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/getTimeZoneList",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getTimeZoneList",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        SettingsReadback,
+    ),
+    (
+        "m:16037/getVenAgentByUid",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getVenAgentByUid",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/getVenAgentByUid.json",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getVenAgentByUid.json",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/getWordsAboves",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/getWordsAboves",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        SettingsReadback,
+    ),
+    (
+        "m:16037/inviteVenAgent",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/inviteVenAgent",
+        Cookie,
+        Write,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/searchConversation",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/searchConversation",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/searchInviteMemberListBySkillGroup",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/searchInviteMemberListBySkillGroup",
+        Cookie,
+        ReadOnly,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/setWorkSheetStar",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/setWorkSheetStar",
+        Cookie,
+        Write,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/startChatB2C",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/startChatB2C",
+        Cookie,
+        MayCreate,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/syncVenAgentInfo",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/syncVenAgentInfo",
+        Cookie,
+        Write,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16037/transferVenMaster",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/transferVenMaster",
+        Cookie,
+        Write,
+        SoaBizStatus,
+        Core,
+    ),
+    (
+        "m:16037/uploadTokenCreate",
+        Method::Post,
+        M,
+        "/restapi/soa2/16037/uploadTokenCreate",
+        Cookie,
+        Write,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:16163/saveLogInfo",
+        Method::Post,
+        M,
+        "/restapi/soa2/16163/saveLogInfo",
+        Cookie,
+        Write,
+        SoaAck,
+        PageAux,
+    ),
+    (
+        "m:18088/getAppConfig.json",
+        Method::Post,
+        M,
+        "/restapi/soa2/18088/getAppConfig.json",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:20016/checkVBKRealNameAuthStatus",
+        Method::Post,
+        M,
+        "/restapi/soa2/20016/checkVBKRealNameAuthStatus",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:22015/getSceneConfig",
+        Method::Post,
+        M,
+        "/restapi/soa2/22015/getSceneConfig",
+        Cookie,
+        ReadOnly,
+        SoaErr,
+        Core,
+    ),
+    (
+        "m:36709/createTUid",
+        Method::Post,
+        M,
+        "/restapi/soa2/36709/createTUid",
+        Cookie,
+        Write,
+        SoaAck,
+        PageAux,
+    ),
     // --- nephele.ctrip.com --------------------------------------------
-    ("nephele:file/v1/api/upload", Method::Post, NEPHELE, "/file/v1/api/upload", AuthKind::None, Write, Raw, Core),
-    ("nephele:image/v2/api/upload", Method::Post, NEPHELE, "/image/v2/api/upload", NepheleToken, Write, NepheleCode, Core),
-    ("nephele:video/v1/api/proc", Method::Post, NEPHELE, "/video/v1/api/proc", Cookie, Write, Raw, Core),
-    ("nephele:video/v3/api/upload", Method::Post, NEPHELE, "/video/v3/api/upload", NepheleToken, Write, NepheleCode, Core),
+    (
+        "nephele:file/v1/api/upload",
+        Method::Post,
+        NEPHELE,
+        "/file/v1/api/upload",
+        AuthKind::None,
+        Write,
+        Raw,
+        Core,
+    ),
+    (
+        "nephele:image/v2/api/upload",
+        Method::Post,
+        NEPHELE,
+        "/image/v2/api/upload",
+        NepheleToken,
+        Write,
+        NepheleCode,
+        Core,
+    ),
+    (
+        "nephele:video/v1/api/proc",
+        Method::Post,
+        NEPHELE,
+        "/video/v1/api/proc",
+        Cookie,
+        Write,
+        Raw,
+        Core,
+    ),
+    (
+        "nephele:video/v3/api/upload",
+        Method::Post,
+        NEPHELE,
+        "/video/v3/api/upload",
+        NepheleToken,
+        Write,
+        NepheleCode,
+        Core,
+    ),
     // --- online.ctrip.com ---------------------------------------------
-    ("online:12405/generateWaterMark", Method::Post, ONLINE, "/restapi/soa2/12405/generateWaterMark", Cookie, ReadOnly, SoaAck, PageAux),
-    ("online:12405/getCurrentUserInfo", Method::Post, ONLINE, "/restapi/soa2/12405/getCurrentUserInfo", Cookie, ReadOnly, SoaAck, Core),
-    ("online:13191/validateTicket", Method::Post, ONLINE, "/restapi/soa2/13191/validateTicket", Cookie, ReadOnly, SoaAck, Core),
-    ("online:14894/ContactUs", Method::Post, ONLINE, "/restapi/soa2/14894/ContactUs", Cookie, ReadOnly, SoaAck, PageAux),
-    ("online:14894/getDoorFunctionGuide", Method::Post, ONLINE, "/restapi/soa2/14894/getDoorFunctionGuide", Cookie, ReadOnly, SoaAck, PageAux),
-    ("online:14894/getProviderBusinessLineList", Method::Post, ONLINE, "/restapi/soa2/14894/getProviderBusinessLineList", Cookie, ReadOnly, SoaAck, PageAux),
-    ("online:15529/queryRecommendProductList", Method::Post, ONLINE, "/restapi/soa2/15529/queryRecommendProductList", Cookie, ReadOnly, SoaAck, Core),
-    ("online:15529/sendCardMessageForOffline", Method::Post, ONLINE, "/restapi/soa2/15529/sendCardMessageForOffline", Cookie, Write, SoaAck, Core),
-    ("online:16566/queryCountByEid", Method::Post, ONLINE, "/restapi/soa2/16566/queryCountByEid", Cookie, ReadOnly, SoaAck, PageAux),
-    ("online:16881/searchPop", Method::Post, ONLINE, "/restapi/soa2/16881/searchPop", Cookie, ReadOnly, SoaAck, PageAux),
-    ("online:17092/listNoticeReceiveConfig", Method::Post, ONLINE, "/restapi/soa2/17092/listNoticeReceiveConfig", Cookie, ReadOnly, SoaAck, Core),
+    (
+        "online:12405/generateWaterMark",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/12405/generateWaterMark",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        PageAux,
+    ),
+    (
+        "online:12405/getCurrentUserInfo",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/12405/getCurrentUserInfo",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "online:13191/validateTicket",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/13191/validateTicket",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "online:14894/ContactUs",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/14894/ContactUs",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        PageAux,
+    ),
+    (
+        "online:14894/getDoorFunctionGuide",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/14894/getDoorFunctionGuide",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        PageAux,
+    ),
+    (
+        "online:14894/getProviderBusinessLineList",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/14894/getProviderBusinessLineList",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        PageAux,
+    ),
+    (
+        "online:15529/queryRecommendProductList",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/15529/queryRecommendProductList",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "online:15529/sendCardMessageForOffline",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/15529/sendCardMessageForOffline",
+        Cookie,
+        Write,
+        SoaAck,
+        Core,
+    ),
+    (
+        "online:16566/queryCountByEid",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/16566/queryCountByEid",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        PageAux,
+    ),
+    (
+        "online:16881/searchPop",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/16881/searchPop",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        PageAux,
+    ),
+    (
+        "online:17092/listNoticeReceiveConfig",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/17092/listNoticeReceiveConfig",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
     // --- sec-m.ctrip.com ----------------------------------------------
-    ("sec-m:11380/queryevent", Method::Post, SECM, "/restapi/soa2/11380/queryevent", Cookie, ReadOnly, SoaAck, PageAux),
-    ("sec-m:14361/createimchat", Method::Post, SECM, "/restapi/soa2/14361/createimchat", Cookie, MayCreate, SoaErr, OrderContact),
-    ("sec-m:14361/getdeliveryinfo", Method::Post, SECM, "/restapi/soa2/14361/getdeliveryinfo", Cookie, ReadOnly, SoaErr, OrderEvidence),
-    ("sec-m:14361/getorderclient", Method::Post, SECM, "/restapi/soa2/14361/getorderclient", Cookie, ReadOnly, SoaErr, OrderEvidence),
-    ("sec-m:14361/getorderinfo", Method::Post, SECM, "/restapi/soa2/14361/getorderinfo", Cookie, ReadOnly, Raw, OrderEvidence),
-    ("sec-m:14361/getorderrefund", Method::Post, SECM, "/restapi/soa2/14361/getorderrefund", Cookie, ReadOnly, SoaErr, OrderEvidence),
-    ("sec-m:14361/getordersettlement", Method::Post, SECM, "/restapi/soa2/14361/getordersettlement", Cookie, ReadOnly, SoaErr, OrderEvidence),
-    ("sec-m:14361/getprocessloglist", Method::Post, SECM, "/restapi/soa2/14361/getprocessloglist", Cookie, ReadOnly, SoaErr, OrderEvidence),
-    ("sec-m:14361/getsupreceiptcountbystatus", Method::Post, SECM, "/restapi/soa2/14361/getsupreceiptcountbystatus", Cookie, ReadOnly, SoaErr, OrderEvidence),
-    ("sec-m:14361/queryordervoucher", Method::Post, SECM, "/restapi/soa2/14361/queryordervoucher", Cookie, ReadOnly, SoaErr, OrderEvidence),
-    ("sec-m:14361/searchorderlist", Method::Post, SECM, "/restapi/soa2/14361/searchorderlist", Cookie, ReadOnly, SoaErr, OrderContact),
+    (
+        "sec-m:11380/queryevent",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/11380/queryevent",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        PageAux,
+    ),
+    (
+        "sec-m:14361/createimchat",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/14361/createimchat",
+        Cookie,
+        MayCreate,
+        SoaErr,
+        OrderContact,
+    ),
+    (
+        "sec-m:14361/getdeliveryinfo",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/14361/getdeliveryinfo",
+        Cookie,
+        ReadOnly,
+        SoaErr,
+        OrderEvidence,
+    ),
+    (
+        "sec-m:14361/getorderclient",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/14361/getorderclient",
+        Cookie,
+        ReadOnly,
+        SoaErr,
+        OrderEvidence,
+    ),
+    (
+        "sec-m:14361/getorderinfo",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/14361/getorderinfo",
+        Cookie,
+        ReadOnly,
+        Raw,
+        OrderEvidence,
+    ),
+    (
+        "sec-m:14361/getorderrefund",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/14361/getorderrefund",
+        Cookie,
+        ReadOnly,
+        SoaErr,
+        OrderEvidence,
+    ),
+    (
+        "sec-m:14361/getordersettlement",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/14361/getordersettlement",
+        Cookie,
+        ReadOnly,
+        SoaErr,
+        OrderEvidence,
+    ),
+    (
+        "sec-m:14361/getprocessloglist",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/14361/getprocessloglist",
+        Cookie,
+        ReadOnly,
+        SoaErr,
+        OrderEvidence,
+    ),
+    (
+        "sec-m:14361/getsupreceiptcountbystatus",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/14361/getsupreceiptcountbystatus",
+        Cookie,
+        ReadOnly,
+        SoaErr,
+        OrderEvidence,
+    ),
+    (
+        "sec-m:14361/queryordervoucher",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/14361/queryordervoucher",
+        Cookie,
+        ReadOnly,
+        SoaErr,
+        OrderEvidence,
+    ),
+    (
+        "sec-m:14361/searchorderlist",
+        Method::Post,
+        SECM,
+        "/restapi/soa2/14361/searchorderlist",
+        Cookie,
+        ReadOnly,
+        SoaErr,
+        OrderContact,
+    ),
     // --- vbooking.ctrip.com (HTML documents) --------------------------
-    ("vbooking:tour/im/ex-area/b", Method::Get, VBOOKING, "/tour/im/ex-area/b", Cookie, ReadOnly, Html, Core),
-    ("vbooking:tour/im/ex-area/b/imExtraInfo", Method::Get, VBOOKING, "/tour/im/ex-area/b/imExtraInfo", Cookie, ReadOnly, Html, Core),
+    (
+        "vbooking:tour/im/ex-area/b",
+        Method::Get,
+        VBOOKING,
+        "/tour/im/ex-area/b",
+        Cookie,
+        ReadOnly,
+        Html,
+        Core,
+    ),
+    (
+        "vbooking:tour/im/ex-area/b/imExtraInfo",
+        Method::Get,
+        VBOOKING,
+        "/tour/im/ex-area/b/imExtraInfo",
+        Cookie,
+        ReadOnly,
+        Html,
+        Core,
+    ),
 ];
 
 /// Registry of every observed endpoint.
@@ -326,8 +974,11 @@ impl EndpointRegistry {
     /// (`net.endpoint_not_in_scope`).
     pub fn assert_in_scope(&self, id: &str) -> Result<&EndpointPolicy, AppError> {
         let p = self.by_id(id).ok_or_else(|| {
-            AppError::new(net_codes::NET_ENDPOINT_UNREGISTERED, "endpoint is not registered")
-                .with_detail(id.to_string())
+            AppError::new(
+                net_codes::NET_ENDPOINT_UNREGISTERED,
+                "endpoint is not registered",
+            )
+            .with_detail(id.to_string())
         })?;
         if !p.is_in_scope() {
             return Err(AppError::new(
@@ -340,10 +991,18 @@ impl EndpointRegistry {
     }
 
     /// `lookup` + scope check in one step for a concrete request.
-    pub fn authorize(&self, method: Method, host: &str, path: &str) -> Result<&EndpointPolicy, AppError> {
+    pub fn authorize(
+        &self,
+        method: Method,
+        host: &str,
+        path: &str,
+    ) -> Result<&EndpointPolicy, AppError> {
         let p = self.lookup(method, host, path).ok_or_else(|| {
-            AppError::new(net_codes::NET_ENDPOINT_UNREGISTERED, "endpoint is not registered")
-                .with_detail(format!("{} {host}{path}", method.as_str()))
+            AppError::new(
+                net_codes::NET_ENDPOINT_UNREGISTERED,
+                "endpoint is not registered",
+            )
+            .with_detail(format!("{} {host}{path}", method.as_str()))
         })?;
         self.assert_in_scope(p.id)
     }
@@ -361,7 +1020,8 @@ mod tests {
         assert!(!r.is_empty());
         let ids: HashSet<&str> = r.iter().map(|p| p.id).collect();
         assert_eq!(ids.len(), 72, "ids must be unique");
-        let keys: HashSet<(Method, &str, &str)> = r.iter().map(|p| (p.method, p.host, p.path)).collect();
+        let keys: HashSet<(Method, &str, &str)> =
+            r.iter().map(|p| (p.method, p.host, p.path)).collect();
         assert_eq!(keys.len(), 72, "method+host+path must be unique");
         assert_eq!(r.iter().filter(|p| p.method == Method::Get).count(), 2);
     }
@@ -389,17 +1049,52 @@ mod tests {
     fn lookup_is_exact() {
         let r = EndpointRegistry::official();
         let p = r
-            .lookup(Method::Post, "m.ctrip.com", "/restapi/soa2/16037/getConversationList")
+            .lookup(
+                Method::Post,
+                "m.ctrip.com",
+                "/restapi/soa2/16037/getConversationList",
+            )
             .expect("registered");
         assert_eq!(p.id, "m:16037/getConversationList");
         assert_eq!(p.response_kind, ResponseKind::SoaAck);
-        assert_eq!(p.url(), "https://m.ctrip.com/restapi/soa2/16037/getConversationList");
-        assert!(r.lookup(Method::Get, "m.ctrip.com", "/restapi/soa2/16037/getConversationList").is_none());
-        assert!(r.lookup(Method::Post, "m.ctrip.com", "/restapi/soa2/16037/getConversationList/").is_none());
-        assert!(r.lookup(Method::Post, "evil.m.ctrip.com", "/restapi/soa2/16037/getConversationList").is_none());
-        assert!(r.lookup(Method::Post, "M.CTRIP.COM", "/restapi/soa2/16037/getConversationList").is_some());
+        assert_eq!(
+            p.url(),
+            "https://m.ctrip.com/restapi/soa2/16037/getConversationList"
+        );
+        assert!(r
+            .lookup(
+                Method::Get,
+                "m.ctrip.com",
+                "/restapi/soa2/16037/getConversationList"
+            )
+            .is_none());
+        assert!(r
+            .lookup(
+                Method::Post,
+                "m.ctrip.com",
+                "/restapi/soa2/16037/getConversationList/"
+            )
+            .is_none());
+        assert!(r
+            .lookup(
+                Method::Post,
+                "evil.m.ctrip.com",
+                "/restapi/soa2/16037/getConversationList"
+            )
+            .is_none());
+        assert!(r
+            .lookup(
+                Method::Post,
+                "M.CTRIP.COM",
+                "/restapi/soa2/16037/getConversationList"
+            )
+            .is_some());
         let json = r
-            .lookup(Method::Post, "m.ctrip.com", "/restapi/soa2/16037/getConversationList.json")
+            .lookup(
+                Method::Post,
+                "m.ctrip.com",
+                "/restapi/soa2/16037/getConversationList.json",
+            )
             .expect(".json variant is separate");
         assert_eq!(json.id, "m:16037/getConversationList.json");
     }
@@ -419,14 +1114,22 @@ mod tests {
         assert!(r.assert_in_scope("sec-m:14361/createimchat").is_ok());
         let e = r.assert_in_scope("m:16163/saveLogInfo").expect_err("aux");
         assert!(e.is(net_codes::NET_ENDPOINT_NOT_IN_SCOPE));
-        let e = r.assert_in_scope("sec-m:14361/getorderrefund").expect_err("evidence");
+        let e = r
+            .assert_in_scope("sec-m:14361/getorderrefund")
+            .expect_err("evidence");
         assert!(e.is(net_codes::NET_ENDPOINT_NOT_IN_SCOPE));
-        let e = r.assert_in_scope("m:16037/getTimeZoneList").expect_err("settings");
+        let e = r
+            .assert_in_scope("m:16037/getTimeZoneList")
+            .expect_err("settings");
         assert!(e.is(net_codes::NET_ENDPOINT_NOT_IN_SCOPE));
         let e = r.assert_in_scope("m:99999/nothing").expect_err("unknown");
         assert!(e.is(net_codes::NET_ENDPOINT_UNREGISTERED));
-        assert!(r.authorize(Method::Post, "m.ctrip.com", "/restapi/soa2/99999/x").is_err());
-        assert!(r.authorize(Method::Get, "vbooking.ctrip.com", "/tour/im/ex-area/b").is_ok());
+        assert!(r
+            .authorize(Method::Post, "m.ctrip.com", "/restapi/soa2/99999/x")
+            .is_err());
+        assert!(r
+            .authorize(Method::Get, "vbooking.ctrip.com", "/tour/im/ex-area/b")
+            .is_ok());
     }
 
     #[test]
@@ -440,11 +1143,30 @@ mod tests {
                 assert_eq!(p.auth, AuthKind::SdkHead, "{}", p.id);
             }
         }
-        assert_eq!(r.by_id("nephele:image/v2/api/upload").map(|p| p.auth), Some(AuthKind::NepheleToken));
-        assert_eq!(r.by_id("nephele:file/v1/api/upload").map(|p| p.auth), Some(AuthKind::None));
-        assert_eq!(r.by_id("m:16037/setWorkSheetStar").map(|p| p.response_kind), Some(ResponseKind::SoaBizStatus));
-        assert_eq!(r.by_id("m:16037/startChatB2C").map(|p| p.side_effect), Some(SideEffect::MayCreateConversation));
-        assert_eq!(r.by_id("sec-m:14361/createimchat").map(|p| p.side_effect), Some(SideEffect::MayCreateConversation));
-        assert_eq!(r.by_id("sec-m:14361/searchorderlist").map(|p| p.response_kind), Some(ResponseKind::SoaResponseErrorCode));
+        assert_eq!(
+            r.by_id("nephele:image/v2/api/upload").map(|p| p.auth),
+            Some(AuthKind::NepheleToken)
+        );
+        assert_eq!(
+            r.by_id("nephele:file/v1/api/upload").map(|p| p.auth),
+            Some(AuthKind::None)
+        );
+        assert_eq!(
+            r.by_id("m:16037/setWorkSheetStar").map(|p| p.response_kind),
+            Some(ResponseKind::SoaBizStatus)
+        );
+        assert_eq!(
+            r.by_id("m:16037/startChatB2C").map(|p| p.side_effect),
+            Some(SideEffect::MayCreateConversation)
+        );
+        assert_eq!(
+            r.by_id("sec-m:14361/createimchat").map(|p| p.side_effect),
+            Some(SideEffect::MayCreateConversation)
+        );
+        assert_eq!(
+            r.by_id("sec-m:14361/searchorderlist")
+                .map(|p| p.response_kind),
+            Some(ResponseKind::SoaResponseErrorCode)
+        );
     }
 }

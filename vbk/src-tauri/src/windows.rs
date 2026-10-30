@@ -36,7 +36,12 @@ pub struct Rect {
 /// Pure placement: computes the alarm window rect inside `work_area`
 /// (physical px) for the requested corner and scale factor, clamping into
 /// the visible region. Tested without a display.
-pub fn place_alarm(work_area: Rect, scale: f64, corner: Corner, wanted_height_logical: f64) -> Rect {
+pub fn place_alarm(
+    work_area: Rect,
+    scale: f64,
+    corner: Corner,
+    wanted_height_logical: f64,
+) -> Rect {
     let margin = (MARGIN * scale).round() as i32;
     let w = ((ALARM_WIDTH * scale).round() as u32).min(work_area.w.max(1));
     let max_h = (work_area.h as f64 * ALARM_MAX_HEIGHT_RATIO).round() as u32;
@@ -49,8 +54,14 @@ pub fn place_alarm(work_area: Rect, scale: f64, corner: Corner, wanted_height_lo
     };
     let y = work_area.y + work_area.h as i32 - h as i32 - margin;
     // Clamp into the work area (monitor removed / shrunk).
-    let x = x.clamp(work_area.x, (work_area.x + work_area.w as i32 - w as i32).max(work_area.x));
-    let y = y.clamp(work_area.y, (work_area.y + work_area.h as i32 - h as i32).max(work_area.y));
+    let x = x.clamp(
+        work_area.x,
+        (work_area.x + work_area.w as i32 - w as i32).max(work_area.x),
+    );
+    let y = y.clamp(
+        work_area.y,
+        (work_area.y + work_area.h as i32 - h as i32).max(work_area.y),
+    );
     Rect { x, y, w, h }
 }
 
@@ -79,16 +90,20 @@ pub fn ensure_alarm(app: &AppHandle) -> tauri::Result<()> {
     if app.get_webview_window(views::ALARM).is_some() {
         return Ok(());
     }
-    let win = WebviewWindowBuilder::new(app, views::ALARM, WebviewUrl::App("apps/alarm/index.html".into()))
-        .title("回复超时提醒")
-        .inner_size(ALARM_WIDTH, 320.0)
-        .resizable(false)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .focused(false)
-        .visible(false)
-        .build()?;
+    let win = WebviewWindowBuilder::new(
+        app,
+        views::ALARM,
+        WebviewUrl::App("apps/alarm/index.html".into()),
+    )
+    .title("回复超时提醒")
+    .inner_size(ALARM_WIDTH, 320.0)
+    .resizable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .build()?;
     // Close → hide; the window is a singleton reused for every round.
     let handle = win.clone();
     win.on_window_event(move |event| {
@@ -102,7 +117,12 @@ pub fn ensure_alarm(app: &AppHandle) -> tauri::Result<()> {
 
 /// Shows the alarm window without activating it (strong-alert §6: 置顶、不
 /// 激活显示). `raise` re-applies always-on-top once (level change only).
-pub fn show_alarm(app: &AppHandle, corner: Corner, wanted_height_logical: f64, raise: bool) -> tauri::Result<()> {
+pub fn show_alarm(
+    app: &AppHandle,
+    corner: Corner,
+    wanted_height_logical: f64,
+    raise: bool,
+) -> tauri::Result<()> {
     ensure_alarm(app)?;
     let Some(win) = app.get_webview_window(views::ALARM) else {
         return Ok(());
@@ -147,7 +167,14 @@ pub fn toggle_main(app: &AppHandle) {
     }
 }
 
-pub fn open_singleton(app: &AppHandle, label: &str, title: &str, url: &str, w: f64, h: f64) -> tauri::Result<()> {
+pub fn open_singleton(
+    app: &AppHandle,
+    label: &str,
+    title: &str,
+    url: &str,
+    w: f64,
+    h: f64,
+) -> tauri::Result<()> {
     if let Some(win) = app.get_webview_window(label) {
         win.show()?;
         win.set_focus()?;
@@ -161,11 +188,25 @@ pub fn open_singleton(app: &AppHandle, label: &str, title: &str, url: &str, w: f
 }
 
 pub fn open_setting(app: &AppHandle) -> tauri::Result<()> {
-    open_singleton(app, views::SETTING, "设置", "apps/setting/index.html", 900.0, 640.0)
+    open_singleton(
+        app,
+        views::SETTING,
+        "设置",
+        "apps/setting/index.html",
+        900.0,
+        640.0,
+    )
 }
 
 pub fn open_update(app: &AppHandle) -> tauri::Result<()> {
-    open_singleton(app, views::UPDATE, "客户端更新", "apps/update/index.html", 480.0, 360.0)
+    open_singleton(
+        app,
+        views::UPDATE,
+        "客户端更新",
+        "apps/update/index.html",
+        480.0,
+        360.0,
+    )
 }
 
 #[cfg(test)]
@@ -174,7 +215,12 @@ mod tests {
 
     #[test]
     fn bottom_right_inside_work_area() {
-        let area = Rect { x: 0, y: 0, w: 1920, h: 1040 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 1920,
+            h: 1040,
+        };
         let r = place_alarm(area, 1.0, Corner::BottomRight, 320.0);
         assert_eq!(r.w, 380);
         assert_eq!(r.h, 320);
@@ -184,7 +230,12 @@ mod tests {
 
     #[test]
     fn height_capped_to_60_percent_and_clamped_on_small_screen() {
-        let area = Rect { x: 100, y: 50, w: 300, h: 400 };
+        let area = Rect {
+            x: 100,
+            y: 50,
+            w: 300,
+            h: 400,
+        };
         let r = place_alarm(area, 1.0, Corner::BottomLeft, 900.0);
         assert!(r.h <= 240);
         assert!(r.w <= 300);
@@ -194,7 +245,12 @@ mod tests {
 
     #[test]
     fn dpi_scale_applies() {
-        let area = Rect { x: 0, y: 0, w: 3840, h: 2080 };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 3840,
+            h: 2080,
+        };
         let r = place_alarm(area, 2.0, Corner::BottomRight, 320.0);
         assert_eq!(r.w, 760);
         assert_eq!(r.h, 640);

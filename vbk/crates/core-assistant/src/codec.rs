@@ -185,7 +185,10 @@ mod tests {
         assert_eq!(percent_encode("abc-_.~"), "abc-_.~");
         assert_eq!(percent_encode("a b&c=d/e"), "a%20b%26c%3Dd%2Fe");
         assert_eq!(percent_encode("中"), "%E4%B8%AD");
-        assert_eq!(encode_query(&[("query_id", "q 1"), ("x", "&")]), "query_id=q%201&x=%26");
+        assert_eq!(
+            encode_query(&[("query_id", "q 1"), ("x", "&")]),
+            "query_id=q%201&x=%26"
+        );
     }
 
     #[test]
@@ -203,13 +206,34 @@ mod tests {
     #[test]
     fn iso8601() {
         assert_eq!(parse_iso8601_ms("1970-01-01T00:00:00Z"), Some(0));
-        assert_eq!(parse_iso8601_ms("2026-10-30T12:00:00Z"), Some(1_793_361_600_000));
-        assert_eq!(parse_iso8601_ms("2026-10-30T12:00:00"), Some(1_793_361_600_000));
-        assert_eq!(parse_iso8601_ms("2026-10-30T20:00:00+08:00"), Some(1_793_361_600_000));
-        assert_eq!(parse_iso8601_ms("2026-10-30T20:00:00+0800"), Some(1_793_361_600_000));
-        assert_eq!(parse_iso8601_ms("2026-10-30T12:00:00.5Z"), Some(1_793_361_600_500));
-        assert_eq!(parse_iso8601_ms("2026-10-30T12:00:00.123456Z"), Some(1_793_361_600_123));
-        assert_eq!(parse_iso8601_ms("2026-10-30 12:00"), Some(1_793_361_600_000));
+        assert_eq!(
+            parse_iso8601_ms("2026-10-30T12:00:00Z"),
+            Some(1_793_361_600_000)
+        );
+        assert_eq!(
+            parse_iso8601_ms("2026-10-30T12:00:00"),
+            Some(1_793_361_600_000)
+        );
+        assert_eq!(
+            parse_iso8601_ms("2026-10-30T20:00:00+08:00"),
+            Some(1_793_361_600_000)
+        );
+        assert_eq!(
+            parse_iso8601_ms("2026-10-30T20:00:00+0800"),
+            Some(1_793_361_600_000)
+        );
+        assert_eq!(
+            parse_iso8601_ms("2026-10-30T12:00:00.5Z"),
+            Some(1_793_361_600_500)
+        );
+        assert_eq!(
+            parse_iso8601_ms("2026-10-30T12:00:00.123456Z"),
+            Some(1_793_361_600_123)
+        );
+        assert_eq!(
+            parse_iso8601_ms("2026-10-30 12:00"),
+            Some(1_793_361_600_000)
+        );
         assert_eq!(parse_iso8601_ms("2026-02-30T00:00:00Z"), None);
         assert_eq!(parse_iso8601_ms("2026-10-30T25:00:00Z"), None);
         assert_eq!(parse_iso8601_ms("garbage"), None);

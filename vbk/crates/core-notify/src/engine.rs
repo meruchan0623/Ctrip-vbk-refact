@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 
 use contracts::{
-    AccountContext, AlarmEntry, AlarmLevel, AlarmSnapshot, AppError, ClockReading,
-    ReconcileState, ReminderSettings, RoundEvent, WaitingRoundRef,
+    AccountContext, AlarmEntry, AlarmLevel, AlarmSnapshot, AppError, ClockReading, ReconcileState,
+    ReminderSettings, RoundEvent, WaitingRoundRef,
 };
 
 use crate::banner::{BannerBook, BANNER_STAY_MS};
@@ -343,9 +343,9 @@ impl NotifyCore {
                 if !self.accept_generation(&round.account) {
                     return out;
                 }
-                out.extend(self.remove_where(|r| {
-                    r.matches(&round.account, &round.gid, &round.round_id)
-                }));
+                out.extend(
+                    self.remove_where(|r| r.matches(&round.account, &round.gid, &round.round_id)),
+                );
             }
         }
         out.extend(self.evaluate(now));
@@ -532,7 +532,12 @@ impl NotifyCore {
         &mut self.rounds
     }
 
-    pub(crate) fn find(&self, account: &AccountContext, gid: &str, round_id: &str) -> Option<usize> {
+    pub(crate) fn find(
+        &self,
+        account: &AccountContext,
+        gid: &str,
+        round_id: &str,
+    ) -> Option<usize> {
         self.rounds
             .iter()
             .position(|r| r.matches(account, gid, round_id))
@@ -664,7 +669,8 @@ impl NotifyCore {
     }
 
     fn barrier_active(&self) -> bool {
-        matches!(self.reconcile, ReconcileState::Reconciling { .. }) || self.awaiting_unlock_reconcile
+        matches!(self.reconcile, ReconcileState::Reconciling { .. })
+            || self.awaiting_unlock_reconcile
     }
 
     /// L2 (banner + new-message sound) is allowed by the environment.
@@ -799,8 +805,7 @@ impl NotifyCore {
             self.sound_active = true;
             out.push(Effect::PlaySound(Sound::Loop));
         }
-        if flash && settings.tray_flash && !self.system.main_window_focused && !self.tray_flashing
-        {
+        if flash && settings.tray_flash && !self.system.main_window_focused && !self.tray_flashing {
             self.tray_flashing = true;
             out.push(Effect::TrayFlash(true));
         }

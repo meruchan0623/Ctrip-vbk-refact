@@ -51,7 +51,7 @@ pub use session::{
     LoginForm, Profile, StatusError, TokenData, TsimSession,
 };
 pub use translate::{
-    accept_result, on_send_pressed, parse_translate_response, translate_request, CacheClaim,
-    Draft, OutboundMode, SendPlan, TranslateParams, TranslationBinding, TranslationCache,
+    accept_result, on_send_pressed, parse_translate_response, translate_request, CacheClaim, Draft,
+    OutboundMode, SendPlan, TranslateParams, TranslationBinding, TranslationCache,
     TranslationState, TARGET_LANGS,
 };

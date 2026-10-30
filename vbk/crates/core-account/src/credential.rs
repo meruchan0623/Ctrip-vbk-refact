@@ -147,13 +147,20 @@ impl SecretStore for MemorySecretStore {
     fn stage(&mut self, target: &CredentialRef, secret: &Secret) -> Result<StagedRef, AppError> {
         if self.fail_next_stage {
             self.fail_next_stage = false;
-            return Err(err(codes::ACCOUNT_CREDENTIAL_STORE, "injected stage failure"));
+            return Err(err(
+                codes::ACCOUNT_CREDENTIAL_STORE,
+                "injected stage failure",
+            ));
         }
         if let Some(max) = self.max_bytes {
             if secret.len() > max {
                 return Err(err(
                     codes::ACCOUNT_CREDENTIAL_STORE,
-                    format!("secret of {} bytes exceeds store limit {}", secret.len(), max),
+                    format!(
+                        "secret of {} bytes exceeds store limit {}",
+                        secret.len(),
+                        max
+                    ),
                 ));
             }
         }
@@ -338,7 +345,11 @@ impl CredentialLedger {
         entry
     }
 
-    fn entry_mut(&mut self, operation_id: &str, expect: CommitStage) -> Result<&mut JournalEntry, AppError> {
+    fn entry_mut(
+        &mut self,
+        operation_id: &str,
+        expect: CommitStage,
+    ) -> Result<&mut JournalEntry, AppError> {
         let entry = self
             .journal
             .entries
@@ -347,7 +358,11 @@ impl CredentialLedger {
         if entry.stage != expect {
             return Err(err(
                 codes::ACCOUNT_CREDENTIAL_OPERATION,
-                format!("operation is {} not {}", entry.stage.as_str(), expect.as_str()),
+                format!(
+                    "operation is {} not {}",
+                    entry.stage.as_str(),
+                    expect.as_str()
+                ),
             ));
         }
         Ok(entry)
@@ -370,15 +385,22 @@ impl CredentialLedger {
 
     /// Step 3: promotes the secret, switches the index atomically, marks
     /// the journal row committed and only then deletes the old revision.
-    pub fn commit(&mut self, operation_id: &str, store: &mut dyn SecretStore) -> Result<CredentialRef, AppError> {
+    pub fn commit(
+        &mut self,
+        operation_id: &str,
+        store: &mut dyn SecretStore,
+    ) -> Result<CredentialRef, AppError> {
         let entry = self.entry_mut(operation_id, CommitStage::SecretStaged)?;
         let staged = entry
             .staged
             .clone()
             .ok_or_else(|| err(codes::ACCOUNT_CREDENTIAL_OPERATION, "no staged reference"))?;
         store.commit(&staged)?;
-        let (account_id, new_ref, old_ref) =
-            (entry.account_id.clone(), entry.new_ref.clone(), entry.old_ref.clone());
+        let (account_id, new_ref, old_ref) = (
+            entry.account_id.clone(),
+            entry.new_ref.clone(),
+            entry.old_ref.clone(),
+        );
         // Index switch + journal stage are one in-memory step (one SQLite
         // transaction in the real store).
         self.index.insert(account_id, new_ref.clone());
@@ -389,7 +411,12 @@ impl CredentialLedger {
         Ok(new_ref)
     }
 
-    fn finish_committed(&mut self, operation_id: &str, old_ref: Option<&CredentialRef>, store: &mut dyn SecretStore) {
+    fn finish_committed(
+        &mut self,
+        operation_id: &str,
+        old_ref: Option<&CredentialRef>,
+        store: &mut dyn SecretStore,
+    ) {
         let cleaned = match old_ref {
             Some(old) => store.delete(old).is_ok(),
             None => true,
@@ -402,7 +429,11 @@ impl CredentialLedger {
     }
 
     /// Rolls back an operation that has not been committed.
-    pub fn abort(&mut self, operation_id: &str, store: &mut dyn SecretStore) -> Result<(), AppError> {
+    pub fn abort(
+        &mut self,
+        operation_id: &str,
+        store: &mut dyn SecretStore,
+    ) -> Result<(), AppError> {
         let entry = self
             .journal
             .entries
@@ -410,7 +441,10 @@ impl CredentialLedger {
             .cloned()
             .ok_or_else(|| err(codes::ACCOUNT_CREDENTIAL_OPERATION, "unknown operation"))?;
         if entry.stage == CommitStage::IndexCommitted {
-            return Err(err(codes::ACCOUNT_CREDENTIAL_OPERATION, "already committed"));
+            return Err(err(
+                codes::ACCOUNT_CREDENTIAL_OPERATION,
+                "already committed",
+            ));
         }
         if let Some(staged) = &entry.staged {
             store.discard(staged)?;
@@ -509,9 +543,10 @@ impl CredentialLedger {
         let mut ledger = Self::new();
         if let Some(index) = doc.get("index").and_then(JsonValue::as_object) {
             for (acc, v) in index {
-                ledger
-                    .index
-                    .insert(AccountId::new(acc.clone()), cref_from_json(v).ok_or_else(|| corrupt("bad index ref"))?);
+                ledger.index.insert(
+                    AccountId::new(acc.clone()),
+                    cref_from_json(v).ok_or_else(|| corrupt("bad index ref"))?,
+                );
             }
         }
         if let Some(high) = doc.get("high_water").and_then(JsonValue::as_object) {
@@ -606,16 +641,30 @@ mod tests {
         let p = ProfileId::new("p_1");
         let op1 = ledger.prepare(&acc(), &p, "ticket:test:acc_test");
         assert_eq!(op1.stage, CommitStage::Prepared);
-        assert!(store.staged_keys().is_empty(), "journal first, no secret yet");
-        ledger.stage(&op1.operation_id, &mut store, &Secret::new(b"v1".to_vec())).expect("stage");
-        let r1 = ledger.commit(&op1.operation_id, &mut store).expect("commit");
+        assert!(
+            store.staged_keys().is_empty(),
+            "journal first, no secret yet"
+        );
+        ledger
+            .stage(&op1.operation_id, &mut store, &Secret::new(b"v1".to_vec()))
+            .expect("stage");
+        let r1 = ledger
+            .commit(&op1.operation_id, &mut store)
+            .expect("commit");
         assert_eq!(r1.revision, 1);
         assert!(ledger.journal().is_empty());
 
         let op2 = ledger.prepare(&acc(), &p, "ticket:test:acc_test");
-        ledger.stage(&op2.operation_id, &mut store, &Secret::new(b"v2".to_vec())).expect("stage");
-        assert!(store.contains(&r1), "old revision still present before commit");
-        let r2 = ledger.commit(&op2.operation_id, &mut store).expect("commit");
+        ledger
+            .stage(&op2.operation_id, &mut store, &Secret::new(b"v2".to_vec()))
+            .expect("stage");
+        assert!(
+            store.contains(&r1),
+            "old revision still present before commit"
+        );
+        let r2 = ledger
+            .commit(&op2.operation_id, &mut store)
+            .expect("commit");
         assert_eq!(r2.revision, 2);
         assert!(!store.contains(&r1), "old revision deleted after commit");
         assert_eq!(ledger.committed(&acc()), Some(&r2));
@@ -627,7 +676,9 @@ mod tests {
         let mut ledger = CredentialLedger::new();
         let op = ledger.prepare(&acc(), &ProfileId::new("p"), "k");
         let big = Secret::new(vec![b'x'; 3000]);
-        let e = ledger.stage(&op.operation_id, &mut store, &big).expect_err("too large");
+        let e = ledger
+            .stage(&op.operation_id, &mut store, &big)
+            .expect_err("too large");
         assert!(e.is(codes::ACCOUNT_CREDENTIAL_STORE));
         assert!(store.staged_keys().is_empty());
         ledger.abort(&op.operation_id, &mut store).expect("abort");
@@ -639,10 +690,17 @@ mod tests {
         let mut store = MemorySecretStore::new();
         let mut ledger = CredentialLedger::new();
         let op = ledger.prepare(&acc(), &ProfileId::new("p"), "k");
-        ledger.stage(&op.operation_id, &mut store, &Secret::new(b"SECRET-PLACEHOLDER".to_vec())).expect("stage");
+        ledger
+            .stage(
+                &op.operation_id,
+                &mut store,
+                &Secret::new(b"SECRET-PLACEHOLDER".to_vec()),
+            )
+            .expect("stage");
         let text = ledger.to_json().to_json();
         assert!(!text.contains("SECRET-PLACEHOLDER"));
-        let back = CredentialLedger::from_json(&JsonValue::parse(&text).expect("parse")).expect("restore");
+        let back =
+            CredentialLedger::from_json(&JsonValue::parse(&text).expect("parse")).expect("restore");
         assert_eq!(back, ledger);
     }
 }

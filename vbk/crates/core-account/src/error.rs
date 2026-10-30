@@ -5,9 +5,7 @@
 use contracts::AppError;
 
 pub mod codes {
-    pub use contracts::codes::{
-        ACCOUNT_STALE_GENERATION, ACCOUNT_TICKET_EXPIRED, ACCOUNT_UNKNOWN,
-    };
+    pub use contracts::codes::{ACCOUNT_STALE_GENERATION, ACCOUNT_TICKET_EXPIRED, ACCOUNT_UNKNOWN};
 
     /// The `attempt_id` is unknown (never started, already published or
     /// already cancelled). Late callbacks for it must be dropped.

@@ -22,7 +22,9 @@ pub enum Sound {
 pub enum Effect {
     /// Show the alarm window (without stealing focus). `raise: true` asks
     /// for one re-top (level change); `raise: false` only makes it visible.
-    ShowAlarm { raise: bool },
+    ShowAlarm {
+        raise: bool,
+    },
     /// The alarm window is visible and its snapshot changed (1 Hz refresh
     /// or list change). Never re-tops the window.
     UpdateAlarm,
@@ -35,7 +37,10 @@ pub enum Effect {
     /// Start (`true`) or stop (`false`) tray / taskbar flashing.
     TrayFlash(bool),
     /// L0: unread total across accounts and the taskbar badge to render.
-    Unread { total: u32, badge: BadgeText },
+    Unread {
+        total: u32,
+        badge: BadgeText,
+    },
     /// L2 self-drawn banner, merged per conversation.
     Banner {
         account: AccountContext,

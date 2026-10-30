@@ -33,7 +33,9 @@ pub enum NetEvent {
     ProbeFailed,
     /// A business request failed at the connection level; `consecutive` is
     /// the count of such failures in a row.
-    ConnectFailure { consecutive: u32 },
+    ConnectFailure {
+        consecutive: u32,
+    },
     /// A business request completed at the HTTP level (any status): the
     /// gateway is reachable.
     RequestReachedGateway,
@@ -167,7 +169,10 @@ mod tests {
             m.apply(NetEvent::ConnectFailure { consecutive: 3 }),
             Some(NetStatus::Degraded)
         );
-        assert_eq!(m.apply(NetEvent::RequestReachedGateway), Some(NetStatus::Online));
+        assert_eq!(
+            m.apply(NetEvent::RequestReachedGateway),
+            Some(NetStatus::Online)
+        );
         m.apply(NetEvent::SystemOffline);
         assert_eq!(m.apply(NetEvent::ProbeFailed), None);
         assert_eq!(m.status(), NetStatus::Offline);

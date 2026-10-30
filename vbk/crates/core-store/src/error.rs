@@ -21,6 +21,5 @@ pub(crate) fn err(code: &str, message: impl Into<String>) -> AppError {
 }
 
 pub(crate) fn io_err(context: &str, e: &std::io::Error) -> AppError {
-    AppError::new(codes::STORE_IO, format!("{context}: {}", e.kind()))
-        .with_detail(e.to_string())
+    AppError::new(codes::STORE_IO, format!("{context}: {}", e.kind())).with_detail(e.to_string())
 }
