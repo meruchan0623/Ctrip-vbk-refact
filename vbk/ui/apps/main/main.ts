@@ -1,5 +1,6 @@
 import { personDisplayName } from './person-name.ts';
 import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
+import { createComposerInput } from './composer-input.ts';
 /**
  * Main window (prototype 02-main): title bar with account tabs, left nav
  * (消息 / 通知 / 订单联系, bottom 设置 / 账号), messages workspace,
@@ -805,6 +806,22 @@ async function translateAndSend(text: string): Promise<void> {
 }
 
 let trTimer: ReturnType<typeof setTimeout> | null = null;
+const composerInput = createComposerInput({
+  context: () => composerInputContext(S()),
+  invalidateTranslation: () => {
+    if (trTimer) clearTimeout(trTimer);
+    trTimer = null;
+    const s = S();
+    store.patch({ draftVersion: s.draftVersion + 1, translation: { ...TRANSLATION_IDLE, gid: s.translation.gid, target: s.translation.target } });
+  },
+  commit: setDraft,
+  refresh: () => store.patch({}),
+});
+function composerInputContext(s: MainState): { scope: string; version: number } | null {
+  const account = activeAccount(s), conv = activeConv(s);
+  if (s.view !== 'messages' || account?.state !== 'online' || !conv || isDone(conv) || !sameAccount(account.context, conv.account) || account.context.session_generation !== conv.account.session_generation) return null;
+  return { scope: historyScopeKey(account.context, conv.gid), version: s.draftVersion };
+}
 function scheduleTranslation(): void {
   if (trTimer) clearTimeout(trTimer);
   const s = S();
@@ -1655,9 +1672,9 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
       value: s.draft,
       disabled: finished,
       dataset: { fid: 'draft' },
-      oninput: (e: Event) => setDraft((e.target as HTMLTextAreaElement).value),
+      ...composerInput.bind(composerInputContext(s)?.scope ?? null),
       onkeydown: (e: KeyboardEvent) => {
-        if (e.key !== 'Enter' || e.isComposing) return;
+        if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || composerInput.active() || e.altKey) return;
         const want = sendKey === 'enter' ? !e.shiftKey && !e.ctrlKey && !e.metaKey : e.ctrlKey || e.metaKey;
         if (want) {
           e.preventDefault();
@@ -1665,7 +1682,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
         }
       },
     }),
-    h('div', { class: 'cfoot' }, h('span', { class: 'hint' }, media ? '仅发送附件，文字/引用保留；结果未知时请先核对，勿重复发送。' : direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished || mediaLocked, onclick: () => void handleSend() }, icon(IC.send, 14), media ? '发送附件' : t('composer.send'))),
+    h('div', { class: 'cfoot' }, h('span', { class: 'hint' }, media ? '仅发送附件，文字/引用保留；结果未知时请先核对，勿重复发送。' : direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished || mediaLocked, onclick: () => { if (!composerInput.active()) void handleSend(); } }, icon(IC.send, 14), media ? '发送附件' : t('composer.send'))),
   );
 }
 
@@ -2135,7 +2152,9 @@ function render(s: MainState): Node {
 
 // --------------------------------------------------------------- wiring
 
-subscribeBatched(store, (s) => withMessageAnchor(s, () => rerender(root, () => {
+subscribeBatched(store, (s) => {
+  if (composerInput.deferRender()) return;
+  withMessageAnchor(s, () => rerender(root, () => {
   const next = render(s);
   // Keep the actual video node so waiting timers and live updates do not restart playback.
   if (next instanceof Element) {
@@ -2147,7 +2166,8 @@ subscribeBatched(store, (s) => withMessageAnchor(s, () => rerender(root, () => {
     }
   }
   return next;
-})));
+  }));
+});
 rerender(root, () => render(S()));
 
 document.addEventListener('mousedown', () => {

@@ -23,6 +23,7 @@ function fixture(messages: UiMessage[], selected: UiMessage | null = original) {
   const state = { messages: { [original.gid]: messages }, activeGid: original.gid, quote: selected, draft: 'SYNTHETIC NEW DRAFT', drafts: {}, draftVersion: 1, attachment: null, translation: { target: 'en' }, prefs: { general: { show_msg_time: true }, assistant: { enabled: false }, keys: {} }, hideInboundTr: false };
   const commands: { command: string; payload: Record<string, unknown> }[] = [];
   const env = {
+    composerInput: { bind: () => ({}), active: () => false }, composerInputContext: () => null,
     ...viewmodel, h, cx, messageAlignment, mergeMessageProfile, settleAccountSend, attachmentSendUnavailable,
     renderMessageAvatar: () => h('span', null, 'avatar'), document: {},
     activeAccount: () => account, activeConv: () => conv, stillActive: () => true,
