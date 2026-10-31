@@ -4,7 +4,8 @@ import { agentStatusOf, colorOf, httpMessageToUi, langOf, messageText, orderSumm
 import { stanzaToEvent, mapXmppStatus, readElement } from './sdkGlue.ts';
 import { buildPageContext, createContextSniffer, localeFromSearch, readCookie } from './pageContext.ts';
 import { UNKNOWN_ROLES } from './facts.ts';
-import { ConversationStore, RoleBook } from './stores.ts';
+import { ConversationStore, RoleBook, roomJidFromMessage } from './stores.ts';
+import { normalizeHttpMessage } from './facts.ts';
 import { sampleRow } from './testing.ts';
 
 test('display: conversation row → DisplayConversation', () => {
@@ -79,6 +80,68 @@ test('display: agent status enum IDLE=0..GETOFF=3', () => {
   assert.equal(agentStatusOf(null), null);
 });
 
+test('display: uid decides identity while member nick/avatar and media data survive conversion', () => {
+  const roles = new RoleBook('me');
+  roles.addCustomer('customer');
+  roles.addMembers([
+    { uid: 'me', nick: '门票活动旅游管家Meru', avatar: 'https://example.com/me.png', roles: [3, 4, 4] },
+    { uid: 'customer', nick: '门票活动旅游管家Meru', avatar: 'https://example.com/customer.png', roles: [0, 1, 0] },
+    { username: 'former-agent', nickName: 'Former merchant', avatar: 'https://example.com/former.png', roles: [0, 3, 4] },
+  ]);
+  const row = { msgId: 'm', fromJid: 'customer@x', toJid: 'g@c', createTime: 1700000000123, msgtype: 5, messageBody: JSON.stringify({ file: { filename: 'ticket.pdf', url: 'https://example.com/ticket.pdf' } }) };
+  const customer = httpMessageToUi(row, roles);
+  assert.equal(customer?.sender_role, 'customer');
+  assert.equal(customer?.sender_id, 'customer');
+  assert.equal(customer?.sender_name, '门票活动旅游管家Meru');
+  assert.equal(customer?.sender_avatar, 'https://example.com/customer.png');
+  assert.equal(customer?.media_filename, 'ticket.pdf');
+  assert.equal(customer?.media_url, 'https://example.com/ticket.pdf');
+  const self = httpMessageToUi({ ...row, fromJid: 'me@x' }, roles);
+  assert.equal(self?.sender_role, 'merchant_self');
+  assert.equal(roles.roleOf('former-agent'), 'merchant_other');
+  assert.equal(roles.profileOf('former-agent').name, 'Former merchant');
+  assert.deepEqual(self?.disposition, { kind: 'confirmed', server_message_id: 'm', server_time_ms: 1700000000123 });
+  assert.equal(sdkMessageToUi({ type: 'chat', id: 's', from: 'me@x', to: 'g@x', create_time: 1700000000123, msgtype: 0, body: 'hi' }, roles)?.sender_id, 'me');
+});
+
+test('display: captured HTTP room/sender shape routes to the room and hides non-present control frames', () => {
+  const roles = new RoleBook('self');
+  const message = { msgId: 'server', fromJid: 'group@muc.im.ctrip.com/self', toJid: 'self@im.ctrip.com', createTime: 1700000000000, msgtype: 0, messageBody: 'text', isTargetRead: true };
+  const ui = httpMessageToUi(message, roles);
+  assert.equal(ui?.gid, 'group');
+  assert.equal(ui?.sender_id, 'self');
+  assert.equal(ui?.read_status, 'read');
+  assert.equal(roomJidFromMessage('group', message), 'group@muc.im.ctrip.com');
+  assert.equal(normalizeHttpMessage(message, { roles, source: 'compensation' })?.gid, 'group');
+  const hidden = { ...message, msgtype: 1007, messageBody: JSON.stringify({ title: 'session_status', isPresent: false, action: 'NBZ109' }) };
+  assert.equal(httpMessageToUi(hidden, roles), null);
+  assert.equal(previewOf(hidden), '');
+  assert.equal(sdkMessageToUi({ type: 'groupchat', from: message.fromJid, to: message.toJid, create_time: message.createTime, msgtype: 1007, body: hidden.messageBody }, roles), null);
+  const recall = httpMessageToUi({ ...message, msgtype: 1009, messageBody: JSON.stringify({ title: '消息撤回', isPresent: true, recallMessageId: 'server' }) }, roles);
+  assert.equal(recall?.recalled_message_id, 'server');
+});
+
+test('display: CTL01 enriches only the matching current order and newer cards win', () => {
+  const store = new ConversationStore();
+  store.update([sampleRow('g')]);
+  const card = { msgtype: 7, messageBody: JSON.stringify({ action: 'CTL01', ext: { title: '订单咨询通知', desc: '订单详情页', dataInfoList: [
+    { Id: 'orderid', text: '1234567890' }, { Id: 'productName', text: 'eSIM' }, { Id: 'usedate', text: '2026/10/28' }, { Id: 'platformName', text: 'Trip-App' }, { Id: 'orderamout', text: '18.52' },
+  ] } }) };
+  const order = orderSummaryFromMessage(card);
+  assert.ok(order);
+  assert.equal(order.source_channel, 'Trip-App');
+  assert.equal(order.total_amount, '18.52');
+  assert.equal(order.source_description, '订单详情页');
+  store.noteOrder('g', order, 200);
+  store.noteOrder('g', { ...order, product: 'stale' }, 100);
+  store.noteOrder('g', { ...order, order_id: '9999999', product: 'wrong order' }, 300);
+  assert.equal(store.order('g')?.product, 'eSIM');
+  const message = httpMessageToUi({ ...card, fromJid: 'g@room/customer', createTime: 1700000000000, msgId: 'c' }, UNKNOWN_ROLES);
+  assert.equal(message?.kind, 'order_card');
+  assert.equal(message?.order_id, order.order_id);
+  assert.equal(message?.text, 'eSIM');
+});
+
 function el(name: string, attrs: Record<string, string>, body: string | null) {
   return { name, attrs, getChildText: (n: string) => (n === 'body' ? body : null) };
 }
@@ -120,25 +183,4 @@ test('page context: sniffed head cid/sid + _fxpcqlniredt; cookie fallback for ci
   assert.deepEqual(noSid, { ok: false, missing: ['sid'] });
   assert.equal(readCookie('a=1; vbk_login_cid=V', 'vbk_login_cid'), 'V');
   assert.equal(localeFromSearch('?lang=<script>'), 'zh-CN');
-});
-
-test('display: CTL01 enriches only the matching current order and newer cards win', () => {
-  const store = new ConversationStore();
-  store.update([sampleRow('g')]);
-  const card = { msgtype: 7, messageBody: JSON.stringify({ action: 'CTL01', ext: { title: '订单咨询通知', desc: '订单详情页', dataInfoList: [
-    { Id: 'orderid', text: '1234567890' }, { Id: 'productName', text: 'eSIM' }, { Id: 'usedate', text: '2026/10/28' }, { Id: 'platformName', text: 'Trip-App' }, { Id: 'orderamout', text: '18.52' },
-  ] } }) };
-  const order = orderSummaryFromMessage(card);
-  assert.ok(order);
-  assert.equal(order.source_channel, 'Trip-App');
-  assert.equal(order.total_amount, '18.52');
-  assert.equal(order.source_description, '订单详情页');
-  store.noteOrder('g', order, 200);
-  store.noteOrder('g', { ...order, product: 'stale' }, 100);
-  store.noteOrder('g', { ...order, order_id: '9999999', product: 'wrong order' }, 300);
-  assert.equal(store.order('g')?.product, 'eSIM');
-  const message = httpMessageToUi({ ...card, fromJid: 'g@room/customer', createTime: 1700000000000, msgId: 'c' }, UNKNOWN_ROLES);
-  assert.equal(message?.kind, 'order_card');
-  assert.equal(message?.order_id, order.order_id);
-  assert.equal(message?.text, 'eSIM');
 });

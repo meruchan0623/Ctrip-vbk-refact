@@ -198,6 +198,7 @@ export function messageText(msgtype: unknown, body: unknown): string {
 /** One-line list preview. */
 export function previewOf(msg: HttpMessageObject | null): string {
   if (!msg) return '';
+  if (!isPresented(msg.messageBody)) return '';
   const kind = uiKindOf(msg.msgtype);
   switch (kind) {
     case 'text':
@@ -295,6 +296,11 @@ function mediaFields(msgtype: unknown, body: unknown) {
   };
 }
 
+/** Official status/control events explicitly opt out of presentation. */
+function isPresented(body: unknown): boolean {
+  return parseJsonObject(body)?.['isPresent'] !== false;
+}
+
 function recallFields(msgtype: unknown, body: unknown) {
   const inner = parseJsonObject(body);
   return { recalled_message_id: msgTypeNumber(msgtype) === 1009 ? idStr(inner?.['recallMessageId']) : null };
@@ -305,7 +311,7 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
   if (typeof msg !== 'object' || msg === null) return null;
   const order = orderSummaryFromMessage(msg);
   const kind = order ? 'order_card' : uiKindOf(msg.msgtype);
-  if (kind === null) return null;
+  if (kind === null || !isPresented(msg.messageBody)) return null;
   const createTime = normalizeTimeMs(msg.createTime);
   if (createTime === null) return null;
   const partner = str(msg.partner);
@@ -330,6 +336,7 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
     original: extras.original ?? null,
     quote: cite,
     order_id: order?.order_id ?? null,
+    read_status: roles.roleOf(sender) === 'merchant_self' && typeof msg.isTargetRead === 'boolean' ? (msg.isTargetRead ? 'read' : 'unread') : 'unknown',
     disposition: extras.disposition ?? (sender && roles.roleOf(sender) === 'merchant_self' && idStr(msg.msgId) ? { kind: 'confirmed', server_message_id: idStr(msg.msgId)!, server_time_ms: createTime } : null),
   };
 }
@@ -341,7 +348,7 @@ export function sdkMessageToUi(evt: SdkMessageEvent, roles: MemberRoles): UiMess
   if (type !== 'groupchat' && type !== 'chat') return null;
   const order = orderSummaryFromMessage({ msgtype: evt.msgtype, messageBody: evt.body });
   const kind = order ? 'order_card' : uiKindOf(evt.msgtype);
-  if (kind === null) return null;
+  if (kind === null || !isPresented(evt.body)) return null;
   const address = resolveSdkAddress(evt, roles);
   if (!address) return null;
   const { gid, senderId: sender } = address;
@@ -362,7 +369,7 @@ export function sdkMessageToUi(evt: SdkMessageEvent, roles: MemberRoles): UiMess
     original: null,
     quote: idStr(evt.citemsgid),
     order_id: order?.order_id ?? null,
-    disposition: null,
+    disposition: sender && roles.roleOf(sender) === 'merchant_self' && idStr(evt.id) ? { kind: 'confirmed', server_message_id: idStr(evt.id)!, server_time_ms: createTime } : null,
   };
 }
 

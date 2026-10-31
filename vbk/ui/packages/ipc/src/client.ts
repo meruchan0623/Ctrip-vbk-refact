@@ -272,8 +272,8 @@ export interface UiMessage {
   readonly media_url?: string | null;
   readonly media_thumbnail?: string | null;
   readonly media_filename?: string | null;
-  /** Server target of an authoritative recall control message. */
   readonly recalled_message_id?: string | null;
+  readonly read_status?: 'read' | 'unread' | 'unknown';
   /** Inbound: platform translation under the original. */
   readonly translation: string | null;
   /** Outbound in direct-send mode: the Chinese original kept for self-check. */

@@ -156,6 +156,7 @@ export interface HttpMessageObject {
   readonly status?: unknown;
   readonly msgtype?: unknown;
   readonly isread?: unknown;
+  readonly isTargetRead?: unknown;
   readonly partner?: unknown;
   readonly localId?: unknown;
 }

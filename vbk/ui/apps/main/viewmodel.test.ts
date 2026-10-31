@@ -7,6 +7,9 @@ import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
 import {
   MARK_COLORS,
+  safeMediaUrl,
+  mergeHistory,
+  visibleMessages,
   accountInitial,
   agentView,
   alarmActiveCount,
@@ -331,6 +334,26 @@ test('official 16-digit orders can be queried and highlighted without matching p
   assert.deepEqual(highlightParts('订单 1359049237105048 / 电话 13800138000').filter(p => p.kind !== 'plain'), [{ kind: 'order', text: '1359049237105048' }]);
   assert.deepEqual(highlightParts('13590492371050481'), [{ kind: 'plain', text: '13590492371050481' }]);
 });
+
+
+test('media URLs reject executable, local and credential-bearing schemes', () => {
+  assert.equal(safeMediaUrl('https://images.example/a.png'), 'https://images.example/a.png');
+  for (const value of ['javascript:alert(1)', 'file:///tmp/image.png', 'data:image/svg+xml,x', 'https://user:secret@example.com/x', '/relative.png']) assert.equal(safeMediaUrl(value), null);
+});
+
+test('history overlap preserves current live message and sorts earlier messages', () => {
+  const base: UiMessage = { gid: 'g', message_id: '2', local_id: null, create_time_ms: 200, sender_role: 'customer', kind: 'text', text: 'live', translation: null, original: null, quote: null, order_id: null, disposition: null };
+  const first = { ...base, message_id: '1', create_time_ms: 100, text: 'earlier' };
+  assert.deepEqual(mergeHistory([{ ...base, text: 'stale' }, first], [base]), [first, base]);
+});
+
+
+test('recall notices hide original messages even when history loads them later', () => {
+  const original: UiMessage = { gid: 'g', message_id: 'original', local_id: null, create_time_ms: 100, sender_role: 'customer', kind: 'text', text: 'recalled content', translation: null, original: null, quote: null, order_id: null, disposition: null };
+  const notice: UiMessage = { ...original, message_id: 'notice', kind: 'system', text: '撤回了一条消息', create_time_ms: 200, recalled_message_id: 'original' };
+  assert.deepEqual(visibleMessages(mergeHistory([original], [notice])), [notice]);
+});
+
 
 test('peripheral acceptance and contradictory confirmation never imply verified success', async () => {
   const { peripheralWriteView } = await import('./viewmodel.ts');

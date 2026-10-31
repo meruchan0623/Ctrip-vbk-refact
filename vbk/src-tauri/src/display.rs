@@ -122,6 +122,8 @@ pub struct UiMessageDto {
     #[serde(default)]
     pub recalled_message_id: Option<String>,
     #[serde(default)]
+    pub read_status: Option<String>,
+    #[serde(default)]
     pub translation: Option<String>,
     #[serde(default)]
     pub original: Option<String>,
@@ -1063,6 +1065,7 @@ mod tests {
             media_thumbnail: None,
             media_filename: None,
             recalled_message_id: None,
+            read_status: None,
             translation: None,
             original: None,
             quote: None,

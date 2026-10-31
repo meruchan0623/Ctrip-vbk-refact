@@ -10,7 +10,6 @@ import { personDisplayName } from './person-name.ts';
  * re-rendered on change (focus/caret/scroll preserved by `rerender`).
  */
 
-import { sendComposer, attachmentSendUnavailable, ATTACHMENT_SEND_UNAVAILABLE } from './sendComposer.ts';
 import { applyPlatform } from '../_shared/platform.ts';
 const platform = applyPlatform();
 
@@ -66,6 +65,7 @@ import { messageAlignment } from './message-alignment.ts';
 import { mergeMessageProfile, renderMessageAvatar } from './message-profile.ts';
 import { createUnknownOutbound, type UnknownOutboundView } from './unknown-outbound.ts';
 import { createReceiveCounters, createReceiveDiagnostics, receiveDiagnosticsJson, type ReceiveDiagnosticsView } from './receive-diagnostics.ts';
+import { sendComposer, attachmentSendUnavailable, ATTACHMENT_SEND_UNAVAILABLE } from './sendComposer.ts';
 import {
   AGENT_STATUS_ORDER,
   BANNER_VISIBLE,
@@ -1305,7 +1305,7 @@ function withMessageAnchor(s: MainState, redraw: () => void): void {
 
 function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAccount | null): HTMLElement {
   const alignment = messageAlignment(m);
-  if (alignment.side === 'system') return h('div', { class: 'msg-sys', dataset: { historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } }, h('span', null, m.text));
+  if (alignment.side === 'system') return h('div', { class: 'msg-sys', dataset: { historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } }, h('span', null, `${formatDate(m.create_time_ms)} ${formatClock(m.create_time_ms, true)} ${m.text}`));
   const alignRight = alignment.side === 'right';
   const isSelf = alignment.self;
   const quotePreview = messageQuotePreview(m, s.messages[conv.gid] ?? []);
@@ -1349,9 +1349,10 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
     h(
       'div',
       { class: 'mcol' },
-      h('div', { class: 'mmeta' }, who, showTime ? ` · ${formatClock(m.create_time_ms)}` : ''),
+      h('div', { class: 'mmeta' }, who),
       quotePreview ? h('div', { class: 'quote-in' }, t('chat.quotePrefix'), quotePreview) : null,
       body,
+      showTime ? h('div', { class: 'message-time' }, isSelf && m.read_status && m.read_status !== 'unknown' ? h('span', { class: m.read_status === 'unread' ? 'receipt-unread' : 'receipt-read' }, m.read_status === 'unread' ? '未读' : '已读') : null, `${formatDate(m.create_time_ms)} ${formatClock(m.create_time_ms, true)}`) : null,
       st
         ? h(
             'div',
@@ -1875,6 +1876,7 @@ function logoutDialog(s: MainState): HTMLElement | null {
   );
 }
 
+/** Current-generation dialogs; writes are fenced by the controller before IPC. */
 function peripheralDialog(s: MainState): HTMLElement | null {
   const d = s.peripheral;
   if (!d || !stillActive(d.scope.account) || s.activeGid !== d.scope.gid) return null;
