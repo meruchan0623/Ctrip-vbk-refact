@@ -1077,6 +1077,9 @@ pub fn adapter_push_display(
         DisplayDelta::Conversations { changed, removed } => {
             for gid in &removed { crate::assistant::order_commands::on_conversation_change(&app, &ctx, gid, None); }
             emit_conversations(&app, &ctx, &changed);
+            if !removed.is_empty() {
+                events::to_main(&app, events::IM_CONVERSATIONS_INVALIDATED, AccountContextDto::from(&ctx));
+            }
             if !changed.is_empty() || !removed.is_empty() {
                 sync_unread(&app, &ctx);
             }

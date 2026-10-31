@@ -682,6 +682,14 @@ async function locateConversation(account: AccountContext, gid: string): Promise
   await openConversation(gid);
 }
 
+/** A removal invalidates the list; never apply a delayed gid deletion to a newer cache. */
+function receiveConversationInvalidation(payload: unknown): void {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return;
+  const account = payload as Partial<AccountContext>;
+  if (typeof account.account_id !== 'string' || !account.account_id.trim() || typeof account.environment !== 'string' || !account.environment.trim() || !Number.isSafeInteger(account.session_generation) || (account.session_generation ?? -1) < 0) return;
+  if (stillActive(account as AccountContext)) void loadForActiveAccount();
+}
+
 function receiveMainMessage(payload: unknown): void {
   const scope = activeAccount()?.context ?? null;
   receiveCounters.count(scope, 'received');
@@ -2296,6 +2304,7 @@ ipc.listen<unknown>(
   }),
 );
 ipc.listen<unknown>(Events.IM_MESSAGE_NEW, receiveMainMessage);
+ipc.listen<unknown>(Events.IM_CONVERSATIONS_INVALIDATED, receiveConversationInvalidation);
 ipc.listen<unknown>(UiEvents.MEDIA_SEND_PROGRESS, receiveMediaProgress);
 ipc.listen<unknown>(UiEvents.TSIM_STATUS, receivePackageIdentity);
 subscribeBatched(store, () => autoQueryPackage());

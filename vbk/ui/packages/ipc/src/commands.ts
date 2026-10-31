@@ -62,6 +62,7 @@ export const Events = {
   ACCOUNT_CHANGED: 'account://changed',
   ALARM_SNAPSHOT: 'notify://alarm-snapshot',
   IM_CONVERSATION_CHANGED: 'im://conversation-changed',
+  IM_CONVERSATIONS_INVALIDATED: 'im://conversations-invalidated',
   IM_MESSAGE_NEW: 'im://message-new',
   NET_CLOCK: 'net://clock',
   PREFS_CHANGED: 'prefs://changed',

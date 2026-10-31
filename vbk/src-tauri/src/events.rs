@@ -12,6 +12,7 @@ pub const ACCOUNT_CHANGED: &str = "account://changed"; // UiAccountSnapshot
 pub const AGENT_STATUS: &str = "account://agent-status"; // UiAgentStatus
 pub const ALARM_SNAPSHOT: &str = "notify://alarm-snapshot"; // AlarmSnapshotDto
 pub const IM_CONVERSATION_CHANGED: &str = "im://conversation-changed"; // UiConversation
+pub const IM_CONVERSATIONS_INVALIDATED: &str = "im://conversations-invalidated"; // AccountContextDto; re-read current cache
 pub const IM_MESSAGE_NEW: &str = "im://message-new"; // UiMessage (+ account)
 pub const IM_LOCATE_CONVERSATION: &str = "im://locate-conversation"; // {account, gid}
 pub const NET_CLOCK: &str = "net://clock"; // ClockReading
