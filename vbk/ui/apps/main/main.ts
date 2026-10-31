@@ -1407,6 +1407,12 @@ function mediaNodeKey(account: AccountContext | null, conv: UiConversation, mess
   return JSON.stringify([account.environment, account.account_id, account.session_generation, conv.gid, message.message_id ? 'server' : 'local', id]);
 }
 
+/** Scroll-only system fingerprints are exact, scoped matches; never message or receipt IDs. */
+function historyAnchorMatches(before: string, after: string): boolean {
+  if (before.startsWith('scroll-system:') || after.startsWith('scroll-system:')) return !!before && before === after;
+  return messageHistoryMatches(before, after);
+}
+
 interface MessageAnchor { readonly scope: string; readonly identities: readonly string[]; readonly candidates: readonly { readonly key: string; readonly offset: number }[] }
 function captureMessageAnchor(s: MainState): MessageAnchor | null {
   const conv = activeConv(s), account = activeAccount(s)?.context ?? null;
@@ -1419,7 +1425,7 @@ function captureMessageAnchor(s: MainState): MessageAnchor | null {
   const candidates: { key: string; offset: number }[] = [];
   for (const row of rows) {
     const key = row.dataset['historyKey'], rect = row.getBoundingClientRect();
-    if (key && rect.bottom > top && rect.top < top + scroll.clientHeight && rows.filter(candidate => messageHistoryMatches(key, candidate.dataset['historyKey'] ?? '')).length === 1) candidates.push({ key, offset: rect.top - top });
+    if (key && rect.bottom > top && rect.top < top + scroll.clientHeight && rows.filter(candidate => historyAnchorMatches(key, candidate.dataset['historyKey'] ?? '')).length === 1) candidates.push({ key, offset: rect.top - top });
   }
   return candidates.length ? { scope, identities: rows.map(row => row.dataset['historyKey'] ?? '').filter(Boolean), candidates } : null;
 }
@@ -1431,10 +1437,10 @@ function restoreMessageAnchor(anchor: MessageAnchor | null): void {
   if (!scroll || scroll.dataset['historyScope'] !== anchor.scope) return;
   const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
   for (const candidate of anchor.candidates) {
-    const matches = rows.filter(row => messageHistoryMatches(candidate.key, row.dataset['historyKey'] ?? ''));
+    const matches = rows.filter(row => historyAnchorMatches(candidate.key, row.dataset['historyKey'] ?? ''));
     if (matches.length !== 1) continue;
     // A newly sparse row must not arbitrarily select one of several former identities.
-    if (anchor.identities.filter(key => messageHistoryMatches(key, matches[0]!.dataset['historyKey'] ?? '')).length !== 1) continue;
+    if (anchor.identities.filter(key => historyAnchorMatches(key, matches[0]!.dataset['historyKey'] ?? '')).length !== 1) continue;
     scroll.scrollTop += matches[0]!.getBoundingClientRect().top - scroll.getBoundingClientRect().top - candidate.offset;
     return;
   }
@@ -1447,7 +1453,15 @@ function withMessageAnchor(s: MainState, redraw: () => void): void {
 
 function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAccount | null): HTMLElement {
   const alignment = messageAlignment(m);
-  if (alignment.side === 'system') return h('div', { class: 'msg-sys', dataset: { historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } }, h('span', null, `${formatDate(m.create_time_ms)} ${formatClock(m.create_time_ms, true)} ${m.text}`));
+  if (alignment.side === 'system') {
+    const account = acc?.context ?? null;
+    let key = messageHistoryKey(account, conv, m);
+    if (!key && !m.message_id && !m.local_id && account && m.gid === conv.gid && sameAccount(account, conv.account) && account.session_generation === conv.account.session_generation && Number.isFinite(m.create_time_ms)) {
+      // Presentation fallback only. Duplicate fingerprints are refused in both old and new rows.
+      key = 'scroll-system:' + JSON.stringify([historyScopeKey(account, conv.gid), m.kind, m.sender_role, m.sender_id?.trim().toLowerCase() || null, m.create_time_ms, m.text, (m as QuotedUiMessage).recalled_message_id ?? null]);
+    }
+    return h('div', { class: 'msg-sys', dataset: { historyKey: key } }, h('span', null, `${formatDate(m.create_time_ms)} ${formatClock(m.create_time_ms, true)} ${m.text}`));
+  }
   const alignRight = alignment.side === 'right';
   const isSelf = alignment.self;
   const quotePreview = messageQuotePreview(m, s.messages[conv.gid] ?? []);

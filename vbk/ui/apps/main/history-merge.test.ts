@@ -147,6 +147,7 @@ function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolea
   const env: Record<string, unknown> = { ...viewmodel, messageAlignment, cx, createStore, subscribeBatched, store, S: () => store.get(), activeAccount: () => ({ context: owner }), activeConv: () => ({ gid: store.get().activeGid, account: owner, waiting_since_ms: null, status: 'active', service_type: 'chat', lang: 'en' }), stillActive: (account: typeof scope) => account.account_id === owner.account_id && account.environment === owner.environment && account.session_generation === owner.session_generation, isUiMessage, invokeSafe: () => new Promise(resolve => { complete = resolve; }), UiCommands: { IM_MESSAGE_PAGE: 'page' }, document: { querySelector: () => scroll }, queueMicrotask, Element: Root, CSS: { escape: encodeURIComponent }, root: { querySelector: () => null }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (key: string) => key, icon: () => null, IC: {}, richText: (text: string) => [text], h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }) };
   function actual(name: string, next: string, async = false) { const a = source.indexOf(`${async ? 'async ' : ''}function ${name}(`), b = source.indexOf(`\n${next}`, a); assert.ok(a >= 0 && b > a, name); return new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   // Load the actual helper group when present; the old production callback is exercised unchanged for red evidence.
+  if (source.includes('function historyAnchorMatches(')) env['historyAnchorMatches'] = actual('historyAnchorMatches', 'interface MessageAnchor');
   for (const [name, next] of [['captureMessageAnchor', 'function restoreMessageAnchor('], ['restoreMessageAnchor', 'function withMessageAnchor('], ['withMessageAnchor', 'function messageRow(']] as const) if (source.includes(`function ${name}(`)) env[name] = actual(name, next);
   if (source.includes('function mediaNodeKey(')) env['mediaNodeKey'] = actual('mediaNodeKey', source.includes('function captureMessageAnchor(') ? 'function captureMessageAnchor(' : 'function messageRow(');
   const row = actual('messageRow', 'function translationBar(');
@@ -251,4 +252,46 @@ test('real chatPane starts a new account scope at bottom even when the room ID i
     f.setScope({ ...f.context, [change]: change === 'session_generation' ? 2 : 'synthetic-other' } as never); await Promise.resolve();
     assert.equal(f.scroll().dataset['scrollBottom'], '1'); assert.equal(f.scroll().scrollTop, 600);
   }
+});
+
+test('ID-less system first row keeps its viewport through actual pagination without becoming a message merge identity', async () => {
+  const f = anchorFixture({ realScroll: true, base: { kind: 'system', sender_role: 'unknown', message_id: null, local_id: null, text: 'SYNTHETIC RECALL NOTICE' } });
+  const loading = f.load(); await Promise.resolve(); f.complete(); await loading; await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 420); assert.equal(f.store.get().messages[f.base.gid]?.length, 2);
+  assert.equal(viewmodel.mergeHistory([f.base], [f.base]).length, 2, 'a scroll fingerprint is never a message deduplication key');
+});
+
+test('ID-less system anchors survive a page broadcast while an identified video remains below the viewport', async () => {
+  const system = { ...pending, gid: 'synthetic-anchor-room', kind: 'system' as const, sender_role: 'unknown' as const, message_id: null, local_id: null, create_time_ms: 201, disposition: null };
+  const video = { ...system, kind: 'video' as const, message_id: 'synthetic-video', media_url: 'https://example.invalid/video.mp4', create_time_ms: 250 };
+  const f = anchorFixture({ realScroll: true, base: { kind: 'system', sender_role: 'unknown', message_id: null, local_id: null }, extra: [system, { ...system, create_time_ms: 202 }, video] });
+  const loading = f.load(); await Promise.resolve(); f.upsert(f.older); await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 420); f.complete(); await loading; await Promise.resolve(); assert.equal(f.scroll().scrollTop, 420);
+  assert.equal(f.store.get().messages[f.base.gid]?.filter(m => m.kind === 'video').length, 1);
+});
+
+test('duplicate system fingerprints on either side refuse to guess a viewport anchor', async () => {
+  for (const duplicateBefore of [true, false]) {
+    const system = { ...pending, gid: 'synthetic-anchor-room', kind: 'system' as const, sender_role: 'unknown' as const, message_id: null, local_id: null, create_time_ms: 200, disposition: null };
+    const f = anchorFixture({ realScroll: true, base: system, extra: duplicateBefore ? [system] : [] });
+    f.store.patch({ messages: { [f.base.gid]: [f.older, system, ...(duplicateBefore ? [] : [system])] } }); await Promise.resolve();
+    assert.equal(f.scroll().scrollTop, 120, duplicateBefore ? 'old-side ambiguity' : 'new-side ambiguity');
+  }
+});
+
+test('system scroll fingerprints never follow changed role, sender, timestamp, visible text or account scope', async () => {
+  for (const change of ['sender_role', 'sender_id', 'create_time_ms', 'text', 'scope']) {
+    const f = anchorFixture({ base: { kind: 'system', sender_role: 'unknown', message_id: null, local_id: null } });
+    if (change === 'scope') f.setScope({ ...f.context, session_generation: 2 });
+    const updated = change === 'scope' ? f.base : { ...f.base, [change]: change === 'create_time_ms' ? 201 : 'synthetic-other' } as UiMessage;
+    f.store.patch({ messages: { [f.base.gid]: [f.older, updated] } }); await Promise.resolve(); assert.equal(f.scroll().scrollTop, 120, change);
+  }
+});
+
+test('ID-less system fallback respects active user scrolling, bottom pinning and account generation resets', async () => {
+  const make = () => anchorFixture({ realScroll: true, base: { kind: 'system', sender_role: 'unknown', message_id: null, local_id: null } });
+  const reading = make(), loading = reading.load(); await Promise.resolve(); reading.scroll().scrollTop = 200;
+  reading.upsert(reading.older); await Promise.resolve(); reading.complete(); await loading; await Promise.resolve(); assert.equal(reading.scroll().scrollTop, 500);
+  const pinned = make(); pinned.scroll().scrollTop = 600; pinned.upsert(pinned.live); await Promise.resolve(); assert.equal(pinned.scroll().scrollTop, 800);
+  const switched = make(); switched.setScope({ ...switched.context, session_generation: 2 }); await Promise.resolve(); assert.equal(switched.scroll().scrollTop, 600);
 });
