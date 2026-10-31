@@ -37,7 +37,9 @@ test('review/hostile: history pager — rangeMessage null/str/missing, messages 
     else if (r.kind === 'failed') out.push(`failed:${r.outcome.kind}`);
     else out.push(r.kind);
   }
-  assert.deepEqual(out, ['page::false:null', 'page::false:null', 'page::false:null', 'page::false:null', 'page:ok:false:null', 'page::false:null', 'failed:malformed', 'failed:malformed']);
+  // A corrupt page is a failed read, not an empty/partial successful conversation.
+  // Preserve every hostile case; callers must offer retry rather than silently hide missing rows.
+  assert.deepEqual(out, ['failed:malformed', 'failed:malformed', 'failed:malformed', 'failed:malformed', 'failed:malformed', 'failed:malformed', 'failed:malformed', 'failed:malformed']);
   // cursors: only 13-digit integers; direction decides the field
   for (const c of [{ direction: 'prev', endTime: '1700000000000' }, { direction: 'next', beginTime: 1e13 }, { direction: 'prev', endTime: Number.NaN }, { direction: 'next', beginTime: -1 }, { direction: 'prev', endTime: null }]) {
     const r = await fetchHistoryPage(deps, soa, { ...req, cursor: c as unknown as HistoryCursor }, UNKNOWN_ROLES);

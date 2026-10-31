@@ -100,7 +100,11 @@ export async function fetchHistoryPage(
   const outcome = await soa.post<MessageListResponse>(Endpoints.MESSAGE_LIST, body);
   if (outcome.kind !== 'success') return { kind: 'failed', outcome };
   const range = outcome.body.rangeMessage;
-  const rows = range && Array.isArray(range.messages) ? (range.messages as HttpMessageObject[]) : [];
+  if (!range || typeof range !== 'object' || Array.isArray(range) || !Array.isArray(range.messages)
+    || range.messages.some(row => !row || typeof row !== 'object' || Array.isArray(row))) {
+    return { kind: 'failed', outcome: { kind: 'malformed', detail: 'history response missing valid rangeMessage.messages' } };
+  }
+  const rows = range.messages as HttpMessageObject[];
   const facts: MessageFact[] = [];
   for (const row of rows) {
     const f = normalizeHttpMessage(row, { gid: req.gid, roles, source: 'history', ...(msgTypeOverrides ? { msgTypeOverrides } : {}) });

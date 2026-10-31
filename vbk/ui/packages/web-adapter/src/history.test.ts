@@ -63,3 +63,14 @@ test('history pager surfaces failures', async () => {
   const r = await fetchHistoryPage(deps, new SoaClient(deps), { gid: 'g', conversationType: 'B2C', pageSize: 2 }, UNKNOWN_ROLES);
   assert.equal(r.kind, 'failed');
 });
+test('successful HTTP without a history envelope is not a successful empty conversation', async () => {
+  for (const body of [{}, { messages: [] }, { rangeMessage: null }, { rangeMessage: [] }, { rangeMessage: {} }, { rangeMessage: { messages: null } }, { rangeMessage: { messages: {} } }, { rangeMessage: { messages: [null] } }]) {
+    const deps = makeDeps(() => jsonResponse({ ResponseStatus: OK_STATUS, ...body }));
+    const result = await fetchHistoryPage(deps, new SoaClient(deps), { gid: 'synthetic-room', conversationType: 'B2C', pageSize: 30 }, UNKNOWN_ROLES);
+    assert.equal(result.kind, 'failed', JSON.stringify(body));
+    if (result.kind === 'failed') assert.equal(result.outcome.kind, 'malformed');
+  }
+  const deps = makeDeps(() => jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: { messages: [], isDone: true } }));
+  const empty = await fetchHistoryPage(deps, new SoaClient(deps), { gid: 'synthetic-room', conversationType: 'B2C', pageSize: 30 }, UNKNOWN_ROLES);
+  assert.equal(empty.kind, 'page'); if (empty.kind === 'page') assert.deepEqual(empty.page.rows, []);
+});

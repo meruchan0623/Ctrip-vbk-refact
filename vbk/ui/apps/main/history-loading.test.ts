@@ -1,0 +1,101 @@
+import { readHistoryPage } from './history-read.ts';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
+import * as vm from './viewmodel.ts';
+import { isUiMessage } from '../_shared/guards.ts';
+import { cx } from '../../packages/ui-kit/src/h.ts';
+
+const source = readFileSync(process.env['VBK_HISTORY_MAIN_SOURCE'] ?? new URL('./main.ts', import.meta.url), 'utf8');
+function fixture() {
+  const account = { account_id: 'synthetic-account', environment: 'test', session_generation: 1 };
+  const state: any = { activeGid: 'synthetic-room', view: 'messages', messages: { 'synthetic-room': [] }, history: {}, drafts: {}, draft: 'KEEP DRAFT', draftVersion: 1, banners: [], conversations: [{ gid: 'synthetic-room', account, unread_count: 3, waiting_since_ms: null, status: 'active', lang: 'en' }] };
+  let response: unknown = null, active = true;
+  const requests: string[] = [];
+  const invoke = async (cmd: string) => { requests.push(cmd); return await response; };
+  const visibility = { visibilityState: 'visible' };
+  const env = { ...vm, readHistoryPage, document: visibility, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => ({ context: account }), stillActive: () => active, peripheral: { close() {} }, isUiMessage, TRANSLATION_IDLE: vm.TRANSLATION_IDLE, PKG_IDLE: {}, releaseAttachment: async () => {}, autoQueryPackage() {}, UiCommands: { IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages', IM_MARK_READ: 'read' }, invokeQuiet: invoke, invokeSafe: invoke };
+  const a = source.indexOf('async function openConversation('), b = source.indexOf('\nasync function loadEarlier(', a);
+  const open = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn openConversation;')(...Object.values(env));
+  const loadEnd = source.indexOf('\n/** `im://locate-conversation`', b);
+  const load = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(b, loadEnd)) + '\nreturn loadEarlier;')(...Object.values(env));
+  const renderEnv = { ...env, cx, activeConv: () => state.conversations[0], document: { querySelector: () => null }, h: (tag: string, props: any, ...children: any[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, renderMessageAvatar: () => null, netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, messageRow: () => null, openConversation: open, loadEarlier: load };
+  const ca = source.indexOf('function chatPane('), cb = source.indexOf('\nfunction messagesView(', ca);
+  const render = new Function(...Object.keys(renderEnv), stripTypeScriptTypes(source.slice(ca, cb)) + '\nreturn chatPane;')(...Object.values(renderEnv));
+  return { state, requests, visibility, render: () => render(state), open: () => open('synthetic-room'), earlier: () => load(state.conversations[0]), respond: (value: unknown) => { response = value; }, invalidate: () => { active = false; }, page: { items: [], has_more: false, before_ms: null } };
+}
+
+test('empty or realtime-only cache cannot suppress the first historical read', async () => {
+  const f = fixture(); f.respond(f.page); await f.open();
+  assert.equal(f.requests.filter(x => x === 'page').length, 1);
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded');
+  assert.equal(f.state.draft, 'KEEP DRAFT');
+  await f.open(); assert.equal(f.requests.filter(x => x === 'page').length, 1, 'a verified first page is reusable');
+});
+test('initial failure is visible and retryable without a duplicate legacy request or clearing the draft', async () => {
+  const f = fixture(); await f.open();
+  assert.equal(f.state.history['synthetic-room']?.firstPage, 'error');
+  assert.deepEqual(f.requests, ['page']); assert.equal(f.state.draft, 'KEEP DRAFT');
+  f.respond(f.page); await f.open(); assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded');
+});
+test('concurrent clicks share initial read and completion while another room is visible does not mark read', async () => {
+  const f = fixture(); let complete!: (value: unknown) => void;
+  f.respond(new Promise(resolve => { complete = resolve; }));
+  const first = f.open(); await f.open(); assert.equal(f.requests.length, 1);
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'loading');
+  f.state.activeGid = 'other'; complete(f.page); await first;
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded'); assert.deepEqual(f.requests, ['page']);
+  f.state.activeGid = 'synthetic-room'; await f.open(); assert.deepEqual(f.requests, ['page', 'read'], 'explicit return acknowledges the cached page without reloading');
+});
+test('late account result and malformed first pages cannot become a loaded empty history', async () => {
+  const f = fixture(); let complete!: (value: unknown) => void;
+  f.respond(new Promise(resolve => { complete = resolve; })); const first = f.open();
+  f.invalidate(); f.state.history = {}; complete(f.page); await first; assert.deepEqual(f.state.history, {});
+  for (const invalid of [{}, { items: null }, { items: [], has_more: true, before_ms: null }]) {
+    const g = fixture(); g.respond(invalid); await g.open(); assert.equal(g.state.history['synthetic-room']?.firstPage, 'error'); assert.ok(!g.requests.includes('read'));
+  }
+});
+test('actual chat pane exposes pending status and an actionable failed-read retry', async () => {
+  const f = fixture(); let complete!: (value: unknown) => void;
+  f.respond(new Promise(resolve => { complete = resolve; })); const first = f.open();
+  const nodes = (tree: any): any[] => Array.isArray(tree) ? tree.flatMap(nodes) : tree && typeof tree === 'object' ? [tree, ...nodes(tree.children ?? [])] : [];
+  assert.ok(nodes(f.render()).some(n => n.props?.role === 'status' && n.children.includes('正在读取聊天记录…')));
+  complete(null); await first;
+  const retry = nodes(f.render()).find(n => n.tag === 'button' && n.children.includes('聊天记录读取失败或超时，点击重试'));
+  assert.ok(retry); f.respond(f.page); retry.props.onclick();
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded'); assert.equal(f.requests.filter(x => x === 'page').length, 2);
+});
+test('renderer deadline releases a stuck host invocation and a later result cannot change it', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let complete!: (value: unknown) => void;
+  const pending = readHistoryPage(new Promise(resolve => { complete = resolve; }));
+  t.mock.timers.tick(20_000); assert.equal(await pending, null);
+  complete({ items: [], has_more: false, before_ms: null }); await Promise.resolve(); assert.equal(await pending, null);
+  assert.deepEqual(await readHistoryPage(Promise.resolve({ items: [], has_more: false, before_ms: null })), { items: [], has_more: false, before_ms: null });
+});
+test('an older pagination completion cannot overwrite a newer first-page request', async () => {
+  const f = fixture(); f.state.history['synthetic-room'] = { firstPage: 'loaded', hasMore: true, beforeMs: 100, busy: false };
+  let complete!: (value: unknown) => void;
+  f.respond(new Promise(resolve => { complete = resolve; })); const earlier = f.earlier();
+  const newer = { firstPage: 'loading', hasMore: false, beforeMs: null, busy: true };
+  f.state.history['synthetic-room'] = newer; complete(f.page); await earlier;
+  assert.equal(f.state.history['synthetic-room'], newer);
+});
+test('late first page on another view or hidden window does not mark the conversation read', async () => {
+  for (const hidden of [false, true]) {
+    const f = fixture(); let complete!: (value: unknown) => void;
+    f.respond(new Promise(resolve => { complete = resolve; })); const pending = f.open();
+    if (hidden) f.visibility.visibilityState = 'hidden'; else f.state.view = 'notifications';
+    complete(f.page); await pending; assert.deepEqual(f.requests, ['page']);
+    f.visibility.visibilityState = 'visible'; await f.open(); assert.deepEqual(f.requests, ['page', 'read']);
+  }
+});
+test('earlier-page renderer timeout remains visibly retryable with its old cursor', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(); f.state.history['synthetic-room'] = { firstPage: 'loaded', hasMore: true, beforeMs: 100, busy: false };
+  f.respond(new Promise(() => {})); const pending = f.earlier(); t.mock.timers.tick(20_000); await pending;
+  assert.equal(f.state.history['synthetic-room'].pageError, true); assert.equal(f.state.history['synthetic-room'].beforeMs, 100);
+  assert.match(JSON.stringify(f.render()), /历史记录读取失败或超时，点击重试/);
+});
