@@ -16,10 +16,10 @@ import type { AgentStatus, UiMessage } from '../../ipc/src/client.ts';
 import type { AdapterDisplayPayload, DisplayConversation } from '../../ipc/src/adapterProtocol.ts';
 import type { AdapterDeps, SdkMessageEvent, SdkSocketStatus } from './deps.ts';
 import { createAdapter, type Adapter } from './index.ts';
-import { SoaClient, type SoaOutcome } from './soa.ts';
+import { SoaClient, recordOrNull, type SoaOutcome } from './soa.ts';
 import { toConversationFact, type ConversationListItem, type ConversationListResponse, type ConversationListVariant } from './conversationList.ts';
 import type { RecentMessagesResponse } from './compensation.ts';
-import type { HttpMessageObject } from './facts.ts';
+import { normalizeTimeMs, type HttpMessageObject } from './facts.ts';
 import { agentStatusOf, byCreateTime, httpMessageToUi, orderSummaryFromMessage, previewOfUi, sdkMessageToUi, toDisplayConversation } from './display.ts';
 import { ConversationStore, RoleBook, UnreadBook, roomJidFromMessage } from './stores.ts';
 import { createRpc, type AgentStatusBox, type Rpc } from './rpc.ts';
@@ -62,6 +62,42 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   if (opts.selfProfile) roles.setSelfProfile(opts.selfProfile);
   const unread = new UnreadBook();
   const displays = new Map<string, DisplayConversation>();
+  const displayContexts = new Map<string, string>();
+  // Only display-sized evidence is retained while the first row is in flight.
+  // Never replay a gid-only preview into a newly claimed customer/service.
+  const pendingPreviews = new Map<string, { preview: string; time: number; sender: string; room: string; thread: string | null; order: string | null; expires: number }>();
+  const contextOf = (gid: string): string | null => {
+    const v = store.view(gid);
+    return v?.sessionId && v.customerUid && v.conversationType && v.serviceType
+      ? JSON.stringify([v.gid, v.sessionId, v.customerUid, v.conversationType, v.serviceType, v.threadId, v.conversationKey, v.worksheetId, v.orderId, roles.selfUid]) : null;
+  };
+  const trimPending = (): void => {
+    const now = deps.now();
+    for (const [gid, entry] of pendingPreviews) if (entry.expires <= now) pendingPreviews.delete(gid);
+  };
+  const rememberPending = (message: UiMessage, room: string | null, thread: unknown): void => {
+    if (store.has(message.gid)) return;
+    trimPending();
+    // A self/system frame before the first row cannot prove the customer.
+    if (!room || room.length > 512 || !message.sender_id || message.sender_id.length > 512 || message.sender_id.toLowerCase() === roles.selfUid.toLowerCase()) return;
+    if (thread !== undefined && thread !== null && (typeof thread !== 'string' || thread.length > 512)) return;
+    const old = pendingPreviews.get(message.gid);
+    if (old && old.time > message.create_time_ms) return;
+    if (!old && pendingPreviews.size >= 256) pendingPreviews.delete(pendingPreviews.keys().next().value!);
+    pendingPreviews.set(message.gid, { preview: previewOfUi(message).slice(0, 200), time: message.create_time_ms, sender: message.sender_id.toLowerCase(), room: room.toLowerCase(), thread: typeof thread === 'string' ? thread : null, order: message.order_id, expires: deps.now() + 60_000 });
+  };
+  const initialPreview = (item: DisplayConversation, raw: ConversationListItem): DisplayConversation => {
+    trimPending();
+    const entry = pendingPreviews.get(item.gid);
+    pendingPreviews.delete(item.gid); // consume only on the first observable row
+    // A duplicate gid batch must never mix one row's fence with another row's identity.
+    if (store.row(item.gid) !== raw) return item;
+    const view = store.view(item.gid);
+    const fence = normalizeTimeMs(raw.lastUpdateTime);
+    const room = roomJidFromMessage(item.gid, view?.lastMessage ?? null);
+    if (!entry || !view || !contextOf(item.gid) || fence === null || entry.time <= Math.max(fence, item.last_message_time_ms ?? 0) || entry.sender !== view.customerUid?.toLowerCase() || entry.room !== room?.toLowerCase() || (entry.thread ?? '') !== view.threadId || (entry.order !== null && entry.order !== view.orderId)) return item;
+    return { ...item, preview: entry.preview, last_message_time_ms: entry.time };
+  };
   const log = opts.log ?? (() => undefined);
   const diagnostics = createReceiveCounters();
   let agent: { status: AgentStatus; confirmed: boolean } | null = null;
@@ -77,7 +113,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     // authoritative unread book. Reading history cannot acknowledge messages.
     const current = payload.kind === 'conversations'
       ? { ...payload, items: payload.items.map((item) => {
-          const previous = displays.get(item.gid);
+          const signature = contextOf(item.gid);
+          const previous = signature && displayContexts.get(item.gid) === signature ? displays.get(item.gid) : undefined;
           const uid = store.view(item.gid)?.customerUid;
           const next = {
             ...item,
@@ -91,6 +128,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
             unread_count: unread.unreadOf(item.gid) ?? item.unread_count,
           };
           displays.set(item.gid, next);
+          if (signature) displayContexts.set(item.gid, signature); else displayContexts.delete(item.gid);
           return next;
         }) }
       : payload;
@@ -167,13 +205,23 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     const rows = Array.isArray(outcome.body.conversationList) ? (outcome.body.conversationList as unknown[]) : [];
     const complete = full && outcome.body.haveRest !== true;
     const gids = store.update(rows);
+    const observed = new Set<string>();
+    for (const gid of gids) {
+      if (observed.has(gid)) pendingPreviews.delete(gid);
+      observed.add(gid);
+    }
+    const projected = new Set<string>();
     const items: DisplayConversation[] = [];
     for (const raw of rows) {
       const base = toDisplayConversation(raw as ConversationListItem, full, unread);
-      if (!base) continue;
+      // Store identity is the final row of this batch. Never give an earlier
+      // raw customer's display fields the final row's identity signature.
+      if (!base || store.row(base.gid) !== raw || projected.has(base.gid)) continue;
+      projected.add(base.gid);
       const uid = store.view(base.gid)?.customerUid;
-      const d = { ...base, title: uid ? roles.profileOf(uid).name ?? base.title : base.title, order: store.order(base.gid) ?? base.order };
-      const prev = displays.get(d.gid);
+      const d = { ...initialPreview(base, raw as ConversationListItem), title: uid ? roles.profileOf(uid).name ?? base.title : base.title, order: store.order(base.gid) ?? base.order };
+      const signature = contextOf(d.gid);
+      const prev = signature && displayContexts.get(d.gid) === signature ? displays.get(d.gid) : undefined;
       // a realtime preview newer than the row stays until the list catches up
       const merged = prev && prev.last_message_time_ms !== null && (d.last_message_time_ms ?? 0) < prev.last_message_time_ms ? { ...d, preview: prev.preview, last_message_time_ms: prev.last_message_time_ms } : d;
       items.push(merged);
@@ -182,6 +230,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     const removed: string[] = [];
     if (complete) {
       const keep = new Set(gids);
+      for (const gid of pendingPreviews.keys()) if (!keep.has(gid)) pendingPreviews.delete(gid);
       for (const g of [...displays.keys()]) {
         if (!keep.has(g)) {
           displays.delete(g);
@@ -237,6 +286,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     const ui = sdkMessageToUi(evt, roles);
     if (!ui) { diagnostics.session.ui_dropped = receiveCount(diagnostics.session.ui_dropped); return; }
     diagnostics.session.ui_mapped = receiveCount(diagnostics.session.ui_mapped);
+    rememberPending(ui, roomJidFromMessage(ui.gid, { fromJid: evt.from, toJid: evt.to }), evt.threadid);
     if (ui.message_id) store.noteMessage(ui.gid, ui.message_id, ui.create_time_ms);
     const order = orderSummaryFromMessage({ msgtype: evt.msgtype, messageBody: evt.body });
     if (order) store.noteOrder(ui.gid, order, ui.create_time_ms);
@@ -263,6 +313,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       const ui = httpMessageToUi(m, roles);
       if (!ui) { diagnostics.compensation.dropped = receiveCount(diagnostics.compensation.dropped); continue; }
       diagnostics.compensation.mapped = receiveCount(diagnostics.compensation.mapped);
+      rememberPending(ui, roomJidFromMessage(ui.gid, m), recordOrNull(m)?.['threadId'] ?? recordOrNull(m)?.['threadid']);
       store.noteMessage(ui.gid, m.msgId, m.createTime);
       const order = orderSummaryFromMessage(m);
       if (order) store.noteOrder(ui.gid, order, ui.create_time_ms);
@@ -342,6 +393,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (unreadTimer !== null) deps.clearTimeout(unreadTimer);
       unreadTimer = null;
       pendingUnread.clear();
+      pendingPreviews.clear();
       adapter.stop();
     },
   };
