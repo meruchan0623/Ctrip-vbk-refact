@@ -436,19 +436,13 @@ export function alarmActiveCount(entries: readonly { readonly snoozed_until_ms: 
   return entries.filter((e) => e.snoozed_until_ms === null || e.snoozed_until_ms <= nowMs).length;
 }
 
+/** Media is rendered only from network URLs, never executable or local-file schemes. */
 export function safeMediaUrl(value: string | null | undefined): string | null {
   if (!value) return null;
   try {
     const url = new URL(value);
     return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
   } catch { return null; }
-}
-
-/** A transport acceptance is never presented as an independently confirmed action. */
-export function peripheralWriteView(result: import('../../packages/ipc/src/client.ts').UiPeripheralWrite): { title: string; message: string; confirmed: boolean } {
-  if (result.kind === 'confirmed' && result.confirmed === true) return { title: '已确认', message: '已通过独立读回确认本次操作。', confirmed: true };
-  if (result.kind === 'accepted') return { title: '已受理，待核验', message: '服务端已受理操作。可刷新成员和会话核对结果，请勿重复提交。', confirmed: false };
-  return { title: '结果未知，待核验', message: '操作可能已经生效。仅可只读刷新成员和会话，不会重新发送操作。', confirmed: false };
 }
 
 function compatibleMessageSender(a: UiMessage, b: UiMessage): boolean {
@@ -539,6 +533,13 @@ export function visibleMessages(messages: readonly UiMessage[]): UiMessage[] {
   return messages.filter(m => !m.message_id || !recalled.has(m.message_id));
 }
 
+
+/** A transport acceptance is never presented as an independently confirmed action. */
+export function peripheralWriteView(result: import('../../packages/ipc/src/client.ts').UiPeripheralWrite): { title: string; message: string; confirmed: boolean } {
+  if (result.kind === 'confirmed' && result.confirmed === true) return { title: '已确认', message: '已通过独立读回确认本次操作。', confirmed: true };
+  if (result.kind === 'accepted') return { title: '已受理，待核验', message: '服务端已受理操作。可刷新成员和会话核对结果，请勿重复提交。', confirmed: false };
+  return { title: '结果未知，待核验', message: '操作可能已经生效。仅可只读刷新成员和会话，不会重新发送操作。', confirmed: false };
+}
 
 /** UI-only provenance: a target chosen from the current thread, never a copied body. */
 export type QuotedUiMessage = UiMessage & { readonly quote_target_id?: string | null; readonly recalled_message_id?: string | null };

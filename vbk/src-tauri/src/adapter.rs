@@ -1401,7 +1401,6 @@ fn bind_diagnostic_result(diagnostics: &mut Option<display::ReceiveDiagnosticsDt
         if let Some(diag) = diagnostics { diag.availability = display::DiagnosticAvailability::Unavailable; diag.page = None; diag.host = None; }
     }
 }
-
 fn diagnostic_account(state: &HostState, account: AccountContextDto) -> Option<AccountContext> {
     let ctx: AccountContext = account.into();
     state.lock().accounts.validate(&ctx).ok()?;
@@ -1848,23 +1847,6 @@ mod receive_diagnostic_tests {
 }
 
 #[cfg(test)]
-mod outbound_lookup_tests {
-    use super::*;
-    #[test]
-    fn host_lookup_whitelists_identity_metadata_and_rejects_numeric_ids() {
-        let raw = serde_json::json!({ "items": [{ "gid": "synthetic-room", "message_id": "900719925474099312345", "local_id": "synthetic-local", "sender_role": "merchant_self", "text": "SYNTHETIC PRIVATE BODY", "media_url": "https://example.invalid/private" }] });
-        let response: OutboundLookupDto = serde_json::from_value(raw.clone()).unwrap();
-        let returned = serde_json::to_value(response).unwrap();
-        assert_eq!(returned["items"][0]["message_id"], "900719925474099312345");
-        assert_eq!(returned["items"][0].as_object().unwrap().len(), 4);
-        assert!(!returned.to_string().contains("PRIVATE"));
-        assert!(!returned.to_string().contains("private"));
-        let mut numeric = raw; numeric["items"][0]["message_id"] = serde_json::json!(9007199254740992_u64);
-        assert!(serde_json::from_value::<OutboundLookupDto>(numeric).is_err());
-    }
-}
-
-#[cfg(test)]
 mod history_page_read_tests {
     use super::*;
     use contracts::Environment;
@@ -1894,5 +1876,22 @@ mod history_page_read_tests {
         assert!(!command.contains("ui_account("));
         let after_await = command.split(".await").nth(1).unwrap();
         assert!(after_await.contains("accounts.validate(&ctx)"));
+    }
+}
+
+#[cfg(test)]
+mod outbound_lookup_tests {
+    use super::*;
+    #[test]
+    fn host_lookup_whitelists_identity_metadata_and_rejects_numeric_ids() {
+        let raw = serde_json::json!({ "items": [{ "gid": "synthetic-room", "message_id": "900719925474099312345", "local_id": "synthetic-local", "sender_role": "merchant_self", "text": "SYNTHETIC PRIVATE BODY", "media_url": "https://example.invalid/private" }] });
+        let response: OutboundLookupDto = serde_json::from_value(raw.clone()).unwrap();
+        let returned = serde_json::to_value(response).unwrap();
+        assert_eq!(returned["items"][0]["message_id"], "900719925474099312345");
+        assert_eq!(returned["items"][0].as_object().unwrap().len(), 4);
+        assert!(!returned.to_string().contains("PRIVATE"));
+        assert!(!returned.to_string().contains("private"));
+        let mut numeric = raw; numeric["items"][0]["message_id"] = serde_json::json!(9007199254740992_u64);
+        assert!(serde_json::from_value::<OutboundLookupDto>(numeric).is_err());
     }
 }
