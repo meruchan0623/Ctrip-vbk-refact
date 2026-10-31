@@ -31,6 +31,7 @@ import { fetchHistoryPage } from './history.ts';
 import { is13DigitMs, normalizeTimeMs } from './facts.ts';
 import { createSendIntent, submitIntent, type SendIntent } from './send.ts';
 import { markRead } from './markRead.ts';
+import { createMediaRpc } from './media.ts';
 import { numericGid, setWorkSheetStar } from './worksheetStar.ts';
 import { createImChat, isValidOrderId, validateImUrl } from './order.ts';
 import { AGENT_STATUS_CODES, agentStatusOf, byCreateTime, httpMessageToUi, orderSummaryFromMessage, toDisplayConversation } from './display.ts';
@@ -39,6 +40,14 @@ import { roomJidFromMessage, type ConversationStore, RoleBook } from './stores.t
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
 
 export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
+  'media.target': 'read-only local full conversation identity capability',
+  'media.validate': 'read-only local capability validation',
+  'media.release': 'local attachment capability revocation; never clears durable/no-replay evidence',
+  'media.discard': 'local unsubmitted byte staging disposal; never clears started upload/send tombstones',
+  'media.stage_begin': 'bounded host-selected immutable bytes; no upstream write',
+  'media.stage_chunk': 'bounded ordered local byte staging; no upstream write',
+  'media.upload': 'image 44 / file 33 / video 68 upload contracts; once per transfer',
+  'im.send_media': 'media JSON 44/33/68 and matching SDK send_result; host durable admission',
   'adapter.diagnostics': 'read-only local receive counters; no upstream operation',
   'im.customer_scripts': 'getCustomerScripts (evidence 51); nonempty entry schema unsupported',
   'im.members': 'checkMemberStatus (evidence 55), current status and roles',
@@ -160,6 +169,7 @@ export async function readCurrentStatus(ctx: RpcContext): Promise<AgentStatus | 
 type Handler<K extends AdapterOp> = (ctx: RpcContext, args: unknown, state: RpcState) => Promise<AdapterResultMap[K]>;
 
 interface RpcState {
+  media?: ReturnType<typeof createMediaRpc>;
   readonly sends: Map<string, Promise<SendDisposition>>;
   readonly categories: Map<string, NoticeCategoryInfo>;
   selections?: Map<string, PeripheralSelection>;
@@ -578,6 +588,14 @@ const imTransfer: Handler<'im.transfer'> = (ctx, args, state) => peripheralWrite
 const imFinish: Handler<'im.finish'> = (ctx, args, state) => peripheralWrite(ctx, args, state, 'finish');
 
 const HANDLERS: { readonly [K in AdapterOp]: Handler<K> } = {
+  'media.target': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).target(args),
+  'media.validate': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).validate(args),
+  'media.release': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).release(args),
+  'media.discard': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).discard(args),
+  'media.stage_begin': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).begin(args),
+  'media.stage_chunk': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).chunk(args),
+  'media.upload': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).upload(args),
+  'im.send_media': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).send(args),
   'adapter.diagnostics': async (ctx) => {
     if (!ctx.receiveDiagnostics) fail(ErrorCodes.HOST_UNSUPPORTED, 'receive diagnostics unavailable');
     return ctx.receiveDiagnostics();

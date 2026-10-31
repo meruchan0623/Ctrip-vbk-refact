@@ -158,6 +158,7 @@ function nepheleContent(json: unknown): Record<string, unknown> | UploadFailure 
 // ------------------------------------------------------------- image
 
 export interface ImageUploadInput {
+  readonly ensureCurrent?: () => void;
   readonly bytes: Uint8Array;
   readonly mime: string;
   /** Upload scene; dynamic per page, injected (also echoed into the message `ext.scene`). */
@@ -170,8 +171,10 @@ export interface ImageUploadInput {
 export type ImageUploadResult = { readonly kind: 'uploaded'; readonly media: MediaImageRef; readonly fileName: string } | { readonly kind: 'failed'; readonly failure: UploadFailure };
 
 export async function uploadImage(deps: AdapterDeps, soa: SoaClient, input: ImageUploadInput): Promise<ImageUploadResult> {
+  input.ensureCurrent?.();
   const tok = await fetchToken(deps, soa, IMAGE_CHANNEL, 'img');
   if (isFailure(tok)) return { kind: 'failed', failure: tok };
+  input.ensureCurrent?.();
   const rand = nepheleRandomString(deps.random);
   const url = `${NEPHELE_HOST}/image/v2/api/upload?channel=${IMAGE_CHANNEL}&scene=${encodeURIComponent(input.scene)}&rand=${encodeURIComponent(rand)}`;
   const headers = {
@@ -196,6 +199,7 @@ export async function uploadImage(deps: AdapterDeps, soa: SoaClient, input: Imag
 // ------------------------------------------------------------- file
 
 export interface FileUploadInput {
+  readonly ensureCurrent?: () => void;
   readonly bytes: Uint8Array;
   readonly mime: string;
   readonly filename: string;
@@ -205,6 +209,7 @@ export interface FileUploadInput {
 export type FileUploadResult = { readonly kind: 'uploaded'; readonly media: MediaFileRef } | { readonly kind: 'failed'; readonly failure: UploadFailure };
 
 export async function uploadFile(deps: AdapterDeps, input: FileUploadInput): Promise<FileUploadResult> {
+  input.ensureCurrent?.();
   const url = `${NEPHELE_HOST}/file/v1/api/upload?channel=${FILE_CHANNEL}&public=1`;
   const res = await rawPost(deps, url, { Accept: 'application/json, text/plain, */*', 'Content-Type': input.mime }, input.bytes, input.timeoutMs ?? UPLOAD_TIMEOUT_MS);
   if (isFailure(res)) return { kind: 'failed', failure: res };
@@ -216,6 +221,7 @@ export async function uploadFile(deps: AdapterDeps, input: FileUploadInput): Pro
 // ------------------------------------------------------------- video
 
 export interface VideoUploadInput {
+  readonly ensureCurrent?: () => void;
   readonly bytes: Uint8Array;
   readonly mime: string;
   readonly filename: string;
@@ -234,8 +240,10 @@ export type VideoUploadResult =
 export const VIDEO_PROC_BODY = { extract: { interval: 20, end_second: 3 } } as const;
 
 export async function uploadVideo(deps: AdapterDeps, soa: SoaClient, input: VideoUploadInput): Promise<VideoUploadResult> {
+  input.ensureCurrent?.();
   const tok = await fetchToken(deps, soa, VIDEO_CHANNEL, 'video');
   if (isFailure(tok)) return { kind: 'failed', failure: tok, stage: 'token' };
+  input.ensureCurrent?.();
   const rand = nepheleRandomString(deps.random);
   const url = `${NEPHELE_HOST}/video/v3/api/upload?channel=${VIDEO_CHANNEL}&rand=${encodeURIComponent(rand)}`;
   const headers = {
@@ -258,6 +266,7 @@ export async function uploadVideo(deps: AdapterDeps, soa: SoaClient, input: Vide
 
   // frame extraction for the cover; failure here keeps the upload but marks proc null
   const procUrl = `${NEPHELE_HOST}/video/v1/api/proc?video=${encodeURIComponent(fileName)}`;
+  input.ensureCurrent?.();
   const procRes = await rawPost(deps, procUrl, { Accept: 'application/json, text/plain, */*', 'Content-Type': 'application/json' }, JSON.stringify(VIDEO_PROC_BODY), timeoutMs);
   let proc: VideoProcResult | null = null;
   if (!isFailure(procRes)) {

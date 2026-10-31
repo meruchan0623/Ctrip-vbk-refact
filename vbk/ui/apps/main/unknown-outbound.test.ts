@@ -68,12 +68,42 @@ test('a changed scope before selecting or refreshing closes without making anoth
   for (const operation of ['select', 'refresh'] as const) { const f = fixture(); await f.panel.open(); f.current({ ...account, session_generation: 3 }); if (operation === 'select') f.panel.select(meta.gid, meta.local_id); else await f.panel.refresh(); assert.equal(f.view(), null); assert.equal(f.calls.length, 1); f.noWrites(); }
 });
 
+test('upload-only metadata is visible without message lookup, automatic unlocking or a sent conclusion', async () => {
+  for (const phase of ['upload_started', 'uploaded']) {
+    const f = fixture(); f.list([{ ...meta, phase, write_started: false, body: 'SYNTHETIC PRIVATE BODY' }]); await f.panel.open();
+    assert.equal(f.view()?.records.length, 1); assert.equal(f.view()?.records[0]?.phase, phase); assert.equal(f.view()?.records[0]?.write_started, false);
+    f.panel.select(meta.gid, meta.local_id); await f.panel.verify();
+    assert.equal(f.view()?.selected, null); assert.equal(f.view()?.result?.server_id, null); assert.equal(f.calls.length, 1); assert.equal(JSON.stringify(f.view()).includes('PRIVATE'), false); f.noWrites();
+  }
+});
+
+test('upload metadata rejects contradictory phase flags and malformed boolean types', async () => {
+  const f = fixture();
+  f.list([{ ...meta, phase: 'upload_started', write_started: true }, { ...meta, phase: 'uploaded', write_started: 'false' }, { ...meta, phase: 'write_started', write_started: false }, { ...meta, phase: 'unknown', write_started: false }, { ...meta, phase: 'arbitrary_upload_phase', write_started: false }, meta]);
+  await f.panel.open(); assert.equal(f.view()?.records.length, 1); assert.equal(f.view()?.records[0]?.write_started, true); assert.equal(f.view()?.records[0]?.phase, 'unknown'); f.noWrites();
+});
+
 // Execute the real dialog and status-bar click entry against the real controller.
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { cx } from '../../packages/ui-kit/src/h.ts';
 interface RenderNode { tag: string; props: Record<string, unknown>; children: unknown[] }
 function allNodes(tree: unknown): RenderNode[] { if (Array.isArray(tree)) return tree.flatMap(allNodes); if (!tree || typeof tree !== 'object') return []; const node = tree as RenderNode; return [node, ...allNodes(node.children ?? [])]; }
+
+test('actual upload-stage dialog displays stage evidence and disables message-page lookup', async () => {
+  for (const phase of ['upload_started', 'uploaded']) {
+    const f = fixture(); f.list([{ ...meta, phase, write_started: false }]); await f.panel.open();
+    const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    const env = { h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), stillActive: () => true, unknownOutbound: f.panel, formatDate: () => 'date', formatClock: () => 'time', icon: () => null, IC: {} };
+    const a = source.indexOf('function unknownOutboundDialog('), b = source.indexOf('\nfunction receiveDiagnosticsDialog(', a);
+    const dialog = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn unknownOutboundDialog;')(...Object.values(env));
+    const tree = dialog({ unknownOutbound: f.view() }), rendered = JSON.stringify(tree);
+    assert.ok(rendered.includes(phase === 'uploaded' ? '附件已上传，消息尚未提交' : '附件上传已开始，上传结果待核对；消息尚未提交'));
+    const radio = allNodes(tree).find(n => n.tag === 'input'); assert.equal(radio?.props['disabled'], true);
+    const read = allNodes(tree).find(n => n.tag === 'button' && n.children.includes('读取所选会话最新页')); assert.equal(read?.props['disabled'], true);
+    (radio!.props['onchange'] as () => void)(); (read!.props['onclick'] as () => void)(); await Promise.resolve(); assert.equal(f.calls.length, 1); f.noWrites();
+  }
+});
 test('actual status-bar -> dialog -> selected latest-page click uses only metadata/page commands and displays no body', async () => {
   const f = fixture();
   const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');

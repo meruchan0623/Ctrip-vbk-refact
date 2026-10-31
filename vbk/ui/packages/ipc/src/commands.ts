@@ -58,6 +58,7 @@ export const PrefsCommands = {
 } as const;
 
 export const Events = {
+  MEDIA_SEND_PROGRESS: 'media://send-progress',
   ACCOUNT_CHANGED: 'account://changed',
   ALARM_SNAPSHOT: 'notify://alarm-snapshot',
   IM_CONVERSATION_CHANGED: 'im://conversation-changed',

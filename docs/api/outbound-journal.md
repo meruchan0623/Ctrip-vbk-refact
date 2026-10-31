@@ -1,5 +1,7 @@
 # 宿主发送持久屏障
 
+第6轮候选媒体链路复用本账本的environment/account/local_id冲突空间，增加upload_started/uploaded阶段及媒体payload摘要，完整合同见[媒体出站](media-outbound.md)。write_started=false的上传记录只供阶段核对，不能调用消息页lookup、显示消息已提交或据此解锁。旧文本记录按已开始提交解释，不因新字段缺省改变重启屏障；回滚到不认识新阶段的版本时保留记录并停写。
+
 2026-10-31。实际im_send_text调用outbound_journal::send_once，账本位于app_data/state/outbound，按environment/account命名空间隔离。同local_id跨登录代次仍是同一意图，generation只作审计；gid/text/original/quote_id按固定结构算SHA256用于冲突校验，正文不落盘。不同payload重复local_id拒绝。
 
 调用链先持久write_started并完成文件及父目录fsync，之后才允许单次dispatch。fs2文件锁串行化读/CAS/commit/barrier，不跨await持有。恢复看到write_started或unknown只能读回unknown，不能重新dispatch；已持久confirmed/rejected读回终态。提交前存储失败不调用dispatch，发起后的任何回执或持久化失败保守unknown。同一进程及重新打开FileStore均不能解除屏障。

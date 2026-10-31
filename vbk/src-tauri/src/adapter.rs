@@ -40,6 +40,7 @@ use crate::dto::{
 use crate::events;
 use crate::login;
 use crate::peripheral_journal;
+use crate::media_outbound::{self, MediaSendResult, MediaTarget};
 use crate::state::HostState;
 
 use display::{
@@ -573,6 +574,352 @@ async fn forward<T: DeserializeOwned>(
 ) -> Result<T, AppError> {
     let v = request(app, ctx, op, args, timeout).await?;
     serde_json::from_value(v).map_err(|_| bad_reply())
+}
+
+pub async fn capture_media_target(
+    app: &AppHandle,
+    account: &AccountContext,
+    gid: &str,
+) -> Result<MediaTarget, AppError> {
+    let token = uuid::Uuid::new_v4().to_string();
+    let target: MediaTarget = forward(
+        app,
+        account,
+        "media.target",
+        serde_json::json!({ "gid": gid, "target_token": token }),
+        READ_TIMEOUT,
+    )
+    .await?;
+    if target.target_token != token
+        || !media_outbound::valid_hash(&target.identity_sha256)
+        || target.sender_id.is_empty()
+    {
+        return Err(bad_reply());
+    }
+    Ok(target)
+}
+
+pub async fn validate_media_target(
+    app: &AppHandle,
+    account: &AccountContext,
+    gid: &str,
+    target: &MediaTarget,
+) -> Result<(), AppError> {
+    let current: MediaTarget = forward(
+        app,
+        account,
+        "media.validate",
+        serde_json::json!({ "gid": gid, "target_token": target.target_token }),
+        READ_TIMEOUT,
+    )
+    .await?;
+    if current != *target {
+        return Err(media_outbound::invalid());
+    }
+    Ok(())
+}
+
+pub async fn release_media_target(
+    app: &AppHandle,
+    account: &AccountContext,
+    gid: &str,
+    target: &MediaTarget,
+) {
+    let _ = request(
+        app,
+        account,
+        "media.release",
+        serde_json::json!({ "gid": gid, "target_token": target.target_token }),
+        READ_TIMEOUT,
+    )
+    .await;
+}
+
+struct ReleaseMediaTarget {
+    app: AppHandle,
+    account: AccountContext,
+    gid: String,
+    target: MediaTarget,
+}
+impl Drop for ReleaseMediaTarget {
+    fn drop(&mut self) {
+        let app = self.app.clone();
+        let account = self.account.clone();
+        let gid = self.gid.clone();
+        let target = self.target.clone();
+        tauri::async_runtime::spawn(async move {
+            release_media_target(&app, &account, &gid, &target).await;
+        });
+    }
+}
+
+fn media_progress(
+    app: &AppHandle,
+    account: &AccountContext,
+    gid: &str,
+    attachment: &str,
+    local: &str,
+    stage: &str,
+) {
+    events::to_main(
+        app,
+        events::MEDIA_SEND_PROGRESS,
+        serde_json::json!({ "account": AccountContextDto::from(account), "gid": gid, "attachment_id": attachment, "local_id": local, "stage": stage }),
+    );
+}
+
+#[derive(Deserialize)]
+struct MediaUploadReply {
+    kind: String,
+    body_json: Option<String>,
+    media: Option<Value>,
+    error: Option<String>,
+}
+#[derive(Deserialize)]
+struct MediaSendReply {
+    disposition: SendDispositionDto,
+    message: UiMessageDto,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_send_media(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    local_id: String,
+    attachment_id: String,
+) -> CmdResult<MediaSendResult> {
+    guard(&state, webview.label(), "im_send_media")?;
+    let ctx = read_account(&state, account)?;
+    if gid.is_empty() || local_id.is_empty() {
+        return Err(e2dto(media_outbound::invalid()));
+    }
+    let m = module(&app).map_err(e2dto)?;
+    let journal = m.outbound.as_ref().ok_or_else(|| {
+        e2dto(AppError::new(
+            "im.journal_unavailable",
+            "durable media storage unavailable (nothing submitted)",
+        ))
+    })?;
+    let selected = crate::shell::frozen_attachment(&app, &attachment_id, &ctx, &gid);
+    let candidate_payload = selected.as_ref().ok().map(|f| f.payload());
+    if let Some((stage, started, d, verified)) = lock(journal)
+        .replay_media(&ctx, &local_id, &gid, candidate_payload.as_ref())
+        .map_err(e2dto)?
+    {
+        let mut result = MediaSendResult::replay(stage, started, d);
+        result.replay_only = !verified;
+        return Ok(result);
+    }
+    let frozen = match selected {
+        Ok(frozen) if frozen.validate(&ctx, &gid).is_ok() => frozen,
+        _ => {
+            return Ok(MediaSendResult::blocked(
+                "prepare",
+                false,
+                "local attachment expired or is not registered; select it again",
+            ))
+        }
+    };
+    if validate_media_target(&app, &ctx, &gid, &frozen.target)
+        .await
+        .is_err()
+    {
+        return Ok(MediaSendResult::blocked(
+            "prepare",
+            false,
+            "attachment target changed; select it again",
+        ));
+    }
+    let payload = frozen.payload();
+    media_progress(&app, &ctx, &gid, &attachment_id, &local_id, "prepare");
+    let transfer = uuid::Uuid::new_v4().to_string();
+    let args = serde_json::json!({ "gid": gid, "target_token": frozen.target.target_token, "transfer_id": transfer });
+    let mut begin = args.clone();
+    begin["kind"] = frozen.dto.kind.clone().into();
+    begin["name"] = frozen.dto.name.clone().into();
+    begin["mime"] = frozen.dto.mime.clone().into();
+    begin["size"] = frozen.dto.size.into();
+    begin["sha256"] = frozen.dto.content_sha256.clone().into();
+    if request(&app, &ctx, "media.stage_begin", begin, READ_TIMEOUT)
+        .await
+        .is_err()
+    {
+        let _ = request(&app, &ctx, "media.discard", args.clone(), READ_TIMEOUT).await;
+        return Ok(MediaSendResult::blocked(
+            "prepare",
+            false,
+            "could not stage attachment on its original official page",
+        ));
+    }
+    for (index, chunk) in frozen.bytes.chunks(media_outbound::CHUNK_CAP).enumerate() {
+        let mut part = args.clone();
+        part["offset"] = (index * media_outbound::CHUNK_CAP).into();
+        part["data"] = media_outbound::base64(chunk).into();
+        if request(&app, &ctx, "media.stage_chunk", part, READ_TIMEOUT)
+            .await
+            .is_err()
+        {
+            let _ = request(&app, &ctx, "media.discard", args.clone(), READ_TIMEOUT).await;
+            return Ok(MediaSendResult::blocked(
+                "prepare",
+                false,
+                "local attachment staging did not complete (nothing uploaded)",
+            ));
+        }
+    }
+    let new = lock(journal)
+        .reserve_media(&ctx, &local_id, &payload, &frozen.dto.kind)
+        .map_err(e2dto)?;
+    if !new {
+        let _ = request(&app, &ctx, "media.discard", args.clone(), READ_TIMEOUT).await;
+        let (stage, started, d) = lock(journal).media_status(&ctx, &local_id).map_err(e2dto)?;
+        return Ok(MediaSendResult::replay(stage, started, d));
+    }
+    crate::shell::consume_attachment(&app, &attachment_id, &ctx, &gid);
+    let _release = ReleaseMediaTarget {
+        app: app.clone(),
+        account: ctx.clone(),
+        gid: gid.clone(),
+        target: frozen.target.clone(),
+    };
+    media_progress(&app, &ctx, &gid, &attachment_id, &local_id, "upload");
+    let uploaded: MediaUploadReply = match forward(
+        &app,
+        &ctx,
+        "media.upload",
+        args.clone(),
+        Duration::from_secs(270),
+    )
+    .await
+    {
+        Ok(reply) => reply,
+        Err(_) => {
+            return Ok(MediaSendResult::blocked(
+                "upload",
+                true,
+                "upload response is unknown; do not upload this intent again",
+            ))
+        }
+    };
+    if uploaded.kind != "uploaded" {
+        if uploaded.kind == "rejected" || uploaded.kind == "not_submitted" {
+            let disposition = SendDispositionDto::Rejected {
+                code: "media.upload_rejected".into(),
+                reason: "media upload was rejected or failed local validation".into(),
+            };
+            if lock(journal)
+                .finish_media(&ctx, &local_id, &payload, disposition.clone())
+                .is_err()
+            {
+                return Ok(MediaSendResult::blocked(
+                    "upload",
+                    true,
+                    "could not persist upload failure; do not retry",
+                ));
+            }
+            let mut result = MediaSendResult::replay("upload".into(), false, disposition);
+            if uploaded.kind == "not_submitted" {
+                result.kind = "not_submitted".into();
+                result.disposition = None;
+            }
+            result.error = Some(
+                uploaded
+                    .error
+                    .unwrap_or_else(|| "media upload rejected".into()),
+            );
+            return Ok(result);
+        }
+        return Ok(MediaSendResult::blocked(
+            "upload",
+            true,
+            uploaded
+                .error
+                .as_deref()
+                .unwrap_or("upload outcome unknown; do not retry"),
+        ));
+    }
+    let body = match uploaded.body_json.filter(|body| {
+        body.len() <= 16384
+            && media_outbound::validate_body(
+                body,
+                &frozen.dto.kind,
+                &frozen.dto.name,
+                frozen.dto.size,
+            )
+    }) {
+        Some(body) if uploaded.media.is_some() => body,
+        _ => {
+            return Ok(MediaSendResult::blocked(
+                "upload",
+                true,
+                "upload response did not match the media contract; do not retry",
+            ))
+        }
+    };
+    if lock(journal)
+        .advance_media(&ctx, &local_id, &payload, &body, false)
+        .is_err()
+    {
+        return Ok(MediaSendResult::blocked(
+            "upload",
+            true,
+            "uploaded resource could not be durably recorded; do not retry",
+        ));
+    }
+    if validate_media_target(&app, &ctx, &gid, &frozen.target)
+        .await
+        .is_err()
+    {
+        return Ok(MediaSendResult::blocked(
+            "upload",
+            true,
+            "target changed after upload; no SDK submission was admitted",
+        ));
+    }
+    if lock(journal)
+        .advance_media(&ctx, &local_id, &payload, &body, true)
+        .is_err()
+    {
+        return Ok(MediaSendResult::blocked(
+            "upload",
+            true,
+            "send admission could not be durably recorded; no SDK call is permitted",
+        ));
+    }
+    media_progress(&app, &ctx, &gid, &attachment_id, &local_id, "send");
+    let mut send = args;
+    send["local_id"] = local_id.clone().into();
+    send["body_json"] = body.clone().into();
+    let reply: Option<MediaSendReply> = forward(&app, &ctx, "im.send_media", send, WRITE_TIMEOUT)
+        .await
+        .ok();
+    let reply = reply.filter(|r| {
+        media_outbound::validate_message(
+            &r.message,
+            &r.disposition,
+            &body,
+            &gid,
+            &local_id,
+            &frozen.dto.kind,
+            &frozen.target.sender_id,
+        )
+    });
+    let observed = reply
+        .as_ref()
+        .map(|r| r.disposition.clone())
+        .unwrap_or(SendDispositionDto::Unknown);
+    let disposition = lock(journal)
+        .finish_media(&ctx, &local_id, &payload, observed)
+        .unwrap_or(SendDispositionDto::Unknown);
+    let mut result = MediaSendResult::replay("send".into(), true, disposition.clone());
+    if let Some(mut reply) = reply {
+        reply.message.disposition = Some(disposition);
+        result.message = Some(reply.message);
+    }
+    Ok(result)
 }
 
 /// Read-only recovery metadata for the UI's explicit verification entry point.

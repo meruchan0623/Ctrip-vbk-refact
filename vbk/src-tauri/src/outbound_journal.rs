@@ -31,6 +31,8 @@ pub struct SendPayload {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum Phase {
+    UploadStarted,
+    Uploaded,
     WriteStarted,
     Unknown,
     Completed,
@@ -38,6 +40,12 @@ enum Phase {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Attempt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    media_kind: Option<String>,
+    #[serde(default)]
+    send_started: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    message_sha256: Option<String>,
     schema: u8,
     environment: String,
     account_id: String,
@@ -157,6 +165,26 @@ impl OutboundJournal {
         {
             return Err(corrupt());
         }
+        if let Some(kind) = &row.media_kind {
+            if !matches!(kind.as_str(), "image" | "file" | "video")
+                || row.message_sha256.as_ref().map_or(false, |hash| {
+                    hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit())
+                })
+                || (row.send_started && row.message_sha256.is_none())
+                || (row.phase == Phase::UploadStarted
+                    && (row.send_started || row.message_sha256.is_some()))
+                || (row.phase == Phase::Uploaded
+                    && (row.send_started || row.message_sha256.is_none()))
+                || (matches!(row.phase, Phase::WriteStarted | Phase::Unknown) && !row.send_started)
+                || (matches!(row.disposition, SendDispositionDto::Confirmed { .. }) && !row.send_started)
+            {
+                return Err(corrupt());
+            }
+        } else if row.message_sha256.is_some()
+            || matches!(row.phase, Phase::UploadStarted | Phase::Uploaded)
+        {
+            return Err(corrupt());
+        }
         match (&row.phase, &row.disposition) {
             (
                 Phase::Completed,
@@ -166,6 +194,8 @@ impl OutboundJournal {
             ) if !server_message_id.trim().is_empty() => {}
             (Phase::Completed, SendDispositionDto::Rejected { code, .. }) if !code.is_empty() => {}
             (Phase::WriteStarted | Phase::Unknown, SendDispositionDto::Unknown) => {}
+            (Phase::UploadStarted | Phase::Uploaded, SendDispositionDto::Unknown)
+                if row.media_kind.is_some() && !row.send_started => {}
             _ => return Err(corrupt()),
         }
         Ok(row)
@@ -180,6 +210,16 @@ impl OutboundJournal {
         account: &AccountContext,
         local_id: &str,
         payload: &SendPayload,
+    ) -> Result<Reservation, AppError> {
+        self.reserve_at(account, local_id, payload, None)
+    }
+
+    fn reserve_at(
+        &self,
+        account: &AccountContext,
+        local_id: &str,
+        payload: &SendPayload,
+        media_kind: Option<String>,
     ) -> Result<Reservation, AppError> {
         if local_id.is_empty() || payload.gid.is_empty() || payload.text.trim().is_empty() {
             return Err(AppError::new(
@@ -198,7 +238,7 @@ impl OutboundJournal {
         let digest = payload_hash(payload)?;
         if let Some(current) = self.store.get(&ns, COLLECTION, local_id)? {
             let existing = Self::decode(&current, account, local_id)?;
-            if existing.payload_sha256 != digest {
+            if existing.payload_sha256 != digest || existing.media_kind != media_kind {
                 return Err(AppError::new(
                     "im.intent_conflict",
                     "local_id already belongs to a different outbound payload (nothing sent)",
@@ -212,6 +252,14 @@ impl OutboundJournal {
             return Ok(Reservation::Existing(existing.disposition));
         }
         let row = Attempt {
+            phase: if media_kind.is_some() {
+                Phase::UploadStarted
+            } else {
+                Phase::WriteStarted
+            },
+            send_started: media_kind.is_none(),
+            media_kind,
+            message_sha256: None,
             schema: 1,
             environment: account.environment.as_str().into(),
             account_id: account.account_id.as_str().into(),
@@ -221,7 +269,6 @@ impl OutboundJournal {
             payload_sha256: digest,
             created_at_ms: now_ms(),
             completed_at_ms: None,
-            phase: Phase::WriteStarted,
             disposition: SendDispositionDto::Unknown,
         };
         let mut tx = self.store.begin(&ns)?;
@@ -230,6 +277,134 @@ impl OutboundJournal {
         self.store.commit(tx)?;
         self.durability_barrier(&ns)?;
         Ok(Reservation::New)
+    }
+
+    /// Shares the exact text local_id/CAS/OS-lock namespace. Payload is a
+    /// canonical body-free manifest; it is hashed and never written verbatim.
+    pub fn reserve_media(
+        &self,
+        account: &AccountContext,
+        local_id: &str,
+        payload: &SendPayload,
+        kind: &str,
+    ) -> Result<bool, AppError> {
+        if !matches!(kind, "image" | "file" | "video") {
+            return Err(corrupt());
+        }
+        Ok(matches!(
+            self.reserve_at(account, local_id, payload, Some(kind.into()))?,
+            Reservation::New
+        ))
+    }
+
+    pub fn media_status(
+        &self,
+        account: &AccountContext,
+        local_id: &str,
+    ) -> Result<(String, bool, SendDispositionDto), AppError> {
+        let _writer = self.writer_lock()?;
+        let ns = Namespace::from_context(account);
+        let value = self
+            .store
+            .get(&ns, COLLECTION, local_id)?
+            .ok_or_else(corrupt)?;
+        let row = Self::decode(&value, account, local_id)?;
+        self.durability_barrier(&ns)?;
+        let started = row.media_kind.is_none() || row.send_started;
+        Ok((
+            if started { "send" } else { "upload" }.into(),
+            started,
+            row.disposition,
+        ))
+    }
+
+    /// Read-only replay precedes local byte staging/expiry checks. A duplicate
+    /// intent cannot become a fresh "not submitted" result merely because its
+    /// original attachment or page capability has since expired.
+    pub fn replay_media(
+        &self,
+        account: &AccountContext,
+        local_id: &str,
+        gid: &str,
+        payload: Option<&SendPayload>,
+    ) -> Result<Option<(String, bool, SendDispositionDto, bool)>, AppError> {
+        let _writer = self.writer_lock()?;
+        let ns = Namespace::from_context(account);
+        let Some(value) = self.store.get(&ns, COLLECTION, local_id)? else {
+            return Ok(None);
+        };
+        let row = Self::decode(&value, account, local_id)?;
+        if row.gid != gid
+            || row.media_kind.is_none()
+            || payload
+                .map(payload_hash)
+                .transpose()?
+                .map_or(false, |hash| row.payload_sha256 != hash)
+        {
+            return Err(AppError::new(
+                "im.intent_conflict",
+                "local_id belongs to a different intent (nothing new submitted)",
+            ));
+        }
+        self.durability_barrier(&ns)?;
+        Ok(Some((
+            if row.send_started { "send" } else { "upload" }.into(),
+            row.send_started,
+            row.disposition,
+            payload.is_some(),
+        )))
+    }
+
+    pub fn advance_media(
+        &self,
+        account: &AccountContext,
+        local_id: &str,
+        payload: &SendPayload,
+        body: &str,
+        start_send: bool,
+    ) -> Result<(), AppError> {
+        let _writer = self.writer_lock()?;
+        let ns = Namespace::from_context(account);
+        let value = self
+            .store
+            .get(&ns, COLLECTION, local_id)?
+            .ok_or_else(corrupt)?;
+        let mut row = Self::decode(&value, account, local_id)?;
+        if row.media_kind.is_none()
+            || row.payload_sha256 != payload_hash(payload)?
+            || body.is_empty()
+        {
+            return Err(corrupt());
+        }
+        let digest = format!("{:x}", Sha256::digest(body.as_bytes()));
+        if start_send {
+            if row.phase != Phase::Uploaded || row.message_sha256.as_ref() != Some(&digest) {
+                return Err(corrupt());
+            }
+            row.phase = Phase::WriteStarted;
+            row.send_started = true;
+        } else {
+            if row.phase != Phase::UploadStarted {
+                return Err(corrupt());
+            }
+            row.phase = Phase::Uploaded;
+            row.message_sha256 = Some(digest);
+        }
+        let mut tx = self.store.begin(&ns)?;
+        tx.expect_unchanged(COLLECTION, local_id, Some(value));
+        tx.put(COLLECTION, local_id, Self::value(&row)?);
+        self.store.commit(tx)?;
+        self.durability_barrier(&ns)
+    }
+
+    pub fn finish_media(
+        &self,
+        account: &AccountContext,
+        local_id: &str,
+        payload: &SendPayload,
+        disposition: SendDispositionDto,
+    ) -> Result<SendDispositionDto, AppError> {
+        self.finish(account, local_id, payload, disposition)
     }
 
     fn finish(
@@ -253,6 +428,7 @@ impl OutboundJournal {
             self.durability_barrier(&ns)?;
             return Ok(row.disposition);
         }
+        if row.media_kind.is_some() && !row.send_started && !matches!(disposition, SendDispositionDto::Rejected { .. }) { return Err(corrupt()); }
         let observed = match disposition {
             SendDispositionDto::Confirmed {
                 ref server_message_id,
@@ -302,11 +478,12 @@ impl OutboundJournal {
                     gid: row.gid,
                     creation_generation: row.creation_generation,
                     created_at_ms: row.created_at_ms,
-                    write_started: true,
-                    phase: if row.phase == Phase::WriteStarted {
-                        "write_started"
-                    } else {
-                        "unknown"
+                    write_started: row.media_kind.is_none() || row.send_started,
+                    phase: match row.phase {
+                        Phase::UploadStarted => "upload_started",
+                        Phase::Uploaded => "uploaded",
+                        Phase::WriteStarted => "write_started",
+                        _ => "unknown",
                     }
                     .into(),
                 })),
@@ -394,6 +571,375 @@ mod tests {
         loop {
             if let std::task::Poll::Ready(value) = future.as_mut().poll(&mut cx) {
                 return value;
+            }
+        }
+    }
+
+    fn media_payload() -> SendPayload {
+        SendPayload { gid: "synthetic-media-room".into(), text: r#"{"kind":"file","name":"PRIVATE_SYNTHETIC_NAME.pdf","size":22,"content_sha256":"synthetic-digest","target_sha256":"synthetic-target"}"#.into(), original: None, quote_id: None }
+    }
+    const MEDIA_BODY: &str = r#"{"btype":5,"file":{"filename":"PRIVATE_SYNTHETIC_NAME.pdf","url":"https://static.tripcdn.com/PRIVATE_SYNTHETIC_URL.pdf","size":22}}"#;
+
+    #[test]
+    fn media_upload_and_send_have_separate_durable_recovery_barriers_in_the_same_local_id_namespace(
+    ) {
+        let root = TempDir::new();
+        let first = OutboundJournal::open(root.0.clone()).unwrap();
+        assert!(first
+            .reserve_media(&account(1), "media-local", &media_payload(), "file")
+            .unwrap());
+        let rows = first.unknown_metadata(&account(2)).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].phase, "upload_started");
+        assert!(!rows[0].write_started);
+        drop(first);
+        let reopened = OutboundJournal::open(root.0.clone()).unwrap();
+        assert!(
+            !reopened
+                .reserve_media(&account(2), "media-local", &media_payload(), "file")
+                .unwrap(),
+            "upload_started after a real FileStore reopen cannot admit another upload"
+        );
+        assert!(
+            reopened
+                .reserve(&account(2), "media-local", &payload())
+                .is_err(),
+            "text cannot bypass the media local_id reservation"
+        );
+        reopened
+            .advance_media(
+                &account(2),
+                "media-local",
+                &media_payload(),
+                MEDIA_BODY,
+                false,
+            )
+            .unwrap();
+        assert_eq!(
+            reopened.unknown_metadata(&account(3)).unwrap()[0].phase,
+            "uploaded"
+        );
+        assert!(!reopened.unknown_metadata(&account(3)).unwrap()[0].write_started);
+        assert!(reopened
+            .advance_media(
+                &account(3),
+                "media-local",
+                &media_payload(),
+                "different payload",
+                true
+            )
+            .is_err());
+        reopened
+            .advance_media(
+                &account(3),
+                "media-local",
+                &media_payload(),
+                MEDIA_BODY,
+                true,
+            )
+            .unwrap();
+        assert!(
+            reopened
+                .advance_media(
+                    &account(3),
+                    "media-local",
+                    &media_payload(),
+                    MEDIA_BODY,
+                    true
+                )
+                .is_err(),
+            "a persisted write_started can never admit another SDK dispatch"
+        );
+        drop(reopened);
+        let restarted = OutboundJournal::open(root.0.clone()).unwrap();
+        assert!(!restarted
+            .reserve_media(&account(99), "media-local", &media_payload(), "file")
+            .unwrap());
+        let rows = restarted.unknown_metadata(&account(99)).unwrap();
+        assert_eq!(rows[0].phase, "write_started");
+        assert!(rows[0].write_started);
+        let disk = std::fs::read_to_string(
+            restarted
+                .store
+                .namespace_dir(&Namespace::from_context(&account(99)))
+                .join("state.json"),
+        )
+        .unwrap();
+        assert!(!disk.contains("PRIVATE_SYNTHETIC"));
+        assert!(!disk.contains("static.tripcdn.com"));
+    }
+
+    #[test]
+    fn media_all_manifest_fields_conflict_and_text_reservation_cannot_be_retyped_as_media() {
+        let root = TempDir::new();
+        let journal = OutboundJournal::open(root.0.clone()).unwrap();
+        assert!(journal
+            .reserve_media(&account(1), "media-local", &media_payload(), "file")
+            .unwrap());
+        for field in ["kind", "name", "size", "content_sha256", "target_sha256"] {
+            let mut changed = media_payload();
+            let mut value: serde_json::Value = serde_json::from_str(&changed.text).unwrap();
+            value[field] = "changed".into();
+            changed.text = value.to_string();
+            assert!(
+                journal
+                    .reserve_media(&account(2), "media-local", &changed, "file")
+                    .is_err(),
+                "{field} must belong to the original intent"
+            );
+        }
+        journal
+            .reserve(&account(1), "text-local", &payload())
+            .unwrap();
+        assert!(journal
+            .reserve_media(&account(1), "text-local", &media_payload(), "file")
+            .is_err());
+        journal
+            .reserve(&account(1), "same-hash-text", &media_payload())
+            .unwrap();
+        assert!(journal
+            .reserve_media(&account(1), "same-hash-text", &media_payload(), "file")
+            .is_err());
+        assert!(journal
+            .reserve(&account(1), "media-local", &media_payload())
+            .is_err());
+    }
+
+    #[test]
+    fn media_replay_requires_original_manifest_or_explicit_metadata_only_and_preserves_prior_stage()
+    {
+        let root = TempDir::new();
+        let journal = OutboundJournal::open(root.0.clone()).unwrap();
+        journal
+            .reserve_media(&account(1), "old-local", &media_payload(), "file")
+            .unwrap();
+        let (stage, started, d, verified) = journal
+            .replay_media(&account(2), "old-local", &media_payload().gid, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stage, "upload");
+        assert!(!started);
+        assert!(!verified);
+        assert_eq!(d, SendDispositionDto::Unknown);
+        let mut current = media_payload();
+        current.text.push_str(" different snapshot");
+        assert!(journal
+            .replay_media(&account(2), "old-local", &current.gid, Some(&current))
+            .is_err());
+        journal
+            .advance_media(
+                &account(1),
+                "old-local",
+                &media_payload(),
+                MEDIA_BODY,
+                false,
+            )
+            .unwrap();
+        journal
+            .advance_media(&account(1), "old-local", &media_payload(), MEDIA_BODY, true)
+            .unwrap();
+        journal
+            .finish_media(
+                &account(1),
+                "old-local",
+                &media_payload(),
+                SendDispositionDto::Confirmed {
+                    server_message_id: "old-server".into(),
+                    server_time_ms: 1700000000999,
+                },
+            )
+            .unwrap();
+        let (_, started, d, verified) = journal
+            .replay_media(&account(2), "old-local", &media_payload().gid, None)
+            .unwrap()
+            .unwrap();
+        assert!(started);
+        assert!(!verified);
+        assert!(matches!(d, SendDispositionDto::Confirmed { .. }));
+        assert!(
+            journal
+                .replay_media(
+                    &account(2),
+                    "old-local",
+                    &media_payload().gid,
+                    Some(&media_payload())
+                )
+                .unwrap()
+                .unwrap()
+                .3
+        );
+    }
+
+    #[test]
+    fn legacy_text_without_new_send_started_field_remains_a_started_unknown_not_a_media_upload() {
+        let root = TempDir::new(); let journal = OutboundJournal::open(root.0.clone()).unwrap();
+        journal.reserve(&account(1), "legacy-local", &payload()).unwrap();
+        let ns = Namespace::from_context(&account(1));
+        let value = journal.store.get(&ns, COLLECTION, "legacy-local").unwrap().unwrap();
+        let mut old: serde_json::Value = serde_json::from_str(&value.to_json()).unwrap();
+        old.as_object_mut().unwrap().remove("send_started");
+        let mut tx = journal.store.begin(&ns).unwrap(); tx.put(COLLECTION, "legacy-local", JsonValue::parse(&old.to_string()).unwrap()); journal.store.commit(tx).unwrap();
+        drop(journal);
+        let reopened = Mutex::new(OutboundJournal::open(root.0.clone()).unwrap()); let calls = AtomicUsize::new(0);
+        assert_eq!(run(send_once(&reopened, &account(99), "legacy-local", &payload(), || async { calls.fetch_add(1, Ordering::SeqCst); Ok(SendDispositionDto::Unknown) })).unwrap(), SendDispositionDto::Unknown);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let rows = reopened.lock().unwrap().unknown_metadata(&account(99)).unwrap(); assert_eq!(rows[0].phase, "write_started"); assert!(rows[0].write_started);
+    }
+
+    #[test]
+    fn media_disk_failure_before_send_transition_preserves_uploaded_without_admitting_a_write() {
+        let root = TempDir::new();
+        let journal = OutboundJournal::open(root.0.clone()).unwrap();
+        let ns = Namespace::from_context(&account(1));
+        journal
+            .reserve_media(&account(1), "media-local", &media_payload(), "file")
+            .unwrap();
+        journal
+            .advance_media(
+                &account(1),
+                "media-local",
+                &media_payload(),
+                MEDIA_BODY,
+                false,
+            )
+            .unwrap();
+        journal.store.logout_lock(&ns).unwrap();
+        assert!(journal
+            .advance_media(
+                &account(1),
+                "media-local",
+                &media_payload(),
+                MEDIA_BODY,
+                true
+            )
+            .is_err());
+        let rows = journal.unknown_metadata(&account(2)).unwrap();
+        assert_eq!(rows[0].phase, "uploaded");
+        assert!(!rows[0].write_started);
+        journal.store.unlock_after_reauth(&ns).unwrap();
+        assert!(!journal
+            .reserve_media(&account(3), "media-local", &media_payload(), "file")
+            .unwrap());
+    }
+
+    #[test]
+    fn media_confirmation_is_durable_and_terminal_replay_contains_no_resource_or_body() {
+        let root = TempDir::new();
+        let journal = OutboundJournal::open(root.0.clone()).unwrap();
+        journal
+            .reserve_media(&account(1), "media-local", &media_payload(), "file")
+            .unwrap();
+        journal
+            .advance_media(
+                &account(1),
+                "media-local",
+                &media_payload(),
+                MEDIA_BODY,
+                false,
+            )
+            .unwrap();
+        journal
+            .advance_media(
+                &account(1),
+                "media-local",
+                &media_payload(),
+                MEDIA_BODY,
+                true,
+            )
+            .unwrap();
+        let expected = SendDispositionDto::Confirmed {
+            server_message_id: "900719925474099312345".into(),
+            server_time_ms: 1700000000999,
+        };
+        assert_eq!(
+            journal
+                .finish_media(
+                    &account(1),
+                    "media-local",
+                    &media_payload(),
+                    expected.clone()
+                )
+                .unwrap(),
+            expected
+        );
+        drop(journal);
+        let reopened = OutboundJournal::open(root.0.clone()).unwrap();
+        let (stage, started, result) = reopened.media_status(&account(2), "media-local").unwrap();
+        assert_eq!(stage, "send");
+        assert!(started);
+        assert_eq!(result, expected);
+        assert!(reopened.unknown_metadata(&account(2)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn media_upload_uploaded_and_sdk_barriers_survive_real_process_restarts_without_replay() {
+        const ROOT: &str = "VBK_SYNTHETIC_MEDIA_RESTART_ROOT";
+        const PHASE: &str = "VBK_SYNTHETIC_MEDIA_RESTART_PHASE";
+        const MODE: &str = "VBK_SYNTHETIC_MEDIA_RESTART_MODE";
+        if let Some(root) = std::env::var_os(ROOT) {
+            use std::io::Write;
+            let root = PathBuf::from(root);
+            let phase = std::env::var(PHASE).unwrap();
+            let seed = std::env::var(MODE).unwrap() == "seed";
+            let journal = OutboundJournal::open(root.join("store")).unwrap();
+            let is_new = journal
+                .reserve_media(
+                    &account(if seed { 1 } else { 99 }),
+                    "media-local",
+                    &media_payload(),
+                    "file",
+                )
+                .unwrap();
+            if is_new {
+                let mut marker = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(root.join("uploads"))
+                    .unwrap();
+                marker.write_all(b"one upload\n").unwrap();
+                marker.sync_all().unwrap();
+                if phase != "upload_started" {
+                    journal
+                        .advance_media(
+                            &account(1),
+                            "media-local",
+                            &media_payload(),
+                            MEDIA_BODY,
+                            false,
+                        )
+                        .unwrap();
+                }
+                if phase == "write_started" {
+                    journal
+                        .advance_media(
+                            &account(1),
+                            "media-local",
+                            &media_payload(),
+                            MEDIA_BODY,
+                            true,
+                        )
+                        .unwrap();
+                }
+            }
+            assert_eq!(
+                is_new, seed,
+                "the restarted OS process cannot admit another upload or SDK call"
+            );
+            assert_eq!(
+                std::fs::read_to_string(root.join("uploads")).unwrap(),
+                "one upload\n"
+            );
+            let rows = journal.unknown_metadata(&account(99)).unwrap();
+            assert_eq!(rows[0].phase, phase);
+            assert_eq!(rows[0].write_started, phase == "write_started");
+            return;
+        }
+        for phase in ["upload_started", "uploaded", "write_started"] {
+            let root = TempDir::new();
+            std::fs::create_dir_all(&root.0).unwrap();
+            for mode in ["seed", "recover"] {
+                let status = std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact", "adapter::outbound_journal::tests::media_upload_uploaded_and_sdk_barriers_survive_real_process_restarts_without_replay", "--nocapture"]).env(ROOT, &root.0).env(PHASE, phase).env(MODE, mode).status().unwrap();
+                assert!(status.success(), "media {phase}/{mode}: {status}");
             }
         }
     }

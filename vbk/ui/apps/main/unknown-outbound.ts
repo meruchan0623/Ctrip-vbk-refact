@@ -29,8 +29,11 @@ const unknown = (message: string): UnknownOutboundResult => ({ kind: 'unknown', 
 /** Copy only audited metadata; never preserve extra IPC fields or message bodies. */
 function metadata(value: unknown, scope: AccountContext): UiUnknownOutboundRecord | null {
   const row = record(value);
-  if (!row || row['account_id'] !== scope.account_id || row['environment'] !== scope.environment || !exactString(row['local_id']) || !exactString(row['gid']) || !safeNumber(row['creation_generation']) || !safeTime(row['created_at_ms']) || row['write_started'] !== true || (row['phase'] !== 'write_started' && row['phase'] !== 'unknown')) return null;
-  return { environment: scope.environment, account_id: scope.account_id, local_id: row['local_id'], gid: row['gid'], creation_generation: row['creation_generation'], created_at_ms: row['created_at_ms'], write_started: true, phase: row['phase'] };
+  if (!row || row['account_id'] !== scope.account_id || row['environment'] !== scope.environment || !exactString(row['local_id']) || !exactString(row['gid']) || !safeNumber(row['creation_generation']) || !safeTime(row['created_at_ms'])) return null;
+  const uploadOnly = row['write_started'] === false && (row['phase'] === 'upload_started' || row['phase'] === 'uploaded');
+  const messageStarted = row['write_started'] === true && (row['phase'] === 'write_started' || row['phase'] === 'unknown');
+  if (!uploadOnly && !messageStarted) return null;
+  return { environment: scope.environment, account_id: scope.account_id, local_id: row['local_id'], gid: row['gid'], creation_generation: row['creation_generation'], created_at_ms: row['created_at_ms'], write_started: row['write_started'] === true, phase: row['phase'] as UiUnknownOutboundRecord['phase'] };
 }
 
 /** This controller has only two read operations. A match never settles or deletes the journal. */
@@ -72,13 +75,16 @@ export function createUnknownOutbound(deps: Dependencies) {
     if (!view || view.busy) return;
     if (!sameScope(view.scope, deps.current())) { close(); return; }
     const matches = view.records.filter(row => row.gid === gid && row.local_id === localId);
+    if (matches.length === 1 && !matches[0]!.write_started) {
+      view = { ...view, selected: null, result: unknown('这只是附件上传阶段记录，消息尚未提交；不会查询消息页、解锁或重发。') }; deps.publish(view); return;
+    }
     view = { ...view, selected: matches.length === 1 ? { gid, local_id: localId } : null, result: matches.length === 1 ? null : unknown('元数据重复或不可用，无法核验；结果仍未知。') }; deps.publish(view);
   }
   async function verify(): Promise<void> {
     if (!view || view.busy || !view.selected) return;
     const { scope, selected } = view;
     if (!sameScope(scope, deps.current())) { close(); return; }
-    if (view.records.filter(row => row.gid === selected.gid && row.local_id === selected.local_id).length !== 1) return;
+    if (view.records.filter(row => row.gid === selected.gid && row.local_id === selected.local_id && row.write_started).length !== 1) return;
     const ticket = ++sequence;
     view = { ...view, busy: true, result: null }; deps.publish(view);
     let result: UnknownOutboundResult;

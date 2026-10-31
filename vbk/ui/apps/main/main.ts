@@ -31,6 +31,9 @@ import type {
   UiNoticeCategory,
   UiOrderSummary,
   UiPackageInfo,
+  UiAttachment,
+  UiMediaSendResult,
+  UiMediaSendProgress,
 } from '../../packages/ipc/src/client.ts';
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
 import { MOCK_ORDER_SAMPLES } from '../../packages/ipc/src/mock.ts';
@@ -65,7 +68,7 @@ import { messageAlignment } from './message-alignment.ts';
 import { mergeMessageProfile, renderMessageAvatar } from './message-profile.ts';
 import { createUnknownOutbound, type UnknownOutboundView } from './unknown-outbound.ts';
 import { createReceiveCounters, createReceiveDiagnostics, receiveDiagnosticsJson, type ReceiveDiagnosticsView } from './receive-diagnostics.ts';
-import { sendComposer, attachmentSendUnavailable, ATTACHMENT_SEND_UNAVAILABLE } from './sendComposer.ts';
+import { sendComposer, attachmentSendUnavailable, isRegisteredMediaAttachment, ATTACHMENT_SEND_UNAVAILABLE } from './sendComposer.ts';
 import {
   AGENT_STATUS_ORDER,
   BANNER_VISIBLE,
@@ -133,6 +136,15 @@ interface Attachment {
   readonly attachment_id: string;
   readonly name: string;
 }
+interface MediaOperation {
+  readonly attachment: UiAttachment;
+  readonly localId: string;
+  readonly draftVersion: number;
+  readonly stage: 'prepare' | 'upload' | 'send';
+  readonly status: 'busy' | 'not_submitted' | 'unknown' | 'rejected';
+  readonly error: string | null;
+}
+interface AttachmentSelection { readonly account: AccountContext; readonly gid: string; readonly draftVersion: number }
 
 interface MainState {
   readonly accounts: UiAccountSnapshot | null;
@@ -159,6 +171,9 @@ interface MainState {
   readonly draftVersion: number;
   readonly quote: UiMessage | null;
   readonly attachment: Attachment | null;
+  readonly attachmentSelection: AttachmentSelection | null;
+  readonly mediaOperation: MediaOperation | null;
+  readonly mediaAttempts: Readonly<Record<string, true>>;
   readonly translation: TranslationState;
   /** Local display choices only (never sent to the host). */
   readonly hideInboundTr: boolean;
@@ -216,6 +231,9 @@ const initial: MainState = {
   draftVersion: 0,
   quote: null,
   attachment: null,
+  attachmentSelection: null,
+  mediaOperation: null,
+  mediaAttempts: {},
   translation: TRANSLATION_IDLE,
   hideInboundTr: false,
   trBarOff: false,
@@ -344,6 +362,9 @@ const ACCOUNT_SCOPED_RESET = {
   drafts: {},
   quote: null,
   attachment: null,
+  attachmentSelection: null,
+  mediaOperation: null,
+  mediaAttempts: {},
   translation: TRANSLATION_IDLE,
   pkg: PKG_IDLE,
   hotOrder: false,
@@ -428,6 +449,8 @@ async function loadForActiveAccount(): Promise<void> {
   if (!stillActive(account)) return; // the user switched accounts meanwhile: these belong to the old one
   const s = S();
   const conversations = Array.isArray(convs) ? convs.filter(isUiConversation) : [];
+  const lostConversation = !!s.activeGid && !conversations.some(c => c.gid === s.activeGid);
+  if (lostConversation && s.attachment) void releaseAttachment(s.attachment);
   const noticeCats = Array.isArray(cats) ? cats : [];
   store.patch({
     conversations,
@@ -435,7 +458,8 @@ async function loadForActiveAccount(): Promise<void> {
     agent: isUiAgentStatus(agent) ? agent : s.agent,
     net: isUiNetStatus(net) ? net : s.net,
     noticeCat: s.noticeCat && noticeCats.some((c) => c.id === s.noticeCat) ? s.noticeCat : (noticeCats[0]?.id ?? null),
-    activeGid: s.activeGid && !conversations.some((c) => c.gid === s.activeGid) ? null : s.activeGid,
+    activeGid: lostConversation ? null : s.activeGid,
+    ...(lostConversation ? { attachment: null, attachmentSelection: null, mediaOperation: null } : {}),
   });
   if (S().noticeCat) await loadNotices();
   // Opening a conversation can acknowledge unread messages. Background account
@@ -470,6 +494,7 @@ function applyAccountSnapshot(snap: UiAccountSnapshot): void {
   // The login attempt is over once no account is logging in any more.
   const loginAttempt = attempt && snap.accounts.some((a) => a.state === 'logging_in') ? attempt : null;
   if (snap.active_account_id !== prev || activeAccount()?.context.environment !== nextAccount?.context.environment || activeAccount()?.context.session_generation !== nextAccount?.context.session_generation) {
+    if (S().attachment) void releaseAttachment(S().attachment);
     peripheral.close();
     receiveDiagnostics.close();
     unknownOutbound.close();
@@ -560,7 +585,8 @@ async function openConversation(gid: string, reveal = true): Promise<void> {
     return;
   }
   peripheral.close();
-  store.patch({ activeGid: gid, view, banners, draft: s.drafts[gid] ?? s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
+  if (s.attachment) void releaseAttachment(s.attachment);
+  store.patch({ activeGid: gid, view, banners, draft: s.drafts[gid] ?? s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, attachmentSelection: null, mediaOperation: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
   const page = await invokeQuiet<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: acc.context, gid });
   const list = page?.items ?? await invokeQuiet<UiMessage[]>(UiCommands.IM_MESSAGES, { account: acc.context, gid });
   if (list && S().activeGid === gid && stillActive(acc.context)) {
@@ -674,8 +700,82 @@ async function handleSend(): Promise<void> {
       return;
     }
     await sendText(text, null);
-  });
+  }, (attachment) => sendMediaAttachment(attachment));
   if (result === 'blocked_attachment') toast(ATTACHMENT_SEND_UNAVAILABLE);
+}
+
+function ownedAttachment(attachment: unknown, account: AccountContext, gid: string): attachment is UiAttachment {
+  return isRegisteredMediaAttachment(attachment) && attachment.owner.gid === gid && sameAccount(attachment.owner.account, account) && attachment.owner.account.session_generation === account.session_generation;
+}
+
+function mediaOperationCurrent(operation: MediaOperation): boolean {
+  const s = S(), a = operation.attachment;
+  return stillActive(a.owner.account) && s.activeGid === a.owner.gid && s.attachment === a && s.mediaOperation?.localId === operation.localId;
+}
+
+async function sendMediaAttachment(attachment: UiAttachment): Promise<void> {
+  const s = S(), account = activeAccount(s)?.context, conv = activeConv(s);
+  if (!account || !conv || isDone(conv) || s.attachment !== attachment || !ownedAttachment(attachment, account, conv.gid)) { toast('附件不属于当前会话，请重新选择。'); return; }
+  if (s.mediaOperation && s.mediaOperation.status !== 'not_submitted') return;
+  const attemptKey = JSON.stringify([account.environment, account.account_id, account.session_generation, conv.gid, attachment.attachment_id]);
+  if (s.mediaAttempts?.[attemptKey]) { toast('该附件已有发送操作，请核对原记录，勿重复发送。'); return; }
+  const operation: MediaOperation = { attachment, localId: nextLocalId(Date.now()), draftVersion: s.draftVersion, stage: 'prepare', status: 'busy', error: null };
+  const local: UiMessage = { gid: conv.gid, local_id: operation.localId, message_id: null, sender_role: 'merchant_self', kind: attachment.kind, media_filename: attachment.name, text: '', create_time_ms: Date.now(), translation: null, original: null, quote: null, order_id: null, disposition: null };
+  store.patch({ mediaOperation: operation, mediaAttempts: { ...s.mediaAttempts, [attemptKey]: true }, attachmentSelection: null, messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] } });
+  let result: UiMediaSendResult;
+  try {
+    result = await ipc.invoke<UiMediaSendResult>(UiCommands.IM_SEND_MEDIA, { account, gid: conv.gid, local_id: operation.localId, attachment_id: attachment.attachment_id });
+    if (!result || !['prepare', 'upload', 'send'].includes(result.stage) || !['not_submitted', 'unknown', 'confirmed', 'rejected'].includes(result.kind) || typeof result.write_started !== 'boolean' || (result.error !== null && typeof result.error !== 'string')) throw new Error('invalid media result');
+    if (result.replay_only !== undefined && typeof result.replay_only !== 'boolean') throw new Error('invalid media replay marker');
+    if (result.stage === 'send' && !result.write_started) throw new Error('invalid media submission stage');
+    const d = result.disposition;
+    if (result.kind === 'confirmed' && (!result.write_started || d?.kind !== 'confirmed' || typeof d.server_message_id !== 'string' || !d.server_message_id || typeof d.server_time_ms !== 'number' || !Number.isFinite(d.server_time_ms))) throw new Error('invalid media confirmation');
+    if (result.kind === 'rejected' && (d?.kind !== 'rejected' || typeof d.code !== 'string' || typeof d.reason !== 'string')) throw new Error('invalid media rejection');
+  } catch {
+    // IPC failure does not prove whether upload/submission started. Never create a retry.
+    result = { stage: 'send', kind: 'unknown', write_started: true, disposition: { kind: 'unknown' }, message: null, error: '结果未知，请核对消息记录，勿重复发送。' };
+  }
+  if (result.replay_only === true) {
+    if (!stillActive(account)) return;
+    // This is evidence about an older intent, never proof that the current attachment was sent.
+    store.patch({ messages: { ...S().messages, [conv.gid]: (S().messages[conv.gid] ?? []).filter(m => m !== local) } });
+    if (mediaOperationCurrent(operation)) store.patch({ mediaOperation: { ...operation, status: 'unknown', error: '已有意图记录，仅供核验；当前附件未发送。请核对原记录，勿重复发送。' } });
+    return;
+  }
+  if (result.kind === 'confirmed' && result.disposition?.kind === 'confirmed') void releaseAttachment(attachment);
+  if (!stillActive(account)) return;
+  const projected = (S().messages[conv.gid] ?? []).some(m => m.local_id === operation.localId && m !== local);
+  const responseConflict = !result.write_started && projected;
+  const notSubmitted = result.kind === 'not_submitted' && !result.write_started && !responseConflict;
+  if (!result.write_started) {
+    const attempts = { ...S().mediaAttempts }; if (notSubmitted) delete attempts[attemptKey];
+    // Remove only our exact optimistic placeholder, never an independently projected SDK event.
+    store.patch({ mediaAttempts: attempts, messages: { ...S().messages, [conv.gid]: (S().messages[conv.gid] ?? []).filter(m => m !== local) } });
+  } else {
+    const projection = result.message;
+    const verified = projection && isUiMessage(projection) && projection.gid === conv.gid && projection.local_id === operation.localId && projection.kind === attachment.kind && projection.sender_role === 'merchant_self';
+    const disposition: SendDisposition = result.kind === 'confirmed' && result.disposition?.kind === 'confirmed' ? result.disposition
+      : result.kind === 'rejected' && result.disposition?.kind === 'rejected' ? result.disposition : { kind: 'unknown' };
+    upsertMessage({ ...(verified ? projection : local), disposition, message_id: disposition.kind === 'confirmed' ? disposition.server_message_id : verified ? projection.message_id : null });
+  }
+  if (!mediaOperationCurrent(operation)) return;
+  if (result.kind === 'confirmed' && result.disposition?.kind === 'confirmed') store.patch({ attachment: null, mediaOperation: null });
+  else {
+    const status = responseConflict ? 'unknown' : notSubmitted ? 'not_submitted' : result.kind === 'rejected' ? 'rejected' : 'unknown';
+    const error = responseConflict ? '附件返回与已收到的消息事件不一致，请核对原记录，勿重复发送。'
+      : !result.write_started && !notSubmitted ? `${result.kind === 'rejected' ? '附件上传被拒绝' : '附件上传结果待核对'}，消息尚未提交；勿重复上传或发送。${result.error ? ` ${result.error}` : ''}`
+      : result.error ?? (notSubmitted ? '附件未发送，可检查后重试。' : result.kind === 'rejected' ? '附件发送被拒绝。' : '结果未知，请核对消息记录，勿重复发送。');
+    store.patch({ mediaOperation: { ...operation, stage: result.stage, status, error } });
+  }
+}
+
+function receiveMediaProgress(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  const p = value as Partial<UiMediaSendProgress>, operation = S().mediaOperation;
+  if (!operation || operation.status !== 'busy' || !mediaOperationCurrent(operation) || !p.account || !ownedAttachment(operation.attachment, p.account, p.gid ?? '') || p.attachment_id !== operation.attachment.attachment_id || p.local_id !== operation.localId || !['prepare', 'upload', 'send'].includes(p.stage ?? '')) return;
+  const order = { prepare: 0, upload: 1, send: 2 };
+  if (order[p.stage!] < order[operation.stage]) return;
+  store.patch({ mediaOperation: { ...operation, stage: p.stage! } });
 }
 
 function translationTarget(s: MainState, conv: UiConversation): string {
@@ -748,15 +848,47 @@ function setDraft(value: string): void {
 }
 
 async function resend(m: UiMessage): Promise<void> {
+  if (m.kind !== 'text') { toast('媒体消息不能按文字重发，请核对发送结果。'); return; }
   const s = S();
   const list = s.messages[m.gid] ?? [];
   store.patch({ messages: { ...s.messages, [m.gid]: list.filter((x) => x !== m) } });
   await sendText(m.text, m.original);
 }
 
-async function attach(kind: 'screenshot' | 'image' | 'file'): Promise<void> {
-  const r = kind === 'screenshot' ? await invokeSafe<Attachment>(UiCommands.MEDIA_SCREENSHOT, {}) : await invokeSafe<Attachment | null>(UiCommands.MEDIA_PICK, { kind });
-  if (r) store.patch({ attachment: r });
+async function releaseAttachment(attachment: Attachment | null): Promise<void> {
+  if (isRegisteredMediaAttachment(attachment)) await invokeQuiet(UiCommands.MEDIA_RELEASE, { account: attachment.owner.account, gid: attachment.owner.gid, attachment_id: attachment.attachment_id });
+}
+
+async function attach(kind: 'screenshot' | 'image' | 'file' | 'video'): Promise<void> {
+  const s = S(), account = activeAccount(s)?.context, conv = activeConv(s);
+  if (!account || !conv || isDone(conv) || (s.mediaOperation && s.mediaOperation.status !== 'not_submitted')) return;
+  const selection: AttachmentSelection = { account: { ...account }, gid: conv.gid, draftVersion: s.draftVersion };
+  store.patch({ attachmentSelection: selection });
+  const args = { account: selection.account, gid: selection.gid };
+  const attachment = kind === 'screenshot' ? await invokeSafe<unknown>(UiCommands.MEDIA_SCREENSHOT, args) : await invokeSafe<unknown>(UiCommands.MEDIA_PICK, { ...args, kind });
+  if (S().attachmentSelection !== selection || !stillActive(selection.account) || S().activeGid !== selection.gid || S().draftVersion !== selection.draftVersion) {
+    if (S().attachmentSelection === selection) store.patch({ attachmentSelection: null });
+    if (isRegisteredMediaAttachment(attachment)) await releaseAttachment(attachment);
+    return;
+  }
+  store.patch({ attachmentSelection: null });
+  if (!attachment) return;
+  if (!ownedAttachment(attachment, selection.account, selection.gid) || attachment.kind !== (kind === 'screenshot' ? 'image' : kind)) {
+    if (isRegisteredMediaAttachment(attachment)) await releaseAttachment(attachment);
+    toast('附件不可用或不属于当前会话，请重新选择。'); return;
+  }
+  const previous = S().attachment;
+  store.patch({ attachment, mediaOperation: null, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target: translationTarget(S(), conv) } });
+  await releaseAttachment(previous);
+}
+
+async function removeAttachment(attachment: Attachment): Promise<void> {
+  const s = S();
+  if (s.attachment !== attachment || s.mediaOperation?.status === 'busy') return;
+  if (isRegisteredMediaAttachment(attachment) && (!stillActive(attachment.owner.account) || s.activeGid !== attachment.owner.gid)) return;
+  // This only removes the local selection. An uploaded/submitted message is never recalled.
+  store.patch({ attachment: null, mediaOperation: null, attachmentSelection: null });
+  await releaseAttachment(attachment);
 }
 
 async function toggleTop(c: UiConversation): Promise<void> {
@@ -1369,7 +1501,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
             { class: cx('mst', st.cls), dataset: { sendState: st.cls } },
             st.spin ? h('span', { class: 'spin' }) : null,
             h('span', null, st.label),
-            st.canRetry ? h('button', { class: 'act', onclick: () => void resend(m) }, t('send.retry')) : null,
+            st.canRetry && m.kind === 'text' ? h('button', { class: 'act', onclick: () => void resend(m) }, t('send.retry')) : null,
           )
         : null,
     ),
@@ -1385,9 +1517,10 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
   const account = activeAccount(s)?.context;
   const owner = account ? { ...account } : null;
   const draftVersion = s.draftVersion;
+  const attachment = s.attachment;
   const applies = (): boolean => {
     const current = S();
-    return !!owner && stillActive(owner) && current.activeGid === conv.gid && current.draftVersion === draftVersion && current.translation === tr;
+    return !!owner && stillActive(owner) && current.activeGid === conv.gid && current.draftVersion === draftVersion && current.translation === tr && current.attachment === attachment;
   };
   const target = translationTarget(s, conv);
   const stale = tr.status === 'done' && tr.draftVersion !== s.draftVersion;
@@ -1456,6 +1589,11 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
 function composer(s: MainState, conv: UiConversation): HTMLElement {
   const quote = selectedQuoteReference(s.quote, s.messages[conv.gid] ?? [], conv.gid);
   const finished = isDone(conv);
+  const media = s.attachment && isRegisteredMediaAttachment(s.attachment) ? s.attachment : null;
+  const operation = s.mediaOperation?.attachment === s.attachment ? s.mediaOperation : null;
+  const mediaLocked = !!operation && operation.status !== 'not_submitted';
+  const mediaLabel = operation?.status === 'busy' ? ({ prepare: '正在准备附件…', upload: '正在上传附件…', send: '正在提交附件消息…' } as const)[operation.stage]
+    : operation?.error ?? (media ? '仅发送附件，文字/引用保留。' : s.attachment ? ATTACHMENT_SEND_UNAVAILABLE : '');
   const trOn = translationOn(s, conv);
   const direct = s.prefs?.assistant.send_mode === 'send_direct' && trOn;
   const sendKey = s.prefs?.keys.send_key ?? 'enter';
@@ -1476,17 +1614,18 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
       'div',
       { class: 'ctools' },
       h('button', { class: cx('ibtn', { on: s.emoOpen }), 'aria-label': t('composer.emoji'), title: t('composer.emoji'), disabled: finished, dataset: { tool: 'emoji' }, onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen }); } }, icon(IC.smile, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.screenshot'), title: shotKey ? `${t('composer.screenshot')} ${shotKey}` : t('composer.screenshot'), disabled: finished, dataset: { tool: 'screenshot' }, onclick: () => void attach('screenshot') }, icon(IC.scissors, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.image'), title: t('composer.image'), disabled: finished, dataset: { tool: 'image' }, onclick: () => void attach('image') }, icon(IC.image, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.file'), title: t('composer.file'), disabled: finished, dataset: { tool: 'file' }, onclick: () => void attach('file') }, icon(IC.file, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.screenshot'), title: shotKey ? `${t('composer.screenshot')} ${shotKey}` : t('composer.screenshot'), disabled: finished || mediaLocked, dataset: { tool: 'screenshot' }, onclick: () => void attach('screenshot') }, icon(IC.scissors, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.image'), title: t('composer.image'), disabled: finished || mediaLocked, dataset: { tool: 'image' }, onclick: () => void attach('image') }, icon(IC.image, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.file'), title: t('composer.file'), disabled: finished || mediaLocked, dataset: { tool: 'file' }, onclick: () => void attach('file') }, icon(IC.file, 18)),
+      h('button', { class: 'ibtn', 'aria-label': '视频', title: '视频', disabled: finished || mediaLocked, dataset: { tool: 'video' }, onclick: () => void attach('video') }, icon(IC.file, 18)),
       h('button', { class: 'ibtn', 'aria-label': t('composer.phrases'), dataset: { tool: 'phrases' }, onclick: () => openPeripheral('scripts') }, icon(IC.chat, 18)),
       conv.lang !== 'zh' && s.prefs?.assistant.enabled && s.prefs.assistant.outbound_translation
         ? h('button', { class: cx('ibtn', { on: !s.trBarOff }), 'aria-label': t('composer.trToggle'), title: t('composer.trToggleTitle'), dataset: { tool: 'translate' }, onclick: () => store.patch({ trBarOff: !S().trBarOff }) }, icon(IC.translate, 18))
         : null,
-      h('span', { class: 'hint', style: { 'margin-left': 'auto', 'padding-right': '6px' } }, t('composer.attachHint')),
+      h('span', { class: 'hint', style: { 'margin-left': 'auto', 'padding-right': '6px' } }, '本客户端：单附件≤10MiB，视频≤3分钟。'),
     ),
     quote ? h('div', { class: 'quote-bar' }, h('span', { style: { flex: '1', overflow: 'hidden', 'white-space': 'nowrap', 'text-overflow': 'ellipsis' } }, t('chat.quotePrefix'), quote.text), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('chat.cancelQuote'), onclick: () => store.patch({ quote: null }) }, icon(IC.close, 12))) : null,
-    s.attachment ? h('div', { class: 'attach', title: ATTACHMENT_SEND_UNAVAILABLE }, h('div', { class: 'attach-img' }), h('span', { style: { 'font-size': '12px' } }, `${s.attachment.name} · 附件发送尚未实现`), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), onclick: () => store.patch({ attachment: null }) }, icon(IC.close, 12))) : null,
+    s.attachment ? h('div', { class: 'attach', title: mediaLabel, dataset: { mediaStatus: operation?.status ?? (media ? 'ready' : 'unsupported') } }, operation?.status === 'busy' ? h('span', { class: 'spin' }) : null, h('span', { style: { 'font-size': '12px' }, role: 'status', 'aria-live': 'polite' }, `${s.attachment.name} · ${mediaLabel}`), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), title: operation && operation.status !== 'not_submitted' ? '仅移除本地选择，不会撤回已上传或提交的消息。' : '移除本地附件', disabled: operation?.status === 'busy', onclick: () => void removeAttachment(s.attachment!) }, icon(IC.close, 12))) : null,
     h('textarea', {
       class: 'ta',
       placeholder: finished ? t('composer.placeholderFinished') : t('composer.placeholder'),
@@ -1504,7 +1643,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
         }
       },
     }),
-    h('div', { class: 'cfoot' }, h('span', { class: 'hint' }, direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished, onclick: () => void handleSend() }, icon(IC.send, 14), t('composer.send'))),
+    h('div', { class: 'cfoot' }, h('span', { class: 'hint' }, media ? '仅发送附件，文字/引用保留；结果未知时请先核对，勿重复发送。' : direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished || mediaLocked, onclick: () => void handleSend() }, icon(IC.send, 14), media ? '发送附件' : t('composer.send'))),
   );
 }
 
@@ -1832,17 +1971,17 @@ function unknownOutboundDialog(s: MainState): HTMLElement | null {
     h('div', { class: 'dlg peripheral-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'unknown-outbound-title', tabindex: '-1', dataset: { unknownOutbound: '1' }, onclick: (e: Event) => e.stopPropagation() },
       h('div', { class: 'dlg-h' }, h('span', { id: 'unknown-outbound-title' }, '未知发送只读核验'), h('button', { class: 'ibtn', 'aria-label': '关闭未知发送核验', onclick: () => unknownOutbound.close() }, icon(IC.close, 16))),
       h('div', { class: 'peripheral-body' },
-        h('p', null, '仅查询当前账号的未知发送元数据。选择一条后，只读取该会话的当前最新页；不会重发、清除账本或标记客户消息已读。'),
+        h('p', null, '仅查询当前账号的操作元数据。上传阶段不代表消息已发送，也不能查询消息页；消息提交阶段可选择后读取当前最新页。不会重发、清除账本或标记客户消息已读。'),
         view.notice ? h('p', { class: 'notice-box', role: 'status' }, view.notice) : null,
         view.busy ? h('p', { role: 'status' }, '正在只读查询…') : null,
         !view.busy && !view.records.length ? h('p', null, '当前没有可显示的未知发送记录。') : null,
         h('div', { class: 'peripheral-list', role: 'radiogroup', 'aria-label': '未知发送记录' }, view.records.map((row) => h('label', { class: 'peripheral-member' },
-          h('input', { type: 'radio', name: 'unknown-outbound-record', checked: view.selected?.gid === row.gid && view.selected?.local_id === row.local_id, disabled: view.busy, onchange: () => unknownOutbound.select(row.gid, row.local_id) }),
-          h('span', null, h('b', null, `本地ID：${row.local_id}`), h('span', { class: 'peripheral-id' }, `会话：${row.gid}`), h('span', { class: 'peripheral-id' }, `${formatDate(row.created_at_ms)} ${formatClock(row.created_at_ms, true)} · 创建代次 ${row.creation_generation} · 结果未知`))))),
+          h('input', { type: 'radio', name: 'unknown-outbound-record', checked: view.selected?.gid === row.gid && view.selected?.local_id === row.local_id, disabled: view.busy || !row.write_started, onchange: () => unknownOutbound.select(row.gid, row.local_id) }),
+          h('span', null, h('b', null, `本地ID：${row.local_id}`), h('span', { class: 'peripheral-id' }, `会话：${row.gid}`), h('span', { class: 'peripheral-id' }, `${formatDate(row.created_at_ms)} ${formatClock(row.created_at_ms, true)} · 创建代次 ${row.creation_generation} · ${row.write_started ? row.phase === 'write_started' ? '消息提交已开始，结果未知' : '消息提交结果未知' : row.phase === 'uploaded' ? '附件已上传，消息尚未提交' : '附件上传已开始，上传结果待核对；消息尚未提交'}`))))),
         view.result ? h('div', { class: 'notice-box', role: 'status' }, view.result.message, view.result.server_id ? h('div', { class: 'mono' }, `服务端消息ID：${view.result.server_id}`) : null) : null),
       h('div', { class: 'dlg-f' },
         h('button', { class: 'btn', disabled: view.busy, onclick: () => void unknownOutbound.refresh() }, '只读刷新列表'),
-        h('button', { class: 'btn pri', disabled: view.busy || !view.selected, onclick: () => void unknownOutbound.verify() }, '读取所选会话最新页'),
+        h('button', { class: 'btn pri', disabled: view.busy || !view.selected || !view.records.some(row => row.gid === view.selected?.gid && row.local_id === view.selected?.local_id && row.write_started), onclick: () => void unknownOutbound.verify() }, '读取所选会话最新页'),
         h('button', { class: 'btn', onclick: () => unknownOutbound.close() }, '关闭'))));
 }
 
@@ -2022,6 +2161,7 @@ ipc.listen<unknown>(
   }),
 );
 ipc.listen<unknown>(Events.IM_MESSAGE_NEW, receiveMainMessage);
+ipc.listen<unknown>(UiEvents.MEDIA_SEND_PROGRESS, receiveMediaProgress);
 ipc.listen<unknown>(HostEvents.LOCATE, guarded(HostEvents.LOCATE, isLocatePayload, (p) => void locateConversation(p.account, p.gid)));
 ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, (p) => store.patch({ prefs: p })));
 ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => store.patch({ clockTrusted: c.quality.kind === 'anchored' })));

@@ -13,6 +13,7 @@
 
 pub mod adapter;
 pub mod peripheral_journal;
+pub mod media_outbound;
 pub mod assistant;
 pub mod commands;
 pub mod dto;
@@ -135,6 +136,7 @@ pub fn run() {
             adapter::im_outbound_lookup,
             adapter::im_message_page,
             adapter::im_send_text,
+            adapter::im_send_media,
             adapter::im_mark_read,
             adapter::im_set_top,
             adapter::im_set_mark,
@@ -155,6 +157,7 @@ pub fn run() {
             shell::shell_open_external,
             shell::media_screenshot,
             shell::media_pick,
+            shell::media_release,
             prefs::prefs_snapshot,
             prefs::prefs_set,
             assistant::assistant_tsim_status,

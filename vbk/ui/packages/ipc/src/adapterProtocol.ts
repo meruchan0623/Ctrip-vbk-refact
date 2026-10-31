@@ -17,6 +17,14 @@
 import type { AccountContext, AdapterFactEnvelope, AppError, SendDisposition, TransportState } from './contracts.ts';
 import type { AgentStatus, MarkAction, OrderSearchResult, UiConversation, UiMessage, UiMessagePage, UiNotice, UiNoticeCategory, UiCustomerScripts, UiMembers, UiInviteCandidates, UiPeripheralWrite } from './client.ts';
 
+export interface MediaTarget { readonly target_token: string; readonly identity_sha256: string; readonly sender_id: string }
+export interface MediaUploadReply {
+  readonly kind: 'uploaded' | 'unknown' | 'rejected' | 'not_submitted';
+  /** Host validates the canonical typed body; page resources are untrusted wire data. */
+  readonly media: unknown; readonly body_json: string | null; readonly error: string | null;
+}
+export interface MediaSendReply { readonly disposition: SendDisposition; readonly message: UiMessage }
+
 export const AdapterCommands = {
   /** Page booted on an official IM page; host answers with the bound account (null while identity unknown). */
   READY: 'adapter_ready',
@@ -84,6 +92,14 @@ export interface MessageProfilePatch {
 
 /** Operations the host may ask the page to perform. `args` per op below. */
 export type AdapterRequest =
+  | { readonly req_id: string; readonly op: 'media.target'; readonly args: { readonly gid: string; readonly target_token: string } }
+  | { readonly req_id: string; readonly op: 'media.validate'; readonly args: { readonly gid: string; readonly target_token: string } }
+  | { readonly req_id: string; readonly op: 'media.release'; readonly args: { readonly gid: string; readonly target_token: string } }
+  | { readonly req_id: string; readonly op: 'media.discard'; readonly args: { readonly gid: string; readonly target_token: string; readonly transfer_id: string } }
+  | { readonly req_id: string; readonly op: 'media.stage_begin'; readonly args: { readonly gid: string; readonly target_token: string; readonly transfer_id: string; readonly kind: 'image' | 'file' | 'video'; readonly name: string; readonly mime: string; readonly size: number; readonly sha256: string } }
+  | { readonly req_id: string; readonly op: 'media.stage_chunk'; readonly args: { readonly gid: string; readonly target_token: string; readonly transfer_id: string; readonly offset: number; readonly data: string } }
+  | { readonly req_id: string; readonly op: 'media.upload'; readonly args: { readonly gid: string; readonly target_token: string; readonly transfer_id: string } }
+  | { readonly req_id: string; readonly op: 'im.send_media'; readonly args: { readonly gid: string; readonly target_token: string; readonly transfer_id: string; readonly local_id: string; readonly body_json: string } }
   | { readonly req_id: string; readonly op: 'adapter.diagnostics'; readonly args: Record<string, never> }
   | { readonly req_id: string; readonly op: 'im.outbound_lookup'; readonly args: { readonly gid: string } }
   | { readonly req_id: string; readonly op: 'im.messages'; readonly args: { readonly gid: string } }
@@ -109,6 +125,14 @@ export type AdapterOp = AdapterRequest['op'];
 
 /** Result data per op (reply `data`). */
 export interface AdapterResultMap {
+  'media.target': MediaTarget;
+  'media.validate': MediaTarget;
+  'media.release': null;
+  'media.discard': null;
+  'media.stage_begin': null;
+  'media.stage_chunk': null;
+  'media.upload': MediaUploadReply;
+  'im.send_media': MediaSendReply;
   'adapter.diagnostics': import('./client.ts').UiPageReceiveDiagnostics;
   'im.outbound_lookup': import('./client.ts').UiOutboundLookup;
   'im.messages': readonly UiMessage[];

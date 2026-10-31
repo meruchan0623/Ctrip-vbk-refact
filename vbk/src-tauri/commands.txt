@@ -36,6 +36,7 @@ im_unknown_outbound
 im_outbound_lookup
 im_message_page
 im_send_text
+im_send_media
 im_mark_read
 im_set_top
 im_set_mark
@@ -56,6 +57,7 @@ shell_open_window
 shell_open_external
 media_screenshot
 media_pick
+media_release
 prefs_snapshot
 prefs_set
 assistant_tsim_status

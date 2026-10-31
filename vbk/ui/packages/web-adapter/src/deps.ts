@@ -154,6 +154,9 @@ export type InvokeLike = (cmd: string, payload: unknown) => Promise<unknown>;
 // ------------------------------------------------------------------ deps
 
 export interface AdapterDeps extends TimerDeps {
+  /** Local-only media decoding and digest, injected by the real boot runtime. */
+  readonly mediaProbe?: (kind: 'image' | 'video', mime: string, bytes: Uint8Array) => Promise<{ width: number; height: number; duration: number | null }>;
+  readonly sha256?: (bytes: Uint8Array) => Promise<string>;
   readonly fetch: FetchLike;
   /** Wall clock in Unix ms. */
   readonly now: () => number;

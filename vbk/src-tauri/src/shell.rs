@@ -17,10 +17,12 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use contracts::{codes, AppError};
-use serde::Serialize;
 use tauri::{AppHandle, Manager, State, Url, Window};
 
+use crate::dto::AccountContextDto;
 use crate::dto::AppErrorDto;
+pub use crate::media_outbound::AttachmentDto;
+use crate::media_outbound::{FrozenAttachment, MediaTarget};
 use crate::prefs;
 use crate::state::HostState;
 use crate::views;
@@ -47,11 +49,12 @@ fn tauri_err(e: tauri::Error) -> AppErrorDto {
 
 // ------------------------------------------------------------------ attachments
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct Attachment {
     path: PathBuf,
     /// Created by the host (screenshot temp file); removed on drop of the table.
     temporary: bool,
+    frozen: FrozenAttachment,
 }
 
 #[derive(Default)]
@@ -68,29 +71,95 @@ impl Drop for Attachments {
     }
 }
 
-/// `{attachment_id, name}` returned to the UI. Never carries the path.
-#[derive(Debug, Clone, Serialize)]
-pub struct AttachmentDto {
-    pub attachment_id: String,
-    pub name: String,
+async fn register_attachment(
+    app: &AppHandle,
+    path: PathBuf,
+    temporary: bool,
+    kind: String,
+    account: contracts::AccountContext,
+    gid: String,
+    target: MediaTarget,
+) -> CmdResult<AttachmentDto> {
+    let read_path = path.clone();
+    let read_account = account.clone();
+    let read_gid = gid.clone();
+    let read_target = target.clone();
+    let frozen = tauri::async_runtime::spawn_blocking(move || {
+        FrozenAttachment::read(&read_path, &kind, &read_account, &read_gid, read_target)
+    })
+    .await
+    .map_err(|_| invalid_argument("attachment snapshot failed"))?
+    .map_err(AppErrorDto::from)?;
+    crate::adapter::validate_media_target(app, &account, &gid, &target)
+        .await
+        .map_err(AppErrorDto::from)?;
+    let table = app
+        .try_state::<Attachments>()
+        .ok_or_else(|| invalid_argument("attachment table unavailable"))?;
+    let mut items = table.items.lock().unwrap_or_else(|p| p.into_inner());
+    items.retain(|_, old| {
+        crate::media_outbound::now_ms() - old.frozen.created_ms <= crate::media_outbound::TTL_MS
+    });
+    if items
+        .values()
+        .filter(|item| !item.frozen.bytes.is_empty())
+        .count()
+        >= 4
+        || items.len() >= 128
+    {
+        return Err(invalid_argument(
+            "too many pending local attachments; release one first",
+        ));
+    }
+    let dto = frozen.dto.clone();
+    items.insert(
+        dto.attachment_id.clone(),
+        Attachment {
+            path,
+            temporary,
+            frozen,
+        },
+    );
+    Ok(dto)
 }
 
-fn register_attachment(app: &AppHandle, path: PathBuf, temporary: bool) -> AttachmentDto {
-    let id = uuid::Uuid::new_v4().to_string();
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "attachment".into());
-    if let Some(table) = app.try_state::<Attachments>() {
-        table
-            .items
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(id.clone(), Attachment { path, temporary });
+pub fn frozen_attachment(
+    app: &AppHandle,
+    id: &str,
+    account: &contracts::AccountContext,
+    gid: &str,
+) -> Result<FrozenAttachment, AppError> {
+    let table = app
+        .try_state::<Attachments>()
+        .ok_or_else(crate::media_outbound::invalid)?;
+    let item = table
+        .items
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(id)
+        .cloned()
+        .ok_or_else(crate::media_outbound::invalid)?;
+    if !item.frozen.owns(account, gid) {
+        return Err(crate::media_outbound::invalid());
     }
-    AttachmentDto {
-        attachment_id: id,
-        name,
+    Ok(item.frozen)
+}
+
+/// Keep only body-free in-memory manifest metadata for correct same-ID replay;
+/// the active command's clone owns the immutable bytes until it settles.
+pub fn consume_attachment(
+    app: &AppHandle,
+    id: &str,
+    account: &contracts::AccountContext,
+    gid: &str,
+) {
+    if let Some(table) = app.try_state::<Attachments>() {
+        let mut items = table.items.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(item) = items.get_mut(id) {
+            if item.frozen.owns(account, gid) {
+                item.frozen.bytes = std::sync::Arc::new(Vec::new());
+            }
+        }
     }
 }
 
@@ -271,24 +340,35 @@ pub async fn media_screenshot(
     app: AppHandle,
     window: Window,
     state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
 ) -> CmdResult<Option<AttachmentDto>> {
     guard(&state, &window, "media_screenshot")?;
     #[cfg(target_os = "macos")]
     {
+        let account: contracts::AccountContext = account.into();
+        state
+            .lock()
+            .accounts
+            .validate(&account)
+            .map_err(AppErrorDto::from)?;
+        let target = crate::adapter::capture_media_target(&app, &account, &gid)
+            .await
+            .map_err(AppErrorDto::from)?;
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or(0);
         let dir = std::env::temp_dir().join("vbk-screenshots");
         let path = dir.join(format!("screenshot-{stamp}.png"));
-        let target = path.clone();
+        let screenshot_path = path.clone();
         // Interactive selection (-i), no shutter sound (-x). Cancelling with
         // Esc exits without writing the file.
         let status = tauri::async_runtime::spawn_blocking(move || {
             std::fs::create_dir_all(&dir)?;
             std::process::Command::new("/usr/sbin/screencapture")
                 .args(["-i", "-x"])
-                .arg(&target)
+                .arg(&screenshot_path)
                 .status()
         })
         .await
@@ -304,13 +384,30 @@ pub async fn media_screenshot(
             .unwrap_or(false);
         if !status.success() || !written {
             let _ = std::fs::remove_file(&path);
+            crate::adapter::release_media_target(&app, &account, &gid, &target).await;
             return Ok(None);
         }
-        Ok(Some(register_attachment(&app, path, true)))
+        let result = register_attachment(
+            &app,
+            path.clone(),
+            true,
+            "image".into(),
+            account.clone(),
+            gid.clone(),
+            target.clone(),
+        )
+        .await;
+        // The immutable memory snapshot now owns the selected bytes, including
+        // when a late target validation rejects the selection.
+        let _ = std::fs::remove_file(&path);
+        if result.is_err() {
+            crate::adapter::release_media_target(&app, &account, &gid, &target).await;
+        }
+        result.map(Some)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = app;
+        let _ = (app, account, gid);
         Err(AppError::new(
             codes::HOST_UNSUPPORTED,
             "screenshot is not available on this platform",
@@ -337,11 +434,22 @@ pub async fn media_pick(
     window: Window,
     state: State<'_, HostState>,
     kind: String,
+    account: AccountContextDto,
+    gid: String,
 ) -> CmdResult<Option<AttachmentDto>> {
     use tauri_plugin_dialog::DialogExt;
 
     guard(&state, &window, "media_pick")?;
     let filter = filter_for(&kind)?;
+    let account: contracts::AccountContext = account.into();
+    state
+        .lock()
+        .accounts
+        .validate(&account)
+        .map_err(AppErrorDto::from)?;
+    let target = crate::adapter::capture_media_target(&app, &account, &gid)
+        .await
+        .map_err(AppErrorDto::from)?;
     let mut dialog = app.dialog().file().set_parent(&window);
     if let Some((name, exts)) = filter {
         dialog = dialog.add_filter(name, exts);
@@ -352,12 +460,59 @@ pub async fn media_pick(
     });
     let picked = rx.await.ok().flatten();
     let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
+        crate::adapter::release_media_target(&app, &account, &gid, &target).await;
         return Ok(None);
     };
     if !path.is_file() {
+        crate::adapter::release_media_target(&app, &account, &gid, &target).await;
         return Ok(None);
     }
-    Ok(Some(register_attachment(&app, path, false)))
+    let result = register_attachment(
+        &app,
+        path,
+        false,
+        kind,
+        account.clone(),
+        gid.clone(),
+        target.clone(),
+    )
+    .await;
+    if result.is_err() {
+        crate::adapter::release_media_target(&app, &account, &gid, &target).await;
+    }
+    result.map(Some)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn media_release(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    attachment_id: String,
+) -> CmdResult<()> {
+    guard(&state, &window, "media_release")?;
+    let account: contracts::AccountContext = account.into();
+    let table = app
+        .try_state::<Attachments>()
+        .ok_or_else(|| invalid_argument("attachment table unavailable"))?;
+    let removed = {
+        let mut items = table.items.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(item) = items.get(&attachment_id) {
+            if !item.frozen.owns(&account, &gid) {
+                return Err(crate::media_outbound::invalid().into());
+            }
+        }
+        items.remove(&attachment_id)
+    };
+    if let Some(item) = removed {
+        if item.temporary {
+            let _ = std::fs::remove_file(item.path);
+        }
+        crate::adapter::release_media_target(&app, &account, &gid, &item.frozen.target).await;
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------------

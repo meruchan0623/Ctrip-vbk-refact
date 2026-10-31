@@ -675,6 +675,8 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       const names: Record<string, string> = { image: '行程单.png', file: '出行须知.pdf', video: '集合点.mp4' };
       return { attachment_id: `att-demo-${kind}`, name: names[kind] ?? '附件' };
     },
+    [UiCommands.MEDIA_RELEASE]: async () => null,
+    [UiCommands.IM_SEND_MEDIA]: async () => ({ stage: 'prepare', kind: 'not_submitted', write_started: false, disposition: null, message: null, error: 'Browser demo has no registered local attachment or official uploader' }),
 
     // ---- prefs
     [PrefsCommands.SNAPSHOT]: async () => structuredClone(st.prefs),

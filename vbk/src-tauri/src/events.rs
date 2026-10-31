@@ -16,6 +16,7 @@ pub const IM_MESSAGE_NEW: &str = "im://message-new"; // UiMessage (+ account)
 pub const IM_LOCATE_CONVERSATION: &str = "im://locate-conversation"; // {account, gid}
 pub const NET_CLOCK: &str = "net://clock"; // ClockReading
 pub const NET_STATUS: &str = "net://status"; // UiNetStatus
+pub const MEDIA_SEND_PROGRESS: &str = "media://send-progress";
 pub const PREFS_CHANGED: &str = "prefs://changed"; // PrefsSnapshot
 pub const SHELL_TOAST: &str = "shell://toast"; // {text}
 pub const NOTIFY_BANNER: &str = "notify://banner";

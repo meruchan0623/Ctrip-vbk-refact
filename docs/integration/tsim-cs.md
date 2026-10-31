@@ -110,3 +110,11 @@ Windows接续补充（2026-10-31）：本机只读目录为 `C:\Develop\TSim_CS_
 
 
 周边动作在eb67560通过独立的peripheral_journal持久准入：room/action未知屏障、token+目标摘要墓碑以及明确not_submitted分类详见[周边契约](../api/peripheral-actions.md)。它保守跨服务会话锁住unknown，当前没有核验后解锁UI；未来迁移须设计只读权威证据和审计解锁，不能删除账本、换token或改目标绕过。官方已接受与实际生效分别建模，不让客服面板刷新成为重试器。
+
+## Windows第6轮媒体迁移接缝（候选，未整体接入）
+
+本地附件当前设计为完整账号/room/服务身份绑定的opaque句柄、冻结bytes与摘要，经定向桥分块进入官方页面，再分别执行上传和SDK消息提交，见[媒体出站](../api/media-outbound.md)。这里的10MiB资源限制和5分钟本地句柄期限不是TSim资产保留策略，也不是上游全平台上限。
+
+未来TSim事务应分别保存upload_started、uploaded、write_started和结果状态，资产元数据与消息attempt关联但不混为同一成功；upload unknown不得被message reconciler的“未找到”清除。上传/资源处理/消息SDK各阶段按租约+原始幂等键设不可重放屏障，回包丢失时只读核验。媒体摘要需覆盖原bytes、种类、MIME、文件名、大小和完整目标，canonical消息payload另记摘要；变化必须新意图，不能悄悄替换旧附件。源码的单机FileStore与内存资源URL不是可供多worker生产复用的资产服务。
+
+迁移仍需持久资产授权引用、扫描与保留期、过期签名URL再授权、跨账号下载拒绝、上传失败/孤儿资源审计、断电/双worker/租约过期演练及真实受控三端验证。回滚不能删除新阶段或将其转pending；旧版本不识别媒体阶段时先停写，保留账本和资源审计，再使用兼容读取器处理。当前离线合成SDK演示继续仅验证既有回执协议，不证明这些TSim实现已经存在。

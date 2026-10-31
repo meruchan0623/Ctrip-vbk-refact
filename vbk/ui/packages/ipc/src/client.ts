@@ -108,6 +108,7 @@ export const UiCommands = {
   IM_MESSAGES: 'im_messages', // {account, gid} → UiMessage[]
   IM_MESSAGE_PAGE: 'im_message_page', // {account, gid, before_ms?} → UiMessagePage
   IM_SEND_TEXT: 'im_send_text', // {account, gid, local_id, text, original?, quote_id?} → SendDisposition
+  IM_SEND_MEDIA: 'im_send_media', // {account,gid,local_id,attachment_id} → UiMediaSendResult
   IM_SET_TOP: 'im_set_top', // {account, gid, top}
   IM_SET_MARK: 'im_set_mark', // {account, gid, action: 0..5}  (official setWorkSheetStar)
   IM_MARK_READ: 'im_mark_read', // {account, gid}
@@ -129,8 +130,9 @@ export const UiCommands = {
   SHELL_OPEN_WEBVIEW: 'shell_open_webview', // {account, url}
   SHELL_OPEN_WINDOW: 'shell_open_window', // {label}
   SHELL_WINDOW: 'shell_window', // {action: 'minimize'|'toggle_maximize'|'close'}
-  MEDIA_SCREENSHOT: 'media_screenshot', // {} → {attachment_id, name}
-  MEDIA_PICK: 'media_pick', // {kind: 'image'|'file'|'video'} → {attachment_id, name} | null
+  MEDIA_SCREENSHOT: 'media_screenshot', // {account,gid} → UiAttachment | null
+  MEDIA_PICK: 'media_pick', // {account,gid,kind:'image'|'file'|'video'} → UiAttachment | null
+  MEDIA_RELEASE: 'media_release', // {account,gid,attachment_id} → null; never clears a durable intent
   NET_STATUS: 'net_status', // {include_diagnostics?: boolean, account?: AccountContext} → UiNetStatus; diagnostics require account
   // prefs (in addition to PrefsCommands.SNAPSHOT)
   // {section, key, value} → PrefsSnapshot. `section: 'reminder'` is accepted only for the fields without a
@@ -147,10 +149,30 @@ export const UiCommands = {
 
 /** Events needed in addition to `Events`. */
 export const UiEvents = {
+  MEDIA_SEND_PROGRESS: 'media://send-progress',
   NET_STATUS: 'net://status', // UiNetStatus
   AGENT_STATUS: 'account://agent-status', // UiAgentStatus
   TOAST: 'shell://toast', // {text}
 } as const;
+
+export interface UiAttachment {
+  readonly attachment_id: string; readonly name: string;
+  readonly kind: 'image' | 'file' | 'video'; readonly mime: string; readonly size: number;
+  readonly content_sha256: string; readonly owner: { readonly account: AccountContext; readonly gid: string };
+  readonly supported: true;
+}
+export interface UiMediaSendResult {
+  /** Existing ledger metadata without a verifiable selected attachment. Never project/clear the current composer. */
+  readonly replay_only?: boolean;
+  readonly stage: 'prepare' | 'upload' | 'send';
+  readonly kind: 'not_submitted' | 'unknown' | 'confirmed' | 'rejected';
+  readonly write_started: boolean; readonly disposition: SendDisposition | null;
+  readonly message: UiMessage | null; readonly error: string | null;
+}
+export interface UiMediaSendProgress {
+  readonly account: AccountContext; readonly gid: string; readonly attachment_id: string; readonly local_id: string;
+  readonly stage: 'prepare' | 'upload' | 'send';
+}
 
 export type AccountState = 'online' | 'logging_in' | 'expired' | 'suspended';
 
@@ -295,8 +317,8 @@ export interface UiUnknownOutboundRecord {
   readonly gid: string;
   readonly creation_generation: number;
   readonly created_at_ms: number;
-  readonly write_started: true;
-  readonly phase: 'write_started' | 'unknown';
+  readonly write_started: boolean;
+  readonly phase: 'write_started' | 'unknown' | 'upload_started' | 'uploaded';
 }
 
 export interface UiMessagePage {

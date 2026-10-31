@@ -37,6 +37,7 @@ import { buildPageContext, createContextSniffer, installContextHooks, type Conte
 import { createPageSdk, type PageSdk } from './sdkGlue.ts';
 import { createPageSession, type PageSession } from './session.ts';
 import { notReadyReply } from './rpc.ts';
+import { browserMediaProbe, browserSha256 } from './browserMedia.ts';
 
 export const OFFICIAL_IM_ORIGIN = 'https://vbooking.ctrip.com';
 export const OFFICIAL_IM_PATH = '/vbk/im/main';
@@ -297,6 +298,8 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
   }
   const invokeForAdapter = (cmd: string, payload: unknown): Promise<unknown> => (cmd === ImCommands.PUSH_FACT ? call(AdapterCommands.PUSH_FACT, payload) : call(cmd, payload));
   const deps: AdapterDeps = {
+    mediaProbe: browserMediaProbe,
+    sha256: browserSha256,
     fetch: fetchLike,
     now,
     random,
