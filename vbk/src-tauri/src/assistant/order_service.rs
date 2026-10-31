@@ -3,11 +3,63 @@
 use super::*;
 use crate::dto::AccountContextDto;
 use core_assistant::{cdr_more_request, order};
-use std::{collections::VecDeque, future::Future, sync::Arc};
+use std::{
+    collections::VecDeque,
+    future::Future,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    task::Poll,
+    time::Duration,
+};
 
 const QUERY_REUSE_MS: i64 = 60_000;
 const HANDLE_TTL_MS: i64 = 5 * 60_000;
 const MAX_QUERIES: usize = 16;
+
+const SUMMARY_CONCURRENCY: usize = 4;
+const SUMMARY_HTTP_BUDGET: Duration = Duration::from_secs(45);
+
+struct SummaryRead {
+    deadline: tokio::time::Instant,
+    stopped: AtomicBool,
+}
+impl SummaryRead {
+    fn new(duration: Duration) -> Self {
+        Self {
+            deadline: tokio::time::Instant::now() + duration,
+            stopped: AtomicBool::new(false),
+        }
+    }
+    fn check(&self) -> Result<(), AppError> {
+        if self.stopped.load(Ordering::SeqCst) || tokio::time::Instant::now() >= self.deadline {
+            Err(Self::timeout())
+        } else {
+            Ok(())
+        }
+    }
+    fn timeout() -> AppError {
+        AppError::new(
+            contracts::codes::NET_TIMEOUT,
+            "order summary read budget exhausted",
+        )
+        .retryable()
+    }
+    fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+    }
+}
+#[derive(Clone)]
+struct SummaryPlan {
+    info: OrderPackageInfo,
+    reusable: bool,
+}
+type PendingSummary<'a> = (
+    usize,
+    Pin<Box<dyn Future<Output = Result<SummaryPlan, AppError>> + Send + 'a>>,
+);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct OrderScope {
@@ -95,6 +147,7 @@ struct Query {
     scope: OrderScope,
     epoch: u64,
     summary: OrderSummary,
+    reusable: bool,
     cards: Vec<(String, String)>,
 }
 pub struct OrderBook<E: Executor, V: Vault> {
@@ -178,7 +231,9 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
             queries
                 .iter()
                 .find(|q| {
-                    q.scope == scope && now.saturating_sub(q.summary.fetched_at_ms) < QUERY_REUSE_MS
+                    q.reusable
+                        && q.scope == scope
+                        && now.saturating_sub(q.summary.fetched_at_ms) < QUERY_REUSE_MS
                 })
                 .map(|q| q.summary.clone())
         };
@@ -186,26 +241,43 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
             self.guard(epoch, validate).await?;
             return Ok(summary);
         }
+        // Session/profile upkeep keeps its existing per-request boundary. The
+        // 45 s read budget begins at perform and includes list + every plan.
+        let read = SummaryRead::new(SUMMARY_HTTP_BUDGET);
         let response = self
-            .request(epoch, perform_request(&session, &scope.order_id), validate)
+            .summary_request(
+                epoch,
+                perform_request(&session, &scope.order_id),
+                validate,
+                &read,
+            )
             .await?;
         let query_id = parse_perform(response.status, &response.body)
             .map_err(|e| self.service.auth_error(epoch, e))?;
         let response = self
-            .request(epoch, dataplan_list_request(&session, &query_id), validate)
+            .summary_request(
+                epoch,
+                dataplan_list_request(&session, &query_id),
+                validate,
+                &read,
+            )
             .await?;
         let rows = order::parse_plan_list(response.status, &response.body)
             .map_err(|e| self.service.auth_error(epoch, e))?;
         let ids = order::plan_ids(&rows)?;
+        let hydrated = self
+            .enrich_plans(&session, epoch, &ids, &rows, validate, &read)
+            .await?;
+        let reusable = hydrated.iter().all(|plan| plan.reusable);
         let fetched = self.service.now_ms();
         let mut cards = Vec::new();
         let mut plans = Vec::new();
-        for (id, row) in ids.into_iter().zip(rows) {
+        for (id, hydrated) in ids.into_iter().zip(hydrated) {
             let handle = uuid::Uuid::new_v4().to_string();
             cards.push((handle.clone(), id));
             plans.push(OrderPlan {
                 detail_handle: handle,
-                info: OrderPackageInfo::project(&row, None, fetched),
+                info: hydrated.info,
             });
         }
         let summary = OrderSummary {
@@ -224,6 +296,7 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
             scope,
             epoch,
             summary: summary.clone(),
+            reusable,
             cards,
         });
         let mut queries = self.queries.lock().unwrap_or_else(|e| e.into_inner());
@@ -232,6 +305,184 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
         }
         queries.push_back(query);
         Ok(summary)
+    }
+    /// Timeout only the TSim HTTP future, never an adapter scope guard. Guards
+    /// finish their existing 15 s timeout so their pending request is removed.
+    async fn summary_request<F, Fut>(
+        &self,
+        epoch: u64,
+        req: Result<core_assistant::TsimRequest, AppError>,
+        validate: &F,
+        read: &SummaryRead,
+    ) -> Result<HttpResponse, AppError>
+    where
+        F: Fn() -> Fut + Sync,
+        Fut: Future<Output = Result<(), AppError>> + Send,
+    {
+        read.check()?;
+        self.guard(epoch, validate).await?;
+        read.check()?;
+        let response = tokio::time::timeout_at(read.deadline, self.service.run(req))
+            .await
+            .unwrap_or_else(|_| Err(SummaryRead::timeout()));
+        self.guard(epoch, validate).await?;
+        read.check()?;
+        response.map_err(|e| self.service.auth_error(epoch, e))
+    }
+    async fn summary_plan<F, Fut>(
+        &self,
+        session: &TsimSession,
+        epoch: u64,
+        card: &str,
+        row: &JsonValue,
+        validate: &F,
+        read: &SummaryRead,
+    ) -> Result<SummaryPlan, AppError>
+    where
+        F: Fn() -> Fut + Sync,
+        Fut: Future<Output = Result<(), AppError>> + Send,
+    {
+        let response = self
+            .summary_request(epoch, detail_request(session, card), validate, read)
+            .await?;
+        let detail = parse_detail(response.status, &response.body)
+            .map_err(|e| self.service.auth_error(epoch, e))?;
+        if let Some(actual) = detail.get("card_dataplan_id") {
+            if core_assistant::id_from_json(actual).as_deref() != Some(card) {
+                return Err(AppError::new(
+                    codes::MALFORMED_RESPONSE,
+                    "detail belongs to a different package",
+                ));
+            }
+        }
+        let live = self
+            .summary_request(epoch, live_detail_request(session, card), validate, read)
+            .await;
+        let (live, reusable) = match live {
+            Ok(response) => {
+                if matches!(response.status, 401 | 423) {
+                    let error = core_assistant::map_http_status(response.status)
+                        .expect("auth status")
+                        .error;
+                    return Err(self.service.auth_error(epoch, error));
+                }
+                if response.status == 403 {
+                    return Err(AppError::new(
+                        codes::FORBIDDEN,
+                        "live package detail is not permitted",
+                    ));
+                }
+                let value = parse_supplement(response.status, &response.body)
+                    .map_err(|e| self.service.auth_error(epoch, e))?;
+                match value {
+                    Some(value @ JsonValue::Object(_)) => (Some(value), true),
+                    _ => {
+                        let empty = (200..300).contains(&response.status)
+                            && JsonValue::parse(&response.body).ok().is_some_and(|v| {
+                                v.get("code").and_then(JsonValue::as_i64) == Some(1)
+                                    && matches!(v.get("result"), Some(JsonValue::Null))
+                            });
+                        (None, empty)
+                    }
+                }
+            }
+            Err(error)
+                if read.check().is_ok()
+                    && [
+                        contracts::codes::NET_OFFLINE,
+                        contracts::codes::NET_TIMEOUT,
+                        contracts::codes::NET_PAYLOAD_TOO_LARGE,
+                    ]
+                    .contains(&error.code.as_str()) =>
+            {
+                (None, false)
+            }
+            Err(error) => return Err(error),
+        };
+        let mut info = OrderPackageInfo::project(&detail, live.as_ref(), self.service.now_ms());
+        if info.iccid.is_empty() {
+            info.iccid = OrderPackageInfo::project(row, None, info.fetched_at_ms).iccid;
+        }
+        Ok(SummaryPlan { info, reusable })
+    }
+    async fn enrich_plans<F, Fut>(
+        &self,
+        session: &TsimSession,
+        epoch: u64,
+        ids: &[String],
+        rows: &[JsonValue],
+        validate: &F,
+        read: &SummaryRead,
+    ) -> Result<Vec<SummaryPlan>, AppError>
+    where
+        F: Fn() -> Fut + Sync,
+        Fut: Future<Output = Result<(), AppError>> + Send,
+    {
+        let mut pending: Vec<PendingSummary<'_>> = Vec::new();
+        let mut result = vec![None; ids.len()];
+        let mut next = 0;
+        let mut failure = None;
+        std::future::poll_fn(|cx| loop {
+            if failure.is_none() {
+                if let Err(error) = read.check() {
+                    read.stop();
+                    failure = Some(error);
+                }
+            }
+            if failure.is_none() {
+                while pending.len() < SUMMARY_CONCURRENCY && next < ids.len() {
+                    let index = next;
+                    next += 1;
+                    pending.push((
+                        index,
+                        Box::pin(self.summary_plan(
+                            session,
+                            epoch,
+                            &ids[index],
+                            &rows[index],
+                            validate,
+                            read,
+                        )),
+                    ));
+                }
+            }
+            let mut progressed = false;
+            for index in (0..pending.len()).rev() {
+                let ready = match pending[index].1.as_mut().poll(cx) {
+                    Poll::Pending => continue,
+                    Poll::Ready(value) => value,
+                };
+                let (slot, _) = pending.swap_remove(index);
+                progressed = true;
+                match ready {
+                    Ok(value) => result[slot] = Some(value),
+                    Err(error) => {
+                        if failure.is_none() {
+                            read.stop();
+                            failure = Some(error);
+                        }
+                    }
+                }
+            }
+            if pending.is_empty() && (failure.is_some() || next == ids.len()) {
+                return Poll::Ready(match failure.take() {
+                    Some(error) => Err(error),
+                    None => result
+                        .iter_mut()
+                        .map(Option::take)
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(|| {
+                            AppError::new(codes::MALFORMED_RESPONSE, "incomplete package summary")
+                        }),
+                });
+            }
+            // Do not drop started futures on the first failure: drain their
+            // guards/HTTP budget before returning, and never schedule a new card.
+            if !progressed {
+                return Poll::Pending;
+            }
+        })
+        .await
     }
     pub fn resolve(
         &self,
@@ -366,6 +617,8 @@ mod tests {
     #[derive(Clone, Default)]
     struct Http {
         paths: Arc<Mutex<Vec<String>>>,
+        urls: Arc<Mutex<Vec<String>>>,
+        known_quota: Arc<AtomicBool>,
     }
     fn path(req: &TsimRequest) -> &str {
         req.url
@@ -397,10 +650,10 @@ mod tests {
                 r#"{"code":1,"result":[{"card_dataplan_id":"synthetic-card-1","iccid":"synthetic-iccid-1","channel_dataplan_name":"synthetic-plan-1","package_status":"using"},{"card_dataplan_id":"synthetic-card-2","iccid":"synthetic-iccid-2","channel_dataplan_name":"synthetic-plan-2","package_status":"inactive"}]}"#,
             ),
             "/agent/package-query/detail" => {
-                assert!(req.url.ends_with("card_dataplan_id=synthetic-card-2"));
-                reply(
-                    r#"{"code":1,"result":{"iccid":"synthetic-iccid-2","channel_dataplan_name":"synthetic-plan-2","package_status":"using","cdr_list":[],"activation_code":"FORBIDDEN_SECRET"}}"#,
-                )
+                let id = req.url.split("card_dataplan_id=").nth(1).unwrap();
+                assert!(["synthetic-card-1", "synthetic-card-2"].contains(&id));
+                let suffix = id.strip_prefix("synthetic-card-").unwrap();
+                reply(&serde_json::json!({"code":1,"result":{"iccid":format!("synthetic-iccid-{suffix}"),"channel_dataplan_name":format!("synthetic-plan-{suffix}"),"package_status":"using","cdr_list":[],"activation_code":"FORBIDDEN_SECRET"}}).to_string())
             }
             "/agent/package-query/live-detail" => {
                 reply(r#"{"code":1,"result":{"volume":2048,"data_usage":512}}"#)
@@ -414,6 +667,12 @@ mod tests {
     impl Executor for Http {
         async fn execute(&self, req: &TsimRequest) -> Result<HttpResponse, AppError> {
             self.paths.lock().unwrap().push(path(req).to_string());
+            self.urls.lock().unwrap().push(req.url.clone());
+            if path(req) == "/agent/package-query/live-detail"
+                && !self.known_quota.load(Ordering::SeqCst)
+            {
+                return reply(r#"{"code":1,"result":{"data_usage":512}}"#);
+            }
             respond(req)
         }
     }
@@ -459,11 +718,15 @@ mod tests {
                 *http.paths.lock().unwrap(),
                 [
                     "/agent/package-query/perform",
-                    "/agent/package-query/dataplan-list"
+                    "/agent/package-query/dataplan-list",
+                    "/agent/package-query/detail",
+                    "/agent/package-query/live-detail",
+                    "/agent/package-query/detail",
+                    "/agent/package-query/live-detail"
                 ]
             );
             book.summary(scope.clone(), epoch, &valid).await.unwrap();
-            assert_eq!(http.paths.lock().unwrap().len(), 2);
+            assert_eq!(http.paths.lock().unwrap().len(), 6);
             let plan = book
                 .resolve(
                     &scope.account,
@@ -472,7 +735,15 @@ mod tests {
                     &summary.plans[1].detail_handle,
                 )
                 .unwrap();
+            http.known_quota.store(true, Ordering::SeqCst);
+            let before_detail = http.urls.lock().unwrap().len();
             let detail = book.detail(&plan, &valid).await.unwrap();
+            assert!(
+                http.urls.lock().unwrap()[before_detail..]
+                    .iter()
+                    .all(|url| url.ends_with("card_dataplan_id=synthetic-card-2")),
+                "explicit detail reads only the selected card"
+            );
             assert_eq!(detail.plan.iccid, "synthetic-iccid-2");
             assert_eq!(detail.plan.remain_pct, Some(75.0));
             assert_eq!(detail.cdrs.len(), 1);
@@ -591,3 +862,7 @@ mod tests {
         });
     }
 }
+
+#[cfg(test)]
+#[path = "order_summary_hydration_tests.rs"]
+mod hydration_tests;

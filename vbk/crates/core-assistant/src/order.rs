@@ -176,6 +176,16 @@ pub fn cdr_fields(detail: &JsonValue, supplement: Option<&JsonValue>) -> Vec<Vec
 }
 pub fn order_summary(detail: &JsonValue, live: Option<&JsonValue>) -> PackageSummary {
     let mut result = summarize("", detail, live);
+    // `status`/`query_status` describe the upstream query, not the package.
+    result.status = live
+        .and_then(|v| scalar(v.get("package_status")))
+        .or_else(|| scalar(detail.get("package_status")))
+        .unwrap_or_default();
+    result.apn = live
+        .and_then(|v| scalar(v.get("apn")))
+        .or_else(|| scalar(detail.get("apn")))
+        .or_else(|| detail.get("operate").and_then(|v| scalar(v.get("apn"))))
+        .unwrap_or_default();
     // No evidence for numeric units in the legacy generic keys: derive only from
     // the installed operator contract (MB, 1024 MB = 1 GB), never plan-name guesses.
     let number = |value: Option<&JsonValue>| {
@@ -185,6 +195,7 @@ pub fn order_summary(detail: &JsonValue, live: Option<&JsonValue>) -> PackageSum
     };
     let truthy = |v: Option<&JsonValue>| {
         matches!(v, Some(JsonValue::Bool(true)))
+            || matches!(v, Some(JsonValue::Number { value, .. }) if *value == 1.0)
             || v.and_then(JsonValue::as_str)
                 .is_some_and(|s| s == "1" || s == "true")
     };
@@ -298,5 +309,32 @@ mod tests {
         assert_eq!(summary.remain_pct, 75.0);
         assert!(!format!("{:?}", live_fields(&live)).contains("SECRET"));
         assert!(order_summary(&detail, None).remain.is_empty());
+    }
+    #[test]
+    fn package_state_is_live_first_and_never_query_success_and_zero_usage_requires_a_real_quota() {
+        let detail = j(
+            r#"{"channel_dataplan_name":"SYNTHETIC 8GB plan","status":"success","query_status":"success","package_status":"not_activated"}"#,
+        );
+        let live =
+            j(r#"{"package_status":"using","data_usage":0,"today_usage":0,"spec_name":"8GB"}"#);
+        let unknown = order_summary(&detail, Some(&live));
+        assert_eq!(unknown.status, "using");
+        assert!(unknown.remain.is_empty() && unknown.total.is_empty());
+        let only_query = j(r#"{"status":"success","query_status":"success"}"#);
+        assert!(order_summary(&only_query, None).status.is_empty());
+        let known = order_summary(
+            &detail,
+            Some(&j(
+                r#"{"package_status":"using","volume":2048,"data_usage":0}"#,
+            )),
+        );
+        assert_eq!(known.remain, "2 GB");
+        assert_eq!(known.total, "2 GB");
+        assert_eq!(known.remain_pct, 100.0);
+        let daily = order_summary(
+            &detail,
+            Some(&j(r#"{"is_daily":1,"volume":2048,"data_usage":0}"#)),
+        );
+        assert!(daily.remain.is_empty() && daily.total.is_empty());
     }
 }

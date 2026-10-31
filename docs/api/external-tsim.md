@@ -91,15 +91,17 @@
 | IPC | 请求与返回 | 绑定与权限 |
 | --- | --- | --- |
 | `assistant_tsim_status` / login / logout | 状态增加 `session_epoch:number`；同名重登也变化 | 凭据留宿主；登录/退出存储错误不可假报成功；本地 `assistant://tsim-status` 仅传状态、用户名和epoch |
-| `assistant_order_summary` | `{account,gid,order_id,context_revision,session_epoch}` → 回显上述边界及 `{query_handle,plans,total,fetched_at_ms}` | main角色；每次外部请求前后核对当前官方会话及TSim身份；固定 `/perform` → `/dataplan-list`，订单以10或16位字符串保真 |
+| `assistant_order_summary` | `{account,gid,order_id,context_revision,session_epoch}` → 回显上述边界及 `{query_handle,plans,total,fetched_at_ms}` | main角色；每次外部请求前后核对当前官方会话及TSim身份；固定 `/perform` → `/dataplan-list`，再逐卡读取 `/detail` 和 `/live-detail`；订单以10或16位字符串保真 |
 | `assistant_package_detail_open` | `{account,gid,query_handle,detail_handle}` → 打开本地受限详情窗口 | 只接受宿主实际列表签发的两个随机句柄；前端不能传真实card ID、token或URL |
 | `assistant_package_detail` | 无参数 → 当前窗口已绑定套餐、白名单详情/实时字段/CDR及读取时间 | 详情角色；窗口实例、完整会话及TSim代次仍有效才可读取，固定 `/detail`、`/live-detail`、`/cdr-more` |
 
-自动摘要保留列表内全部套餐（最多100项，超出明确失败），不静默选第一条。列表缺用量时用量/百分比为未知；点击每份套餐再读取实际详情和补充块，不从套餐名称猜流量或把未知填为0。已有 `{iccid}` 速览保留作为没有关联订单时的后备。
+自动摘要保留列表内全部套餐（最多100项，超出明确失败），不静默选第一条。清单本身可能只有ICCID；摘要会自动补齐每卡真实详情与实时信息，最多4卡并发，返回顺序与清单相同。套餐状态优先取实时业务状态，其次取详情业务状态，不把接口查询的success当成套餐状态。缺少真实流量额度时用量/百分比为未知，不从套餐名称猜流量或把未知填为0。点击每份套餐再读取完整详情、实时字段和CDR。已有 `{iccid}` 速览保留作为没有关联订单时的后备。
 
 缓存和句柄在宿主按完整scope及TSim代次隔离；普通消息、未读数和备注广播不等于更换客户身份。身份失效后旧结果和详情不可重新绑定到新账号。详情是本地只读投影，不复制旧助手的远端iframe/token handoff，不包含退款、订单修改或权限操作。全部时间、字段是否在线有效，需用户正常登录后的实际查询验证。
 
-本地资源边界：查询结果复用60秒，句柄有效期5分钟，最多保留16组查询，同时最多8个详情窗口；CDR按接口源顺序最多展示前100条并在界面标明。详情的补充接口无可显示结果时明确显示“未返回可显示的数据/用量记录”，不据空投影推断套餐实际没有用量。
+本地资源边界：完整成功结果及合法无实时数据的结果复用60秒，句柄有效期5分钟，最多保留16组查询，同时最多8个详情窗口。实时查询网络失败、404/429/5xx或异常数据可保留已确认的详情和未知实时字段，但该结果不参与60秒复用；认证/权限失败、scope或epoch变化始终拒绝整份结果。必要详情失败不返回伪造的部分成功。
+
+会话准备完成后，perform/list及逐卡详情/实时HTTP共用45秒预算；前置session/profile/refresh仍沿用既有单请求超时策略。预算不会强行取消正在执行的会话范围检查，已开始的检查须完成后收尾，因此不宣称整个登录加查询必定在45秒内结束。失败后不继续派发新卡查询，不保存半份摘要。CDR按接口源顺序最多展示前100条并在界面标明；补充接口无可显示结果时明确显示“未返回可显示的数据/用量记录”，不据空投影推断套餐实际没有用量。
 
 Windows只读来源核对：本机TSim `agent-frontend/src/types/package.ts` 的 `PackageInfo`、详情和CDR类型，以及 `central-backend/api/routers/agent_package_query.py` 的 perform/list/detail/live/CDR 路由。已安装助手实际使用远端 `csagent.tsim.tech/embed/operator` 的会话handoff，本地实现没有复用其令牌或嵌入协议；本机源字段与安装代码仅证明契约来源，不证明线上请求已经成功。
 
