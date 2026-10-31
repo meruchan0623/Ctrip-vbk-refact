@@ -13,8 +13,21 @@ test('geometry diagnostics require opt-in, have a fixed numeric schema, and neve
 });
 test('geometry trace is bounded, snapshots detached, clear stops recording', () => {
   const trace = createHistoryDiagnostics(); trace.start();
-  for (let i = 0; i < 600; i++) trace.record('capture', { row: i });
-  const snapshot = trace.snapshot(); assert.equal(snapshot.events.length, 512); assert.equal(snapshot.dropped, 88);
-  snapshot.events[0]!.metrics.row = -1; assert.equal(trace.snapshot().events[0]!.metrics.row, 88);
+  for (let i = 0; i < 9000; i++) trace.record('capture', { row: i });
+  const snapshot = trace.snapshot(); assert.equal(snapshot.events.length, 8192); assert.equal(snapshot.dropped, 808);
+  snapshot.events[0]!.metrics.row = -1; assert.equal(trace.snapshot().events[0]!.metrics.row, 808);
   trace.clear(); assert.equal(trace.active(), false); assert.equal(trace.snapshot().events.length, 0);
+});
+test('a 3769-event runtime-sized trace retains the pagination transition before idle layout cycles', () => {
+  const trace = createHistoryDiagnostics(); trace.start();
+  const capture = trace.record('capture', { rows: 20, scrollTop: 0 });
+  trace.record('restore', { capture, before: 0, after: 300, delta: 300 }, 'applied');
+  for (let i = 2; i < 3769; i++) trace.record('resize', { scrollTop: 300 }, 'observed');
+  trace.stop();
+  const snapshot = trace.snapshot();
+  assert.equal(snapshot.dropped, 0);
+  assert.equal(snapshot.events.length, 3769);
+  assert.equal(snapshot.events[0]!.sequence, capture);
+  assert.equal(snapshot.events[1]!.metrics.delta, 300);
+  assert.equal(snapshot.events.at(-1)!.sequence, 3769);
 });

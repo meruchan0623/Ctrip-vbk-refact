@@ -22,7 +22,9 @@ export function createHistoryDiagnostics() {
         if (typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10_000_000) safe[key] = Math.round(value * 10) / 10;
       }
       const event = { sequence: ++sequence, stage, ...(reason && reasons.includes(reason) ? { reason } : {}), metrics: safe };
-      if (events.length === 512) { events.shift(); dropped++; }
+      // The real single-page reproduction produced 3769 events before the panel reopened.
+      // Keep that transition intact while retaining a fixed, memory-only upper bound.
+      if (events.length === 8192) { events.shift(); dropped++; }
       events.push(event);
       return sequence;
     },
