@@ -133,6 +133,7 @@ pub fn run() {
             adapter::im_messages,
             adapter::im_unknown_outbound,
             adapter::im_outbound_lookup,
+            adapter::im_message_page,
             adapter::im_send_text,
             adapter::im_mark_read,
             adapter::im_set_top,

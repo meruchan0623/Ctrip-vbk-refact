@@ -27,6 +27,7 @@
     "allow-im-messages",
     "allow-im-unknown-outbound",
     "allow-im-outbound-lookup",
+    "allow-im-message-page",
     "allow-im-send-text",
     "allow-im-mark-read",
     "allow-im-set-top",

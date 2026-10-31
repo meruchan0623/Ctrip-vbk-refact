@@ -329,7 +329,7 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
     original: extras.original ?? null,
     quote: cite,
     order_id: order?.order_id ?? null,
-    disposition: extras.disposition ?? null,
+    disposition: extras.disposition ?? (sender && roles.roleOf(sender) === 'merchant_self' && idStr(msg.msgId) ? { kind: 'confirmed', server_message_id: idStr(msg.msgId)!, server_time_ms: createTime } : null),
   };
 }
 

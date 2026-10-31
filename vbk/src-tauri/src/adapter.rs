@@ -45,7 +45,7 @@ use crate::state::HostState;
 use display::{
     AgentStatusDto, DisplayCache, DisplayConversationDto, DisplayDelta, DisplayPayload,
     PinnedTable, UiAgentStatusDto, UiConversationDto, UiMessageDto, UiMessageEventDto,
-    UiNetStatusDto, UiNoticeCategoryDto,
+    UiMessagePageDto, UiNetStatusDto, UiNoticeCategoryDto,
 };
 
 type CmdResult<T> = Result<T, AppErrorDto>;
@@ -397,6 +397,13 @@ fn bound_caller(
 ) -> CmdResult<AccountContext> {
     let ctx = caller(app, state, webview, command)?
         .ok_or_else(|| e2dto(not_ready("no account is bound to this webview yet")))?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(ctx)
+}
+
+/// Validates a UI-supplied read scope without recording or restoring UI focus.
+fn read_account(state: &HostState, account: AccountContextDto) -> CmdResult<AccountContext> {
+    let ctx: AccountContext = account.into();
     state.lock().accounts.validate(&ctx).map_err(e2dto)?;
     Ok(ctx)
 }
@@ -892,9 +899,7 @@ pub async fn im_messages(
     guard(&state, webview.label(), "im_messages")?;
     let ctx = ui_account(&app, &state, account)?;
     let m = module(&app).map_err(e2dto)?;
-    if let Some(cached) = lock(&m.display).messages(&ctx, &gid).map_err(e2dto)? {
-        return Ok(cached);
-    }
+    // A cached realtime message is not proof that history has been fetched.
     let items: Vec<UiMessageDto> = forward(
         &app,
         &ctx,
@@ -904,8 +909,35 @@ pub async fn im_messages(
     )
     .await
     .map_err(e2dto)?;
-    let r = lock(&m.display).replace_thread(&ctx, &gid, items);
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    let r = lock(&m.display).merge_thread(&ctx, &gid, items);
     r.map_err(e2dto)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_message_page(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    before_ms: Option<i64>,
+) -> CmdResult<UiMessagePageDto> {
+    guard(&state, webview.label(), "im_message_page")?;
+    let ctx = read_account(&state, account)?;
+    let m = module(&app).map_err(e2dto)?;
+    let mut args = serde_json::json!({ "gid": gid });
+    if let Some(before) = before_ms {
+        args["before_ms"] = before.into();
+    }
+    let page: UiMessagePageDto = forward(&app, &ctx, "im.message_page", args, READ_TIMEOUT)
+        .await
+        .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    lock(&m.display)
+        .merge_thread(&ctx, &gid, page.items.clone())
+        .map_err(e2dto)?;
+    Ok(page)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1829,5 +1861,38 @@ mod outbound_lookup_tests {
         assert!(!returned.to_string().contains("private"));
         let mut numeric = raw; numeric["items"][0]["message_id"] = serde_json::json!(9007199254740992_u64);
         assert!(serde_json::from_value::<OutboundLookupDto>(numeric).is_err());
+    }
+}
+
+#[cfg(test)]
+mod history_page_read_tests {
+    use super::*;
+    use contracts::Environment;
+
+    #[test]
+    fn actual_page_read_scope_keeps_another_valid_accounts_focus_and_rejects_invalid_generations() {
+        let state = HostState::new(None, 1);
+        let login = |buid: &str| {
+            let mut cores = state.lock();
+            let attempt = cores.accounts.start_login(Environment::production());
+            cores.accounts.publish_identity(&attempt.attempt_id, core_account::UpstreamIdentity {
+                buid: core_account::Buid::new(buid), uid: format!("synthetic-{buid}"), agent_id: None, environment: Environment::production(),
+            }).unwrap().ctx
+        };
+        let a = login("page-a"); let b = login("page-b");
+        let module = AdapterState::new(PinnedTable::default()); *lock(&module.focus) = Some(b.clone());
+        assert!(state.lock().accounts.validate(&a).is_ok()); assert!(state.lock().accounts.validate(&b).is_ok());
+        assert_eq!(read_account(&state, (&a).into()).unwrap(), a);
+        assert_eq!(*lock(&module.focus), Some(b.clone()));
+        let mut stale = AccountContextDto::from(&a); stale.session_generation += 1;
+        assert!(read_account(&state, stale).is_err()); assert_eq!(*lock(&module.focus), Some(b));
+        // Tie this behavioral proof to the actual production command, rather
+        // than a duplicate test-only authorization implementation.
+        let source = include_str!("adapter.rs");
+        let command = source.split("pub async fn im_message_page(").nth(1).unwrap().split("#[tauri::command").next().unwrap();
+        assert!(command.contains("read_account(&state, account)?"));
+        assert!(!command.contains("ui_account("));
+        let after_await = command.split(".await").nth(1).unwrap();
+        assert!(after_await.contains("accounts.validate(&ctx)"));
     }
 }

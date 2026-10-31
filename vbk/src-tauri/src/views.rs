@@ -63,6 +63,7 @@ impl Role {
             "im_messages",
             "im_unknown_outbound",
             "im_outbound_lookup",
+            "im_message_page",
             "im_send_text",
             "im_mark_read",
             "im_set_top",

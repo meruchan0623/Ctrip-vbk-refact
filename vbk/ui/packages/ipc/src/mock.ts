@@ -484,6 +484,18 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       convFor(ctx, gid);
       return (st.messages.get(gid) ?? []).map((m) => ({ ...m }));
     },
+    [UiCommands.IM_MESSAGE_PAGE]: async (p) => {
+      const ctx = checkAccount(p);
+      const args = p as { account?: AccountContext; gid?: string; before_ms?: number };
+      if (args.account?.session_generation !== ctx.session_generation || args.account?.environment !== ctx.environment) throw appError(ErrorCodes.ACCOUNT_STALE_GENERATION, 'page account scope changed');
+      if (args.before_ms !== undefined && (!Number.isSafeInteger(args.before_ms) || args.before_ms < 1000000000000 || args.before_ms >= 10000000000000)) throw appError(ErrorCodes.ADAPTER_FAILED, 'invalid history cursor');
+      const gid = String(args.gid ?? '');
+      convFor(ctx, gid);
+      const all = (st.messages.get(gid) ?? []).filter((m) => args.before_ms === undefined || m.create_time_ms < args.before_ms);
+      const items = all.slice(-30).map((m) => ({ ...m }));
+      const hasMore = all.length > items.length;
+      return { items, has_more: hasMore, before_ms: hasMore ? items[0]?.create_time_ms ?? null : null };
+    },
     [ImCommands.LOCATE]: async (p) => {
       const ctx = checkAccount(p);
       const gid = String((p as { gid?: string }).gid ?? '');

@@ -106,6 +106,7 @@ export const UiCommands = {
   IM_OUTBOUND_LOOKUP: 'im_outbound_lookup', // {account, gid} -> UiOutboundLookup; no display or read-receipt effects
   IM_UNKNOWN_OUTBOUND: 'im_unknown_outbound', // {account} -> UiUnknownOutboundRecord[]; read-only metadata
   IM_MESSAGES: 'im_messages', // {account, gid} → UiMessage[]
+  IM_MESSAGE_PAGE: 'im_message_page', // {account, gid, before_ms?} → UiMessagePage
   IM_SEND_TEXT: 'im_send_text', // {account, gid, local_id, text, original?, quote_id?} → SendDisposition
   IM_SET_TOP: 'im_set_top', // {account, gid, top}
   IM_SET_MARK: 'im_set_mark', // {account, gid, action: 0..5}  (official setWorkSheetStar)
@@ -294,6 +295,13 @@ export interface UiUnknownOutboundRecord {
   readonly created_at_ms: number;
   readonly write_started: true;
   readonly phase: 'write_started' | 'unknown';
+}
+
+export interface UiMessagePage {
+  readonly items: readonly UiMessage[];
+  readonly has_more: boolean;
+  /** Exclusive server history boundary; null when no earlier page is available. */
+  readonly before_ms: number | null;
 }
 
 export interface UiNoticeCategory {

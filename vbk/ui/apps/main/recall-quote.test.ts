@@ -15,8 +15,8 @@ const secret = 'SYNTHETIC_RECALLED_SECRET';
 const original: UiMessage = { gid: 'synthetic-room', message_id: 'synthetic-original', local_id: null, sender_role: 'customer', kind: 'text', text: secret, create_time_ms: 1800000000000, translation: null, original: null, quote: null, order_id: null, disposition: null };
 const reply: UiMessage = { ...original, message_id: 'synthetic-reply', text: 'SYNTHETIC REPLY', quote: secret };
 const notice: UiMessage & { readonly recalled_message_id: string | null } = { ...original, message_id: 'synthetic-notice', kind: 'system', text: '消息已撤回', recalled_message_id: original.message_id };
-const conv = { gid: original.gid, title: 'Synthetic Customer', color: '#aaa', lang: 'en', order: null };
 const account = { context: { account_id: 'synthetic-account', environment: 'synthetic', session_generation: 1 }, color: '#bbb' };
+const conv = { account: account.context, gid: original.gid, title: 'Synthetic Customer', color: '#aaa', lang: 'en', order: null };
 interface Node { tag: string; props: Record<string, unknown>; children: unknown[] }
 const h = (tag: string, props: Record<string, unknown> | null, ...children: unknown[]): Node => ({ tag, props: props ?? {}, children });
 function fixture(messages: UiMessage[], selected: UiMessage | null = original) {

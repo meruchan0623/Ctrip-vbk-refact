@@ -18,7 +18,7 @@
 
 import type { AdapterFact, AppError, SendDisposition } from '../../ipc/src/contracts.ts';
 import { ErrorCodes } from '../../ipc/src/contracts.ts';
-import type { AgentStatus, MarkAction, UiMessage, UiNoticeCategory, UiPeripheralWrite } from '../../ipc/src/client.ts';
+import type { AgentStatus, MarkAction, UiMessage, UiMessagePage, UiNoticeCategory, UiPeripheralWrite } from '../../ipc/src/client.ts';
 import type { AdapterDisplayPayload, AdapterOp, AdapterReplyPayload, AdapterResultMap } from '../../ipc/src/adapterProtocol.ts';
 import type { AdapterDeps } from './deps.ts';
 import { getCustomerScripts, getCurrentMembers, getInviteMemberListBySkillGroup, getLatestConversationState, finishConversation, inviteVenAgent, transferVenMaster, type PeripheralFailure, type PeripheralReadResult, type CurrentMember, type PeripheralConversation } from './peripheral.ts';
@@ -28,6 +28,7 @@ import type { SoaClient, SoaOutcome } from './soa.ts';
 import { recordOrNull } from './soa.ts';
 import { conversationListBody, type ConversationListResponse } from './conversationList.ts';
 import { fetchHistoryPage } from './history.ts';
+import { is13DigitMs, normalizeTimeMs } from './facts.ts';
 import { createSendIntent, submitIntent, type SendIntent } from './send.ts';
 import { markRead } from './markRead.ts';
 import { numericGid, setWorkSheetStar } from './worksheetStar.ts';
@@ -47,6 +48,7 @@ export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
   'im.finish': 'finishConversation (47), status=4/inGroup=-1 read-back (48)',
   'im.outbound_lookup': 'getMessageList latest page, identity metadata only; no facts, display or mark-read',
   'im.messages': 'getMessageList (endpoint doc, evidence 70); checkMemberStatus roles (13500 doc, evidence 55)',
+  'im.message_page': 'getMessageList direction prev/endTime; rangeMessage.isDone (evidence 70)',
   'im.send_text': 'WS body/send_result (transports.md, evidence 35/40); SDK facade name unverified',
   'im.mark_read': 'PutAdviceOfReadByMsgId.json body (11679 doc, evidence 71)',
   'im.set_mark': 'setWorkSheetStar (16037 doc, evidence 72-75)',
@@ -185,21 +187,23 @@ const imOutboundLookup: Handler<'im.outbound_lookup'> = async (ctx, args) => {
   return { items };
 };
 
-const imMessages: Handler<'im.messages'> = async (ctx, args) => {
+const imMessagePage: Handler<'im.message_page'> = async (ctx, args): Promise<UiMessagePage> => {
   const current = ctx.captureWriteGuard?.() ?? (() => true);
+  ensureCurrent(current);
   const gid = requireString(args, 'gid');
+  const before = recordOrNull(args)?.['before_ms'];
+  if (before !== undefined && !is13DigitMs(before)) fail(ErrorCodes.ADAPTER_FAILED, 'invalid history cursor');
   const view = requireConversation(ctx, gid);
-  if (!view.conversationType) fail(ErrorCodes.ADAPTER_FAILED, 'conversationType unknown for this conversation');
   const historyOwner = JSON.stringify([sendIdentity(ctx, view), view.orderId]);
   const checkHistoryContext = (): void => {
     ensureCurrent(current);
     const live = requireConversation(ctx, gid);
     if (JSON.stringify([sendIdentity(ctx, live), live.orderId]) !== historyOwner) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation changed during history read');
   };
-  checkHistoryContext();
+  if (!view.conversationType) fail(ErrorCodes.ADAPTER_FAILED, 'conversationType unknown for this conversation');
   await ctx.roles.ensure(ctx.deps, ctx.soa, gid);
   checkHistoryContext();
-  const res = await fetchHistoryPage(ctx.deps, ctx.soa, { gid, conversationType: view.conversationType, pageSize: HISTORY_PAGE_SIZE }, ctx.roles);
+  const res = await fetchHistoryPage(ctx.deps, ctx.soa, { gid, conversationType: view.conversationType, pageSize: HISTORY_PAGE_SIZE, ...(typeof before === 'number' ? { cursor: { direction: 'prev' as const, endTime: before } } : {}) }, ctx.roles);
   checkHistoryContext();
   if (res.kind === 'invalid_cursor') fail(ErrorCodes.ADAPTER_FAILED, 'invalid history cursor');
   if (res.kind === 'failed') throw new RpcError(outcomeError(res.outcome, 'history'));
@@ -223,9 +227,15 @@ const imMessages: Handler<'im.messages'> = async (ctx, args) => {
     const profile = view.customerUid ? ctx.roles.profileOf(view.customerUid) : null;
     ctx.pushDisplay({ kind: 'conversations', full: false, items: [{ ...display, customer_avatar: profile?.avatar ?? null, title: profile?.name ?? display.title, order: ctx.store.order(gid) ?? display.order }], removed_gids: [] });
   }
-  ctx.pushDisplay({ kind: 'messages', gid, replace: true, items });
-  return items;
+  // A page is only part of a thread: preserve realtime arrivals and previously loaded pages.
+  ctx.pushDisplay({ kind: 'messages', gid, replace: false, items });
+  const times = res.page.rows.map((row) => row && typeof row === 'object' ? normalizeTimeMs(row.createTime) : null).filter(is13DigitMs);
+  const oldest = times.length > 0 ? Math.min(...times) : null;
+  const hasMore = !res.page.isDone && oldest !== null && (typeof before !== 'number' || oldest < before);
+  return { items, has_more: hasMore, before_ms: hasMore ? oldest : null };
 };
+
+const imMessages: Handler<'im.messages'> = async (ctx, args, state) => (await imMessagePage(ctx, args, state)).items;
 
 async function sendOnce(ctx: RpcContext, gid: string, localId: string, text: string, original: string | null, quoteId: string | null, attempt: { started: boolean }): Promise<SendDisposition> {
   const current = ctx.captureWriteGuard?.() ?? (() => true);
@@ -580,6 +590,7 @@ const HANDLERS: { readonly [K in AdapterOp]: Handler<K> } = {
   'im.finish': imFinish,
   'im.outbound_lookup': imOutboundLookup,
   'im.messages': imMessages,
+  'im.message_page': imMessagePage,
   'im.send_text': imSendText,
   'im.mark_read': imMarkRead,
   'im.set_mark': imSetMark,

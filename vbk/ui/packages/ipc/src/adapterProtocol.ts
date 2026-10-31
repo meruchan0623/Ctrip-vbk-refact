@@ -15,7 +15,7 @@
  */
 
 import type { AccountContext, AdapterFactEnvelope, AppError, SendDisposition, TransportState } from './contracts.ts';
-import type { AgentStatus, MarkAction, OrderSearchResult, UiConversation, UiMessage, UiNotice, UiNoticeCategory, UiCustomerScripts, UiMembers, UiInviteCandidates, UiPeripheralWrite } from './client.ts';
+import type { AgentStatus, MarkAction, OrderSearchResult, UiConversation, UiMessage, UiMessagePage, UiNotice, UiNoticeCategory, UiCustomerScripts, UiMembers, UiInviteCandidates, UiPeripheralWrite } from './client.ts';
 
 export const AdapterCommands = {
   /** Page booted on an official IM page; host answers with the bound account (null while identity unknown). */
@@ -87,6 +87,7 @@ export type AdapterRequest =
   | { readonly req_id: string; readonly op: 'adapter.diagnostics'; readonly args: Record<string, never> }
   | { readonly req_id: string; readonly op: 'im.outbound_lookup'; readonly args: { readonly gid: string } }
   | { readonly req_id: string; readonly op: 'im.messages'; readonly args: { readonly gid: string } }
+  | { readonly req_id: string; readonly op: 'im.message_page'; readonly args: { readonly gid: string; readonly before_ms?: number } }
   | { readonly req_id: string; readonly op: 'im.send_text'; readonly args: { readonly gid: string; readonly local_id: string; readonly text: string; readonly original: string | null; readonly quote_id: string | null } }
   | { readonly req_id: string; readonly op: 'im.customer_scripts'; readonly args: { readonly content: string } }
   | { readonly req_id: string; readonly op: 'im.members'; readonly args: { readonly gid: string } }
@@ -111,6 +112,7 @@ export interface AdapterResultMap {
   'adapter.diagnostics': import('./client.ts').UiPageReceiveDiagnostics;
   'im.outbound_lookup': import('./client.ts').UiOutboundLookup;
   'im.messages': readonly UiMessage[];
+  'im.message_page': UiMessagePage;
   'im.send_text': SendDisposition;
   'im.mark_read': null;
   'im.customer_scripts': UiCustomerScripts;

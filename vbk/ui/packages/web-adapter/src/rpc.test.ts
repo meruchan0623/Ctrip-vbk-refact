@@ -121,7 +121,7 @@ test('rpc: im.mark_read uses the room jid + latest message id', async () => {
   assert.deepEqual(sdk.readReceipts[0], { partnerJid: `${GID}@conf.x`, msgId: `m-${GID}`, conversationType: 'groupchat' });
 });
 
-test('rpc: im.messages pages history, pushes body-free facts and a replace display', async () => {
+test('rpc: im.messages fetches history, pushes body-free facts and merges partial display', async () => {
   const { base, rpc, facts, displays } = setup((call) =>
     call.url.includes('getMessageList')
       ? jsonResponse({
@@ -142,7 +142,27 @@ test('rpc: im.messages pages history, pushes body-free facts and a replace displ
   assert.ok(base.fakeFetch.calls.some((c) => c.url.includes('13500/checkMemberStatus')));
   assert.equal(facts.length, 2);
   assert.equal(JSON.stringify(facts).includes('first'), false);
-  assert.ok(displays.some((d) => d.kind === 'messages' && d.replace));
+  assert.ok(displays.some((d) => d.kind === 'messages' && !d.replace));
+});
+
+test('rpc: im.message_page uses an exclusive earlier boundary and stops at server completion', async () => {
+  const { rpc, base } = setup((call) => {
+    if (!call.url.includes('getMessageList')) return jsonResponse({ ResponseStatus: OK_STATUS, members: [] });
+    const b = call.bodyJson as { endTime?: number };
+    return jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: {
+      isDone: b.endTime !== undefined,
+      messages: [{ msgId: b.endTime ? 'old' : 'new', messageBody: 'history', fromJid: 'me@x', createTime: b.endTime ? 1700000000000 : 1700000000100, msgtype: 0 }],
+    } });
+  });
+  const page = ok(await rpc.handle({ req_id: 'p1', op: 'im.message_page', args: { gid: GID } })) as { has_more: boolean; before_ms: number; items: { disposition: { kind: string } }[] };
+  assert.equal(page.has_more, true);
+  assert.equal(page.before_ms, 1700000000100);
+  assert.equal(page.items[0]?.disposition.kind, 'confirmed');
+  const older = ok(await rpc.handle({ req_id: 'p2', op: 'im.message_page', args: { gid: GID, before_ms: page.before_ms } })) as { has_more: boolean; before_ms: number | null };
+  assert.deepEqual([older.has_more, older.before_ms], [false, null]);
+  const requests = base.fakeFetch.calls.filter((call) => call.url.includes('getMessageList'));
+  assert.equal((requests[1]?.bodyJson as { endTime: number }).endTime, page.before_ms);
+  assert.equal(err(await rpc.handle({ req_id: 'p3', op: 'im.message_page', args: { gid: GID, before_ms: 123 } })), 'adapter.failed');
 });
 
 test('rpc: notice.categories flattens sub-categories; notice.mark_read uses lastMsgId', async () => {
@@ -276,6 +296,21 @@ test('rpc peripheral: metadata enrichment cannot replay an unknown action in the
   store.update([sampleRow(GID, { conversationKey: 'newly-enriched-key', serviceType: '2384' })]);
   assert.deepEqual(ok(await rpc.handle(req)), first);
   assert.equal(base.fakeFetch.calls.filter(c => c.url.includes('/finishConversation')).length, 1);
+});
+
+test('rpc lifecycle guard: send held behind history cannot submit after generation changes', async () => {
+  let release!: (v: ReturnType<typeof jsonResponse>) => void;
+  const { ctx, store, sdk, base } = setup((call) => call.url.includes('/getMessageList') ? new Promise(resolve => { release = resolve; }) : jsonResponse({ ResponseStatus: OK_STATUS, members: [] }));
+  store.update([sampleRow(GID, { lastMessageJsonString: '' })]);
+  let generation = 1;
+  const guarded = createRpc({ ...ctx, captureWriteGuard: () => { const captured = generation; return () => generation === captured; } });
+  const result = guarded.handle(send('guarded'));
+  await flush();
+  generation += 2; // stop followed by restart still invalidates old work
+  release(jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: { isDone: true, messages: [{ msgId: 'history', messageBody: 'old', fromJid: `${GID}@conf.x/customer`, toJid: 'me@im.x', createTime: 1700000000500, msgtype: 0 }] } }));
+  assert.equal(err(await result), 'adapter.not_ready');
+  assert.equal(sdk.sent.length, 0);
+  assert.ok(base.fakeFetch.calls.some(c => c.url.includes('/getMessageList')));
 });
 
 test('rpc peripheral lifecycle: stale run selection and preflight completion cannot submit a write', async () => {

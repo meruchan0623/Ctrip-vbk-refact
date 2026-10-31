@@ -1,3 +1,4 @@
+import { historyScopeKey } from './viewmodel.ts';
 import { personDisplayName } from './person-name.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,7 +30,7 @@ function render(name: 'conversationList' | 'chatPane' | 'peripheralDialog', next
     querySelector: () => null,
   };
   const env = { personDisplayName,
-    document: doc, renderMessageAvatar, initialOf, cx,
+    document: doc, renderMessageAvatar, initialOf, cx, historyScopeKey,
     h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
     icon: () => ({ tag: 'icon' }), IC: {}, t: (key: string) => key,
     tabCounts: () => ({ doing: 1, done: 0 }), filterConversations: () => [conv],

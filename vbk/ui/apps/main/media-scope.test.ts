@@ -30,7 +30,12 @@ function renderVideo(account = scope, room = 'synthetic-room', id: string | null
 function actualReuse(oldVideo: ElementFixture, nextVideo: ElementFixture): void {
   const oldRoot = new ElementFixture('div', {}, [oldVideo]); const nextRoot = new ElementFixture('div', {}, [nextVideo]);
   let trigger!: (state: object) => void;
-  const env = { Element: ElementFixture, CSS: { escape: encodeURIComponent }, root: oldRoot, store: {}, render: () => nextRoot, subscribeBatched: (_store: unknown, callback: typeof trigger) => { trigger = callback; }, rerender: (_root: unknown, callback: () => unknown) => callback() };
+  const env: Record<string, unknown> = { ...vm, activeConv: () => null, activeAccount: () => null, S: () => ({}), Element: ElementFixture, CSS: { escape: encodeURIComponent }, root: oldRoot, store: {}, render: () => nextRoot, subscribeBatched: (_store: unknown, callback: typeof trigger) => { trigger = callback; }, rerender: (_root: unknown, callback: () => unknown) => callback() };
+  for (const [name, next] of [['captureMessageAnchor', 'restoreMessageAnchor'], ['restoreMessageAnchor', 'withMessageAnchor'], ['withMessageAnchor', 'messageRow']] as const) {
+    const start = source.indexOf(`function ${name}(`), end = source.indexOf(`\nfunction ${next}(`, start);
+    assert.ok(start >= 0 && end > start);
+    env[name] = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)) + `\nreturn ${name};`)(...Object.values(env));
+  }
   const a = source.indexOf('subscribeBatched(store,'), b = source.indexOf('\nrerender(root, () => render(S()));', a); assert.ok(a >= 0 && b > a);
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)))(...Object.values(env)); trigger({});
 }

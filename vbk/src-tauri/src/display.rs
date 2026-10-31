@@ -129,6 +129,13 @@ pub struct UiMessageDto {
     pub disposition: Option<SendDispositionDto>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiMessagePageDto {
+    pub items: Vec<UiMessageDto>,
+    pub has_more: bool,
+    pub before_ms: Option<i64>,
+}
+
 /// `im://message-new` payload: `UiMessage` plus the owning account.
 #[derive(Clone, Serialize)]
 pub struct UiMessageEventDto<'a> {
@@ -374,45 +381,170 @@ fn validate_message(gid: &str, m: &UiMessageDto) -> Result<(), AppError> {
     Ok(())
 }
 
-fn same_message(a: &UiMessageDto, b: &UiMessageDto) -> bool {
-    match (&a.message_id, &b.message_id) {
-        (Some(x), Some(y)) if x == y => return true,
-        _ => {}
-    }
-    matches!((&a.local_id, &b.local_id), (Some(x), Some(y)) if x == y)
+fn known_message_id(id: &Option<String>) -> Option<&str> {
+    id.as_deref().filter(|value| !value.trim().is_empty())
 }
 
-/// Merges `incoming` into `thread`: same server id or same local id
-/// updates in place (an outbound message gets its server id), anything
-/// else is appended. Returns the new/changed messages.
+fn compatible_sender(a: &UiMessageDto, b: &UiMessageDto) -> bool {
+    if a.gid != b.gid || a.sender_role != b.sender_role {
+        return false;
+    }
+    let a_id = a.sender_id.trim();
+    let b_id = b.sender_id.trim();
+    a_id.is_empty() || b_id.is_empty() || a_id.to_lowercase() == b_id.to_lowercase()
+}
+
+fn compatible_alias_group(a: &UiMessageDto, b: &UiMessageDto) -> bool {
+    compatible_sender(a, b)
+        && match (
+            known_message_id(&a.message_id),
+            known_message_id(&b.message_id),
+        ) {
+            (Some(a_id), Some(b_id)) => a_id == b_id,
+            _ => true,
+        }
+}
+
+fn same_message(a: &UiMessageDto, b: &UiMessageDto) -> bool {
+    if a.gid != b.gid {
+        return false;
+    }
+    match (
+        known_message_id(&a.message_id),
+        known_message_id(&b.message_id),
+    ) {
+        (Some(a_id), Some(b_id)) => return a_id == b_id,
+        _ => {}
+    }
+    compatible_alias_group(a, b)
+        && matches!((known_message_id(&a.local_id), known_message_id(&b.local_id)),
+            (Some(a_id), Some(b_id)) if a_id == b_id)
+}
+
+fn matching_confirmation(m: &UiMessageDto, server_id: Option<&str>) -> bool {
+    matches!((&m.disposition, server_id),
+        (Some(SendDispositionDto::Confirmed { server_message_id, .. }), Some(id))
+            if server_message_id == id)
+}
+
+/// Exact server IDs anchor reconciliation. Local IDs are only aliases within
+/// a pairwise compatible sender/server group, never authority to join senders.
 fn merge_messages(
     thread: &mut Vec<UiMessageDto>,
     incoming: Vec<UiMessageDto>,
 ) -> Vec<UiMessageDto> {
     let mut changed = Vec::new();
     for mut m in incoming {
-        if let Some(existing) = thread.iter_mut().find(|e| same_message(e, &m)) {
-            let old_id = existing.sender_id.trim();
-            let new_id = m.sender_id.trim();
-            let same_sender = !old_id.is_empty()
-                && (if new_id.is_empty() {
-                    existing.sender_role == m.sender_role
-                } else {
-                    old_id.to_lowercase() == new_id.to_lowercase()
-                });
-            if same_sender {
-                m.sender_name = m.sender_name.or_else(|| existing.sender_name.clone());
-                m.sender_avatar = m.sender_avatar.or_else(|| existing.sender_avatar.clone());
-                if new_id.is_empty() {
-                    m.sender_id = existing.sender_id.clone();
-                }
-            }
-            if *existing != m {
-                *existing = m.clone();
-                changed.push(m);
+        let mut selected: Vec<usize> = thread
+            .iter()
+            .enumerate()
+            .filter_map(|(index, old)| {
+                (old.gid == m.gid
+                    && matches!(
+                        (known_message_id(&old.message_id), known_message_id(&m.message_id)),
+                        (Some(old_id), Some(new_id)) if old_id == new_id
+                    ))
+                .then_some(index)
+            })
+            .collect();
+        let aliases: Vec<usize> = thread
+            .iter()
+            .enumerate()
+            .filter_map(|(index, old)| {
+                (!selected.contains(&index)
+                    && same_message(old, &m)
+                    && compatible_alias_group(old, &m))
+                .then_some(index)
+            })
+            .collect();
+        if selected.is_empty() {
+            // A missing UID can match several known UIDs independently. It
+            // cannot choose a group or bridge those incompatible identities.
+            if aliases.iter().all(|a| {
+                aliases
+                    .iter()
+                    .all(|b| compatible_alias_group(&thread[*a], &thread[*b]))
+            }) {
+                selected = aliases;
             }
         } else {
+            let aliases: Vec<usize> = aliases.into_iter().filter(|index| {
+                selected
+                    .iter()
+                    .all(|old| compatible_alias_group(&thread[*old], &thread[*index]))
+            }).collect();
+            // A server anchor with no known UID does not identify which of
+            // several conflicting local groups owns that server message.
+            if aliases.iter().all(|a| aliases.iter().all(|b|
+                compatible_alias_group(&thread[*a], &thread[*b]))) {
+                selected.extend(aliases);
+            }
+        }
+        if selected.is_empty() {
             thread.push(m.clone());
+            changed.push(m);
+            continue;
+        }
+        // Exact server IDs may correct an explicit sender conflict. Keep the
+        // incoming record, but inherit nothing from the conflicting identity.
+        let can_inherit = selected.iter().all(|a| {
+            compatible_alias_group(&thread[*a], &m)
+                && selected
+                    .iter()
+                    .all(|b| compatible_alias_group(&thread[*a], &thread[*b]))
+        });
+        if can_inherit {
+            for index in &selected {
+                let old = &thread[*index];
+                if known_message_id(&m.message_id).is_none() {
+                    m.message_id = old.message_id.clone();
+                }
+                if known_message_id(&m.local_id).is_none() {
+                    m.local_id = old.local_id.clone();
+                }
+                m.original = m.original.or_else(|| old.original.clone());
+                m.translation = m.translation.or_else(|| old.translation.clone());
+                if !old.sender_id.trim().is_empty() {
+                    m.sender_name = m.sender_name.or_else(|| old.sender_name.clone());
+                    m.sender_avatar = m.sender_avatar.or_else(|| old.sender_avatar.clone());
+                    if m.sender_id.trim().is_empty() {
+                        m.sender_id = old.sender_id.clone();
+                    }
+                }
+            }
+            let server_id = known_message_id(&m.message_id);
+            if !matching_confirmation(&m, server_id) {
+                if let Some(old) = selected
+                    .iter()
+                    .map(|index| &thread[*index])
+                    .find(|old| matching_confirmation(old, server_id))
+                {
+                    m.disposition = old.disposition.clone();
+                } else if m.disposition.is_none() {
+                    m.disposition =
+                        selected
+                            .iter()
+                            .find_map(|index| match &thread[*index].disposition {
+                                Some(SendDispositionDto::Confirmed { .. }) => None,
+                                disposition => disposition.clone(),
+                            });
+                }
+            }
+        }
+        // A confirmation must always refer to this canonical server message.
+        if matches!(&m.disposition, Some(SendDispositionDto::Confirmed { .. }))
+            && !matching_confirmation(&m, known_message_id(&m.message_id))
+        {
+            m.disposition = Some(SendDispositionDto::Unknown);
+        }
+        selected.sort_unstable();
+        let first = selected[0];
+        let was_changed = selected.len() > 1 || thread[first] != m;
+        for index in selected.into_iter().skip(1).rev() {
+            thread.remove(index);
+        }
+        thread[first] = m.clone();
+        if was_changed {
             changed.push(m);
         }
     }
@@ -756,6 +888,22 @@ impl DisplayCache {
         Ok(fresh)
     }
 
+    /// Merge a server page with realtime messages that may have arrived while it was loading.
+    pub fn merge_thread(
+        &mut self,
+        ctx: &AccountContext,
+        gid: &str,
+        items: Vec<UiMessageDto>,
+    ) -> Result<Vec<UiMessageDto>, AppError> {
+        items.iter().try_for_each(|m| validate_message(gid, m))?;
+        let acc = self.entry_mut(ctx)?;
+        let thread = acc.threads.entry(gid.to_string()).or_default();
+        merge_messages(thread, items);
+        let merged = thread.clone();
+        acc.touch_thread(gid);
+        Ok(merged)
+    }
+
     /// Local echo after a confirmed `im.set_mark`.
     pub fn set_mark(
         &mut self,
@@ -959,13 +1107,31 @@ mod tests {
     #[test]
     fn unread_requires_authoritative_server_snapshot_and_preserves_same_value() {
         let mut cache = DisplayCache::new();
-        cache.apply(&ctx(1), convs(true, &[("g1", 3)], &[])).unwrap();
+        cache
+            .apply(&ctx(1), convs(true, &[("g1", 3)], &[]))
+            .unwrap();
         assert_eq!(cache.total_unread(&ctx(1)), 3);
-        let unchanged = cache.apply(&ctx(1), convs(false, &[("g1", 3)], &[])).unwrap();
-        assert_eq!(unchanged, DisplayDelta::Conversations { changed: vec![], removed: vec![] });
+        let unchanged = cache
+            .apply(&ctx(1), convs(false, &[("g1", 3)], &[]))
+            .unwrap();
+        assert_eq!(
+            unchanged,
+            DisplayDelta::Conversations {
+                changed: vec![],
+                removed: vec![]
+            }
+        );
         assert_eq!(cache.total_unread(&ctx(1)), 3);
-        let cleared = cache.apply(&ctx(1), convs(false, &[("g1", 0)], &[])).unwrap();
-        assert_eq!(cleared, DisplayDelta::Conversations { changed: vec!["g1".into()], removed: vec![] });
+        let cleared = cache
+            .apply(&ctx(1), convs(false, &[("g1", 0)], &[]))
+            .unwrap();
+        assert_eq!(
+            cleared,
+            DisplayDelta::Conversations {
+                changed: vec!["g1".into()],
+                removed: vec![]
+            }
+        );
         assert_eq!(cache.total_unread(&ctx(1)), 0);
     }
 
@@ -1076,6 +1242,282 @@ mod tests {
         };
         assert!(c.apply(&ctx(1), p).is_err());
         assert!(c.messages(&ctx(1), "g").expect("read").is_none());
+    }
+
+    #[test]
+    fn history_page_merges_realtime_and_keeps_send_correlation() {
+        let mut cache = DisplayCache::new();
+        let mut sent = msg("g", Some("server"), Some("local"), 20, "hello");
+        sent.original = Some("original".into());
+        sent.sender_name = Some("agent".into());
+        cache
+            .merge_thread(
+                &ctx(1),
+                "g",
+                vec![sent, msg("g", Some("live"), None, 30, "latest")],
+            )
+            .expect("live");
+        let merged = cache
+            .merge_thread(
+                &ctx(1),
+                "g",
+                vec![
+                    msg("g", Some("old"), None, 10, "history"),
+                    msg("g", Some("server"), None, 20, "hello"),
+                ],
+            )
+            .expect("page");
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[1].local_id.as_deref(), Some("local"));
+        assert_eq!(merged[1].original.as_deref(), Some("original"));
+        assert_eq!(merged[1].sender_name.as_deref(), Some("agent"));
+        assert_eq!(merged[2].message_id.as_deref(), Some("live"));
+    }
+
+    fn alias_message(
+        server: Option<&str>,
+        local: Option<&str>,
+        uid: &str,
+        role: &str,
+        time: i64,
+    ) -> UiMessageDto {
+        let mut value = msg("g", server, local, time, "synthetic content");
+        value.sender_id = uid.into();
+        value.sender_role = role.into();
+        value
+    }
+    fn alias_confirmed() -> UiMessageDto {
+        let mut value = alias_message(
+            Some("server-self"),
+            Some("local-shared"),
+            "self",
+            "merchant_self",
+            10,
+        );
+        value.original = Some("synthetic self original".into());
+        value.translation = Some("synthetic self translation".into());
+        value.sender_name = Some("Self".into());
+        value.sender_avatar = Some("https://example.invalid/self.png".into());
+        value.disposition = Some(SendDispositionDto::Confirmed {
+            server_message_id: "server-self".into(),
+            server_time_ms: 10,
+        });
+        value
+    }
+
+    #[test]
+    fn history_alias_different_sender_sharing_local_id_cannot_replace_or_inherit_from_confirmed_self(
+    ) {
+        let mut cache = DisplayCache::new();
+        cache
+            .merge_thread(&ctx(1), "g", vec![alias_confirmed()])
+            .unwrap();
+        let customer = alias_message(
+            Some("server-customer"),
+            Some("local-shared"),
+            "customer",
+            "customer",
+            20,
+        );
+        let merged = cache.merge_thread(&ctx(1), "g", vec![customer]).unwrap();
+        assert_eq!(merged.len(), 2);
+        let customer = merged
+            .iter()
+            .find(|m| m.message_id.as_deref() == Some("server-customer"))
+            .unwrap();
+        assert_eq!(customer.sender_id, "customer");
+        assert!(customer.disposition.is_none());
+        assert!(customer.original.is_none());
+        assert!(customer.translation.is_none());
+        let own = merged
+            .iter()
+            .find(|m| m.message_id.as_deref() == Some("server-self"))
+            .unwrap();
+        assert!(
+            matches!(&own.disposition, Some(SendDispositionDto::Confirmed { server_message_id, .. }) if server_message_id == "server-self")
+        );
+    }
+
+    #[test]
+    fn history_alias_two_known_different_server_ids_do_not_merge_even_for_the_same_sender_and_local_id(
+    ) {
+        let mut cache = DisplayCache::new();
+        cache
+            .merge_thread(&ctx(1), "g", vec![alias_confirmed()])
+            .unwrap();
+        let different = alias_message(
+            Some("server-other"),
+            Some("local-shared"),
+            "self",
+            "merchant_self",
+            20,
+        );
+        let merged = cache.merge_thread(&ctx(1), "g", vec![different]).unwrap();
+        assert_eq!(merged.len(), 2);
+        let other = merged
+            .iter()
+            .find(|m| m.message_id.as_deref() == Some("server-other"))
+            .unwrap();
+        assert!(other.original.is_none());
+        assert!(other.disposition.is_none());
+    }
+
+    #[test]
+    fn history_alias_exact_server_match_with_conflicting_sender_does_not_inherit_private_fields_or_receipts(
+    ) {
+        let mut cache = DisplayCache::new();
+        cache
+            .merge_thread(&ctx(1), "g", vec![alias_confirmed()])
+            .unwrap();
+        let changed = alias_message(Some("server-self"), None, "customer", "customer", 20);
+        let merged = cache.merge_thread(&ctx(1), "g", vec![changed]).unwrap();
+        assert_eq!(merged.len(), 1);
+        let row = &merged[0];
+        assert_eq!(row.sender_id, "customer");
+        assert!(row.local_id.is_none());
+        assert!(row.original.is_none());
+        assert!(row.translation.is_none());
+        assert!(row.disposition.is_none());
+        assert!(row.sender_name.is_none());
+        assert!(row.sender_avatar.is_none());
+    }
+
+    #[test]
+    fn history_alias_exact_server_match_takes_priority_over_an_incompatible_local_match() {
+        let mut cache = DisplayCache::new();
+        let customer = alias_message(
+            Some("server-customer"),
+            Some("local-shared"),
+            "customer",
+            "customer",
+            5,
+        );
+        let mut own = alias_confirmed();
+        own.local_id = None;
+        cache
+            .merge_thread(&ctx(1), "g", vec![customer, own])
+            .unwrap();
+        let incoming = alias_message(
+            Some("server-self"),
+            Some("local-shared"),
+            "self",
+            "merchant_self",
+            20,
+        );
+        let merged = cache.merge_thread(&ctx(1), "g", vec![incoming]).unwrap();
+        assert_eq!(merged.len(), 2);
+        assert_eq!(
+            merged
+                .iter()
+                .filter(|m| m.message_id.as_deref() == Some("server-self"))
+                .count(),
+            1
+        );
+        assert!(merged.iter().any(
+            |m| m.message_id.as_deref() == Some("server-customer") && m.sender_id == "customer"
+        ));
+    }
+
+    #[test]
+    fn history_alias_compatible_bridge_merges_both_groups_and_preserves_valid_confirmation_and_original(
+    ) {
+        let mut cache = DisplayCache::new();
+        let mut server = alias_confirmed();
+        server.local_id = None;
+        server.original = None;
+        server.translation = None;
+        let mut pending = alias_message(None, Some("local-shared"), "SELF", "merchant_self", 15);
+        pending.original = Some("synthetic pending original".into());
+        cache
+            .merge_thread(&ctx(1), "g", vec![server, pending])
+            .unwrap();
+        let bridge = alias_message(
+            Some("server-self"),
+            Some("local-shared"),
+            "self",
+            "merchant_self",
+            20,
+        );
+        let merged = cache.merge_thread(&ctx(1), "g", vec![bridge]).unwrap();
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged[0].original.as_deref(),
+            Some("synthetic pending original")
+        );
+        assert!(
+            matches!(&merged[0].disposition, Some(SendDispositionDto::Confirmed { server_message_id, .. }) if server_message_id == "server-self")
+        );
+    }
+
+    #[test]
+    fn history_alias_missing_uid_bridge_cannot_absorb_a_local_group_with_another_known_uid() {
+        let mut cache = DisplayCache::new();
+        let mut server = alias_message(Some("server-a"), None, "person-a", "merchant_other", 10);
+        server.original = Some("synthetic A original".into());
+        let pending = alias_message(None, Some("local-shared"), "person-b", "merchant_other", 15);
+        cache
+            .merge_thread(&ctx(1), "g", vec![server, pending])
+            .unwrap();
+        let bridge = alias_message(
+            Some("server-a"),
+            Some("local-shared"),
+            "",
+            "merchant_other",
+            20,
+        );
+        let merged = cache.merge_thread(&ctx(1), "g", vec![bridge]).unwrap();
+        assert_eq!(merged.len(), 2);
+        assert!(merged
+            .iter()
+            .any(|m| m.message_id.is_none() && m.sender_id == "person-b"));
+        assert!(merged
+            .iter()
+            .any(|m| m.message_id.as_deref() == Some("server-a") && m.sender_id == "person-a"));
+    }
+
+    #[test]
+    fn history_alias_ambiguous_local_only_packet_does_not_choose_one_of_two_incompatible_groups() {
+        let mut cache = DisplayCache::new();
+        let a = alias_message(
+            Some("server-a"),
+            Some("local-shared"),
+            "person-a",
+            "merchant_other",
+            10,
+        );
+        let b = alias_message(
+            Some("server-b"),
+            Some("local-shared"),
+            "person-b",
+            "merchant_other",
+            15,
+        );
+        cache.merge_thread(&ctx(1), "g", vec![a, b]).unwrap();
+        let ambiguous = alias_message(None, Some("local-shared"), "", "merchant_other", 20);
+        let merged = cache.merge_thread(&ctx(1), "g", vec![ambiguous]).unwrap();
+        assert_eq!(merged.len(), 3);
+        let pending = merged.iter().find(|m| m.message_id.is_none()).unwrap();
+        assert!(pending.sender_id.is_empty());
+        assert!(pending.original.is_none());
+        assert!(pending.disposition.is_none());
+    }
+
+    #[test]
+    fn history_alias_unidentified_server_anchor_does_not_choose_between_conflicting_local_groups() {
+        let mut cache = DisplayCache::new();
+        let server = alias_message(Some("server-a"), None, "", "merchant_other", 10);
+        let mut a = alias_message(None, Some("local-shared"), "person-a", "merchant_other", 15);
+        a.original = Some("synthetic A original".into());
+        let b = alias_message(None, Some("local-shared"), "person-b", "merchant_other", 16);
+        cache.merge_thread(&ctx(1), "g", vec![server, a, b]).unwrap();
+        let bridge = alias_message(Some("server-a"), Some("local-shared"), "", "merchant_other", 20);
+        let merged = cache.merge_thread(&ctx(1), "g", vec![bridge]).unwrap();
+        assert_eq!(merged.len(), 3);
+        let server = merged.iter().find(|m| m.message_id.as_deref() == Some("server-a")).unwrap();
+        assert!(server.sender_id.is_empty());
+        assert!(server.original.is_none());
+        assert!(merged.iter().any(|m| m.message_id.is_none() && m.sender_id == "person-a"));
+        assert!(merged.iter().any(|m| m.message_id.is_none() && m.sender_id == "person-b"));
     }
 
     #[test]

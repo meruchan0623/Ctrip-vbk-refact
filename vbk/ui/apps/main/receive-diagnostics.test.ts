@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { createReceiveCounters, createReceiveDiagnostics, safeReceiveDiagnostics, receiveDiagnosticsJson, type ReceiveDiagnosticsView } from './receive-diagnostics.ts';
-import { mergeMessageProfile } from './message-profile.ts';
+import { mergeHistory, selectedQuoteReference } from './viewmodel.ts';
 import { guarded, isUiMessage, messageAccount } from '../_shared/guards.ts';
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 
@@ -18,11 +18,11 @@ test('actual main message entry counts received, malformed, account drop and app
   assert.ok(start >= 0 && end > start);
   const counters = createReceiveCounters();
   let current = account;
-  let state: { messages: Record<string, unknown[]> } = { messages: { 'synthetic-room': [] } };
+  let state: { messages: Record<string, unknown[]>; quote: null } = { messages: { 'synthetic-room': [] }, quote: null };
   const upsertStart = source.indexOf('function upsertMessage(');
   const upsertEnd = source.indexOf('\nfunction upsertConversation(', upsertStart);
   assert.ok(upsertStart >= 0 && upsertEnd > upsertStart);
-  const upsertMessage = new Function('S', 'store', 'mergeMessageProfile', stripTypeScriptTypes(source.slice(upsertStart, upsertEnd)) + '\nreturn upsertMessage;')(() => state, { patch: (patch: object) => Object.assign(state, patch) }, mergeMessageProfile);
+  const upsertMessage = new Function('S', 'store', 'mergeHistory', 'selectedQuoteReference', stripTypeScriptTypes(source.slice(upsertStart, upsertEnd)) + '\nreturn upsertMessage;')(() => state, { patch: (patch: object) => Object.assign(state, patch) }, mergeHistory, selectedQuoteReference);
   const env = { receiveCounters: counters, activeAccount: () => ({ context: current }), guarded, isUiMessage, messageAccount, Events: { IM_MESSAGE_NEW: 'im://message-new' }, stillActive: (owner: AccountContext) => owner.account_id === current.account_id && owner.environment === current.environment && owner.session_generation === current.session_generation, upsertMessage };
   const receive = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)) + '\nreturn receiveMainMessage;')(...Object.values(env)) as (payload: unknown) => void;
   const message = { account, gid: 'synthetic-room', message_id: 'synthetic-message', local_id: null, sender_role: 'customer', kind: 'text', text: 'SYNTHETIC NEVER IN DIAGNOSTICS', create_time_ms: 100, translation: null, original: null, quote: null, order_id: null, disposition: null };
@@ -35,7 +35,7 @@ test('actual main message entry counts received, malformed, account drop and app
   receive(message);
   assert.deepEqual(counters.snapshot(current), { received: 1, guard_rejected: 0, account_dropped: 1, upserted: 0 });
   assert.equal(counters.snapshot(account).received, 3);
-  state = { messages: {} };
+  state = { messages: {}, quote: null };
   receive({ ...message, account: current });
   assert.deepEqual(counters.snapshot(current), { received: 2, guard_rejected: 0, account_dropped: 1, upserted: 0 }, 'a valid message for an unopened thread was not actually upserted');
 });

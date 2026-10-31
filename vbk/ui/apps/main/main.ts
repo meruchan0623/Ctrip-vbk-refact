@@ -26,6 +26,7 @@ import type {
   UiAgentStatus,
   UiConversation,
   UiMessage,
+  UiMessagePage,
   UiNetStatus,
   UiNotice,
   UiNoticeCategory,
@@ -98,6 +99,9 @@ import {
   resumeBanners,
   roleLabel,
   safeMediaUrl,
+  mergeHistory,
+  historyScopeKey,
+  messageHistoryKey,
   visibleMessages,
   selectedQuoteReference,
   messageQuotePreview,
@@ -148,6 +152,7 @@ interface MainState {
   readonly tab: ListTab;
   readonly query: string;
   readonly activeGid: string | null;
+  readonly history: Readonly<Record<string, { hasMore: boolean; beforeMs: number | null; busy: boolean }>>;
   readonly messages: Readonly<Record<string, readonly UiMessage[]>>;
   readonly draft: string;
   readonly draftVersion: number;
@@ -204,6 +209,7 @@ const initial: MainState = {
   query: '',
   activeGid: null,
   messages: {},
+  history: {},
   draft: '',
   draftVersion: 0,
   quote: null,
@@ -331,6 +337,7 @@ const ACCOUNT_SCOPED_RESET = {
   conversations: [],
   activeGid: null,
   messages: {},
+  history: {},
   draft: '',
   quote: null,
   attachment: null,
@@ -551,13 +558,28 @@ async function openConversation(gid: string, reveal = true): Promise<void> {
   }
   peripheral.close();
   store.patch({ activeGid: gid, view, banners, draft: s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
-  const list = await invokeQuiet<UiMessage[]>(UiCommands.IM_MESSAGES, { account: acc.context, gid });
+  const page = await invokeQuiet<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: acc.context, gid });
+  const list = page?.items ?? await invokeQuiet<UiMessage[]>(UiCommands.IM_MESSAGES, { account: acc.context, gid });
   if (list && S().activeGid === gid && stillActive(acc.context)) {
-    store.patch({ messages: { ...S().messages, [gid]: list.filter(isUiMessage) } });
+    store.patch({ messages: { ...S().messages, [gid]: mergeHistory(list.filter(isUiMessage), S().messages[gid] ?? []) }, history: { ...S().history, [gid]: { hasMore: page?.has_more ?? false, beforeMs: page?.before_ms ?? null, busy: false } } });
     const conv = S().conversations.find((c) => c.gid === gid);
     if (conv && conv.unread_count > 0) await invokeQuiet(UiCommands.IM_MARK_READ, { account: acc.context, gid });
     autoQueryPackage();
   }
+}
+
+async function loadEarlier(conv: UiConversation): Promise<void> {
+  if (!stillActive(conv.account)) return;
+  const entry = S().history[conv.gid];
+  if (!entry?.hasMore || entry.busy || entry.beforeMs === null) return;
+  store.patch({ history: { ...S().history, [conv.gid]: { ...entry, busy: true } } });
+  const page = await invokeSafe<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: conv.account, gid: conv.gid, before_ms: entry.beforeMs });
+  if (!stillActive(conv.account)) return;
+  store.patch({
+    ...(page ? { messages: { ...S().messages, [conv.gid]: mergeHistory(page.items.filter(isUiMessage), S().messages[conv.gid] ?? []) } } : {}),
+    history: { ...S().history, [conv.gid]: { hasMore: page?.has_more ?? entry.hasMore, beforeMs: page?.before_ms ?? entry.beforeMs, busy: false } },
+  });
+
 }
 
 /** `im://locate-conversation` (alarm click, tray, banner): activate the owning account and open the conversation. */
@@ -594,8 +616,7 @@ function upsertMessage(m: UiMessage): boolean {
   const s = S();
   const list = s.messages[m.gid];
   if (!list) return false;
-  const idx = list.findIndex((x) => (m.local_id && x.local_id === m.local_id) || (m.message_id && x.message_id === m.message_id));
-  const next = idx >= 0 ? list.map((x, i) => (i === idx ? mergeQuoteReference(x, mergeMessageProfile(x, m)) : x)) : [...list, m];
+  const next = mergeHistory(list, [m]);
   const quote = s.quote?.gid === m.gid && !selectedQuoteReference(s.quote, next, m.gid) ? null : s.quote;
   store.patch({ messages: { ...s.messages, [m.gid]: next }, quote });
   return true;
@@ -1247,9 +1268,40 @@ function mediaNodeKey(account: AccountContext | null, conv: UiConversation, mess
   return JSON.stringify([account.environment, account.account_id, account.session_generation, conv.gid, message.message_id ? 'server' : 'local', id]);
 }
 
+interface MessageAnchor { readonly scope: string; readonly key: string; readonly offset: number }
+function captureMessageAnchor(s: MainState): MessageAnchor | null {
+  const conv = activeConv(s), account = activeAccount(s)?.context ?? null;
+  if (!conv) return null;
+  const scope = historyScopeKey(account, conv.gid);
+  const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
+  if (!scope || !scroll || scroll.dataset['historyScope'] !== scope || scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 48) return null;
+  const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
+  const top = scroll.getBoundingClientRect().top;
+  for (const row of rows) {
+    const key = row.dataset['historyKey'], rect = row.getBoundingClientRect();
+    if (key && rect.bottom > top && rect.top < top + scroll.clientHeight && rows.filter(candidate => candidate.dataset['historyKey'] === key).length === 1) return { scope, key, offset: rect.top - top };
+  }
+  return null;
+}
+function restoreMessageAnchor(anchor: MessageAnchor | null): void {
+  if (!anchor) return;
+  const current = S(), conv = activeConv(current), account = activeAccount(current)?.context ?? null;
+  if (!conv || historyScopeKey(account, conv.gid) !== anchor.scope) return;
+  const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
+  if (!scroll || scroll.dataset['historyScope'] !== anchor.scope) return;
+  const matches = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')].filter(row => row.dataset['historyKey'] === anchor.key);
+  if (matches.length !== 1) return;
+  scroll.scrollTop += matches[0]!.getBoundingClientRect().top - scroll.getBoundingClientRect().top - anchor.offset;
+}
+function withMessageAnchor(s: MainState, redraw: () => void): void {
+  const anchor = captureMessageAnchor(s);
+  redraw();
+  restoreMessageAnchor(anchor);
+}
+
 function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAccount | null): HTMLElement {
   const alignment = messageAlignment(m);
-  if (alignment.side === 'system') return h('div', { class: 'msg-sys' }, h('span', null, m.text));
+  if (alignment.side === 'system') return h('div', { class: 'msg-sys', dataset: { historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } }, h('span', null, m.text));
   const alignRight = alignment.side === 'right';
   const isSelf = alignment.self;
   const quotePreview = messageQuotePreview(m, s.messages[conv.gid] ?? []);
@@ -1288,7 +1340,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
   const who = m.sender_name?.trim() || m.sender_id?.trim() || (isSelf ? (acc ? accountLabel(acc) : roleLabel('merchant_self')) : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role));
   return h(
     'div',
-    { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '' } },
+    { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '', historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } },
     h('div', { class: 'ava sm', style: { background: isSelf ? (acc?.color ?? '#5B6676') : conv.color } }, renderMessageAvatar(document, who, m.sender_avatar)),
     h(
       'div',
@@ -1532,6 +1584,8 @@ function chatPane(s: MainState): HTMLElement {
   const acc = activeAccount(s);
   if (!conv) return h('div', { class: 'chat-empty' }, icon(IC.chat, 40), h('div', null, t('chat.empty')));
   const msgs = visibleMessages(s.messages[conv.gid] ?? []);
+  const previousScroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
+  const pinned = previousScroll?.dataset['thread'] !== conv.gid || previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < 48;
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
   const sub = isDone(conv) ? t('chat.finished') : `${t('chat.owner')}${waiting ? ` · ${t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) })}` : ''}`;
   const type = /^[A-Za-z][A-Za-z0-9]{0,5}$/.test(conv.service_type) ? `${conv.service_type} · ${conv.biz}` : conv.biz;
@@ -1550,7 +1604,7 @@ function chatPane(s: MainState): HTMLElement {
       h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side' }, onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     ),
     netView(s.net).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
-    h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: '1' } }, msgs.map((m) => messageRow(s, m, conv, acc))),
+    h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: historyScopeKey(acc?.context ?? null, conv.gid) } }, s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : '加载更早消息') : null, msgs.map((m) => messageRow(s, m, conv, acc))),
     composer(s, conv),
     emojiPicker(s),
   );
@@ -1895,7 +1949,7 @@ function render(s: MainState): Node {
 
 // --------------------------------------------------------------- wiring
 
-subscribeBatched(store, (s) => rerender(root, () => {
+subscribeBatched(store, (s) => withMessageAnchor(s, () => rerender(root, () => {
   const next = render(s);
   // Keep the actual video node so waiting timers and live updates do not restart playback.
   if (next instanceof Element) {
@@ -1907,7 +1961,7 @@ subscribeBatched(store, (s) => rerender(root, () => {
     }
   }
   return next;
-}));
+})));
 rerender(root, () => render(S()));
 
 document.addEventListener('mousedown', () => {

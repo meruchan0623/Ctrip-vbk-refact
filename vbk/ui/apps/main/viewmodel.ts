@@ -8,6 +8,7 @@ import type { AccountContext, AppError, SendDisposition } from '../../packages/i
 import { ErrorCodes, isAppError } from '../../packages/ipc/src/contracts.ts';
 import type { AgentStatus, MarkAction, OrderSearchResult, UiAccount, UiAgentStatus, UiConversation, UiMessage, UiNetStatus, UiOrderSummary } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
+import { mergeMessageProfile } from './message-profile.ts';
 import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { I18nKey } from '../../packages/ui-kit/src/i18n.ts';
@@ -448,6 +449,88 @@ export function peripheralWriteView(result: import('../../packages/ipc/src/clien
   if (result.kind === 'confirmed' && result.confirmed === true) return { title: '已确认', message: '已通过独立读回确认本次操作。', confirmed: true };
   if (result.kind === 'accepted') return { title: '已受理，待核验', message: '服务端已受理操作。可刷新成员和会话核对结果，请勿重复提交。', confirmed: false };
   return { title: '结果未知，待核验', message: '操作可能已经生效。仅可只读刷新成员和会话，不会重新发送操作。', confirmed: false };
+}
+
+function compatibleMessageSender(a: UiMessage, b: UiMessage): boolean {
+  const left = a.sender_id?.trim().toLowerCase();
+  const right = b.sender_id?.trim().toLowerCase();
+  return a.sender_role === b.sender_role && (!left || !right || left === right);
+}
+function compatibleLocalAlias(a: UiMessage, b: UiMessage): boolean {
+  return a.gid === b.gid && compatibleMessageSender(a, b) && (!a.message_id || !b.message_id || a.message_id === b.message_id);
+}
+
+/** Exact server corrections never inherit another identity's profile, aliases or receipt. */
+function mergeMessageRecord(existing: UiMessage, incoming: UiMessage): UiMessage {
+  if (!compatibleMessageSender(existing, incoming)) return incoming;
+  const merged = mergeQuoteReference(existing, mergeMessageProfile(existing, incoming));
+  const confirmed = incoming.disposition?.kind === 'confirmed' ? incoming.disposition
+    : existing.disposition?.kind === 'confirmed' ? existing.disposition : null;
+  return {
+    ...merged,
+    message_id: confirmed?.server_message_id ?? incoming.message_id ?? existing.message_id,
+    local_id: incoming.local_id ?? existing.local_id,
+    disposition: confirmed ?? incoming.disposition ?? existing.disposition,
+  };
+}
+
+/** A local ID is only a sender-compatible alias, never authority to join known server IDs. */
+export function mergeHistory(earlier: readonly UiMessage[], current: readonly UiMessage[]): UiMessage[] {
+  type Group = { message: UiMessage; locals: Set<string> };
+  const groups = new Set<Group>();
+  const servers = new Map<string, Group>();
+  const locals = new Map<string, Set<Group>>();
+  const key = (gid: string, id: string): string => JSON.stringify([gid, id]);
+  function detach(group: Group): void {
+    groups.delete(group);
+    if (group.message.message_id) servers.delete(key(group.message.gid, group.message.message_id));
+    for (const id of group.locals) {
+      const idKey = key(group.message.gid, id), entries = locals.get(idKey);
+      entries?.delete(group);
+      if (entries?.size === 0) locals.delete(idKey);
+    }
+  }
+  for (const message of [...earlier, ...current]) {
+    const exact = message.message_id ? servers.get(key(message.gid, message.message_id)) : undefined;
+    let merged = exact ? mergeMessageRecord(exact.message, message) : message;
+    // An identity correction for the same server record must shed its old sender's aliases.
+    const aliases = exact && compatibleMessageSender(exact.message, message) ? new Set(exact.locals) : new Set<string>();
+    if (message.local_id) aliases.add(message.local_id);
+    const candidates = new Set<Group>();
+    for (const id of aliases) for (const group of locals.get(key(message.gid, id)) ?? []) {
+      if (group !== exact && compatibleLocalAlias(group.message, merged)) candidates.add(group);
+    }
+    // A sparse row must not arbitrarily choose between two known identities or server IDs.
+    const serverIds = new Set([merged.message_id, ...[...candidates].map(group => group.message.message_id)].filter(Boolean));
+    const senderIds = new Set([merged, ...[...candidates].map(group => group.message)].map(row => row.sender_id?.trim().toLowerCase()).filter(Boolean));
+    if (serverIds.size > 1 || senderIds.size > 1) candidates.clear();
+    if (exact) detach(exact);
+    for (const group of candidates) {
+      // Re-check against the aggregate: a previous bridge may have added a known identity.
+      if (!compatibleLocalAlias(group.message, merged)) continue;
+      merged = mergeMessageRecord(group.message, merged);
+      for (const id of group.locals) aliases.add(id);
+      detach(group);
+    }
+    const group: Group = { message: merged, locals: aliases };
+    groups.add(group);
+    if (merged.message_id) servers.set(key(merged.gid, merged.message_id), group);
+    for (const id of aliases) {
+      const idKey = key(merged.gid, id), entries = locals.get(idKey) ?? new Set<Group>();
+      entries.add(group); locals.set(idKey, entries);
+    }
+  }
+  return [...groups].map(group => group.message).sort((a, b) => a.create_time_ms - b.create_time_ms);
+}
+
+/** DOM anchoring keys are scoped and namespaced; local IDs alone are not unique identities. */
+export function historyScopeKey(account: AccountContext | null, gid: string): string {
+  return account ? JSON.stringify([account.environment, account.account_id, account.session_generation, gid]) : '';
+}
+export function messageHistoryKey(account: AccountContext | null, conv: Pick<UiConversation, 'gid' | 'account'>, message: UiMessage): string {
+  const id = message.message_id ?? message.local_id;
+  if (!account || !id || message.gid !== conv.gid || !sameAccount(account, conv.account) || account.session_generation !== conv.account.session_generation) return '';
+  return JSON.stringify([historyScopeKey(account, conv.gid), message.message_id ? 'server' : 'local', id, message.sender_role, message.sender_id ?? null]);
 }
 
 /** Recall notices remain visible while their original content stays hidden across pages. */
