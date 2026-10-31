@@ -135,20 +135,10 @@ impl OutboundJournal {
         Ok(WriterLock(file))
     }
 
-    /// FileStore's file fsync/rename is complemented by a strict metadata
-    /// barrier. Sync every ancestor so a newly created namespace/root cannot
-    /// disappear after dispatch. Unsupported directory sync fails closed.
+    /// FileStore durably creates each missing ancestor before the next child.
+    /// Recheck its strict file/directory barrier; unsupported sync fails closed.
     fn durability_barrier(&self, ns: &Namespace) -> Result<(), AppError> {
-        let dir = self.store.namespace_dir(ns);
-        File::open(dir.join("state.json"))
-            .and_then(|f| f.sync_all())
-            .map_err(|_| io_error())?;
-        for ancestor in dir.ancestors() {
-            File::open(ancestor)
-                .and_then(|f| f.sync_all())
-                .map_err(|_| io_error())?;
-        }
-        Ok(())
+        self.store.sync_namespace(ns).map_err(|_| io_error())
     }
 
     fn decode(
@@ -565,6 +555,65 @@ mod tests {
             SendDispositionDto::Unknown
         );
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn unknown_is_not_redispatched_after_a_real_process_restart() {
+        const CHILD_ROOT: &str = "VBK_SYNTHETIC_JOURNAL_RESTART_ROOT";
+        const CHILD_PHASE: &str = "VBK_SYNTHETIC_JOURNAL_RESTART_PHASE";
+        if let Some(root) = std::env::var_os(CHILD_ROOT) {
+            use std::io::Write;
+            let root = PathBuf::from(root);
+            let phase = std::env::var(CHILD_PHASE).unwrap();
+            let journal = Mutex::new(OutboundJournal::open(root.join("store")).unwrap());
+            let disposition = run(send_once(
+                &journal,
+                &account(if phase == "first" { 1 } else { 99 }),
+                "synthetic-restart-local",
+                &payload(),
+                || async {
+                    let mut marker = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(root.join("dispatch-count"))
+                        .unwrap();
+                    marker.write_all(b"one dispatch\n").unwrap();
+                    marker.sync_all().unwrap();
+                    Ok(SendDispositionDto::Unknown)
+                },
+            ))
+            .unwrap();
+            assert_eq!(disposition, SendDispositionDto::Unknown);
+            assert_eq!(
+                std::fs::read_to_string(root.join("dispatch-count")).unwrap(),
+                "one dispatch\n",
+                "the second OS process must recover unknown without dispatch"
+            );
+            return;
+        }
+
+        let root = TempDir::new();
+        std::fs::create_dir_all(&root.0).unwrap();
+        for phase in ["first", "restarted"] {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "adapter::outbound_journal::tests::unknown_is_not_redispatched_after_a_real_process_restart",
+                    "--nocapture",
+                ])
+                .env(CHILD_ROOT, &root.0)
+                .env(CHILD_PHASE, phase)
+                .status()
+                .unwrap();
+            assert!(
+                status.success(),
+                "synthetic journal child {phase}: {status}"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(root.0.join("dispatch-count")).unwrap(),
+            "one dispatch\n"
+        );
     }
 
     #[test]

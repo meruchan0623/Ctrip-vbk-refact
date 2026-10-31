@@ -193,16 +193,7 @@ impl PeripheralJournal {
     }
 
     fn durability_barrier(&self, ns: &Namespace) -> Result<(), AppError> {
-        let dir = self.store.namespace_dir(ns);
-        File::open(dir.join("state.json"))
-            .and_then(|f| f.sync_all())
-            .map_err(|_| storage_error())?;
-        for ancestor in dir.ancestors() {
-            File::open(ancestor)
-                .and_then(|f| f.sync_all())
-                .map_err(|_| storage_error())?;
-        }
-        Ok(())
+        self.store.sync_namespace(ns).map_err(|_| storage_error())
     }
 
     fn decode(value: &JsonValue, key: &str, intent: &Intent) -> Result<Record, AppError> {

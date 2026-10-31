@@ -47,7 +47,7 @@ impl FileStore {
     /// Opens (creates) a store rooted at `root`.
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, AppError> {
         let root = root.into();
-        fs::create_dir_all(&root).map_err(|e| io_err("create root", &e))?;
+        create_durable_dir_all(&root).map_err(|e| io_err("create root", &e))?;
         Ok(Self {
             tag: TAG.fetch_add(1, Ordering::Relaxed),
             root,
@@ -56,6 +56,25 @@ impl FileStore {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Revalidates the committed file and its directory before a host admits
+    /// an irreversible action or exposes a replayed terminal result. Creation
+    /// of the root and every namespace ancestor is already synced, in order,
+    /// by `open` / `write_atomic`; unrelated ancestors need no write access.
+    /// Every open or sync failure is returned to the caller, never downgraded.
+    pub fn sync_namespace(&self, ns: &Namespace) -> Result<(), AppError> {
+        let dir = self.namespace_dir(ns);
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        // FlushFileBuffers requires GENERIC_WRITE even when no bytes change.
+        #[cfg(windows)]
+        options.write(true);
+        options
+            .open(dir.join(STATE_FILE))
+            .and_then(|file| file.sync_all())
+            .map_err(|e| io_err("sync state", &e))?;
+        sync_directory(&dir).map_err(|e| io_err("sync namespace dir", &e))
     }
 
     /// Directory of a namespace (exists only after the first commit/lock).
@@ -228,7 +247,7 @@ impl Store for FileStore {
 
 /// Writes `bytes` to `dir/name` through a temp file, fsync and rename.
 fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), AppError> {
-    fs::create_dir_all(dir).map_err(|e| io_err("create namespace dir", &e))?;
+    create_durable_dir_all(dir).map_err(|e| io_err("create namespace dir", &e))?;
     let tmp = dir.join(format!(
         "{TMP_PREFIX}{:x}-{:x}",
         std::process::id(),
@@ -240,15 +259,76 @@ fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), AppError> {
         f.sync_all()?;
         drop(f);
         fs::rename(&tmp, dir.join(name))?;
-        // Directory fsync is best effort (not supported everywhere).
-        if let Ok(d) = fs::File::open(dir) {
-            let _ = d.sync_all();
-        }
+        // Replacing the directory entry is part of the durable commit. If the
+        // filesystem cannot flush it, no caller may infer durable success.
+        sync_directory(dir)?;
         Ok(())
     })();
     if let Err(e) = result {
         let _ = fs::remove_file(&tmp);
         return Err(io_err("atomic write", &e));
+    }
+    Ok(())
+}
+
+fn sync_directory(dir: &Path) -> io::Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // CreateFile requires BACKUP_SEMANTICS for a directory handle;
+        // FlushFileBuffers requires GENERIC_WRITE. No privilege is enabled.
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        options.write(true).custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+    }
+    options.open(dir)?.sync_all()
+}
+
+/// Complete the nearest existing ancestor's barrier, then sync each newly
+/// created directory and its parent before creating any deeper child. This
+/// also closes a previous failed or concurrent creator's last unsynced entry.
+/// Unrelated ancestors above the existing ancestor's parent are untouched.
+fn create_durable_dir_all(dir: &Path) -> io::Result<()> {
+    let absolute = if dir.is_absolute() {
+        dir.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(dir)
+    };
+    let mut missing = Vec::new();
+    let mut cursor = absolute.as_path();
+    loop {
+        match fs::metadata(cursor) {
+            Ok(metadata) if metadata.is_dir() => break,
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "not a directory",
+                ))
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                missing.push(cursor.to_path_buf());
+                cursor = cursor.parent().ok_or(e)?;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    // An existing directory may have been created by a previous failed or
+    // concurrent opener that has not synced its link in its own parent yet.
+    sync_directory(cursor)?;
+    if let Some(parent) = cursor.parent() {
+        sync_directory(parent)?;
+    }
+    for path in missing.into_iter().rev() {
+        match fs::create_dir(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => {}
+            Err(e) => return Err(e),
+        }
+        sync_directory(&path)?;
+        if let Some(parent) = path.parent() {
+            sync_directory(parent)?;
+        }
     }
     Ok(())
 }

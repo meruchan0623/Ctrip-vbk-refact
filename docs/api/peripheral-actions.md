@@ -26,3 +26,5 @@ FileStore CAS + OS文件锁，先持久write_started并同步文件及目录再�
 链路：peripheralPanel→client/adapterProtocol→主窗口ACL及Rust command→持久屏障→页面RPC→peripheral/SoaClient→独立读回。远程官方webview没有主窗口动作权限。mock明确unsupported，不能伪装真实动作成功。
 
 离线回归保留旧会话误结束、明确未提交无法恢复、重建后unknown重发、并发被挡token后来重新执行的红→绿输出；没有在线结束/邀请/转交验收证据，不以静态注册、按钮出现或测试通过宣称功能已完成。
+
+Windows接续已将本账本与文本账本统一使用FileStore严格文件/目录同步，解决只读句柄OS5，保留所有失败关闭准入的规则及13项原周边回归。创建链、原子替换与平台适用边界见[宿主发送屏障](outbound-journal.md)。未执行真实邀请、转交或结束。

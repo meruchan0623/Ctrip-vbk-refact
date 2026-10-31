@@ -178,6 +178,102 @@ fn file_store_atomic_rename_survives_partial_temp_write() {
 }
 
 #[test]
+fn durable_namespace_barrier_covers_new_parent_chain_and_replacement_after_reopen() {
+    let root = TempRoot::new("durable-parent-chain");
+    let nested = root.0.join("new-parent").join("new-store");
+    let namespace = ns("acc_1");
+    let store = FileStore::open(&nested).expect("durably create the entire missing root chain");
+    assert!(
+        store.sync_namespace(&namespace).is_err(),
+        "a missing state is not a durable reservation"
+    );
+    let mut txn = store.begin(&namespace).expect("begin");
+    PinnedRepo::set_pinned(&mut txn, "g1", true);
+    store.commit(txn).expect("durable first namespace document");
+    store
+        .sync_namespace(&namespace)
+        .expect("strict first barrier");
+    drop(store);
+
+    let reopened = FileStore::open(&nested).expect("reopen");
+    let mut txn = reopened.begin(&namespace).expect("begin replacement");
+    PinnedRepo::set_pinned(&mut txn, "g2", true);
+    reopened.commit(txn).expect("durable atomic replacement");
+    reopened
+        .sync_namespace(&namespace)
+        .expect("strict replacement barrier");
+    assert!(PinnedRepo::is_pinned(&reopened, &namespace, "g1").unwrap());
+    assert!(PinnedRepo::is_pinned(&reopened, &namespace, "g2").unwrap());
+    assert_eq!(
+        reopened.last_commit(&namespace).unwrap().unwrap().revision,
+        2
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_namespace_sync_reports_real_sharing_failure_and_recovers_after_release() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let root = TempRoot::new("durable-sharing-failure");
+    let store = FileStore::open(&root.0).expect("open");
+    let namespace = ns("acc_1");
+    let mut txn = store.begin(&namespace).expect("begin");
+    PinnedRepo::set_pinned(&mut txn, "g1", true);
+    store.commit(txn).expect("commit");
+
+    // A real Windows handle permits readers but denies another writable handle.
+    // The barrier must propagate the OS failure, rather than silently assuming
+    // that a readable state.json has been flushed to durable storage.
+    const FILE_SHARE_READ: u32 = 1;
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(store.namespace_dir(&namespace).join("state.json"))
+        .expect("hold state without write sharing");
+    let error = store
+        .sync_namespace(&namespace)
+        .expect_err("sync must fail closed");
+    assert!(error.is(codes::STORE_IO), "{error}");
+    assert!(PinnedRepo::is_pinned(&store, &namespace, "g1").unwrap());
+    drop(held);
+    store
+        .sync_namespace(&namespace)
+        .expect("released handle restores the barrier");
+}
+
+#[cfg(windows)]
+#[test]
+fn retry_revalidates_existing_ancestor_before_creating_a_deeper_store_root() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let root = TempRoot::new("durable-ancestor-retry");
+    let intermediate = root.0.join("partly-created-parent");
+    fs::create_dir_all(&intermediate).expect("simulate a prior creator before its parent sync");
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_SHARE_READ_AND_DELETE: u32 = 1 | 4;
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .share_mode(FILE_SHARE_READ_AND_DELETE)
+        .open(&root.0)
+        .expect("deny writable sync of the intermediate directory's parent");
+    let nested = intermediate.join("deeper-store");
+    let error = FileStore::open(&nested)
+        .expect_err("cannot admit a root below an ancestor whose parent sync is denied");
+    assert!(error.is(codes::STORE_IO), "{error}");
+    assert!(
+        !nested.exists(),
+        "do not publish a child before the ancestor's barrier succeeds"
+    );
+    drop(held);
+    let store = FileStore::open(&nested).expect("retry after the real sharing fault is removed");
+    let namespace = ns("acc_1");
+    let mut txn = store.begin(&namespace).unwrap();
+    PinnedRepo::set_pinned(&mut txn, "g1", true);
+    store.commit(txn).unwrap();
+    store.sync_namespace(&namespace).unwrap();
+}
+
+#[test]
 fn corrupt_document_is_quarantined_and_reported_not_wiped() {
     let root = TempRoot::new("corrupt");
     let store = FileStore::open(&root.0).expect("open");
