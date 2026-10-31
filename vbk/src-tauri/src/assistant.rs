@@ -18,7 +18,7 @@ use std::time::Duration;
 use contracts::{codes as shared_codes, AccountContext, AppError};
 use core_assistant::session::codes;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State, Window};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::dto::{AccountContextDto, AppErrorDto};
 use crate::state::HostState;
@@ -94,11 +94,16 @@ fn wall_ms() -> i64 {
 /// Called once from `lib.rs` setup: restores the TSim session from the
 /// credential store and starts the refresh upkeep.
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
+    let event_app = app.clone();
     let svc = Arc::new(Service::new(
         ReqwestExecutor::new(),
         KeyringVault,
         Box::new(wall_ms),
-    ));
+    ).with_status_observer(move |status| {
+        for label in [crate::views::MAIN, crate::views::SETTING, "package-detail"] {
+            let _ = event_app.emit_to(label, "assistant://tsim-status", status.clone());
+        }
+    }));
     svc.restore();
     app.manage(AssistantState(Arc::clone(&svc)));
     tauri::async_runtime::spawn(async move {
@@ -154,7 +159,7 @@ pub async fn assistant_tsim_logout(
     state: State<'_, HostState>,
 ) -> CmdResult<TsimStatus> {
     guard(&state, &window, "assistant_tsim_logout")?;
-    Ok(require(&app)?.logout().await)
+    require(&app)?.logout().await.map_err(AppErrorDto::from)
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -149,6 +149,7 @@ export const UiCommands = {
 
 /** Events needed in addition to `Events`. */
 export const UiEvents = {
+  TSIM_STATUS: 'assistant://tsim-status', // UiTsimStatus; local views only
   MEDIA_SEND_PROGRESS: 'media://send-progress',
   NET_STATUS: 'net://status', // UiNetStatus
   AGENT_STATUS: 'account://agent-status', // UiAgentStatus
@@ -393,6 +394,7 @@ export interface UiPackageInfo {
 }
 
 export interface UiTsimStatus {
+  readonly session_epoch: number;
   readonly logged_in: boolean;
   readonly user: string | null;
 }

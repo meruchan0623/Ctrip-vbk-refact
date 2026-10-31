@@ -43,8 +43,8 @@ test('mock prefs: typed set, unknown key rejected, notify threshold validated', 
   const p2 = await ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT);
   assert.equal(p2.reminder.t1_seconds, 120);
   await assert.rejects(ipc.invoke(UiCommands.ASSIST_TSIM_LOGIN, { user: 'demo', password: 'wrong' }));
-  const ts = await ipc.invoke<{ logged_in: boolean; user: string }>(UiCommands.ASSIST_TSIM_LOGIN, { user: 'demo', password: 'ok' });
-  assert.deepEqual(ts, { logged_in: true, user: 'demo' });
+  const ts = await ipc.invoke<{ logged_in: boolean; user: string; session_epoch: number }>(UiCommands.ASSIST_TSIM_LOGIN, { user: 'demo', password: 'ok' });
+  assert.deepEqual(ts, { logged_in: true, user: 'demo', session_epoch: 3 });
   ipc.dispose();
 });
 

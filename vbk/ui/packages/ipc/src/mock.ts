@@ -302,7 +302,7 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     alarmEntries: blank ? [] : seedAlarm(t0),
     reconciling: scenario === 'reconciling' || scenario === 'offline',
     clockTrusted: scenario !== 'clock-untrusted',
-    tsim: { logged_in: true, user: 'tsim-demo' },
+    tsim: { logged_in: true, user: 'tsim-demo', session_epoch: 1 },
     pkgCache: new Map(),
     loginCounter: 0,
     attempts: new Map(),
@@ -751,16 +751,22 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     [UiCommands.ASSIST_TSIM_STATUS]: async () => ({ ...st.tsim }),
     [UiCommands.ASSIST_TSIM_LOGIN]: async (p) => {
       const { user, password } = p as { user?: string; password?: string };
+      const epoch = st.tsim.session_epoch + 1;
+      st.tsim = { logged_in: false, user: null, session_epoch: epoch };
+      emit(UiEvents.TSIM_STATUS, { ...st.tsim });
       await delay(latency * 3);
+      if (st.tsim.session_epoch !== epoch) throw appError('assistant.tsim_unauthenticated', 'TSim 身份已变化', false);
       if (!user || !password) throw appError('assistant.tsim_bad_credentials', '账号或密码为空', false);
       if (password === 'wrong') throw appError('assistant.tsim_bad_credentials', '示例：账号或密码错误', false);
-      st.tsim = { logged_in: true, user };
+      st.tsim = { logged_in: true, user, session_epoch: epoch };
+      emit(UiEvents.TSIM_STATUS, { ...st.tsim });
       st.prefs = { ...st.prefs, assistant: { ...st.prefs.assistant, tsim_logged_in: true, tsim_user: user } };
       pushPrefs();
       return { ...st.tsim };
     },
     [UiCommands.ASSIST_TSIM_LOGOUT]: async () => {
-      st.tsim = { logged_in: false, user: null };
+      st.tsim = { logged_in: false, user: null, session_epoch: st.tsim.session_epoch + 1 };
+      emit(UiEvents.TSIM_STATUS, { ...st.tsim });
       st.prefs = { ...st.prefs, assistant: { ...st.prefs.assistant, tsim_logged_in: false, tsim_user: null } };
       pushPrefs();
       return { ...st.tsim };
