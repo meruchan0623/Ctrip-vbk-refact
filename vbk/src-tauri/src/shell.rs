@@ -220,7 +220,7 @@ pub fn shell_window(
 }
 
 #[tauri::command]
-pub fn shell_open_window(
+pub async fn shell_open_window(
     app: AppHandle,
     window: Window,
     state: State<'_, HostState>,
@@ -228,8 +228,8 @@ pub fn shell_open_window(
 ) -> CmdResult<()> {
     guard(&state, &window, "shell_open_window")?;
     match label.as_str() {
-        views::SETTING => windows::open_setting(&app).map_err(tauri_err),
-        views::UPDATE => windows::open_update(&app).map_err(tauri_err),
+        views::SETTING => windows::open_setting(&app).await.map_err(tauri_err),
+        views::UPDATE => windows::open_update(&app).await.map_err(tauri_err),
         other => Err(invalid_argument(format!(
             "window {other:?} cannot be opened"
         ))),

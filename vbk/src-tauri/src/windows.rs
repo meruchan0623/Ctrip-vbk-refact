@@ -172,7 +172,20 @@ pub fn toggle_main(app: &AppHandle) {
     }
 }
 
-pub fn open_singleton(
+static SECONDARY_WINDOW_OPEN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// The real secondary-window construction seam, shared by command and tray.
+/// Serializes the existing-window check and creation as one operation.
+async fn dispatch_secondary_window<T: Send + 'static>(
+    open: impl FnOnce() -> tauri::Result<T> + Send + 'static,
+) -> tauri::Result<T> {
+    let _gate = SECONDARY_WINDOW_OPEN.lock().await;
+    tauri::async_runtime::spawn_blocking(open)
+        .await
+        .map_err(|_| tauri::Error::Io(std::io::Error::other("secondary window worker failed")))?
+}
+
+pub async fn open_singleton(
     app: &AppHandle,
     label: &str,
     title: &str,
@@ -180,17 +193,24 @@ pub fn open_singleton(
     w: f64,
     h: f64,
 ) -> tauri::Result<()> {
-    if let Some(win) = app.get_webview_window(label) {
-        win.show()?;
-        let _ = win.unminimize();
-        win.set_focus()?;
-        return Ok(());
-    }
-    let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
-        .title(title)
-        .inner_size(w, h);
-    with_platform_chrome(builder).build()?;
-    Ok(())
+    let app = app.clone();
+    let label = label.to_string();
+    let title = title.to_string();
+    let url = url.to_string();
+    dispatch_secondary_window(move || {
+        if let Some(win) = app.get_webview_window(&label) {
+            win.show()?;
+            let _ = win.unminimize();
+            win.set_focus()?;
+            return Ok(());
+        }
+        let builder = WebviewWindowBuilder::new(&app, label, WebviewUrl::App(url.into()))
+            .title(title)
+            .inner_size(w, h);
+        with_platform_chrome(builder).build()?;
+        Ok(())
+    })
+    .await
 }
 
 /// Traffic-light origin (logical px) that centres the macOS buttons in the
@@ -220,7 +240,7 @@ fn with_platform_chrome<'a, R: tauri::Runtime, M: Manager<R>>(
     builder
 }
 
-pub fn open_setting(app: &AppHandle) -> tauri::Result<()> {
+pub async fn open_setting(app: &AppHandle) -> tauri::Result<()> {
     open_singleton(
         app,
         views::SETTING,
@@ -229,9 +249,10 @@ pub fn open_setting(app: &AppHandle) -> tauri::Result<()> {
         900.0,
         640.0,
     )
+    .await
 }
 
-pub fn open_update(app: &AppHandle) -> tauri::Result<()> {
+pub async fn open_update(app: &AppHandle) -> tauri::Result<()> {
     open_singleton(
         app,
         views::UPDATE,
@@ -240,11 +261,72 @@ pub fn open_update(app: &AppHandle) -> tauri::Result<()> {
         480.0,
         360.0,
     )
+    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secondary_window_builder_runs_off_the_invoking_thread() {
+        let invoking = std::thread::current().id();
+        let actual = tauri::async_runtime::block_on(dispatch_secondary_window(move || {
+            Ok(std::thread::current().id())
+        }))
+        .unwrap();
+        assert_ne!(
+            actual, invoking,
+            "Windows WebView construction must not run on the synchronous invoking/UI thread"
+        );
+    }
+
+    #[test]
+    fn secondary_window_creation_is_serial_and_preserves_builder_errors() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Barrier,
+        };
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let ready = Arc::new(Barrier::new(2));
+        let threads: Vec<_> = (0..2)
+            .map(|_| {
+                let active = active.clone();
+                let peak = peak.clone();
+                let ready = ready.clone();
+                std::thread::spawn(move || {
+                    ready.wait();
+                    tauri::async_runtime::block_on(dispatch_secondary_window(move || {
+                        let count = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(count, Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        Ok(())
+                    }))
+                    .unwrap();
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(
+            peak.load(Ordering::SeqCst),
+            1,
+            "check/create must be serialized for concurrent singleton requests"
+        );
+        let result: tauri::Result<()> =
+            tauri::async_runtime::block_on(dispatch_secondary_window(|| {
+                Err(tauri::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "synthetic builder failure",
+                )))
+            }));
+        assert!(
+            matches!(result, Err(tauri::Error::Io(ref error)) if error.kind() == std::io::ErrorKind::PermissionDenied)
+        );
+    }
 
     #[test]
     fn bottom_right_inside_work_area() {

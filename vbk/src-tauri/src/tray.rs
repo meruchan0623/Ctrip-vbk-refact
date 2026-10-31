@@ -44,9 +44,12 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             MENU_SHOW => windows::show_main(app),
             MENU_SETTING => {
                 // Singleton: shows and focuses an existing setting window.
-                if let Err(e) = windows::open_setting(app) {
-                    log::warn!("tray: open setting failed: {e}");
-                }
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = windows::open_setting(&app).await {
+                        log::warn!("tray: open setting failed: {e}");
+                    }
+                });
             }
             MENU_DND_1H => app.state::<HostState>().set_dnd_hours(1),
             MENU_DND_TOMORROW => app.state::<HostState>().set_dnd_until_tomorrow(),
