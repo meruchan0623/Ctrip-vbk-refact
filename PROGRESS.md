@@ -10,7 +10,7 @@
 - 本轮允许既有真实浏览器工具替代ego；仅专用任务页面，客户端与官方网页双核前不出站。
 - TSim与官方/助手源码安装均只读；持久化失败保留发送屏障；不push、合并、部署或迁移秘密。
 
-## Windows 第5轮已构建启动，等待登录（未通过）
+## Windows 第5轮已构建登录，网页与分页验收未通过
 - 基线TS483/核心Rust301通过，0失败/跳过；初次typecheck因缺tsc失败。98311bf锁定开发依赖，独立暂存npm ci/typecheck/bundle/Tauri CLI通过。
 - 1a32e8d译文请求实例隔离：独立暂存16项/typecheck/bundle及独立24交错复审；新增回归13绿3红→16绿，旧12项完整保留。
 - e21a6e9历史像素锚点：允许无冲突身份补全但双向唯一匹配，完整scope隔离；独立暂存历史21+草稿16项/typecheck/bundle通过。真实渲染故障注入top120≠420及反向唯一性反例均红→绿；独立复审无未修P1/P2。
@@ -19,6 +19,14 @@
 - 官方Windows1.2.12已登录，原生受控订单/客户/iframe身份已读回；助手0.5.41翻译栏与有效套餐速览可见。Edge专用网页登录失效，桌面授权唤起失败，已请求用户正常登录；新包/网页双核与出站尚未进行。
 - 第6轮媒体链路独立实施中：绑定完整目标及附件快照，分阶段持久化，unknown不重传/重发；不计入第5轮包，尚未完成/验收。
 - 第5轮493TS/304core/115host及typecheck/bundle/Tauri NSIS/diff通过；全新host首次缺bundle退出101已保留并修正前置。11:37:57新包PID14828在release/windows-round5-a3fbb22运行，exe hash6150ef53…12c2654，安装包d818f35d…fd456ff；欢迎页和官方登录窗实际可见，用户登录待完成。详见[第5轮Windows记录](docs/research/2026-10-31-round5-windows-runtime.md)。未执行NSIS安装或任何消息发送。
+- 11:55用户回复登录后，新包实证Meru已登录、账号/列表/本人及同事头像显示；受控客户与订单双核成功。Edge原专用页重新进工作台仍跳登录，已告知准确状态。客户端本轮没有出站；不把原生登录替代网页身份核对。
+- 11:58新包受控历史实测分页后原18:33撤回行锚点未保持，改显示18:21订单卡；源码根因调查中，暂记未通过。同时官方同一时点11处理中/24完成，新包11/9，列表完整性/计数差异待定位；订单旧页后Trip-App来源/产品/日期/金额已实际显示。
+
+## 第6轮源码已提交，准备冻结构建
+- UI/IPC/宿主/adapter已接通候选链路，图片/一般文件/MP4采用独立媒体命令、冻结bytes与完整目标、严格upload_started→uploaded→write_started屏障；文字/引用保留，上传阶段不生成伪SDK消息行，unknown不重传/重发。
+- UI已复现并修复upload rejected/unknown且write_started=false被误认为send unknown的问题，三项真实返回组合红→绿；原附件丢失时replay_only只回放旧metadata，不能确认新附件；选择取消及终态释放资源，unknown账本不清除。
+- macOS截图变量遮蔽、连续取消附件17次导致target cap耗尽均已修复，媒体范围独立复审无剩余P1/P2。28个必要实现/契约/测试/文档已提交9771a80f0197d58c3df0ef3f82643a605fb45e2f，最终patch SHA256 950b8c7ddd636806de9f59e78146af9a0667b69f9f363072d83b9d25eb768307；独立checkout-index快照TS531/宿主126/typecheck/bundle通过，0失败/skip/ignored，尚未构建第6轮。
+- 第5轮历史锚点只读fixture复现一个条件性缺口：无server/local ID系统行无可用锚点时，分页保持scrollTop而非原可见行。独立修复已提交fcd7b031df7e27dc437284bfd4b04b14fe2b786e，暂存快照专项26/全UI536/typecheck/bundle绿；独立专项26及额外11组合通过；实际行的ID尚未从运行页面取得，不能据fixture断言实机根因。官方完成数可能含本地历史缓存，但本轮HTTP haveRest未采到，不能认定15条均来自缓存或伪造补齐。
 
 ## 已停止：Windows交接（2026-10-31）
 
