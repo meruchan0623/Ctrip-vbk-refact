@@ -17,6 +17,8 @@
 
 #[path = "order_service.rs"]
 pub mod orders;
+#[path = "session_import.rs"]
+pub mod session_import;
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -70,11 +72,20 @@ pub struct PackageInfo {
 /// What the vault holds. No password; `Debug` is not derived.
 #[derive(Serialize, Deserialize)]
 struct StoredSession {
+    #[serde(default)]
+    borrowed_session: bool,
     user: String,
     access_token: String,
     session_ref: String,
     expires_at_ms: Option<i64>,
     issued_at_ms: i64,
+}
+
+/// Only internal, typed persisted sessions choose a credential slot. No UI flag
+/// or JWT claim can select shared-session ownership.
+pub(super) fn stored_is_borrowed(raw: &str) -> Result<bool, AppError> {
+    serde_json::from_str::<StoredSession>(raw).map(|s| s.borrowed_session)
+        .map_err(|_| AppError::new(contracts::codes::STORE_CORRUPT, "stored assistant session is invalid"))
 }
 
 #[derive(Default)]
@@ -83,6 +94,7 @@ struct Inner {
     user: Option<String>,
     profile_loaded: bool,
     login_ready: bool,
+    borrowed_session: bool,
     login_revocation: u64,
     /// Bumps on login, logout and session clear (not on refresh).
     epoch: u64,
@@ -164,6 +176,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
         if g.epoch != epoch { return Err(not_logged_in("tsim identity changed before persistence")); }
         let s = g.session.as_ref().ok_or_else(|| not_logged_in("tsim login required"))?;
         let stored = StoredSession {
+            borrowed_session: g.borrowed_session,
             user: g.user.clone().unwrap_or_default(), access_token: s.access_token.expose().to_string(),
             session_ref: s.session_ref.clone(), expires_at_ms: s.expires_at_ms, issued_at_ms: s.issued_at_ms,
         };
@@ -200,6 +213,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
 
     fn reset_identity(&self, g: &mut Inner) {
         g.login_ready = false;
+        g.borrowed_session = false;
         g.session = None;
         g.user = None;
         g.profile_loaded = false;
@@ -256,6 +270,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
         g.epoch += 1;
         g.session = Some(TsimSession::from_token(token, stored.issued_at_ms, g.epoch));
         g.user = Some(stored.user);
+        g.borrowed_session = stored.borrowed_session;
         g.profile_loaded = false;
         g.login_ready = true;
         self.publish(&g);
@@ -393,7 +408,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
         let (epoch, previous) = {
             let mut g = self.lock();
             if g.login_revocation != submitted { return Err(not_logged_in("tsim queued login was cancelled")); }
-            let previous = g.session.take().map(|s| s.access_token);
+            let previous = g.session.take().and_then(|s| (!g.borrowed_session).then_some(s.access_token));
             self.reset_identity(&mut g);
             self.vault.clear()?;
             (g.epoch, previous)
@@ -441,7 +456,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
     pub async fn logout(&self) -> Result<TsimStatus, AppError> {
         let (token, cleared) = {
             let mut g = self.lock();
-            let token = g.session.take().map(|s| s.access_token);
+            let token = g.session.take().and_then(|s| (!g.borrowed_session).then_some(s.access_token));
             self.reset(&mut g);
             (token, self.vault.clear())
         };

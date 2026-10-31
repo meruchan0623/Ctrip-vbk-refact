@@ -96,6 +96,15 @@ export function tsimFormValid(f: TsimForm): boolean {
   return f.user.trim().length > 0 && f.password.length > 0;
 }
 
+export function tsimSessionInputValid(value: string): boolean { return value.trim().length > 0 && value.length <= 16384 && !/[\r\n]/.test(value); }
+
+export function tsimImportErrorText(error: unknown): string {
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
+  if (code === 'assistant.tsim_bad_credentials' || code === 'assistant.tsim_unauthenticated' || code === 'assistant.session_cleared') return '已有 TSim 会话无效或已过期，请重新取得会话或使用账号密码登录。';
+  if (code === 'assistant.invalid_input') return '已有会话的输入格式不正确，请重新取得有效会话。';
+  return tsimErrorText(error);
+}
+
 export function isTsimStatus(value: unknown): value is UiTsimStatus {
   if (!value || typeof value !== 'object') return false;
   const s = value as Partial<UiTsimStatus>;

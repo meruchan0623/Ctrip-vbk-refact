@@ -23,6 +23,7 @@
     "allow-shell-open-external",
     "allow-assistant-tsim-status",
     "allow-assistant-tsim-login",
-    "allow-assistant-tsim-logout"
+    "allow-assistant-tsim-logout",
+    "allow-assistant-tsim-import-session"
   ]
 }

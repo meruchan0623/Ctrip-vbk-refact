@@ -784,6 +784,20 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       pushPrefs();
       return { ...st.tsim };
     },
+    [UiCommands.ASSIST_TSIM_IMPORT_SESSION]: async (p) => {
+      const token = (p as { access_token?: unknown }).access_token;
+      if (typeof token !== 'string' || token !== 'SYNTHETIC_IMPORT_TOKEN') throw appError('assistant.invalid_input', '演示模式不验证真实访问令牌，请使用原生客户端。');
+      orderQueries.clear(); openedPackage = null;
+      const epoch = st.tsim.session_epoch + 1;
+      st.tsim = { logged_in: false, user: null, session_epoch: epoch };
+      emit(UiEvents.TSIM_STATUS, { ...st.tsim });
+      await delay(latency * 3);
+      if (st.tsim.session_epoch !== epoch) throw appError('assistant.tsim_unauthenticated', 'TSim 身份已变化');
+      st.tsim = { logged_in: true, user: 'synthetic-imported-user', session_epoch: epoch };
+      emit(UiEvents.TSIM_STATUS, { ...st.tsim });
+      st.prefs = { ...st.prefs, assistant: { ...st.prefs.assistant, tsim_logged_in: true, tsim_user: st.tsim.user } };
+      pushPrefs(); return { ...st.tsim };
+    },
     [UiCommands.ASSIST_TSIM_LOGOUT]: async () => {
       orderQueries.clear(); openedPackage = null;
       st.tsim = { logged_in: false, user: null, session_epoch: st.tsim.session_epoch + 1 };

@@ -16,14 +16,15 @@ function nodes(tree: unknown): Tree[] { if (Array.isArray(tree)) return tree.fla
 function deferred() { let resolve!: (value: unknown) => void; return { promise: new Promise(r => { resolve = r; }), resolve: (v: unknown) => resolve(v) }; }
 async function fixture() {
   const mock = createMockIpc('default', { tick: false, latency: 0 }); const prefs = await mock.invoke(PrefsCommands.SNAPSHOT); mock.dispose();
-  const store = createStore<Record<string, any>>({ prefs, section: 'assistant', tsimForm: { user: 'SYNTHETIC_USER', password: 'SYNTHETIC_PASSWORD' }, tsimBusy: false, tsimError: null, tsimStatus: null, loading: false, loadError: null, settingsRequest: 0, tsimRequest: 0, net: null, nick: null, version: null, toast: null });
+  const store = createStore<Record<string, any>>({ prefs, section: 'assistant', tsimForm: { user: 'SYNTHETIC_USER', password: 'SYNTHETIC_PASSWORD' }, tsimBusy: false, tsimError: null, tsimStatus: null, tsimImportExpanded: false, tsimImportToken: '', loading: false, loadError: null, settingsRequest: 0, tsimRequest: 0, net: null, nick: null, version: null, toast: null });
   const calls: { command: string }[] = []; const results = new Map<string, unknown>([[PrefsCommands.SNAPSHOT, prefs], [UiCommands.ASSIST_TSIM_STATUS, { logged_in: false, user: null }], [UiCommands.ASSIST_TSIM_LOGIN, { logged_in: true, user: 'SYNTHETIC_USER' }], [UiCommands.ASSIST_TSIM_LOGOUT, { logged_in: false, user: null }]]);
-  const invoke = async (command: string) => { calls.push({ command }); const result = await results.get(command); if (result instanceof Error || (result && typeof result === 'object' && 'code' in result)) throw result; return result; };
+  let importKeys: string[] = [];
+  const invoke = async (command: string, payload?: object) => { calls.push({ command }); if (command === UiCommands.ASSIST_TSIM_IMPORT_SESSION) importKeys = Object.keys(payload ?? {}); const result = await results.get(command); if (result instanceof Error || (result && typeof result === 'object' && 'code' in result)) throw result; return result; };
   const env: Record<string, any> = { ...vm, S: SETTING_STRINGS, fmt, store, ipc: { invoke }, PrefsCommands, UiCommands, isPrefsSnapshot, cx, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, msg: () => 'SYNTHETIC_UNTRUSTED_ERROR', toast: (value: string) => store.patch({ toast: value }), icon: () => null, IC: {}, sel: { mock: true }, platform: 'windows', closeWindow() {}, setPref() {}, setReminder() {} };
   function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name); const tail = source.slice(a); const next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z]|subscribeBatched\()/.exec(tail); assert.ok(next, name); return new Function(...Object.keys(env), stripTypeScriptTypes(tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
-  for (const name of ['head', 'row', 'toggle', 'segment', 'text', 'loadSettings', 'refreshTsimStatus', 'tsimLogin', 'tsimLogout', 'generalSection', 'displaySection', 'notifySection', 'keysSection', 'assistantSection', 'networkSection', 'storageSection', 'privacySection', 'aboutSection', 'body', 'titleBar', 'render']) if (source.includes(`function ${name}(`)) env[name] = actual(name);
+  for (const name of ['head', 'row', 'toggle', 'segment', 'text', 'loadSettings', 'refreshTsimStatus', 'tsimLogin', 'tsimLogout', 'tsimImportSession', 'generalSection', 'displaySection', 'notifySection', 'keysSection', 'assistantSection', 'networkSection', 'storageSection', 'privacySection', 'aboutSection', 'body', 'closeWindow', 'titleBar', 'render']) if (source.includes(`function ${name}(`)) env[name] = actual(name);
   function bootstrap() { if (env['loadSettings']) return env['loadSettings'](); const a = source.lastIndexOf('void (async () => {'), b = source.indexOf('\n})();', a) + '\n})();'.length; assert.ok(a >= 0 && b > a); return new Function(...Object.keys(env), 'return ' + stripTypeScriptTypes(source.slice(a, b).replace('void ', '')))(...Object.values(env)); }
-  return { store, calls, actual, bootstrap, setResult: (command: string, value: unknown) => results.set(command, value), tree: () => env['render'](store.get()) };
+  return { store, calls, actual, bootstrap, importKeys: () => importKeys, setResult: (command: string, value: unknown) => results.set(command, value), tree: () => env['render'](store.get()) };
 }
 
 test('actual settings bootstrap failure exposes a retry control that loads a real preferences snapshot', async () => {
@@ -83,4 +84,52 @@ test('TSim errors use distinct safe categories and never copy unknown codes or p
   const cases = [['assistant.tsim_bad_credentials', '用户名或密码'], ['assistant.forbidden', '权限'], ['net.timeout', '超时'], ['net.offline', '网络'], ['assistant.service_unavailable', '服务暂不可用'], ['store.io', '凭据存储']];
   for (const [code, label] of cases) { const result = vm.tsimErrorText({ code, message: 'SYNTHETIC_PRIVATE_PASSWORD' }); assert.ok(result.includes(label!)); assert.equal(result.includes('PRIVATE_PASSWORD'), false); }
   for (const code of ['SYNTHETIC_PRIVATE_CODE', 'toString']) { const result = vm.tsimErrorText({ code, message: 'SYNTHETIC_PRIVATE_PASSWORD' }); assert.equal(result.includes(code), false); assert.equal(result.includes('网络'), false); assert.ok(result.includes('状态尚待核对')); }
+});
+
+test('actual existing-session section is collapsed until opened; its password field clears before import IPC settles', async () => {
+  const f = await fixture(), pending = deferred();
+  let tree = f.tree(); const disclosure = nodes(tree).find(n => n.props.dataset?.tsimImport === '1'); assert.ok(disclosure); assert.equal(disclosure.props.open, false);
+  assert.equal(nodes(tree).some(n => n.props.dataset?.fid === 'tsim-import-token'), false);
+  disclosure.props.ontoggle({ currentTarget: { open: true } }); tree = f.tree();
+  const input = nodes(tree).find(n => n.props.dataset?.fid === 'tsim-import-token'); assert.ok(input); assert.equal(input.props.type, 'password'); assert.equal(input.props.autocomplete, 'off');
+  input.props.oninput({ target: { value: 'SYNTHETIC_SESSION_TOKEN' } }); f.setResult(UiCommands.ASSIST_TSIM_IMPORT_SESSION, pending.promise);
+  const done = new Promise<void>(resolve => { const unsubscribe = f.store.subscribe(s => { if (!s.tsimBusy) { unsubscribe(); resolve(); } }); });
+  nodes(tree).find(n => n.props.dataset?.action === 'tsim-import-form')!.props.onsubmit({ preventDefault() {} });
+  assert.equal(f.store.get().tsimImportToken, ''); assert.equal(f.store.get().tsimBusy, true); assert.equal(JSON.stringify(f.tree()).includes('SYNTHETIC_SESSION_TOKEN'), false);
+  pending.resolve({ logged_in: true, user: 'SYNTHETIC_IMPORTED_USER', session_epoch: 2 }); await done;
+  assert.deepEqual(f.importKeys(), ['access_token']); assert.equal(f.store.get().tsimStatus.user, 'SYNTHETIC_IMPORTED_USER'); assert.equal(f.store.get().tsimImportExpanded, false); assert.equal(f.calls[0]?.command, 'assistant_tsim_import_session');
+});
+
+test('actual import refuses false/malformed status and never copies credential-bearing backend errors', async () => {
+  for (const response of [{ logged_in: false, user: null, session_epoch: 2 }, { logged_in: true, user: 'synthetic' }, { code: 'assistant.session_cleared', message: 'SYNTHETIC_SESSION_TOKEN SYNTHETIC_PRIVATE_DIAGNOSTIC' }]) {
+    const f = await fixture(); f.store.patch({ tsimImportExpanded: true, tsimImportToken: 'SYNTHETIC_SESSION_TOKEN' }); f.setResult(UiCommands.ASSIST_TSIM_IMPORT_SESSION, response); await f.actual('tsimImportSession')();
+    assert.equal(f.store.get().tsimImportToken, ''); assert.equal(f.store.get().tsimBusy, false); assert.ok(f.store.get().tsimError); assert.equal(f.store.get().tsimStatus?.logged_in === true, false); assert.equal(JSON.stringify(f.tree()).includes('SYNTHETIC_SESSION_TOKEN'), false); assert.equal(JSON.stringify(f.tree()).includes('SYNTHETIC_PRIVATE_DIAGNOSTIC'), false);
+  }
+});
+
+test('actual import is single-flight and late import cannot overwrite newer status; closing the section drops unsubmitted input', async () => {
+  const f = await fixture(), pending = deferred(); f.store.patch({ tsimImportExpanded: true, tsimImportToken: 'SYNTHETIC_SESSION_TOKEN' }); f.setResult(UiCommands.ASSIST_TSIM_IMPORT_SESSION, pending.promise);
+  const importing = f.actual('tsimImportSession')(); await f.actual('tsimImportSession')(); assert.equal(f.calls.length, 1);
+  f.setResult(UiCommands.ASSIST_TSIM_STATUS, { logged_in: false, user: null, session_epoch: 3 }); await f.actual('refreshTsimStatus')(); pending.resolve({ logged_in: true, user: 'SYNTHETIC_OLD_IMPORT', session_epoch: 2 }); await importing;
+  assert.equal(f.store.get().tsimStatus.session_epoch, 3); assert.equal(f.store.get().tsimStatus.logged_in, false);
+  f.store.patch({ tsimImportToken: 'SYNTHETIC_UNSUBMITTED' }); nodes(f.tree()).find(n => n.props.dataset?.tsimImport === '1')!.props.ontoggle({ currentTarget: { open: false } }); assert.equal(f.store.get().tsimImportToken, '');
+  f.store.patch({ tsimImportExpanded: true, tsimImportToken: 'SYNTHETIC_UNSUBMITTED' }); nodes(f.tree()).find(n => n.props.dataset?.section === 'general')!.props.onclick(); assert.equal(f.store.get().tsimImportToken, ''); assert.equal(f.store.get().tsimImportExpanded, false);
+});
+
+test('actual close button clears unsubmitted session input before a hung or failed native close resolves', async () => {
+  for (const fail of [false, true]) {
+    const f = await fixture(), close = deferred(); f.store.patch({ tsimImportExpanded: true, tsimImportToken: 'SYNTHETIC_UNSUBMITTED_SESSION' }); f.setResult(UiCommands.SHELL_WINDOW, close.promise);
+    nodes(f.tree()).find(n => n.props.dataset?.action === 'close')!.props.onclick();
+    assert.equal(f.store.get().tsimImportToken, ''); assert.equal(f.store.get().tsimImportExpanded, false); assert.equal(JSON.stringify(f.tree()).includes('SYNTHETIC_UNSUBMITTED_SESSION'), false);
+    assert.equal(f.calls[0]?.command, 'shell_window'); close.resolve(fail ? new Error('SYNTHETIC CLOSE FAILURE') : null);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); assert.equal(f.store.get().tsimImportToken, '');
+  }
+});
+
+test('actual close revokes an import request ticket even when the setting window remains open', async () => {
+  const f = await fixture(), importing = deferred(), closing = deferred(); f.store.patch({ tsimImportExpanded: true, tsimImportToken: 'SYNTHETIC_SESSION_TOKEN' }); f.setResult(UiCommands.ASSIST_TSIM_IMPORT_SESSION, importing.promise); f.setResult(UiCommands.SHELL_WINDOW, closing.promise);
+  const request = f.actual('tsimImportSession')(); nodes(f.tree()).find(n => n.props.dataset?.action === 'close')!.props.onclick();
+  importing.resolve({ logged_in: true, user: 'SYNTHETIC_LATE_IMPORT', session_epoch: 2 }); await request;
+  assert.equal(f.store.get().tsimStatus, null); assert.equal(f.store.get().tsimImportToken, ''); assert.equal(f.store.get().tsimImportExpanded, false);
+  closing.resolve(new Error('SYNTHETIC CLOSE FAILURE')); await Promise.resolve(); await Promise.resolve();
 });

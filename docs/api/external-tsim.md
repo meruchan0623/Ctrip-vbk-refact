@@ -102,3 +102,13 @@
 本地资源边界：查询结果复用60秒，句柄有效期5分钟，最多保留16组查询，同时最多8个详情窗口；CDR按接口源顺序最多展示前100条并在界面标明。详情的补充接口无可显示结果时明确显示“未返回可显示的数据/用量记录”，不据空投影推断套餐实际没有用量。
 
 Windows只读来源核对：本机TSim `agent-frontend/src/types/package.ts` 的 `PackageInfo`、详情和CDR类型，以及 `central-backend/api/routers/agent_package_query.py` 的 perform/list/detail/live/CDR 路由。已安装助手实际使用远端 `csagent.tsim.tech/embed/operator` 的会话handoff，本地实现没有复用其令牌或嵌入协议；本机源字段与安装代码仅证明契约来源，不证明线上请求已经成功。
+
+## 用户授权的已有浏览器会话导入
+
+2026-10-31用户明确要求尝试从Edge/Chrome已登录的TSim会话复用登录态，更新此前仅手动密码登录的限制。设置专属 `assistant_tsim_import_session {access_token:string}` 返回常规非秘密 `TsimStatus`；它不是账号密码登录替代协议，也不能用携程Cookie认证TSim。
+
+初次导入只向固定 `https://csapi.tsim.tech` 发送两个带Bearer的GET：`/agent/profile` 核对真实用户、active与当前客户端套餐权限，`/agent/auth/session-status` 要求 `data.state="active"` 并读取服务端真实 `session_ref`。后者即使 `success:true` 也可能expired/invalid/revoked/inactive，均不能报登录成功；JWT解码只用于到期调度，不作为认证，也不拿JWT sid伪造session_ref。密码、token、session_ref不放入状态DTO、偏好或日志；输入提交前清空，保存系统凭据库成功后才就绪。
+
+本地TSim拥有方源码的refresh保留sid、epoch和session_ref，只更换jti；logout会撤销同一会话及关联业务会话。因此导入来源必须在宿主持久标为共享，贯穿刷新和重启恢复；本地退出或替换登录不能调用该共享会话的远端logout。浏览器或服务端撤销原会话仍会使复用失效，需重新验证。共享会话使用独立系统凭据槽，避免旧版回退将它误当成密码登录的自有会话。
+
+这些是本机拥有方源码确认的契约与本地导入边界；线上部署一致性和实际导入结果以新包验收记录为准。真实认证材料不写入文档、样本或Git。

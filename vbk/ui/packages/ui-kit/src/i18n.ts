@@ -403,6 +403,11 @@ const zhCN = {
   'set.asst.tsimLogin': '登录',
   'set.asst.tsimLogout': '退出 TSim',
   'set.asst.tsimFailed': 'TSim 登录失败：{msg}',
+  'set.asst.importTitle': '使用已有 TSim 会话',
+  'set.asst.importDesc': '验证已有会话后用于本客户端。输入内容不回显，提交后自动清空。导入后退出仅解除本机复用；浏览器退出后需重新验证。',
+  'set.asst.importToken': '已有会话访问令牌',
+  'set.asst.importSubmit': '验证并导入会话',
+  'set.asst.importBusy': '正在验证会话…',
   'set.asst.pkg': '套餐速览',
   'set.asst.pkgDesc': '自动查询当前会话关联订单的全部套餐，可打开各套餐详情；没有关联订单时按消息中的 ICCID 查询。查询结果在 60 秒内复用',
 

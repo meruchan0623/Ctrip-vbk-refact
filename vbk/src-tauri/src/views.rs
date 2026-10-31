@@ -126,6 +126,7 @@ impl Role {
             "assistant_tsim_status",
             "assistant_tsim_login",
             "assistant_tsim_logout",
+            "assistant_tsim_import_session",
         ];
         const DETAIL_CMDS: &[&str] = &["assistant_package_detail", "assistant_tsim_status", "shell_window"];
         const UPDATE_CMDS: &[&str] = &["prefs_snapshot", "shell_window"];
@@ -213,6 +214,17 @@ impl ViewRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn existing_tsim_session_import_is_granted_only_to_registered_settings() {
+        let mut registry = ViewRegistry::default(); registry.register(SETTING);
+        assert!(registry.authorize(SETTING, "assistant_tsim_import_session").is_ok());
+        let detail = format!("{PACKAGE_DETAIL_PREFIX}{}", uuid::Uuid::new_v4());
+        for label in [MAIN, ALARM, UPDATE, LOGIN, "acct-synthetic", detail.as_str()] {
+            registry.register(label); assert!(registry.authorize(label, "assistant_tsim_import_session").is_err(), "{label}");
+        }
+        registry.unregister(SETTING); assert!(registry.authorize(SETTING, "assistant_tsim_import_session").is_err());
+    }
 
     #[test]
     fn package_detail_role_is_read_only_and_destroyed_labels_cannot_reuse_old_generation() {

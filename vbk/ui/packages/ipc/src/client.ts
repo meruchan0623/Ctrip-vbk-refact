@@ -142,6 +142,7 @@ export const UiCommands = {
   // assistant (TSim)
   ASSIST_TSIM_STATUS: 'assistant_tsim_status', // {} → {logged_in, user}
   ASSIST_TSIM_LOGIN: 'assistant_tsim_login', // {user, password} → {logged_in, user}  (password never stored in UI)
+  ASSIST_TSIM_IMPORT_SESSION: 'assistant_tsim_import_session', // setting only; {access_token} -> UiTsimStatus; token never returned
   ASSIST_TSIM_LOGOUT: 'assistant_tsim_logout',
   ASSIST_TRANSLATE: 'assistant_translate', // {account, gid, draft_version, text, target} → {draft_version, text}
   ASSIST_ORDER_SUMMARY: 'assistant_order_summary',

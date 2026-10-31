@@ -15,6 +15,8 @@ pub mod service;
 pub mod order_commands;
 #[path = "assistant/public_error.rs"]
 pub mod public_error;
+#[path = "assistant/session_storage.rs"]
+mod session_storage;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,7 +36,6 @@ type CmdResult<T> = Result<T, AppErrorDto>;
 
 /// Keychain / Credential Manager service name for the TSim session.
 pub const KEYRING_SERVICE: &str = "tech.tsim.vbk.client.tsim";
-const KEYRING_ACCOUNT: &str = "session";
 /// Background upkeep period (refresh when due, load profile once).
 const UPKEEP_PERIOD: Duration = Duration::from_secs(60);
 
@@ -56,31 +57,10 @@ fn keyring_error(_e: keyring::Error) -> AppError {
     )
 }
 
-impl KeyringVault {
-    fn entry() -> Result<keyring::Entry, AppError> {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(keyring_error)
-    }
-}
-
 impl Vault for KeyringVault {
-    fn load(&self) -> Result<Option<String>, AppError> {
-        match Self::entry()?.get_password() {
-            Ok(s) => Ok(Some(s)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(keyring_error(e)),
-        }
-    }
-
-    fn save(&self, value: &str) -> Result<(), AppError> {
-        Self::entry()?.set_password(value).map_err(keyring_error)
-    }
-
-    fn clear(&self) -> Result<(), AppError> {
-        match Self::entry()?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(keyring_error(e)),
-        }
-    }
+    fn load(&self) -> Result<Option<String>, AppError> { session_storage::Storage(session_storage::KeyringBackend).load() }
+    fn save(&self, value: &str) -> Result<(), AppError> { session_storage::Storage(session_storage::KeyringBackend).save(value) }
+    fn clear(&self) -> Result<(), AppError> { session_storage::Storage(session_storage::KeyringBackend).clear() }
 }
 
 type HostService = Service<ReqwestExecutor, KeyringVault>;
@@ -158,6 +138,14 @@ pub async fn assistant_tsim_login(
         public_error::to_dto(e)
     })?;
     Ok(st)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn assistant_tsim_import_session(
+    app: AppHandle, window: Window, state: State<'_, HostState>, access_token: String,
+) -> CmdResult<TsimStatus> {
+    guard(&state, &window, "assistant_tsim_import_session")?;
+    require(&app)?.import_session(access_token).await.map_err(public_error::to_dto)
 }
 
 #[tauri::command(rename_all = "snake_case")]

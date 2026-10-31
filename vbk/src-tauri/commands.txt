@@ -68,3 +68,4 @@ assistant_package_quick_view
 assistant_order_summary
 assistant_package_detail_open
 assistant_package_detail
+assistant_tsim_import_session

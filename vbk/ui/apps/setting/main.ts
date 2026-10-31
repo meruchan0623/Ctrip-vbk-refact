@@ -24,7 +24,7 @@ import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isPrefsSnapshot, isUiAccountSnapshot } from '../_shared/guards.ts';
-import { CACHE_DAY_OPTIONS, EMPTY_TSIM_FORM, SECTIONS, ZOOM_OPTIONS, isSectionId, isTsimStatus, prefsCommand, reminderCommand, sectionLabel, sendModeDescription, tsimErrorText, tsimFormValid, tsimStatusText } from './viewmodel.ts';
+import { CACHE_DAY_OPTIONS, EMPTY_TSIM_FORM, SECTIONS, ZOOM_OPTIONS, isSectionId, isTsimStatus, prefsCommand, reminderCommand, sectionLabel, sendModeDescription, tsimErrorText, tsimFormValid, tsimStatusText, tsimSessionInputValid, tsimImportErrorText } from './viewmodel.ts';
 import { SETTING_STRINGS as S, fmt } from './strings.ts';
 import type { SectionId, TsimForm } from './viewmodel.ts';
 
@@ -36,6 +36,8 @@ interface SettingState {
   readonly tsimError: string | null;
   readonly tsimStatus: UiTsimStatus | null;
   readonly tsimRequest: number;
+  readonly tsimImportExpanded: boolean;
+  readonly tsimImportToken: string;
   readonly settingsRequest: number;
   readonly loading: boolean;
   readonly loadError: string | null;
@@ -47,7 +49,7 @@ interface SettingState {
 }
 
 const params = new URLSearchParams(location.search).get('section');
-const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'notify', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, nick: null, version: null });
+const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'notify', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, tsimImportExpanded: false, tsimImportToken: '', settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, nick: null, version: null });
 const sel = selectIpc();
 const ipc = sel.ipc;
 const root = document.getElementById('app');
@@ -154,6 +156,22 @@ async function refreshTsimStatus(): Promise<void> {
     store.patch({ tsimStatus: status, tsimBusy: false });
   } catch (e) {
     if (store.get().tsimRequest === ticket) store.patch({ tsimStatus: null, tsimBusy: false, tsimError: tsimErrorText(e) });
+  }
+}
+
+async function tsimImportSession(): Promise<void> {
+  const s = store.get();
+  if (s.tsimBusy || !tsimSessionInputValid(s.tsimImportToken)) return;
+  const accessToken = s.tsimImportToken.trim(), ticket = s.tsimRequest + 1;
+  // Keep the session input only for this IPC intent, never in state after submission.
+  store.patch({ tsimRequest: ticket, tsimBusy: true, tsimError: null, tsimImportToken: '' });
+  try {
+    const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_IMPORT_SESSION, { access_token: accessToken });
+    if (store.get().tsimRequest !== ticket) return;
+    if (!isTsimStatus(status) || !Number.isSafeInteger(status.session_epoch) || status.session_epoch < 0) throw { code: 'assistant.malformed_response' };
+    store.patch({ tsimBusy: false, tsimStatus: status, tsimImportExpanded: !status.logged_in, tsimError: status.logged_in ? null : '已有会话导入未获确认，请重新取得会话或使用账号密码登录。' });
+  } catch (error) {
+    if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimStatus: null, tsimError: tsimImportErrorText(error) });
   }
 }
 
@@ -276,6 +294,12 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
             h('button', { class: 'btn pri', type: 'submit', disabled: !tsimFormValid(s.tsimForm) || s.tsimBusy, dataset: { action: 'tsim-login' } }, s.tsimBusy ? h('span', { class: 'spin' }) : null, t('set.asst.tsimLogin')),
           ),
       s.tsimError ? h('div', { class: 'notice-box err', role: 'alert' }, s.tsimError) : null,
+      h('details', { open: s.tsimImportExpanded, dataset: { tsimImport: '1' }, ontoggle: (e: Event) => { const expanded = (e.currentTarget as HTMLDetailsElement).open; if (expanded !== store.get().tsimImportExpanded) store.patch({ tsimImportExpanded: expanded, ...(!expanded ? { tsimImportToken: '' } : {}) }); } },
+        h('summary', { style: { cursor: 'pointer', 'font-weight': '600' } }, t('set.asst.importTitle')),
+        s.tsimImportExpanded ? h('form', { class: 'tsim-form', dataset: { action: 'tsim-import-form' }, onsubmit: (e: Event) => { e.preventDefault(); void tsimImportSession(); } },
+          h('p', { class: 'set-desc', style: { width: '100%' } }, t('set.asst.importDesc')),
+          h('input', { class: 'inp', type: 'password', name: 'tsim-session-token', 'aria-label': t('set.asst.importToken'), placeholder: t('set.asst.importToken'), value: s.tsimImportToken, autocomplete: 'off', spellcheck: false, autocapitalize: 'off', maxlength: 16384, disabled: s.tsimBusy, dataset: { fid: 'tsim-import-token' }, oninput: (e: Event) => store.patch({ tsimImportToken: (e.target as HTMLInputElement).value }) }),
+          h('button', { class: 'btn pri', type: 'submit', dataset: { action: 'tsim-import' }, disabled: s.tsimBusy || !tsimSessionInputValid(s.tsimImportToken) }, s.tsimBusy ? t('set.asst.importBusy') : t('set.asst.importSubmit'))) : null),
     ),
     toggle(t('set.asst.pkg'), t('set.asst.pkgDesc'), a.package_quick_view, (v) => void setPref('assistant', 'package_quick_view', v), 'assistant.package_quick_view'),
   ];
@@ -342,6 +366,8 @@ function body(s: SettingState, p: PrefsSnapshot): Child[] {
 }
 
 function closeWindow(): void {
+  const s = store.get();
+  store.patch({ tsimImportToken: '', tsimImportExpanded: false, tsimRequest: s.tsimRequest + 1, tsimBusy: false });
   void ipc.invoke(UiCommands.SHELL_WINDOW, { action: 'close' }).catch((e: unknown) => toast(msg(e)));
 }
 
@@ -366,7 +392,7 @@ function render(s: SettingState): Node {
     h(
       'div',
       { class: 'setbody-wrap' },
-      h('div', { class: 'setnav', role: 'tablist' }, h('div', { class: 'setnav-g' }, t('set.group.desktop')), SECTIONS.map((sec) => h('button', { class: cx({ on: s.section === sec.id }), role: 'tab', 'aria-selected': String(s.section === sec.id), dataset: { section: sec.id }, onclick: () => store.patch({ section: sec.id }) }, sectionLabel(sec)))),
+      h('div', { class: 'setnav', role: 'tablist' }, h('div', { class: 'setnav-g' }, t('set.group.desktop')), SECTIONS.map((sec) => h('button', { class: cx({ on: s.section === sec.id }), role: 'tab', 'aria-selected': String(s.section === sec.id), dataset: { section: sec.id }, onclick: () => store.patch({ section: sec.id, tsimImportExpanded: false, tsimImportToken: '' }) }, sectionLabel(sec)))),
       h('div', { class: 'setbody', dataset: { keepScroll: 'set' } }, s.loadError ? h('div', { class: 'notice-box err', role: 'alert' }, s.loadError, h('button', { class: 'btn sm', dataset: { action: 'retry-settings' }, disabled: s.loading, onclick: () => void loadSettings() }, s.loading ? '正在重试…' : '重新读取设置')) : null, s.prefs ? body(s, s.prefs) : !s.loadError ? h('div', { class: 'muted', role: 'status' }, t('app.loading')) : null),
     ),
     s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast) : null,
