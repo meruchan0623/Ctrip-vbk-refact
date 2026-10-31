@@ -1,0 +1,2377 @@
+{
+  "schema": "ui-process-health-v1",
+  "local_timezone": "Asia/Shanghai",
+  "note": "Read-only Windows process samples. UTC timestamps retained. Private bytes are not JS heap sizes and samples do not prove a memory leak or causation.",
+  "versions": [
+    {
+      "hostPid": 61864,
+      "commit": "60c9479"
+    },
+    {
+      "hostPid": 57416,
+      "commit": "864c54f"
+    },
+    {
+      "hostPid": 71540,
+      "commit": "9731e00"
+    }
+  ],
+  "samples": [
+    {
+      "key": "health1",
+      "sample": {
+        "At": "2026-10-31T06:43:29.7833008Z",
+        "PID": 61864,
+        "Started": "2026-10-31T06:36:50.4204543Z",
+        "CPU": 36.71875,
+        "PrivateBytes": 23089152,
+        "WorkingSet": 59604992,
+        "Handles": 583,
+        "Threads": 41,
+        "Responding": true
+      }
+    },
+    {
+      "key": "health2",
+      "sample": {
+        "At": "2026-10-31T06:44:30.7441694Z",
+        "PID": 61864,
+        "Started": "2026-10-31T06:36:50.4204543Z",
+        "CPU": 39.75,
+        "PrivateBytes": 23285760,
+        "WorkingSet": 59695104,
+        "Handles": 583,
+        "Threads": 39,
+        "Responding": true
+      }
+    },
+    {
+      "key": "treeHealth1",
+      "sample": {
+        "At": "2026-10-31T06:45:08.0853974Z",
+        "Processes": [
+          {
+            "PID": 61864,
+            "Name": "vbk-host",
+            "Start": "2026-10-31T06:36:50.4204543Z",
+            "CPU": 40.875,
+            "PrivateBytes": 23154688,
+            "Handles": 574
+          },
+          {
+            "PID": 63448,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:50.7563830Z",
+            "CPU": 35.5,
+            "PrivateBytes": 49094656,
+            "Handles": 1474
+          },
+          {
+            "PID": 57928,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:50.8098230Z",
+            "CPU": 0.140625,
+            "PrivateBytes": 3457024,
+            "Handles": 226
+          },
+          {
+            "PID": 63276,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.2675372Z",
+            "CPU": 20.34375,
+            "PrivateBytes": 178434048,
+            "Handles": 1645
+          },
+          {
+            "PID": 59972,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.2754515Z",
+            "CPU": 0.65625,
+            "PrivateBytes": 13115392,
+            "Handles": 376
+          },
+          {
+            "PID": 20268,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.3314945Z",
+            "CPU": 0.09375,
+            "PrivateBytes": 8126464,
+            "Handles": 194
+          },
+          {
+            "PID": 60720,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.4819304Z",
+            "CPU": 103.25,
+            "PrivateBytes": 1942421504,
+            "Handles": 385
+          },
+          {
+            "PID": 43220,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:52.8127325Z",
+            "CPU": 5.203125,
+            "PrivateBytes": 44048384,
+            "Handles": 361
+          },
+          {
+            "PID": 12340,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.2683340Z",
+            "CPU": 8.5,
+            "PrivateBytes": 49975296,
+            "Handles": 1304
+          },
+          {
+            "PID": 38312,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.3282962Z",
+            "CPU": 0.3125,
+            "PrivateBytes": 3436544,
+            "Handles": 212
+          },
+          {
+            "PID": 59232,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8279741Z",
+            "CPU": 3.90625,
+            "PrivateBytes": 402259968,
+            "Handles": 6784
+          },
+          {
+            "PID": 59448,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8403990Z",
+            "CPU": 5.65625,
+            "PrivateBytes": 16945152,
+            "Handles": 429
+          },
+          {
+            "PID": 61016,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8883216Z",
+            "CPU": 0.296875,
+            "PrivateBytes": 8323072,
+            "Handles": 195
+          },
+          {
+            "PID": 62296,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.0546625Z",
+            "CPU": 14.5,
+            "PrivateBytes": 145514496,
+            "Handles": 523
+          },
+          {
+            "PID": 60356,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.4804875Z",
+            "CPU": 23.703125,
+            "PrivateBytes": 63967232,
+            "Handles": 1394
+          },
+          {
+            "PID": 62744,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.5344077Z",
+            "CPU": 0.265625,
+            "PrivateBytes": 3440640,
+            "Handles": 219
+          },
+          {
+            "PID": 62584,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.1087305Z",
+            "CPU": 15.625,
+            "PrivateBytes": 452579328,
+            "Handles": 6818
+          },
+          {
+            "PID": 21756,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.1291811Z",
+            "CPU": 13.71875,
+            "PrivateBytes": 31850496,
+            "Handles": 436
+          },
+          {
+            "PID": 61004,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.2028062Z",
+            "CPU": 0.5625,
+            "PrivateBytes": 8609792,
+            "Handles": 200
+          },
+          {
+            "PID": 47288,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.3828753Z",
+            "CPU": 48.875,
+            "PrivateBytes": 245596160,
+            "Handles": 534
+          },
+          {
+            "PID": 48508,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:37:34.7983810Z",
+            "CPU": 2.109375,
+            "PrivateBytes": 8986624,
+            "Handles": 284
+          },
+          {
+            "PID": 51568,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:37:43.9963677Z",
+            "CPU": 1.859375,
+            "PrivateBytes": 10481664,
+            "Handles": 293
+          }
+        ]
+      }
+    },
+    {
+      "key": "treeHealth2",
+      "sample": {
+        "At": "2026-10-31T06:46:09.0728250Z",
+        "Processes": [
+          {
+            "PID": 61864,
+            "Name": "vbk-host",
+            "Start": "2026-10-31T06:36:50.4204543Z",
+            "CPU": 49.53125,
+            "PrivateBytes": 23552000,
+            "Handles": 581
+          },
+          {
+            "PID": 63448,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:50.7563830Z",
+            "CPU": 52.125,
+            "PrivateBytes": 50270208,
+            "Handles": 1508
+          },
+          {
+            "PID": 57928,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:50.8098230Z",
+            "CPU": 0.140625,
+            "PrivateBytes": 3461120,
+            "Handles": 226
+          },
+          {
+            "PID": 63276,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.2675372Z",
+            "CPU": 24.546875,
+            "PrivateBytes": 230215680,
+            "Handles": 1688
+          },
+          {
+            "PID": 59972,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.2754515Z",
+            "CPU": 0.671875,
+            "PrivateBytes": 13168640,
+            "Handles": 376
+          },
+          {
+            "PID": 20268,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.3314945Z",
+            "CPU": 0.09375,
+            "PrivateBytes": 8126464,
+            "Handles": 194
+          },
+          {
+            "PID": 60720,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.4819304Z",
+            "CPU": 109.5625,
+            "PrivateBytes": 1945280512,
+            "Handles": 468
+          },
+          {
+            "PID": 43220,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:52.8127325Z",
+            "CPU": 5.734375,
+            "PrivateBytes": 43888640,
+            "Handles": 361
+          },
+          {
+            "PID": 12340,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.2683340Z",
+            "CPU": 9.15625,
+            "PrivateBytes": 51064832,
+            "Handles": 1304
+          },
+          {
+            "PID": 38312,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.3282962Z",
+            "CPU": 0.3125,
+            "PrivateBytes": 3436544,
+            "Handles": 212
+          },
+          {
+            "PID": 59232,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8279741Z",
+            "CPU": 3.90625,
+            "PrivateBytes": 402259968,
+            "Handles": 6784
+          },
+          {
+            "PID": 59448,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8403990Z",
+            "CPU": 6.15625,
+            "PrivateBytes": 16953344,
+            "Handles": 429
+          },
+          {
+            "PID": 61016,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8883216Z",
+            "CPU": 0.296875,
+            "PrivateBytes": 8253440,
+            "Handles": 196
+          },
+          {
+            "PID": 62296,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.0546625Z",
+            "CPU": 15.65625,
+            "PrivateBytes": 149057536,
+            "Handles": 523
+          },
+          {
+            "PID": 60356,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.4804875Z",
+            "CPU": 24.71875,
+            "PrivateBytes": 62373888,
+            "Handles": 1393
+          },
+          {
+            "PID": 62744,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.5344077Z",
+            "CPU": 0.265625,
+            "PrivateBytes": 3444736,
+            "Handles": 219
+          },
+          {
+            "PID": 62584,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.1087305Z",
+            "CPU": 18.15625,
+            "PrivateBytes": 442335232,
+            "Handles": 6815
+          },
+          {
+            "PID": 21756,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.1291811Z",
+            "CPU": 14.5,
+            "PrivateBytes": 31715328,
+            "Handles": 432
+          },
+          {
+            "PID": 61004,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.2028062Z",
+            "CPU": 0.59375,
+            "PrivateBytes": 8642560,
+            "Handles": 200
+          },
+          {
+            "PID": 47288,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.3828753Z",
+            "CPU": 53.765625,
+            "PrivateBytes": 257556480,
+            "Handles": 524
+          },
+          {
+            "PID": 48508,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:37:34.7983810Z",
+            "CPU": 2.421875,
+            "PrivateBytes": 9023488,
+            "Handles": 271
+          },
+          {
+            "PID": 51568,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:37:43.9963677Z",
+            "CPU": 2.296875,
+            "PrivateBytes": 10444800,
+            "Handles": 273
+          }
+        ]
+      }
+    },
+    {
+      "key": "treeHealth3",
+      "sample": {
+        "At": "2026-10-31T06:47:34.5970336Z",
+        "Processes": [
+          {
+            "PID": 61864,
+            "Name": "vbk-host",
+            "Start": "2026-10-31T06:36:50.4204543Z",
+            "CPU": 59.703125,
+            "PrivateBytes": 23724032,
+            "Handles": 582
+          },
+          {
+            "PID": 63448,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:50.7563830Z",
+            "CPU": 86.8125,
+            "PrivateBytes": 301600768,
+            "Handles": 1509
+          },
+          {
+            "PID": 57928,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:50.8098230Z",
+            "CPU": 0.140625,
+            "PrivateBytes": 3551232,
+            "Handles": 226
+          },
+          {
+            "PID": 63276,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.2675372Z",
+            "CPU": 32.09375,
+            "PrivateBytes": 317333504,
+            "Handles": 1684
+          },
+          {
+            "PID": 59972,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.2754515Z",
+            "CPU": 0.671875,
+            "PrivateBytes": 13262848,
+            "Handles": 376
+          },
+          {
+            "PID": 20268,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.3314945Z",
+            "CPU": 0.09375,
+            "PrivateBytes": 8216576,
+            "Handles": 194
+          },
+          {
+            "PID": 60720,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.4819304Z",
+            "CPU": 161.015625,
+            "PrivateBytes": 2357063680,
+            "Handles": 485
+          },
+          {
+            "PID": 43220,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:52.8127325Z",
+            "CPU": 6.71875,
+            "PrivateBytes": 42946560,
+            "Handles": 358
+          },
+          {
+            "PID": 12340,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.2683340Z",
+            "CPU": 9.828125,
+            "PrivateBytes": 51806208,
+            "Handles": 1304
+          },
+          {
+            "PID": 38312,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.3282962Z",
+            "CPU": 0.328125,
+            "PrivateBytes": 3530752,
+            "Handles": 212
+          },
+          {
+            "PID": 59232,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8279741Z",
+            "CPU": 4,
+            "PrivateBytes": 394481664,
+            "Handles": 6784
+          },
+          {
+            "PID": 59448,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8403990Z",
+            "CPU": 6.671875,
+            "PrivateBytes": 16420864,
+            "Handles": 429
+          },
+          {
+            "PID": 61016,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8883216Z",
+            "CPU": 0.3125,
+            "PrivateBytes": 8343552,
+            "Handles": 196
+          },
+          {
+            "PID": 62296,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.0546625Z",
+            "CPU": 17.1875,
+            "PrivateBytes": 154107904,
+            "Handles": 523
+          },
+          {
+            "PID": 60356,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.4804875Z",
+            "CPU": 26.078125,
+            "PrivateBytes": 59633664,
+            "Handles": 1389
+          },
+          {
+            "PID": 62744,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.5344077Z",
+            "CPU": 0.28125,
+            "PrivateBytes": 3534848,
+            "Handles": 219
+          },
+          {
+            "PID": 62584,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.1087305Z",
+            "CPU": 20.953125,
+            "PrivateBytes": 480137216,
+            "Handles": 6818
+          },
+          {
+            "PID": 21756,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.1291811Z",
+            "CPU": 15.296875,
+            "PrivateBytes": 29978624,
+            "Handles": 433
+          },
+          {
+            "PID": 61004,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.2028062Z",
+            "CPU": 0.609375,
+            "PrivateBytes": 8790016,
+            "Handles": 200
+          },
+          {
+            "PID": 47288,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.3828753Z",
+            "CPU": 59.140625,
+            "PrivateBytes": 281645056,
+            "Handles": 534
+          },
+          {
+            "PID": 48508,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:37:34.7983810Z",
+            "CPU": 2.84375,
+            "PrivateBytes": 9023488,
+            "Handles": 271
+          },
+          {
+            "PID": 51568,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:37:43.9963677Z",
+            "CPU": 2.71875,
+            "PrivateBytes": 10465280,
+            "Handles": 293
+          }
+        ]
+      }
+    },
+    {
+      "key": "afterClose1",
+      "sample": {
+        "At": "2026-10-31T06:48:36.4198657Z",
+        "Processes": [
+          {
+            "PID": 61864,
+            "Name": "vbk-host",
+            "Start": "2026-10-31T06:36:50.4204543Z",
+            "CPU": 71.484375,
+            "PrivateBytes": 23638016,
+            "Handles": 580
+          },
+          {
+            "PID": 63448,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:50.7563830Z",
+            "CPU": 109.203125,
+            "PrivateBytes": 77017088,
+            "Handles": 1519
+          },
+          {
+            "PID": 57928,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:50.8098230Z",
+            "CPU": 0.171875,
+            "PrivateBytes": 3461120,
+            "Handles": 226
+          },
+          {
+            "PID": 63276,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.2675372Z",
+            "CPU": 35.421875,
+            "PrivateBytes": 255922176,
+            "Handles": 1685
+          },
+          {
+            "PID": 59972,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.2754515Z",
+            "CPU": 0.671875,
+            "PrivateBytes": 13189120,
+            "Handles": 376
+          },
+          {
+            "PID": 20268,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.3314945Z",
+            "CPU": 0.09375,
+            "PrivateBytes": 8171520,
+            "Handles": 194
+          },
+          {
+            "PID": 60720,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.4819304Z",
+            "CPU": 174.453125,
+            "PrivateBytes": 1954881536,
+            "Handles": 470
+          },
+          {
+            "PID": 43220,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:52.8127325Z",
+            "CPU": 7,
+            "PrivateBytes": 43745280,
+            "Handles": 361
+          },
+          {
+            "PID": 12340,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.2683340Z",
+            "CPU": 10.265625,
+            "PrivateBytes": 52789248,
+            "Handles": 1304
+          },
+          {
+            "PID": 38312,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.3282962Z",
+            "CPU": 0.328125,
+            "PrivateBytes": 3436544,
+            "Handles": 212
+          },
+          {
+            "PID": 59232,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8279741Z",
+            "CPU": 4.046875,
+            "PrivateBytes": 393617408,
+            "Handles": 6782
+          },
+          {
+            "PID": 59448,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8403990Z",
+            "CPU": 6.9375,
+            "PrivateBytes": 16588800,
+            "Handles": 429
+          },
+          {
+            "PID": 61016,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8883216Z",
+            "CPU": 0.34375,
+            "PrivateBytes": 8351744,
+            "Handles": 196
+          },
+          {
+            "PID": 62296,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.0546625Z",
+            "CPU": 18.296875,
+            "PrivateBytes": 164847616,
+            "Handles": 523
+          },
+          {
+            "PID": 60356,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.4804875Z",
+            "CPU": 27.34375,
+            "PrivateBytes": 61468672,
+            "Handles": 1397
+          },
+          {
+            "PID": 62744,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.5344077Z",
+            "CPU": 0.28125,
+            "PrivateBytes": 3444736,
+            "Handles": 219
+          },
+          {
+            "PID": 62584,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.1087305Z",
+            "CPU": 23.796875,
+            "PrivateBytes": 445087744,
+            "Handles": 6813
+          },
+          {
+            "PID": 21756,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.1291811Z",
+            "CPU": 15.984375,
+            "PrivateBytes": 29831168,
+            "Handles": 432
+          },
+          {
+            "PID": 61004,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.2028062Z",
+            "CPU": 0.6875,
+            "PrivateBytes": 8704000,
+            "Handles": 200
+          },
+          {
+            "PID": 47288,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.3828753Z",
+            "CPU": 65.234375,
+            "PrivateBytes": 273702912,
+            "Handles": 524
+          },
+          {
+            "PID": 48508,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:37:34.7983810Z",
+            "CPU": 3.359375,
+            "PrivateBytes": 9134080,
+            "Handles": 286
+          },
+          {
+            "PID": 51568,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:37:43.9963677Z",
+            "CPU": 3.265625,
+            "PrivateBytes": 10354688,
+            "Handles": 275
+          }
+        ]
+      }
+    },
+    {
+      "key": "afterClose2",
+      "sample": {
+        "At": "2026-10-31T06:49:36.4803479Z",
+        "Processes": [
+          {
+            "PID": 61864,
+            "Name": "vbk-host",
+            "Start": "2026-10-31T06:36:50.4204543Z",
+            "CPU": 79.609375,
+            "PrivateBytes": 23568384,
+            "Handles": 580
+          },
+          {
+            "PID": 63448,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:50.7563830Z",
+            "CPU": 134.65625,
+            "PrivateBytes": 74428416,
+            "Handles": 1510
+          },
+          {
+            "PID": 57928,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:50.8098230Z",
+            "CPU": 0.171875,
+            "PrivateBytes": 3457024,
+            "Handles": 226
+          },
+          {
+            "PID": 63276,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.2675372Z",
+            "CPU": 38.359375,
+            "PrivateBytes": 347447296,
+            "Handles": 1688
+          },
+          {
+            "PID": 59972,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.2754515Z",
+            "CPU": 0.6875,
+            "PrivateBytes": 13426688,
+            "Handles": 387
+          },
+          {
+            "PID": 20268,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.3314945Z",
+            "CPU": 0.109375,
+            "PrivateBytes": 8351744,
+            "Handles": 200
+          },
+          {
+            "PID": 60720,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:51.4819304Z",
+            "CPU": 179.15625,
+            "PrivateBytes": 1949073408,
+            "Handles": 470
+          },
+          {
+            "PID": 43220,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:52.8127325Z",
+            "CPU": 7.484375,
+            "PrivateBytes": 43364352,
+            "Handles": 358
+          },
+          {
+            "PID": 12340,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.2683340Z",
+            "CPU": 10.546875,
+            "PrivateBytes": 50401280,
+            "Handles": 1304
+          },
+          {
+            "PID": 38312,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.3282962Z",
+            "CPU": 0.328125,
+            "PrivateBytes": 3440640,
+            "Handles": 212
+          },
+          {
+            "PID": 59232,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8279741Z",
+            "CPU": 4.0625,
+            "PrivateBytes": 393617408,
+            "Handles": 6782
+          },
+          {
+            "PID": 59448,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8403990Z",
+            "CPU": 7.140625,
+            "PrivateBytes": 16699392,
+            "Handles": 429
+          },
+          {
+            "PID": 61016,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:53.8883216Z",
+            "CPU": 0.359375,
+            "PrivateBytes": 8306688,
+            "Handles": 196
+          },
+          {
+            "PID": 62296,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.0546625Z",
+            "CPU": 18.875,
+            "PrivateBytes": 152481792,
+            "Handles": 523
+          },
+          {
+            "PID": 60356,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.4804875Z",
+            "CPU": 28.03125,
+            "PrivateBytes": 59314176,
+            "Handles": 1396
+          },
+          {
+            "PID": 62744,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:54.5344077Z",
+            "CPU": 0.28125,
+            "PrivateBytes": 3440640,
+            "Handles": 219
+          },
+          {
+            "PID": 62584,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.1087305Z",
+            "CPU": 24.921875,
+            "PrivateBytes": 440475648,
+            "Handles": 6813
+          },
+          {
+            "PID": 21756,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.1291811Z",
+            "CPU": 16.515625,
+            "PrivateBytes": 29982720,
+            "Handles": 432
+          },
+          {
+            "PID": 61004,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.2028062Z",
+            "CPU": 0.765625,
+            "PrivateBytes": 8581120,
+            "Handles": 200
+          },
+          {
+            "PID": 47288,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:36:55.3828753Z",
+            "CPU": 68.140625,
+            "PrivateBytes": 272338944,
+            "Handles": 531
+          },
+          {
+            "PID": 48508,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:37:34.7983810Z",
+            "CPU": 3.875,
+            "PrivateBytes": 9289728,
+            "Handles": 290
+          },
+          {
+            "PID": 51568,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:37:43.9963677Z",
+            "CPU": 3.5,
+            "PrivateBytes": 10412032,
+            "Handles": 289
+          }
+        ]
+      }
+    },
+    {
+      "key": "newTree1",
+      "sample": {
+        "At": "2026-10-31T06:50:29.8248512Z",
+        "Processes": [
+          {
+            "PID": 57416,
+            "Name": "vbk-host",
+            "Start": "2026-10-31T06:49:46.8100411Z",
+            "CPU": 27.359375,
+            "PrivateBytes": 18595840,
+            "Handles": 531
+          },
+          {
+            "PID": 5112,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.1662828Z",
+            "CPU": 3.3125,
+            "PrivateBytes": 45563904,
+            "Handles": 1385
+          },
+          {
+            "PID": 60388,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.2224425Z",
+            "CPU": 0.1875,
+            "PrivateBytes": 4059136,
+            "Handles": 259
+          },
+          {
+            "PID": 15840,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5236260Z",
+            "CPU": 2.109375,
+            "PrivateBytes": 190447616,
+            "Handles": 1648
+          },
+          {
+            "PID": 62936,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5314108Z",
+            "CPU": 0.453125,
+            "PrivateBytes": 13455360,
+            "Handles": 390
+          },
+          {
+            "PID": 59468,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5690271Z",
+            "CPU": 0.109375,
+            "PrivateBytes": 8237056,
+            "Handles": 194
+          },
+          {
+            "PID": 61900,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.6512520Z",
+            "CPU": 3.46875,
+            "PrivateBytes": 69718016,
+            "Handles": 364
+          },
+          {
+            "PID": 59264,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.0410901Z",
+            "CPU": 0.203125,
+            "PrivateBytes": 35577856,
+            "Handles": 350
+          },
+          {
+            "PID": 12344,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.1935331Z",
+            "CPU": 3.625,
+            "PrivateBytes": 50233344,
+            "Handles": 1325
+          },
+          {
+            "PID": 56372,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.2438069Z",
+            "CPU": 0.171875,
+            "PrivateBytes": 4042752,
+            "Handles": 250
+          },
+          {
+            "PID": 62512,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5424712Z",
+            "CPU": 2.921875,
+            "PrivateBytes": 402558976,
+            "Handles": 6795
+          },
+          {
+            "PID": 61256,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5491842Z",
+            "CPU": 1.421875,
+            "PrivateBytes": 17698816,
+            "Handles": 437
+          },
+          {
+            "PID": 17784,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5852145Z",
+            "CPU": 0.09375,
+            "PrivateBytes": 8429568,
+            "Handles": 196
+          },
+          {
+            "PID": 61160,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.6696320Z",
+            "CPU": 4.671875,
+            "PrivateBytes": 173109248,
+            "Handles": 520
+          },
+          {
+            "PID": 26436,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.8706167Z",
+            "CPU": 7.453125,
+            "PrivateBytes": 68329472,
+            "Handles": 1348
+          },
+          {
+            "PID": 59240,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.9072532Z",
+            "CPU": 0.1875,
+            "PrivateBytes": 4034560,
+            "Handles": 252
+          },
+          {
+            "PID": 11200,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2141474Z",
+            "CPU": 3.453125,
+            "PrivateBytes": 403021824,
+            "Handles": 6803
+          },
+          {
+            "PID": 58508,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2204038Z",
+            "CPU": 4.40625,
+            "PrivateBytes": 33865728,
+            "Handles": 433
+          },
+          {
+            "PID": 56332,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2623272Z",
+            "CPU": 0.140625,
+            "PrivateBytes": 8617984,
+            "Handles": 194
+          },
+          {
+            "PID": 34668,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.3801236Z",
+            "CPU": 7.796875,
+            "PrivateBytes": 213803008,
+            "Handles": 519
+          }
+        ]
+      }
+    },
+    {
+      "key": "newTree2",
+      "sample": {
+        "At": "2026-10-31T06:51:23.0833209Z",
+        "Processes": [
+          {
+            "PID": 57416,
+            "Name": "vbk-host",
+            "Start": "2026-10-31T06:49:46.8100411Z",
+            "CPU": 55.203125,
+            "PrivateBytes": 21315584,
+            "Handles": 568
+          },
+          {
+            "PID": 5112,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.1662828Z",
+            "CPU": 14.28125,
+            "PrivateBytes": 49537024,
+            "Handles": 1499
+          },
+          {
+            "PID": 60388,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.2224425Z",
+            "CPU": 0.203125,
+            "PrivateBytes": 3641344,
+            "Handles": 238
+          },
+          {
+            "PID": 15840,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5236260Z",
+            "CPU": 5.4375,
+            "PrivateBytes": 290222080,
+            "Handles": 1656
+          },
+          {
+            "PID": 62936,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5314108Z",
+            "CPU": 0.484375,
+            "PrivateBytes": 13254656,
+            "Handles": 391
+          },
+          {
+            "PID": 59468,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5690271Z",
+            "CPU": 0.109375,
+            "PrivateBytes": 8122368,
+            "Handles": 194
+          },
+          {
+            "PID": 61900,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.6512520Z",
+            "CPU": 7.640625,
+            "PrivateBytes": 81842176,
+            "Handles": 470
+          },
+          {
+            "PID": 59264,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.0410901Z",
+            "CPU": 0.734375,
+            "PrivateBytes": 44863488,
+            "Handles": 356
+          },
+          {
+            "PID": 12344,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.1935331Z",
+            "CPU": 4.265625,
+            "PrivateBytes": 46329856,
+            "Handles": 1327
+          },
+          {
+            "PID": 56372,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.2438069Z",
+            "CPU": 0.171875,
+            "PrivateBytes": 3633152,
+            "Handles": 224
+          },
+          {
+            "PID": 62512,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5424712Z",
+            "CPU": 2.921875,
+            "PrivateBytes": 400769024,
+            "Handles": 6796
+          },
+          {
+            "PID": 61256,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5491842Z",
+            "CPU": 1.765625,
+            "PrivateBytes": 16801792,
+            "Handles": 438
+          },
+          {
+            "PID": 17784,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5852145Z",
+            "CPU": 0.09375,
+            "PrivateBytes": 8323072,
+            "Handles": 196
+          },
+          {
+            "PID": 61160,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.6696320Z",
+            "CPU": 5.53125,
+            "PrivateBytes": 148549632,
+            "Handles": 526
+          },
+          {
+            "PID": 26436,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.8706167Z",
+            "CPU": 12.15625,
+            "PrivateBytes": 59465728,
+            "Handles": 1326
+          },
+          {
+            "PID": 59240,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.9072532Z",
+            "CPU": 0.1875,
+            "PrivateBytes": 3616768,
+            "Handles": 224
+          },
+          {
+            "PID": 11200,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2141474Z",
+            "CPU": 3.953125,
+            "PrivateBytes": 419528704,
+            "Handles": 6804
+          },
+          {
+            "PID": 58508,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2204038Z",
+            "CPU": 5.765625,
+            "PrivateBytes": 28844032,
+            "Handles": 433
+          },
+          {
+            "PID": 56332,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2623272Z",
+            "CPU": 0.15625,
+            "PrivateBytes": 8310784,
+            "Handles": 194
+          },
+          {
+            "PID": 34668,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.3801236Z",
+            "CPU": 14.015625,
+            "PrivateBytes": 191549440,
+            "Handles": 525
+          },
+          {
+            "PID": 48240,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:50:29.5037139Z",
+            "CPU": 0.453125,
+            "PrivateBytes": 9015296,
+            "Handles": 286
+          }
+        ]
+      }
+    },
+    {
+      "key": "newTree3",
+      "sample": {
+        "At": "2026-10-31T06:53:21.8693349Z",
+        "Processes": [
+          {
+            "PID": 57416,
+            "Name": "vbk-host",
+            "Start": "2026-10-31T06:49:46.8100411Z",
+            "CPU": 77.46875,
+            "PrivateBytes": 21508096,
+            "Handles": 567
+          },
+          {
+            "PID": 5112,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.1662828Z",
+            "CPU": 53.140625,
+            "PrivateBytes": 51576832,
+            "Handles": 1520
+          },
+          {
+            "PID": 60388,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.2224425Z",
+            "CPU": 0.203125,
+            "PrivateBytes": 3526656,
+            "Handles": 230
+          },
+          {
+            "PID": 15840,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5236260Z",
+            "CPU": 12.84375,
+            "PrivateBytes": 253612032,
+            "Handles": 1689
+          },
+          {
+            "PID": 62936,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5314108Z",
+            "CPU": 0.515625,
+            "PrivateBytes": 13099008,
+            "Handles": 379
+          },
+          {
+            "PID": 59468,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5690271Z",
+            "CPU": 0.109375,
+            "PrivateBytes": 8122368,
+            "Handles": 194
+          },
+          {
+            "PID": 61900,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.6512520Z",
+            "CPU": 15.1875,
+            "PrivateBytes": 130428928,
+            "Handles": 462
+          },
+          {
+            "PID": 59264,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.0410901Z",
+            "CPU": 1.65625,
+            "PrivateBytes": 45826048,
+            "Handles": 358
+          },
+          {
+            "PID": 12344,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.1935331Z",
+            "CPU": 4.96875,
+            "PrivateBytes": 46653440,
+            "Handles": 1312
+          },
+          {
+            "PID": 56372,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.2438069Z",
+            "CPU": 0.171875,
+            "PrivateBytes": 3448832,
+            "Handles": 212
+          },
+          {
+            "PID": 62512,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5424712Z",
+            "CPU": 2.953125,
+            "PrivateBytes": 400785408,
+            "Handles": 6794
+          },
+          {
+            "PID": 61256,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5491842Z",
+            "CPU": 2.3125,
+            "PrivateBytes": 16351232,
+            "Handles": 426
+          },
+          {
+            "PID": 17784,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5852145Z",
+            "CPU": 0.140625,
+            "PrivateBytes": 8335360,
+            "Handles": 196
+          },
+          {
+            "PID": 61160,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.6696320Z",
+            "CPU": 6.921875,
+            "PrivateBytes": 147701760,
+            "Handles": 526
+          },
+          {
+            "PID": 26436,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.8706167Z",
+            "CPU": 14.5625,
+            "PrivateBytes": 60018688,
+            "Handles": 1383
+          },
+          {
+            "PID": 59240,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.9072532Z",
+            "CPU": 0.1875,
+            "PrivateBytes": 3436544,
+            "Handles": 219
+          },
+          {
+            "PID": 11200,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2141474Z",
+            "CPU": 6.875,
+            "PrivateBytes": 457895936,
+            "Handles": 6805
+          },
+          {
+            "PID": 58508,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2204038Z",
+            "CPU": 6.671875,
+            "PrivateBytes": 28459008,
+            "Handles": 421
+          },
+          {
+            "PID": 56332,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2623272Z",
+            "CPU": 0.25,
+            "PrivateBytes": 8527872,
+            "Handles": 194
+          },
+          {
+            "PID": 34668,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.3801236Z",
+            "CPU": 21.75,
+            "PrivateBytes": 199090176,
+            "Handles": 546
+          },
+          {
+            "PID": 48240,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:50:29.5037139Z",
+            "CPU": 1.1875,
+            "PrivateBytes": 8953856,
+            "Handles": 271
+          },
+          {
+            "PID": 34732,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:51:28.3346758Z",
+            "CPU": 0.5625,
+            "PrivateBytes": 9105408,
+            "Handles": 286
+          }
+        ]
+      }
+    },
+    {
+      "key": "newTree4",
+      "sample": {
+        "At": "2026-10-31T06:55:56.5147012Z",
+        "Processes": [
+          {
+            "PID": 57416,
+            "Name": "vbk-host",
+            "Start": "2026-10-31T06:49:46.8100411Z",
+            "CPU": 107.3125,
+            "PrivateBytes": 21659648,
+            "Handles": 572
+          },
+          {
+            "PID": 5112,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.1662828Z",
+            "CPU": 96.015625,
+            "PrivateBytes": 51658752,
+            "Handles": 1518
+          },
+          {
+            "PID": 60388,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.2224425Z",
+            "CPU": 0.203125,
+            "PrivateBytes": 3567616,
+            "Handles": 226
+          },
+          {
+            "PID": 15840,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5236260Z",
+            "CPU": 22.34375,
+            "PrivateBytes": 188469248,
+            "Handles": 1684
+          },
+          {
+            "PID": 62936,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5314108Z",
+            "CPU": 0.515625,
+            "PrivateBytes": 13246464,
+            "Handles": 385
+          },
+          {
+            "PID": 59468,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.5690271Z",
+            "CPU": 0.109375,
+            "PrivateBytes": 8232960,
+            "Handles": 194
+          },
+          {
+            "PID": 61900,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:47.6512520Z",
+            "CPU": 26.78125,
+            "PrivateBytes": 145108992,
+            "Handles": 462
+          },
+          {
+            "PID": 59264,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.0410901Z",
+            "CPU": 2.296875,
+            "PrivateBytes": 44539904,
+            "Handles": 358
+          },
+          {
+            "PID": 12344,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.1935331Z",
+            "CPU": 5.59375,
+            "PrivateBytes": 48230400,
+            "Handles": 1312
+          },
+          {
+            "PID": 56372,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.2438069Z",
+            "CPU": 0.171875,
+            "PrivateBytes": 3547136,
+            "Handles": 212
+          },
+          {
+            "PID": 62512,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5424712Z",
+            "CPU": 2.953125,
+            "PrivateBytes": 400887808,
+            "Handles": 6796
+          },
+          {
+            "PID": 61256,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5491842Z",
+            "CPU": 2.984375,
+            "PrivateBytes": 17133568,
+            "Handles": 429
+          },
+          {
+            "PID": 17784,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.5852145Z",
+            "CPU": 0.171875,
+            "PrivateBytes": 8409088,
+            "Handles": 196
+          },
+          {
+            "PID": 61160,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.6696320Z",
+            "CPU": 8.5625,
+            "PrivateBytes": 151388160,
+            "Handles": 525
+          },
+          {
+            "PID": 26436,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.8706167Z",
+            "CPU": 16.375,
+            "PrivateBytes": 59531264,
+            "Handles": 1385
+          },
+          {
+            "PID": 59240,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:48.9072532Z",
+            "CPU": 0.1875,
+            "PrivateBytes": 3538944,
+            "Handles": 219
+          },
+          {
+            "PID": 11200,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2141474Z",
+            "CPU": 9.25,
+            "PrivateBytes": 444674048,
+            "Handles": 6812
+          },
+          {
+            "PID": 58508,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2204038Z",
+            "CPU": 7.671875,
+            "PrivateBytes": 28692480,
+            "Handles": 427
+          },
+          {
+            "PID": 56332,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.2623272Z",
+            "CPU": 0.328125,
+            "PrivateBytes": 8585216,
+            "Handles": 194
+          },
+          {
+            "PID": 34668,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:49:49.3801236Z",
+            "CPU": 28.140625,
+            "PrivateBytes": 203309056,
+            "Handles": 539
+          },
+          {
+            "PID": 48240,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:50:29.5037139Z",
+            "CPU": 1.703125,
+            "PrivateBytes": 9003008,
+            "Handles": 270
+          },
+          {
+            "PID": 34732,
+            "Name": "msedgewebview2",
+            "Start": "2026-10-31T06:51:28.3346758Z",
+            "CPU": 1,
+            "PrivateBytes": 8912896,
+            "Handles": 263
+          }
+        ]
+      }
+    }
+  ],
+  "clock_version_samples": {
+    "schema": "ui-process-health-v1",
+    "host_pid": 71540,
+    "reported_running_commit": "9731e00",
+    "sample_interval_seconds": 114.020736,
+    "samples": [
+      {
+        "Schema": "ui-process-health-v1",
+        "At": "2026-10-31T07:27:30.1820955Z",
+        "HostPID": 71540,
+        "HostPathMatches": true,
+        "HostStartMatches": true,
+        "Processes": [
+          {
+            "PID": 3524,
+            "ParentPID": 71540,
+            "Type": "browser",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 61538304,
+            "CPUSeconds": 26.609375,
+            "Handles": 1394
+          },
+          {
+            "PID": 12416,
+            "ParentPID": 69952,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 8540160,
+            "CPUSeconds": 0.4375,
+            "Handles": 203
+          },
+          {
+            "PID": 45656,
+            "ParentPID": 66636,
+            "Type": "renderer",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 45985792,
+            "CPUSeconds": 4.75,
+            "Handles": 361
+          },
+          {
+            "PID": 45772,
+            "ParentPID": 3524,
+            "Type": "gpu",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 496992256,
+            "CPUSeconds": 19.484375,
+            "Handles": 6811
+          },
+          {
+            "PID": 59236,
+            "ParentPID": 69952,
+            "Type": "crashpad",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 3448832,
+            "CPUSeconds": 0.21875,
+            "Handles": 212
+          },
+          {
+            "PID": 59848,
+            "ParentPID": 69952,
+            "Type": "gpu",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 389480448,
+            "CPUSeconds": 3.546875,
+            "Handles": 6794
+          },
+          {
+            "PID": 63660,
+            "ParentPID": 3524,
+            "Type": "crashpad",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 3444736,
+            "CPUSeconds": 0.265625,
+            "Handles": 219
+          },
+          {
+            "PID": 64644,
+            "ParentPID": 3524,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 30584832,
+            "CPUSeconds": 16.5625,
+            "Handles": 421
+          },
+          {
+            "PID": 64880,
+            "ParentPID": 69952,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 16551936,
+            "CPUSeconds": 6.015625,
+            "Handles": 433
+          },
+          {
+            "PID": 65396,
+            "ParentPID": 3524,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 9220096,
+            "CPUSeconds": 2.5,
+            "Handles": 287
+          },
+          {
+            "PID": 65604,
+            "ParentPID": 66636,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 9322496,
+            "CPUSeconds": 4.25,
+            "Handles": 294
+          },
+          {
+            "PID": 65664,
+            "ParentPID": 3524,
+            "Type": "renderer",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 239702016,
+            "CPUSeconds": 57.734375,
+            "Handles": 550
+          },
+          {
+            "PID": 66636,
+            "ParentPID": 71540,
+            "Type": "browser",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 52989952,
+            "CPUSeconds": 131.765625,
+            "Handles": 1479
+          },
+          {
+            "PID": 67524,
+            "ParentPID": 69952,
+            "Type": "renderer",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 154406912,
+            "CPUSeconds": 17.53125,
+            "Handles": 525
+          },
+          {
+            "PID": 67596,
+            "ParentPID": 66636,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 8306688,
+            "CPUSeconds": 0.15625,
+            "Handles": 200
+          },
+          {
+            "PID": 68868,
+            "ParentPID": 66636,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 13864960,
+            "CPUSeconds": 0.796875,
+            "Handles": 385
+          },
+          {
+            "PID": 68936,
+            "ParentPID": 66636,
+            "Type": "gpu",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 303689728,
+            "CPUSeconds": 39.71875,
+            "Handles": 1649
+          },
+          {
+            "PID": 69404,
+            "ParentPID": 3524,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 8511488,
+            "CPUSeconds": 0.921875,
+            "Handles": 194
+          },
+          {
+            "PID": 69592,
+            "ParentPID": 66636,
+            "Type": "crashpad",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 3497984,
+            "CPUSeconds": 0.28125,
+            "Handles": 226
+          },
+          {
+            "PID": 69952,
+            "ParentPID": 71540,
+            "Type": "browser",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 49766400,
+            "CPUSeconds": 9.3125,
+            "Handles": 1310
+          },
+          {
+            "PID": 70040,
+            "ParentPID": 66636,
+            "Type": "renderer",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 83419136,
+            "CPUSeconds": 47.1875,
+            "Handles": 390
+          },
+          {
+            "PID": 71540,
+            "ParentPID": 59384,
+            "Type": "host",
+            "ProfileKnown": false,
+            "IsolatedProfile": false,
+            "PrivateBytes": 22224896,
+            "CPUSeconds": 203.921875,
+            "Handles": 583
+          }
+        ]
+      },
+      {
+        "Schema": "ui-process-health-v1",
+        "At": "2026-10-31T07:29:24.2028311Z",
+        "HostPID": 71540,
+        "HostPathMatches": true,
+        "HostStartMatches": true,
+        "Processes": [
+          {
+            "PID": 3524,
+            "ParentPID": 71540,
+            "Type": "browser",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 62078976,
+            "CPUSeconds": 28.625,
+            "Handles": 1392
+          },
+          {
+            "PID": 12416,
+            "ParentPID": 69952,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 8466432,
+            "CPUSeconds": 0.578125,
+            "Handles": 203
+          },
+          {
+            "PID": 45656,
+            "ParentPID": 66636,
+            "Type": "renderer",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 46006272,
+            "CPUSeconds": 5.4375,
+            "Handles": 358
+          },
+          {
+            "PID": 45772,
+            "ParentPID": 3524,
+            "Type": "gpu",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 463728640,
+            "CPUSeconds": 23.0625,
+            "Handles": 6807
+          },
+          {
+            "PID": 59236,
+            "ParentPID": 69952,
+            "Type": "crashpad",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 3448832,
+            "CPUSeconds": 0.21875,
+            "Handles": 212
+          },
+          {
+            "PID": 59848,
+            "ParentPID": 69952,
+            "Type": "gpu",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 399314944,
+            "CPUSeconds": 3.9375,
+            "Handles": 6795
+          },
+          {
+            "PID": 63660,
+            "ParentPID": 3524,
+            "Type": "crashpad",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 3444736,
+            "CPUSeconds": 0.28125,
+            "Handles": 219
+          },
+          {
+            "PID": 64644,
+            "ParentPID": 3524,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 30212096,
+            "CPUSeconds": 18.0,
+            "Handles": 423
+          },
+          {
+            "PID": 64880,
+            "ParentPID": 69952,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 17063936,
+            "CPUSeconds": 6.96875,
+            "Handles": 435
+          },
+          {
+            "PID": 65396,
+            "ParentPID": 3524,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 9170944,
+            "CPUSeconds": 3.03125,
+            "Handles": 278
+          },
+          {
+            "PID": 65604,
+            "ParentPID": 66636,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 9142272,
+            "CPUSeconds": 5.140625,
+            "Handles": 277
+          },
+          {
+            "PID": 65664,
+            "ParentPID": 3524,
+            "Type": "renderer",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 222437376,
+            "CPUSeconds": 65.8125,
+            "Handles": 540
+          },
+          {
+            "PID": 66636,
+            "ParentPID": 71540,
+            "Type": "browser",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 51073024,
+            "CPUSeconds": 139.375,
+            "Handles": 1487
+          },
+          {
+            "PID": 67524,
+            "ParentPID": 69952,
+            "Type": "renderer",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 158306304,
+            "CPUSeconds": 20.9375,
+            "Handles": 527
+          },
+          {
+            "PID": 67596,
+            "ParentPID": 66636,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 8265728,
+            "CPUSeconds": 0.15625,
+            "Handles": 200
+          },
+          {
+            "PID": 68868,
+            "ParentPID": 66636,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 13467648,
+            "CPUSeconds": 0.859375,
+            "Handles": 380
+          },
+          {
+            "PID": 68936,
+            "ParentPID": 66636,
+            "Type": "gpu",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 267649024,
+            "CPUSeconds": 44.859375,
+            "Handles": 1644
+          },
+          {
+            "PID": 69404,
+            "ParentPID": 3524,
+            "Type": "utility",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 8462336,
+            "CPUSeconds": 0.953125,
+            "Handles": 194
+          },
+          {
+            "PID": 69592,
+            "ParentPID": 66636,
+            "Type": "crashpad",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 3457024,
+            "CPUSeconds": 0.28125,
+            "Handles": 226
+          },
+          {
+            "PID": 69952,
+            "ParentPID": 71540,
+            "Type": "browser",
+            "ProfileKnown": true,
+            "IsolatedProfile": true,
+            "PrivateBytes": 50536448,
+            "CPUSeconds": 10.1875,
+            "Handles": 1312
+          },
+          {
+            "PID": 70040,
+            "ParentPID": 66636,
+            "Type": "renderer",
+            "ProfileKnown": true,
+            "IsolatedProfile": false,
+            "PrivateBytes": 84971520,
+            "CPUSeconds": 65.046875,
+            "Handles": 390
+          },
+          {
+            "PID": 71540,
+            "ParentPID": 59384,
+            "Type": "host",
+            "ProfileKnown": false,
+            "IsolatedProfile": false,
+            "PrivateBytes": 22630400,
+            "CPUSeconds": 215.28125,
+            "Handles": 577
+          }
+        ]
+      }
+    ],
+    "deltas": [
+      {
+        "PID": 3524,
+        "Type": "browser",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": 540672,
+        "CPUSecondsDelta": 2.015625,
+        "HandlesDelta": -2
+      },
+      {
+        "PID": 12416,
+        "Type": "utility",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": -73728,
+        "CPUSecondsDelta": 0.140625,
+        "HandlesDelta": 0
+      },
+      {
+        "PID": 45656,
+        "Type": "renderer",
+        "ProfileKnown": true,
+        "IsolatedProfile": false,
+        "PrivateBytesDelta": 20480,
+        "CPUSecondsDelta": 0.6875,
+        "HandlesDelta": -3
+      },
+      {
+        "PID": 45772,
+        "Type": "gpu",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": -33263616,
+        "CPUSecondsDelta": 3.578125,
+        "HandlesDelta": -4
+      },
+      {
+        "PID": 59236,
+        "Type": "crashpad",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": 0,
+        "CPUSecondsDelta": 0.0,
+        "HandlesDelta": 0
+      },
+      {
+        "PID": 59848,
+        "Type": "gpu",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": 9834496,
+        "CPUSecondsDelta": 0.390625,
+        "HandlesDelta": 1
+      },
+      {
+        "PID": 63660,
+        "Type": "crashpad",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": 0,
+        "CPUSecondsDelta": 0.015625,
+        "HandlesDelta": 0
+      },
+      {
+        "PID": 64644,
+        "Type": "utility",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": -372736,
+        "CPUSecondsDelta": 1.4375,
+        "HandlesDelta": 2
+      },
+      {
+        "PID": 64880,
+        "Type": "utility",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": 512000,
+        "CPUSecondsDelta": 0.953125,
+        "HandlesDelta": 2
+      },
+      {
+        "PID": 65396,
+        "Type": "utility",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": -49152,
+        "CPUSecondsDelta": 0.53125,
+        "HandlesDelta": -9
+      },
+      {
+        "PID": 65604,
+        "Type": "utility",
+        "ProfileKnown": true,
+        "IsolatedProfile": false,
+        "PrivateBytesDelta": -180224,
+        "CPUSecondsDelta": 0.890625,
+        "HandlesDelta": -17
+      },
+      {
+        "PID": 65664,
+        "Type": "renderer",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": -17264640,
+        "CPUSecondsDelta": 8.078125,
+        "HandlesDelta": -10
+      },
+      {
+        "PID": 66636,
+        "Type": "browser",
+        "ProfileKnown": true,
+        "IsolatedProfile": false,
+        "PrivateBytesDelta": -1916928,
+        "CPUSecondsDelta": 7.609375,
+        "HandlesDelta": 8
+      },
+      {
+        "PID": 67524,
+        "Type": "renderer",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": 3899392,
+        "CPUSecondsDelta": 3.40625,
+        "HandlesDelta": 2
+      },
+      {
+        "PID": 67596,
+        "Type": "utility",
+        "ProfileKnown": true,
+        "IsolatedProfile": false,
+        "PrivateBytesDelta": -40960,
+        "CPUSecondsDelta": 0.0,
+        "HandlesDelta": 0
+      },
+      {
+        "PID": 68868,
+        "Type": "utility",
+        "ProfileKnown": true,
+        "IsolatedProfile": false,
+        "PrivateBytesDelta": -397312,
+        "CPUSecondsDelta": 0.0625,
+        "HandlesDelta": -5
+      },
+      {
+        "PID": 68936,
+        "Type": "gpu",
+        "ProfileKnown": true,
+        "IsolatedProfile": false,
+        "PrivateBytesDelta": -36040704,
+        "CPUSecondsDelta": 5.140625,
+        "HandlesDelta": -5
+      },
+      {
+        "PID": 69404,
+        "Type": "utility",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": -49152,
+        "CPUSecondsDelta": 0.03125,
+        "HandlesDelta": 0
+      },
+      {
+        "PID": 69592,
+        "Type": "crashpad",
+        "ProfileKnown": true,
+        "IsolatedProfile": false,
+        "PrivateBytesDelta": -40960,
+        "CPUSecondsDelta": 0.0,
+        "HandlesDelta": 0
+      },
+      {
+        "PID": 69952,
+        "Type": "browser",
+        "ProfileKnown": true,
+        "IsolatedProfile": true,
+        "PrivateBytesDelta": 770048,
+        "CPUSecondsDelta": 0.875,
+        "HandlesDelta": 2
+      },
+      {
+        "PID": 70040,
+        "Type": "renderer",
+        "ProfileKnown": true,
+        "IsolatedProfile": false,
+        "PrivateBytesDelta": 1552384,
+        "CPUSecondsDelta": 17.859375,
+        "HandlesDelta": 0
+      },
+      {
+        "PID": 71540,
+        "Type": "host",
+        "ProfileKnown": false,
+        "IsolatedProfile": false,
+        "PrivateBytesDelta": 405504,
+        "CPUSecondsDelta": 11.359375,
+        "HandlesDelta": -6
+      }
+    ],
+    "notes": [
+      "Read-only process metadata only. No UI/browser/SDK/network/customer or storage operations; command lines were inspected only transiently for whitelisted process type and boolean profile classification, never saved or printed.",
+      "Sample timestamps are collection completion UTC; process collection is sequential, not an atomic JS-heap measurement. No inference of leak or long-term stability from two samples.",
+      "Default-profile renderer classification does not identify the exact local window. Isolated profile classification does not identify busy/idle account."
+    ],
+    "sound_log_static_evidence": {
+      "source_commit": "d3d66568b81c1811d065916988f9c4414d26b624",
+      "also_present_in_running_source_commit": "9731e00",
+      "path": "vbk/ui/apps/main/main.ts",
+      "declaration_line": 1132,
+      "append_line": 1134,
+      "production_listener_line": 2317,
+      "mock_exposure_line": 2348,
+      "running_source_lines": {
+        "declaration": 1127,
+        "append": 1129,
+        "production_listener": 2308,
+        "mock_exposure": 2339
+      },
+      "sound_names": [
+        "new_message",
+        "timeout",
+        "loop"
+      ],
+      "append_per_accepted_sound_event": true,
+      "bound_or_clear_path_found": false,
+      "mock_only_exposure_does_not_gate_production_append": true,
+      "helper_source": "vbk/ui/apps/_shared/ipc.ts:20-24",
+      "assessment": "Production soundLog array grows once per validated notify://play-sound event. No length cap, ring-buffer eviction or reset path was found in static references. It stores enum names; this is not evidence that it caused previous GB-level private memory. No fix made."
+    }
+  }
+}
