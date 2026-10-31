@@ -61,6 +61,9 @@ pub struct UiOrderSummaryDto {
 /// `draft`.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DisplayConversationDto {
+    /// Raw official business type, deliberately outside the persisted fact schema.
+    #[serde(default)]
+    pub conversation_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assistant_context_revision: Option<String>,
     #[serde(default)]
@@ -370,6 +373,11 @@ impl std::fmt::Debug for DisplayDelta {
 const MESSAGE_KINDS: [&str; 6] = ["text", "image", "file", "video", "order_card", "system"];
 
 fn validate_conversation(c: &DisplayConversationDto) -> Result<(), AppError> {
+    if c.conversation_type.as_deref().is_some_and(|value| value.encode_utf16().count() > 64
+        || value.chars().all(|c| c.is_whitespace() || c == '\u{feff}')
+        || value.chars().any(char::is_control)) {
+        return Err(invalid("invalid conversation type"));
+    }
     if c.fact.gid.is_empty() {
         return Err(invalid("conversation gid is empty"));
     }
@@ -1746,4 +1754,57 @@ pub struct UiPeripheralWriteDto {
     pub confirmed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+
+#[cfg(test)]
+mod conversation_business_tests {
+    use super::*;
+    fn account() -> AccountContext { AccountContext::new(AccountId::new("synthetic-business"), Environment::production(), 1) }
+    fn row() -> serde_json::Value {
+        serde_json::json!({"gid":"synthetic-room","status":"active","agent_in_group":false,"is_owner":false,"service_type":"2573","last_message_time_ms":10,"last_update_time_ms":10,"unread_count":0,"is_full_snapshot":false,"title":"Synthetic","mark":0})
+    }
+    fn payload(value: serde_json::Value) -> Result<DisplayPayload, serde_json::Error> {
+        serde_json::from_value(serde_json::json!({"kind":"conversations","full":false,"items":[value],"removed_gids":[]}))
+    }
+    #[test]
+    fn business_display_preserves_exact_known_and_unknown_types_through_real_cache_and_projection() {
+        for value in ["B2C", "C2B", "B2MC", "B2O", "O2B", "B2B", "SYNTHETIC_UNKNOWN", " B2C ", "未知类型"] {
+            let mut r = row(); r["conversation_type"] = serde_json::json!(value);
+            let mut cache = DisplayCache::default(); cache.apply(&account(), payload(r).unwrap()).unwrap();
+            let stored = cache.conversation(&account(), "synthetic-room").unwrap().unwrap();
+            let dto = UiConversationDto { display: stored, account: (&account()).into(), draft:String::new(), is_top:false, waiting_since_ms:None, waiting_confirmed:false };
+            let wire = serde_json::to_value(dto).unwrap();
+            assert_eq!(wire.get("conversation_type"), Some(&serde_json::json!(value)));
+            assert_eq!(wire["service_type"], "2573");
+        }
+    }
+    #[test]
+    fn business_display_legacy_missing_type_is_accepted_and_reprojected_as_explicit_null() {
+        let mut cache = DisplayCache::default(); cache.apply(&account(),payload(row()).unwrap()).unwrap();
+        let stored = cache.conversation(&account(),"synthetic-room").unwrap().unwrap();
+        assert_eq!(serde_json::to_value(stored).unwrap().get("conversation_type"),Some(&serde_json::Value::Null));
+    }
+    #[test]
+    fn business_display_rejects_invalid_type_atomically_without_changing_a_valid_cached_row() {
+        for value in [String::new(), "  ".into(), "X".repeat(65), "\u{feff}".into(), format!("B2C{}", '\0'), format!("B2C{}", '\u{0085}')] {
+            let mut cache = DisplayCache::default(); cache.apply(&account(),payload(row()).unwrap()).unwrap();
+            let mut invalid = row(); invalid["conversation_type"] = serde_json::json!(value); invalid["title"] = serde_json::json!("must not replace");
+            assert!(cache.apply(&account(),payload(invalid).unwrap()).is_err());
+            assert_eq!(cache.conversation(&account(),"synthetic-room").unwrap().unwrap().title,"Synthetic");
+        }
+    }
+    #[test]
+    fn business_display_non_string_type_is_rejected_at_the_wire_boundary() {
+        for value in [serde_json::json!(123), serde_json::json!({"type":"B2C"}), serde_json::json!(["B2C"])] {
+            let mut r = row(); r["conversation_type"] = value; assert!(payload(r).is_err());
+        }
+    }
+    #[test]
+    fn business_display_size_limit_matches_typescript_utf16_units() {
+        for value in ["X".repeat(64), "😀".repeat(32)] {
+            let mut r=row();r["conversation_type"]=serde_json::json!(value);let mut cache=DisplayCache::default();cache.apply(&account(),payload(r).unwrap()).unwrap();
+        }
+        let mut r=row();r["conversation_type"]=serde_json::json!("😀".repeat(33));let mut cache=DisplayCache::default();assert!(cache.apply(&account(),payload(r).unwrap()).is_err());
+    }
 }

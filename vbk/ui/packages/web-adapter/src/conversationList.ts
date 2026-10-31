@@ -22,8 +22,9 @@ import { businessHead } from './heads.ts';
 import type { EndpointSpec, SoaClient, SoaOutcome } from './soa.ts';
 import { normalizeTimeMs } from './facts.ts';
 
-/** Observed: 2 = 进行中 (active), 4 = finished (read back after finishConversation). */
+/** Official desktop ACTIVE.values=[1,2]: autoActive=1/manualActive=2; FINISH=[4]. */
 export const CONVERSATION_STATUS_TABLE: Readonly<Record<number, ConversationStatus>> = {
+  1: 'active',
   2: 'active',
   4: 'finished',
 };

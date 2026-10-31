@@ -125,14 +125,15 @@ export const MOCK_ORDER_SAMPLES: readonly { readonly id: string; readonly label:
 
 function seedConversations(now: number): UiConversation[] {
   const M = 60_000;
-  const base = (account: AccountContext, gid: string, title: string, color: string, extra: Partial<UiConversation>): UiConversation => ({
+  const base = (account: AccountContext, gid: string, title: string, color: string, extra: Partial<UiConversation>): UiConversation & { conversation_type?: string | null } => ({
     account,
     gid,
     assistant_context_revision: '00000000-0000-4000-8000-000000000001',
     status: 'active',
     agent_in_group: true,
     is_owner: true,
-    service_type: 'BC',
+    conversation_type: 'B2C',
+    service_type: '1513',
     last_message_time_ms: now - 5 * M,
     last_update_time_ms: now - 5 * M,
     unread_count: 0,
@@ -652,8 +653,8 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       if (!o) throw appError(ErrorCodes.IM_PERMISSION_DENIED, '当前账号无权联系该订单客户');
       const gid = `g-demo-order-${ctx.account_id}-${id}`;
       const nowMs = now();
-      const conv: UiConversation = {
-        account: ctx, gid, status: 'active', agent_in_group: true, is_owner: true, service_type: 'ticket', last_message_time_ms: nowMs, last_update_time_ms: nowMs, unread_count: 0, is_full_snapshot: true,
+      const conv: UiConversation & { conversation_type: string } = {
+        account: ctx, gid, conversation_type: 'B2C', status: 'active', agent_in_group: true, is_owner: true, service_type: '1513', last_message_time_ms: nowMs, last_update_time_ms: nowMs, unread_count: 0, is_full_snapshot: true,
         title: o.contact, color: '#2F6FED', lang: 'zh', biz: '订单联系', preview: '', draft: '', is_top: false, mark: 0, waiting_since_ms: null, waiting_confirmed: true, customer_tags: [], order: o,
       };
       st.conversations.set(gid, conv);

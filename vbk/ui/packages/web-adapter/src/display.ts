@@ -252,6 +252,11 @@ export function orderSummaryFromMessage(msg: HttpMessageObject): UiOrderSummary 
   };
 }
 
+/** Preserve unknown identifiers verbatim; invalid values cannot become known business types. */
+function displayConversationType(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 64 && !/[\u0000-\u001f\u007f-\u009f]/.test(value) ? value : null;
+}
+
 export function toDisplayConversation(row: ConversationListItem, isFullSnapshot: boolean, unread?: UnreadLookup): DisplayConversation | null {
   const fact = toConversationFact(row, isFullSnapshot, unread);
   const view = rowView(row);
@@ -259,6 +264,7 @@ export function toDisplayConversation(row: ConversationListItem, isFullSnapshot:
   const title = str((row as { groupTitle?: unknown }).groupTitle) ?? view.customerUid ?? view.gid;
   return {
     ...fact,
+    conversation_type: displayConversationType(row.conversationType),
     title,
     vendor_name: str((row as { vendorName?: unknown }).vendorName) ?? '',
     color: colorOf(view.gid),

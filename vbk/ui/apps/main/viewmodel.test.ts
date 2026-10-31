@@ -38,10 +38,11 @@ import type { OrderContactState } from './viewmodel.ts';
 
 const ctx = { account_id: 'a', environment: 'production', session_generation: 1 };
 
-function conv(gid: string, extra: Partial<UiConversation> = {}): UiConversation {
+function conv(gid: string, extra: Partial<UiConversation> = {}): UiConversation & { conversation_type?: string | null } {
   return {
     account: ctx,
     gid,
+    conversation_type: 'B2C',
     status: 'active',
     agent_in_group: true,
     is_owner: true,
@@ -84,7 +85,7 @@ test('sortConversations: pinned first, then last message time desc, stable', () 
 
 test('tabCounts and filterConversations by tab/query', () => {
   const list = [conv('a'), conv('b', { status: 'finished', unread_count: 5 }), conv('c', { status: 'transferred_out' }), conv('d', { unread_count: 2, order: { order_id: '0000000001', product: 'p', use_date: '', quantity: '', status: '', contact: '' } })];
-  assert.deepEqual(tabCounts(list), { doing: 2, done: 2 });
+  assert.deepEqual(tabCounts(list), { doing: 2, done: 2, unknown: 0 });
   assert.deepEqual(filterConversations(list, 'doing', '').map((c) => c.gid), ['a', 'd']);
   assert.deepEqual(filterConversations(list, 'done', '').map((c) => c.gid), ['b', 'c']);
   assert.deepEqual(filterConversations(list, 'doing', '0000000001').map((c) => c.gid), ['d']);
@@ -104,7 +105,7 @@ test('colour marks never change ordering, tab counts or unread; pinned/colour mi
   assert.deepEqual(sortConversations(list).map((c) => c.gid), sortConversations(plain).map((c) => c.gid), 'sort order is independent of colour');
   assert.deepEqual(sortConversations(list).map((c) => c.gid), ['c', 'e', 'd', 'b', 'a']);
   assert.deepEqual(tabCounts(list), tabCounts(plain));
-  assert.deepEqual(tabCounts(list), { doing: 3, done: 2 });
+  assert.deepEqual(tabCounts(list), { doing: 3, done: 2, unknown: 0 });
   assert.equal(unreadTotal(list), unreadTotal(plain));
   assert.equal(unreadTotal(list), 4);
   assert.deepEqual(filterConversations(list, 'doing', '').map((c) => c.gid), ['c', 'b', 'a']);

@@ -15,7 +15,23 @@ import type { I18nKey } from '../../packages/ui-kit/src/i18n.ts';
 
 // ------------------------------------------------------------ conversations
 
-export type ListTab = 'doing' | 'done';
+export type ListTab = 'doing' | 'done' | 'unknown';
+export type BusinessTab = 'customer' | 'enterprise' | 'unknown';
+
+/** Official BC/BOP classification; absent and future types remain inspectable. */
+export function conversationBusiness(c: UiConversation): BusinessTab {
+  const type = 'conversation_type' in c ? c.conversation_type : null;
+  if (type === 'O2B' && c.service_type === '2573') return 'customer';
+  if (type === 'B2C' || type === 'C2B' || type === 'B2MC') return 'customer';
+  if (type === 'B2O' || type === 'O2B' || type === 'B2B') return 'enterprise';
+  return 'unknown';
+}
+
+export function conversationListStatus(c: UiConversation): ListTab {
+  if (conversationBusiness(c) === 'unknown' || c.status === 'unknown') return 'unknown';
+  if (c.status === 'active') return 'doing';
+  return isDone(c) ? 'done' : 'unknown';
+}
 
 export function isDone(c: UiConversation): boolean {
   return c.status === 'finished' || c.status === 'transferred_out';
@@ -35,14 +51,12 @@ export function sortConversations(list: readonly UiConversation[]): UiConversati
     .map((x) => x.c);
 }
 
-export function tabCounts(list: readonly UiConversation[]): { doing: number; done: number } {
-  let doing = 0;
-  let done = 0;
+export function tabCounts(list: readonly UiConversation[], business: BusinessTab = 'customer'): { doing: number; done: number; unknown: number } {
+  const counts = { doing: 0, done: 0, unknown: 0 };
   for (const c of list) {
-    if (isDone(c)) done += 1;
-    else doing += 1;
+    if (conversationBusiness(c) === business) counts[conversationListStatus(c)] += 1;
   }
-  return { doing, done };
+  return counts;
 }
 
 export function matchesQuery(c: UiConversation, query: string): boolean {
@@ -54,8 +68,8 @@ export function matchesQuery(c: UiConversation, query: string): boolean {
   return false;
 }
 
-export function filterConversations(list: readonly UiConversation[], tab: ListTab, query: string): UiConversation[] {
-  return sortConversations(list.filter((c) => (tab === 'done' ? isDone(c) : !isDone(c)) && matchesQuery(c, query)));
+export function filterConversations(list: readonly UiConversation[], tab: ListTab, query: string, business: BusinessTab = 'customer'): UiConversation[] {
+  return sortConversations(list.filter((c) => conversationBusiness(c) === business && conversationListStatus(c) === tab && matchesQuery(c, query)));
 }
 
 export function unreadTotal(list: readonly UiConversation[]): number {

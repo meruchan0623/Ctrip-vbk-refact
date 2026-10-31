@@ -66,6 +66,7 @@ export function isUiConversation(x: unknown): x is UiConversation {
     rec(x) &&
     accountContext(x['account']) &&
     str(x['gid']) &&
+    (x['conversation_type'] === undefined || x['conversation_type'] === null || (str(x['conversation_type']) && x['conversation_type'].trim().length > 0 && x['conversation_type'].length <= 64 && !/[\x00-\x1f\x7f-\x9f]/.test(x['conversation_type']))) &&
     str(x['status']) &&
     str(x['title']) &&
     str(x['color']) &&

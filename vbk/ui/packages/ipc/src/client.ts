@@ -266,6 +266,8 @@ export interface UiOrderSummary {
 }
 
 export interface UiConversation extends ConversationFact {
+  /** Raw bounded official business type; old DTOs may omit it, unknown is never inferred. */
+  readonly conversation_type?: string | null;
   readonly assistant_context_revision?: string;
   /** Avatar of the verified conversation customer uid; never the account agent. */
   readonly customer_avatar?: string | null;

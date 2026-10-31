@@ -121,7 +121,7 @@ import {
   tabCounts,
   unreadTotal,
 } from './viewmodel.ts';
-import type { BannerItem, ListTab, LogoutMode, OrderContactState, TranslationState, QuotedUiMessage } from './viewmodel.ts';
+import type { BannerItem, BusinessTab, ListTab, LogoutMode, OrderContactState, TranslationState, QuotedUiMessage } from './viewmodel.ts';
 
 /** Host events not (yet) listed in the frozen `Events` / `UiEvents` tables; names mirror `src-tauri/src/events.rs`. */
 const HostEvents = {
@@ -166,6 +166,7 @@ interface MainState {
   readonly now: number;
   // messages
   readonly conversations: readonly UiConversation[];
+  readonly business: BusinessTab;
   readonly tab: ListTab;
   readonly query: string;
   readonly activeGid: string | null;
@@ -228,6 +229,7 @@ const initial: MainState = {
   prefs: null,
   now: Date.now(),
   conversations: [],
+  business: 'customer',
   tab: 'doing',
   query: '',
   activeGid: null,
@@ -364,6 +366,9 @@ function stillActive(account: AccountContext): boolean {
 /** Per-account state that must not leak across an account switch (navigation itself is kept). */
 const ACCOUNT_SCOPED_RESET = {
   conversations: [],
+  business: 'customer',
+  tab: 'doing',
+  query: '',
   activeGid: null,
   messages: {},
   history: {},
@@ -1338,8 +1343,8 @@ function waitedSeconds(c: UiConversation, now: number): number {
 }
 
 function conversationList(s: MainState): HTMLElement {
-  const counts = tabCounts(s.conversations);
-  const list = filterConversations(s.conversations, s.tab, s.query);
+  const counts = tabCounts(s.conversations, s.business);
+  const list = filterConversations(s.conversations, s.tab, s.query, s.business);
   const acc = activeAccount(s);
   const av = agentView(s.agent);
   const nv = netView(s.net);
@@ -1405,11 +1410,15 @@ function conversationList(s: MainState): HTMLElement {
         h('span', { class: 'muted', style: { 'font-size': '12px' }, title: t('list.queueTitle'), dataset: { serving: String(counts.doing) } }, `${t('list.serving', { n: counts.doing })} · ${t('list.queue')}`),
       ),
       h('label', { class: 'search', title: t('list.searchHint') }, icon(IC.search, 15), h('input', { class: 'inp', placeholder: t('list.search'), 'aria-label': t('list.searchLabel'), value: s.query, dataset: { fid: 'search' }, oninput: (e: Event) => store.patch({ query: (e.target as HTMLInputElement).value }) })),
+      h('div', { class: 'ftabs', role: 'tablist', 'aria-label': t('list.business') },
+        (['customer', 'enterprise', 'unknown'] as const).map((business) => h('button', { class: cx('ftab', { on: s.business === business }), role: 'tab', 'aria-selected': String(s.business === business), dataset: { business }, onclick: () => store.patch({ business, tab: business === 'unknown' ? 'unknown' : 'doing' }) }, t(business === 'customer' ? 'list.customerBusiness' : business === 'enterprise' ? 'list.enterpriseBusiness' : 'list.unknownBusiness')))),
+      h('p', { class: 'muted', style: { 'font-size': '11px', margin: '4px 0' } }, t('list.businessScopeHint')),
       h(
         'div',
         { class: 'ftabs', role: 'tablist' },
         h('button', { class: cx('ftab', { on: s.tab === 'doing' }), role: 'tab', 'aria-selected': String(s.tab === 'doing'), dataset: { tab: 'doing' }, onclick: () => store.patch({ tab: 'doing' }) }, `${t('list.doing')} ${counts.doing}`),
         h('button', { class: cx('ftab', { on: s.tab === 'done' }), role: 'tab', 'aria-selected': String(s.tab === 'done'), dataset: { tab: 'done' }, onclick: () => store.patch({ tab: 'done' }) }, `${t('list.done')} ${counts.done}`),
+        h('button', { class: cx('ftab', { on: s.tab === 'unknown' }), role: 'tab', 'aria-selected': String(s.tab === 'unknown'), dataset: { tab: 'unknown' }, onclick: () => store.patch({ tab: 'unknown' }) }, `${t('list.unknownStatus')} ${counts.unknown}`),
       ),
     ),
     nv.offline ? h('div', { class: 'netbar' }, h('span', { class: 'spin', style: { 'border-top-color': '#87500A' } }), h('span', { style: { flex: '1' } }, t('list.offline')), h('button', { class: 'link', onclick: () => void loadForActiveAccount() }, t('list.retryNow'))) : null,
