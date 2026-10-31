@@ -6,6 +6,10 @@
 
 ## 已核对的真实实现
 
+Windows接续补充（2026-10-31）：本机只读目录为 `C:\Develop\TSim_CS_Full_Automation`，HEAD `459e41878a6aecbc7a36e7d157db3784d1d47b73`，检查时工作树干净。下表KKday dispatcher/reconciler与respond.io入站/回执核验的同名路径和符号仍存在，已重读关键实现。`fenced_message_write_start_in_tx`以lease token及phase条件UPDATE推进持久no-replay边界；respond.io仍以contact ID认客户及长会话，pending核验要求agent方向和数字外部ID。历史Mac源码版本保留如下，不冒充同一版本。
+
+另核对 `central-backend/api/routers/respondio_workspace.py::send_message` 与 `central-backend/services/respondio_client.py::send_message`：先创建本地出站记录，duplicate直接返回；调用上游后分别结算明确拒绝和outcome_unknown。上游2xx缺messageId仍为unknown。此链与KKday durable attempt并不相同，迁移携程时不能只复制HTTP调用或把未知发送视为可重发。重核是源码阅读，没有TSim服务执行、配置写入或上线验证。
+
 下面 TSim 相对路径根为 `/Users/tashima_meru/Develop/TSim_CS`；核对 HEAD 为 `d35d830fe7c897fd93af897a585c83d94e3683af`，本机工作区源码可能另有未提交改动。符号比行号稳定；迁移前重新核对版本。以下是源码证据，均不证明线上版本一致。
 
 | 来源文件与符号 | 已有行为与复用边界 |

@@ -1,5 +1,7 @@
 # Windows接续断点
 
+Windows接续状态（2026-10-31，优先于下方Mac交接历史）：已从指定66b8769恢复工作，环境见[Windows重核](../research/2026-10-31-windows-resurvey.md)。译文实例1a32e8d、历史身份补全锚点e21a6e9及Windows严格持久化a3fbb22均已独立验证/评审并本地提交。第5轮冻结a3fbb22构建中；网页待用户正常登录，尚无新包双向验收。后续媒体工作属于第6轮，不混入第5轮快照。未推送、合并或部署。
+
 2026-10-31，用户明确要求停止运行、分块提交并推送。分支feat/prototype-restore-macos，远端origin=https://github.com/meruchan0623/Ctrip-vbk-refact.git。本次仅保存与迁移成果，没有部署、合并或继续第5轮。
 
 ## 先恢复源码与环境
@@ -13,13 +15,15 @@ npm ci
 npm run typecheck
 node --experimental-strip-types --test 'ui/**/*.test.ts'
 cargo test --workspace --quiet
+# 全新checkout先生成frontendDist，Tauri宿主的generate_context!编译需要它。
+npm run bundle:ui
 cargo test --manifest-path src-tauri/Cargo.toml --quiet
 npm run bundle:ui
 npx tauri build --config src-tauri/tauri.windows.conf.json
 git diff --check
 ```
 
-此处是接续命令，不表示已在Windows执行。不要使用aarch64-apple-darwin目标在Windows冒充本机验收；新包必须另录源码SHA、产物hash、实际进程路径并真实启动。Mac钥匙串引用及登录态不随Git迁移，Windows需正常登录，不复制凭据、不绕过系统保护。此前第3、4轮Mac启动未弹钥匙串，只是两次观察。
+上述Windows命令正由第5轮快照执行；首次宿主测试因缺frontendDist退出101，生成bundle后续跑，不隐藏失败。完整最终结果另记当轮报告。不要使用aarch64-apple-darwin目标在Windows冒充本机验收；新包必须另录源码SHA、产物hash、实际进程路径并真实启动。Mac钥匙串引用及登录态不随Git迁移，Windows需正常登录，不复制凭据、不绕过系统保护。此前第3、4轮Mac启动未弹钥匙串，只是两次观察。
 
 ## 已提交与当前验证边界
 
