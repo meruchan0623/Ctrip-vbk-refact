@@ -28,7 +28,7 @@ vbk/
 本仓库的云检查环境没有 crate 注册表、npm 注册表与 WebView2，因此：
 
 - Rust 核心 crate 只用 `std`；`cargo test` 在 `vbk/` 下直接可跑。
-- TypeScript 不引第三方依赖；`tsc`（全局 6.x）做类型检查，`node --test` 直接运行 `.ts` 测试（Node ≥ 22.18 的类型擦除）。
+- 前端运行时代码不引第三方依赖；TypeScript、Node 类型和 Tauri CLI 是锁定版本的开发依赖。先在 `vbk/` 执行 `npm ci`，再用项目内 `tsc` 做类型检查；`node --test` 直接运行 `.ts` 测试（Node ≥ 22.18）。
 - `src-tauri/` 被排除在 workspace 之外，在 Windows 目标机上用 `cargo tauri build` 构建。
 
 ```bash
@@ -44,7 +44,7 @@ cd vbk && npm run typecheck && npm test
 需要一台装有 Xcode 命令行工具、Node ≥ 22.18 与 Rust 的 Mac（Linux 云环境无法交叉构建：缺 macOS SDK 与 WKWebView）。在 `vbk/` 下：
 
 ```bash
-npm install --no-save typescript@6 @types/node@22 @tauri-apps/cli@2
+npm ci
 ```
 
 ```bash

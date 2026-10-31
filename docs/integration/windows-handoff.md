@@ -6,10 +6,10 @@
 
 在Windows克隆仓库后切换同名远端分支，不从main另起旧基线。先读PROGRESS.md、BLOCKED.md、docs/research/2026-10-31-environment-resurvey.md、docs/research/2026-10-31-round4-runtime.md及能力矩阵。原Mac路径仅历史证据，不能作为Windows工作目录。安装Node 22.18以上、Rust稳定工具链/MSVC构建工具与Tauri 2所需WebView2；Windows宿主与持久化目录fsync支持尚未实测。
 
-在vbk目录执行依赖安装与检查（没有npm锁文件时使用npm install）：
+Windows接续已补齐并锁定开发依赖，避免空 `npm install` 成功后仍找不到 `tsc`。在vbk目录执行依赖安装与检查：
 
 ```powershell
-npm install
+npm ci
 npm run typecheck
 node --experimental-strip-types --test 'ui/**/*.test.ts'
 cargo test --workspace --quiet
