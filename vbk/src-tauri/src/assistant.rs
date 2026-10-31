@@ -11,6 +11,8 @@
 pub mod http;
 #[path = "assistant/service.rs"]
 pub mod service;
+#[path = "assistant/public_error.rs"]
+pub mod public_error;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,7 +39,7 @@ const UPKEEP_PERIOD: Duration = Duration::from_secs(60);
 fn guard(state: &HostState, window: &Window, command: &str) -> CmdResult<()> {
     state
         .authorize(window.label(), command)
-        .map_err(AppErrorDto::from)
+        .map_err(public_error::to_dto)
 }
 
 /// System credential store. The stored value is the serialized session
@@ -147,7 +149,7 @@ pub async fn assistant_tsim_login(
     let svc = require(&app)?;
     let st = svc.login(&user, password).await.map_err(|e| {
         log::info!("assistant: tsim login failed: {}", e.code);
-        AppErrorDto::from(e)
+        public_error::to_dto(e)
     })?;
     Ok(st)
 }
@@ -159,7 +161,7 @@ pub async fn assistant_tsim_logout(
     state: State<'_, HostState>,
 ) -> CmdResult<TsimStatus> {
     guard(&state, &window, "assistant_tsim_logout")?;
-    require(&app)?.logout().await.map_err(AppErrorDto::from)
+    require(&app)?.logout().await.map_err(public_error::to_dto)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -189,7 +191,7 @@ pub async fn assistant_translate(
     let translated = svc
         .translate(&ctx, draft_version, &text, &target, &validate)
         .await
-        .map_err(AppErrorDto::from)?;
+        .map_err(public_error::to_dto)?;
     Ok(TranslateResult {
         draft_version,
         text: translated,
@@ -207,7 +209,7 @@ pub async fn assistant_package_quick_view(
     let svc = require(&app)?;
     svc.package_quick_view(&iccid)
         .await
-        .map_err(AppErrorDto::from)
+        .map_err(public_error::to_dto)
 }
 
 // ---------------------------------------------------------------------------
