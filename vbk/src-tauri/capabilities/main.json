@@ -61,6 +61,8 @@
     "allow-notify-set-sound-enabled",
     "allow-assistant-tsim-status",
     "allow-assistant-translate",
-    "allow-assistant-package-quick-view"
+    "allow-assistant-package-quick-view",
+    "allow-assistant-order-summary",
+    "allow-assistant-package-detail-open"
   ]
 }

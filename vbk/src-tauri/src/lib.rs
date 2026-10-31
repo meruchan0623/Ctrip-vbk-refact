@@ -165,6 +165,9 @@ pub fn run() {
             assistant::assistant_tsim_logout,
             assistant::assistant_translate,
             assistant::assistant_package_quick_view,
+            assistant::order_commands::assistant_order_summary,
+            assistant::order_commands::assistant_package_detail_open,
+            assistant::order_commands::assistant_package_detail,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the VBooking host")

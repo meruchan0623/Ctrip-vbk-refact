@@ -32,6 +32,7 @@ pub fn to_main<S: Serialize + Clone>(app: &AppHandle, event: &str, payload: S) {
 
 /// Emit to every local window that shows account-scoped UI (main, setting, login).
 pub fn to_local_windows<S: Serialize + Clone>(app: &AppHandle, event: &str, payload: S) {
+    if event == ACCOUNT_CHANGED { crate::assistant::order_commands::on_account_snapshot(app); }
     for label in [views::MAIN, views::SETTING, views::LOGIN] {
         let _ = app.emit_to(label, event, payload.clone());
     }

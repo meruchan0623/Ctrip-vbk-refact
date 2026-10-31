@@ -84,6 +84,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
             // The row's customer uid is the only association for this surface.
             // RoleBook preserves known profile fields on incomplete refreshes.
             customer_avatar: uid ? roles.profileOf(uid).avatar : null,
+            assistant_context_revision: store.assistantContextRevision(item.gid, roles.selfUid, opts.sdk.partnerJidOf(item.gid) ?? roomJidFromMessage(item.gid, store.view(item.gid)?.lastMessage ?? null)) ?? '',
             ...(previous && (previous.last_message_time_ms ?? 0) > (item.last_message_time_ms ?? 0)
               ? { preview: previous.preview, last_message_time_ms: previous.last_message_time_ms }
               : {}),

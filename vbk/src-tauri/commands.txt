@@ -65,3 +65,6 @@ assistant_tsim_login
 assistant_tsim_logout
 assistant_translate
 assistant_package_quick_view
+assistant_order_summary
+assistant_package_detail_open
+assistant_package_detail

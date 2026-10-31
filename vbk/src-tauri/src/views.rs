@@ -3,7 +3,7 @@
 //! §5). Capability files are the static ACL; this is the runtime
 //! defense-in-depth that also rejects a reused label after a rebuild.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use contracts::{codes, AppError, ViewContext};
 
@@ -15,6 +15,7 @@ pub const ALARM: &str = "alarm";
 pub const SETTING: &str = "setting";
 pub const UPDATE: &str = "update";
 pub const LOGIN: &str = "login";
+pub const PACKAGE_DETAIL_PREFIX: &str = "package-detail-";
 /// Prefix of per-account official-page webviews running the web-adapter
 /// boot script. Each one is registered under its full label when created.
 pub const ACCOUNT_WEBVIEW_PREFIX: &str = "acct-";
@@ -26,6 +27,7 @@ pub enum Role {
     Setting,
     Update,
     LoginShell,
+    PackageDetail,
     /// Remote official IM page of one account (`acct-*`). Only the narrow
     /// `adapter_*` commands; never account, prefs or shell commands.
     Adapter,
@@ -39,6 +41,7 @@ impl Role {
             SETTING => Some(Role::Setting),
             UPDATE => Some(Role::Update),
             LOGIN => Some(Role::LoginShell),
+            l if l.strip_prefix(PACKAGE_DETAIL_PREFIX).is_some_and(|suffix| uuid::Uuid::parse_str(suffix).is_ok()) => Some(Role::PackageDetail),
             l if l.starts_with(ACCOUNT_WEBVIEW_PREFIX) => Some(Role::Adapter),
             _ => None,
         }
@@ -98,6 +101,8 @@ impl Role {
             "assistant_tsim_status",
             "assistant_translate",
             "assistant_package_quick_view",
+            "assistant_order_summary",
+            "assistant_package_detail_open",
         ];
         const ALARM_CMDS: &[&str] = &[
             "notify_snapshot",
@@ -122,6 +127,7 @@ impl Role {
             "assistant_tsim_login",
             "assistant_tsim_logout",
         ];
+        const DETAIL_CMDS: &[&str] = &["assistant_package_detail", "assistant_tsim_status", "shell_window"];
         const UPDATE_CMDS: &[&str] = &["prefs_snapshot", "shell_window"];
         const LOGIN_CMDS: &[&str] = &[
             "account_snapshot",
@@ -143,6 +149,7 @@ impl Role {
             Role::Setting => SETTING_CMDS,
             Role::Update => UPDATE_CMDS,
             Role::LoginShell => LOGIN_CMDS,
+            Role::PackageDetail => DETAIL_CMDS,
             Role::Adapter => ADAPTER_CMDS,
         };
         list.contains(&command)
@@ -152,18 +159,28 @@ impl Role {
 #[derive(Debug, Default)]
 pub struct ViewRegistry {
     generations: HashMap<String, u64>,
+    revoked: HashSet<String>,
 }
 
 impl ViewRegistry {
     /// Registers (or re-registers) a label; every call bumps the generation,
     /// so a webview rebuilt under the same label gets a new context.
     pub fn register(&mut self, label: &str) -> ViewContext {
+        self.revoked.remove(label);
         let g = self.generations.entry(label.to_string()).or_insert(0);
         *g += 1;
         ViewContext::new(label, *g)
     }
 
+    pub fn unregister(&mut self, label: &str) { self.revoked.insert(label.to_string()); }
+
+    pub fn unregister_if_current(&mut self, view: &ViewContext) -> bool {
+        if self.current(&view.webview_label).as_ref() != Some(view) { return false; }
+        self.unregister(&view.webview_label); true
+    }
+
     pub fn current(&self, label: &str) -> Option<ViewContext> {
+        if self.revoked.contains(label) { return None; }
         self.generations
             .get(label)
             .map(|g| ViewContext::new(label, *g))
@@ -196,6 +213,29 @@ impl ViewRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn package_detail_role_is_read_only_and_destroyed_labels_cannot_reuse_old_generation() {
+        let label = format!("{PACKAGE_DETAIL_PREFIX}{}", uuid::Uuid::new_v4());
+        let mut registry = ViewRegistry::default();
+        let first = registry.register(&label);
+        assert!(registry.authorize(&label, "assistant_package_detail").is_ok());
+        assert!(registry.authorize(&label, "shell_window").is_ok());
+        for command in ["assistant_order_summary", "assistant_tsim_login", "assistant_tsim_logout", "assistant_translate", "im_send_text", "prefs_set", "shell_open_external"] {
+            assert!(registry.authorize(&label, command).is_err(), "{command}");
+        }
+        registry.unregister(&label);
+        assert!(registry.current(&label).is_none());
+        assert!(registry.authorize(&label, "assistant_package_detail").is_err());
+        let replacement = registry.register(&label);
+        assert_ne!(first, replacement);
+        assert!(replacement.view_generation > first.view_generation);
+        assert!(!registry.unregister_if_current(&first), "an old Destroyed callback cannot revoke its replacement");
+        assert_eq!(registry.current(&label).as_ref(), Some(&replacement));
+        assert!(registry.unregister_if_current(&replacement));
+        registry.register("acct-synthetic");
+        assert!(registry.authorize("acct-synthetic", "assistant_package_detail").is_err());
+    }
 
     #[test]
     fn alarm_cannot_push_facts_or_send() {

@@ -37,7 +37,7 @@ test('every command is allowed for at least one role and roles name only real co
   for (const c of union) assert.ok(txt.includes(c), `${c} in views.rs but not in commands.txt`);
 });
 test('capability files grant exactly their role list', () => {
-  const capToRole: Record<string, string> = { 'main.json': 'MAIN', 'popups.json': 'ALARM', 'setting.json': 'SETTING', 'update.json': 'UPDATE', 'login.json': 'LOGIN', 'adapter.json': 'ADAPTER' };
+  const capToRole: Record<string, string> = { 'main.json': 'MAIN', 'popups.json': 'ALARM', 'setting.json': 'SETTING', 'update.json': 'UPDATE', 'login.json': 'LOGIN', 'adapter.json': 'ADAPTER', 'package-detail.json': 'DETAIL' };
   const files = readdirSync(join(vbk, 'src-tauri/capabilities')).filter((f) => f.endsWith('.json'));
   assert.deepEqual(sorted(files), sorted(Object.keys(capToRole)));
   for (const f of files) {

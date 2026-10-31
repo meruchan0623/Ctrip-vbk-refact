@@ -404,7 +404,7 @@ const zhCN = {
   'set.asst.tsimLogout': '退出 TSim',
   'set.asst.tsimFailed': 'TSim 登录失败：{msg}',
   'set.asst.pkg': '套餐速览',
-  'set.asst.pkgDesc': '按消息中的 ICCID/EID 查询套餐、剩余量、供应商/APN，60 秒内复用结果',
+  'set.asst.pkgDesc': '自动查询当前会话关联订单的全部套餐，可打开各套餐详情；没有关联订单时按消息中的 ICCID 查询。查询结果在 60 秒内复用',
 
   'set.net.proxy': '使用系统代理',
   'set.net.proxyDesc': '支持 PAC',

@@ -298,6 +298,22 @@ fn snapshot(app: &AppHandle) -> serde_json::Value {
     })
 }
 
+/// Read only active-owner authority for local assistant windows. Never hold
+/// LoginState and HostState locks together (snapshot uses the opposite order).
+pub(crate) fn active_context(app: &AppHandle) -> Option<AccountContext> {
+    let state = app.try_state::<LoginState>()?;
+    let active = { state.lock().active.clone() }?;
+    let context = {
+        let host = app.state::<HostState>();
+        let cores = host.lock();
+        let context = cores.accounts.current_context(&AccountId::new(active.clone()))?;
+        cores.accounts.validate(&context).ok()?;
+        context
+    };
+    if state.lock().active.as_deref() != Some(active.as_str()) { return None; }
+    Some(context)
+}
+
 fn emit_changed(app: &AppHandle) {
     events::to_local_windows(app, events::ACCOUNT_CHANGED, snapshot(app));
 }

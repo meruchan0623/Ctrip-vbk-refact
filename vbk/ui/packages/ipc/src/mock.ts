@@ -19,7 +19,7 @@ import type {
   SendDisposition,
   SnoozeMinutes,
 } from './contracts.ts';
-import { ALLOWED_T1_SECONDS, DEFAULT_REMINDER_SETTINGS, ErrorCodes, isStaleGeneration } from './contracts.ts';
+import { ALLOWED_T1_SECONDS, DEFAULT_REMINDER_SETTINGS, ErrorCodes, isStaleGeneration, sameAccountContext } from './contracts.ts';
 import { AccountCommands, Events, NotifyCommands, PrefsCommands, OrderCommands, ImCommands } from './commands.ts';
 import type {
   IpcClient,
@@ -36,6 +36,9 @@ import type {
   UiNoticeCategory,
   UiOrderSummary,
   UiPackageInfo,
+  UiOrderPackageSummary,
+  UiOrderPackagePlan,
+  UiPackageDetail,
   UiTsimStatus,
 } from './client.ts';
 import { UiCommands, UiEvents } from './client.ts';
@@ -125,6 +128,7 @@ function seedConversations(now: number): UiConversation[] {
   const base = (account: AccountContext, gid: string, title: string, color: string, extra: Partial<UiConversation>): UiConversation => ({
     account,
     gid,
+    assistant_context_revision: '00000000-0000-4000-8000-000000000001',
     status: 'active',
     agent_in_group: true,
     is_owner: true,
@@ -309,8 +313,23 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
   };
   const hiddenRounds = new Set<string>();
   const timedOutQueries = new Set<string>();
+  const orderQueries = new Map<string, UiOrderPackageSummary>();
+  let orderQueryCounter = 0;
+  let openedPackage: { summary: UiOrderPackageSummary; plan: UiOrderPackagePlan } | null = null;
+  function checkOrderBinding(summary: UiOrderPackageSummary): void {
+    checkEvidenceAccount({ account: summary.account });
+    if (st.active !== summary.account.account_id || st.accounts.find(a => a.context.account_id === summary.account.account_id)?.state !== 'online') throw appError('account.stale_generation', '当前账号范围已变化');
+    const conv = convFor(summary.account, summary.gid);
+    if (!st.tsim.logged_in || st.tsim.session_epoch !== summary.session_epoch || conv.order?.order_id !== summary.order_id || conv.assistant_context_revision !== summary.context_revision) throw appError('account.stale_generation', '订单或 TSim 身份已变化', false);
+  }
 
   function emit(event: string, payload: unknown): void {
+    if (event === Events.ACCOUNT_CHANGED && openedPackage) {
+      try { checkOrderBinding(openedPackage.summary); } catch {
+        openedPackage = null;
+        emit(UiEvents.PACKAGE_DETAIL_INVALIDATED, {});
+      }
+    }
     const set = listeners.get(event);
     if (!set) return;
     for (const cb of Array.from(set)) cb(payload);
@@ -751,6 +770,7 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     [UiCommands.ASSIST_TSIM_STATUS]: async () => ({ ...st.tsim }),
     [UiCommands.ASSIST_TSIM_LOGIN]: async (p) => {
       const { user, password } = p as { user?: string; password?: string };
+      orderQueries.clear(); openedPackage = null;
       const epoch = st.tsim.session_epoch + 1;
       st.tsim = { logged_in: false, user: null, session_epoch: epoch };
       emit(UiEvents.TSIM_STATUS, { ...st.tsim });
@@ -765,6 +785,7 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       return { ...st.tsim };
     },
     [UiCommands.ASSIST_TSIM_LOGOUT]: async () => {
+      orderQueries.clear(); openedPackage = null;
       st.tsim = { logged_in: false, user: null, session_epoch: st.tsim.session_epoch + 1 };
       emit(UiEvents.TSIM_STATUS, { ...st.tsim });
       st.prefs = { ...st.prefs, assistant: { ...st.prefs.assistant, tsim_logged_in: false, tsim_user: null } };
@@ -778,6 +799,34 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       await delay(latency * 3);
       if (text.includes('失败')) throw appError('assistant.translate_failed', '示例：TSim 翻译失败', true);
       return { draft_version, text: `[示例译文 · ${target}] ${text}` };
+    },
+    [UiCommands.ASSIST_ORDER_SUMMARY]: async (p) => {
+      const account = checkAccount(p);
+      const { gid, order_id, context_revision, session_epoch } = p as { gid: string; order_id: string; context_revision: string; session_epoch: number };
+      if (typeof order_id !== 'string' || !/^(?:\d{10}|\d{16})$/.test(order_id)) throw appError('assistant.invalid_input', '完整订单号无效');
+      const conv = convFor(account, gid);
+      if (conv.order?.order_id !== order_id || conv.assistant_context_revision !== context_revision || !st.tsim.logged_in || st.tsim.session_epoch !== session_epoch) throw appError('account.stale_generation', '订单范围或 TSim 身份已变化');
+      const summary: UiOrderPackageSummary = { account, gid, order_id, context_revision, session_epoch, query_handle: `demo-query-${++orderQueryCounter}`, total: 2, fetched_at_ms: now(), plans: [1, 2].map(n => ({ detail_handle: `demo-detail-${orderQueryCounter}-${n}`, iccid: `8986000000000000000${n}`, plan: `（演示）日本 eSIM 套餐 ${n}`, status: '演示待激活', supplier: 'DEMO', apn: '', remain_pct: null, remain: '', total: '', fetched_at_ms: now() })) };
+      await delay(latency); checkOrderBinding(summary);
+      while (orderQueries.size >= 16) orderQueries.delete(orderQueries.keys().next().value!);
+      orderQueries.set(summary.query_handle, summary); return summary;
+    },
+    [UiCommands.ASSIST_PACKAGE_DETAIL_OPEN]: async (p) => {
+      const account = checkAccount(p);
+      const { gid, query_handle, detail_handle } = p as { gid: string; query_handle: string; detail_handle: string };
+      const summary = orderQueries.get(query_handle), plan = summary?.plans.find(value => value.detail_handle === detail_handle);
+      if (!summary || !plan || !sameAccountContext(account, summary.account) || gid !== summary.gid) throw appError('assistant.invalid_input', '无效的订单套餐句柄');
+      checkOrderBinding(summary); openedPackage = { summary, plan };
+      emit(UiEvents.TOAST, { text: '（演示）已选择对应套餐详情；原生客户端会打开独立详情窗口。' }); return null;
+    },
+    [UiCommands.ASSIST_PACKAGE_DETAIL]: async () => {
+      if (!openedPackage) throw appError('host.view_unauthorized', '详情窗口尚未绑定套餐');
+      const { summary, plan } = openedPackage; checkOrderBinding(summary);
+      const info = { iccid: plan.iccid, plan: plan.plan, status: plan.status, supplier: plan.supplier, apn: 'demo.apn', remain_pct: 75, remain: '1.5 GB', total: '2 GB', fetched_at_ms: now() };
+      return { order_id: summary.order_id, session_epoch: summary.session_epoch, plan: info,
+        detail_fields: [{ label: '演示套餐', value: plan.plan }, { label: 'ICCID', value: plan.iccid }],
+        live_fields: [{ label: '演示累计用量（MB）', value: '512' }],
+        cdrs: [[{ label: '演示地区', value: 'JP' }, { label: '演示用量（MB）', value: '512' }]], fetched_at_ms: now() } satisfies UiPackageDetail;
     },
     [UiCommands.ASSIST_PACKAGE]: async (p) => {
       const iccid = String((p as { iccid?: string }).iccid ?? '');

@@ -56,6 +56,7 @@ export class ConversationStore {
   readonly #rows = new Map<string, ConversationListItem>();
   readonly #views = new Map<string, ConversationRowView>();
   readonly #latest = new Map<string, LatestMessage>();
+  readonly #assistantRevisions = new Map<string, { signature: string; token: string }>();
   readonly #orders = new Map<string, { context: string; revision: number; time: number; order: UiOrderSummary }>();
   // Independent of order evidence: a service may change before any card arrives.
   // undefined is the initial matching-order history scope; null is an observed
@@ -96,6 +97,19 @@ export class ConversationStore {
 
   view(gid: string): ConversationRowView | null {
     return this.#views.get(gid) ?? null;
+  }
+
+  /** Opaque and stable across display-only changes; never exposes customer/session identifiers. */
+  assistantContextRevision(gid: string, selfUid: string, partnerJid: string | null): string | null {
+    const view = this.view(gid);
+    if (!view?.sessionId || !view.customerUid || !view.conversationType || !view.serviceType || !selfUid || !partnerJid) { this.#assistantRevisions.delete(gid); return null; }
+    const signature = JSON.stringify([orderContext(view), this.#orderScopes.get(gid)?.revision, selfUid, partnerJid]);
+    let current = this.#assistantRevisions.get(gid);
+    if (!current || current.signature !== signature) {
+      current = { signature, token: globalThis.crypto.randomUUID() };
+      this.#assistantRevisions.set(gid, current);
+    }
+    return current.token;
   }
 
   gids(): string[] {

@@ -73,6 +73,7 @@ import { mergeMessageProfile, renderMessageAvatar } from './message-profile.ts';
 import { createUnknownOutbound, type UnknownOutboundView } from './unknown-outbound.ts';
 import { createReceiveCounters, createReceiveDiagnostics, receiveDiagnosticsJson, type ReceiveDiagnosticsView } from './receive-diagnostics.ts';
 import { sendComposer, attachmentSendUnavailable, isRegisteredMediaAttachment, ATTACHMENT_SEND_UNAVAILABLE } from './sendComposer.ts';
+import { createPackagePreview, EMPTY_PACKAGE_PREVIEW, packageIdentity, packageOrderId, packageViewApplies, type PackageContext, type PackagePreviewState } from './package-preview.ts';
 import {
   AGENT_STATUS_ORDER,
   BANNER_VISIBLE,
@@ -187,7 +188,9 @@ interface MainState {
   readonly hotOrder: boolean;
   readonly pkgOpen: boolean;
   readonly pkgHot: boolean;
-  readonly pkg: { readonly status: 'idle' | 'busy' | 'done' | 'error'; readonly info: UiPackageInfo | null; readonly error: string | null };
+  readonly pkg: PackagePreviewState;
+  readonly tsimStatus: PackageContext['identity'] | null;
+  readonly packageIdentityRequest: number;
   readonly ctxMenu: { readonly gid: string; readonly x: number; readonly y: number } | null;
   // notifications
   readonly noticeCats: readonly UiNoticeCategory[];
@@ -210,7 +213,7 @@ interface MainState {
   readonly toast: string | null;
 }
 
-const PKG_IDLE = { status: 'idle', info: null, error: null } as const;
+const PKG_IDLE = EMPTY_PACKAGE_PREVIEW;
 
 const initial: MainState = {
   accounts: null,
@@ -247,6 +250,8 @@ const initial: MainState = {
   pkgOpen: true,
   pkgHot: false,
   pkg: PKG_IDLE,
+  tsimStatus: null,
+  packageIdentityRequest: 0,
   ctxMenu: null,
   noticeCats: [],
   noticeCat: null,
@@ -939,33 +944,53 @@ async function setMark(c: UiConversation, action: 0 | 1 | 2 | 3 | 4 | 5): Promis
   if (isUiConversation(next) && stillActive(next.account)) upsertConversation(next); // failure keeps the old value
 }
 
+const packagePreview = createPackagePreview({ current: () => packageContext(), invoke: (command, payload) => ipc.invoke(command, payload), publish: pkg => store.patch({ pkg }) });
+
+function packageContext(): PackageContext | null {
+  const s = S(), account = activeAccount(s)?.context, conversation = activeConv(s);
+  if (!account || !conversation || !s.tsimStatus || !sameAccount(account, conversation.account) || account.session_generation !== conversation.account.session_generation) return null;
+  return { account, conversation, identity: s.tsimStatus, enabled: packageEnabled(s), iccid: findIccids(s.messages[conversation.gid] ?? [])[0] ?? null };
+}
+
 async function queryPackage(iccid: string, force = false): Promise<void> {
-  const s = S();
   if (!iccid) return;
-  if (!force && s.pkg.info && s.pkg.info.iccid === iccid && Date.now() - s.pkg.info.fetched_at_ms < 60_000) return;
-  const gid = s.activeGid;
-  store.patch({ pkg: { status: 'busy', info: s.pkg.info, error: null } });
-  try {
-    const info = await ipc.invoke<UiPackageInfo>(UiCommands.ASSIST_PACKAGE, { iccid });
-    if (S().activeGid !== gid) return;
-    store.patch({ pkg: { status: 'done', info, error: null } });
-  } catch (e) {
-    if (S().activeGid !== gid) return;
-    store.patch({ pkg: { status: 'error', info: null, error: errorMessage(e) } });
-  }
+  // An associated order always wins; an order number is never passed to the ICCID command.
+  await packagePreview.query(force, activeConv() && packageOrderId(activeConv()!) ? undefined : iccid);
+}
+
+async function refreshPackages(): Promise<void> {
+  const previous = S().tsimStatus;
+  await refreshPackageIdentity();
+  const current = S().tsimStatus;
+  // A newly observed identity already starts one automatic query in receivePackageIdentity.
+  if (!current || !previous || current.session_epoch !== previous.session_epoch || current.logged_in !== previous.logged_in || current.user !== previous.user) return;
+  await packagePreview.query(true);
+}
+
+function openTsimSettings(): void { void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); }
+
+function receivePackageIdentity(value: unknown): void {
+  if (!packageIdentity(value)) { packagePreview.reset(); store.patch({ packageIdentityRequest: (S().packageIdentityRequest ?? 0) + 1, tsimStatus: null, pkg: { ...PKG_IDLE, status: 'error', failure: 'login', error: '无法核对 TSim 登录状态，请打开设置登录或刷新状态。' } }); return; }
+  const previous = S().tsimStatus;
+  if (!previous || previous.session_epoch !== value.session_epoch || previous.logged_in !== value.logged_in || previous.user !== value.user) packagePreview.reset();
+  store.patch({ tsimStatus: value, packageIdentityRequest: (S().packageIdentityRequest ?? 0) + 1 });
+  autoQueryPackage();
+}
+
+async function refreshPackageIdentity(): Promise<void> {
+  const ticket = (S().packageIdentityRequest ?? 0) + 1;
+  store.patch({ packageIdentityRequest: ticket });
+  try { const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_STATUS, {}); if (S().packageIdentityRequest === ticket) receivePackageIdentity(status); }
+  catch { if (S().packageIdentityRequest === ticket) receivePackageIdentity(null); }
 }
 
 function packageEnabled(s: MainState): boolean {
   return !!s.prefs?.assistant.enabled && !!s.prefs?.assistant.package_quick_view;
 }
 
-/** Prototype: the package card fills in as soon as an ICCID shows up in the conversation (host caches 60 s). */
+/** Stable query keys prevent repeated broadcasts and errors from becoming repeated HTTP requests. */
 function autoQueryPackage(): void {
-  const s = S();
-  const gid = s.activeGid;
-  if (!gid || !packageEnabled(s) || s.pkg.status !== 'idle') return;
-  const id = findIccids(s.messages[gid] ?? [])[0];
-  if (id) void queryPackage(id);
+  void packagePreview.query();
 }
 
 // --------------------------------------------------------------- notifications
@@ -1399,6 +1424,9 @@ function contextMenu(s: MainState): HTMLElement | null {
 }
 
 function richText(text: string): HTMLElement[] {
+  const packageOwner = packageContext();
+  const sourceMessages = packageOwner ? S().messages[packageOwner.conversation.gid] : undefined;
+  const sourceKey = packageOwner ? JSON.stringify([packageOwner.account.environment, packageOwner.account.account_id, packageOwner.account.session_generation, packageOwner.conversation.gid, packageOwner.conversation.assistant_context_revision, packageOwner.identity.session_epoch]) : null;
   return highlightParts(text).map((p) =>
     p.kind === 'plain'
       ? h('span', null, p.text)
@@ -1410,6 +1438,8 @@ function richText(text: string): HTMLElement[] {
             dataset: { hl: p.kind },
             onclick: () => {
               if (p.kind === 'iccid') {
+                const current = packageContext();
+                if (!current || !sourceKey || JSON.stringify([current.account.environment, current.account.account_id, current.account.session_generation, current.conversation.gid, current.conversation.assistant_context_revision, current.identity.session_epoch]) !== sourceKey || S().messages[current.conversation.gid] !== sourceMessages || !findIccids(sourceMessages ?? []).includes(p.text)) return;
                 store.patch({ sideOpen: true, pkgOpen: true, pkgHot: true });
                 void queryPackage(p.text);
               } else {
@@ -1725,50 +1755,30 @@ function emojiPicker(s: MainState): HTMLElement | null {
 
 function packageCard(s: MainState, conv: UiConversation): HTMLElement | null {
   if (!packageEnabled(s)) return null;
-  const iccids = findIccids(s.messages[conv.gid] ?? []);
-  const info = s.pkg.info;
-  const busy = s.pkg.status === 'busy';
-  let body: HTMLElement | null = null;
-  if (s.pkgOpen) {
-    if (iccids.length === 0) body = h('div', { class: 'empty', style: { margin: '12px' } }, t('side.pkgEmpty'));
-    else if (s.pkg.status === 'error') body = h('div', { class: 'pkg-b' }, h('div', { class: 'notice-box err' }, s.pkg.error ?? ''), h('button', { class: 'btn sm', style: { 'align-self': 'flex-start' }, onclick: () => void queryPackage(iccids[0] ?? '', true) }, t('tr.retry')));
-    else if (!info) body = h('div', { class: 'pkg-b' }, h('div', { class: 'skel', style: { height: '54px' } }), h('div', { class: 'skel', style: { height: '18px', width: '70%' } }));
-    else {
-      const ago = Math.max(0, Math.floor((s.now - info.fetched_at_ms) / 60_000));
-      body = h(
-        'div',
-        { class: 'pkg-scroll' },
-        h(
-          'div',
-          { class: 'pkg-b', dataset: { pkgInfo: '1' } },
-          h(
-            'div',
-            { style: { display: 'flex', gap: '12px', 'align-items': 'center' } },
-            h('div', { class: 'ring', style: { background: `conic-gradient(var(--c-primary) ${info.remain_pct}%, var(--c-border) 0)` } }, h('span', null, `${info.remain_pct}%`)),
-            h('div', { style: { display: 'flex', 'flex-direction': 'column', gap: '2px' } }, h('div', { style: { display: 'flex', gap: '8px', 'align-items': 'center', 'font-size': '12px' } }, h('span', { class: 'chip chip-warn' }, info.status), h('span', { class: 'muted' }, t('side.pkgRemain'))), h('div', null, h('b', { style: { 'font-size': '22px' } }, info.remain), h('span', { class: 'muted', style: { 'font-size': '12px' } }, ` / ${info.total}`))),
-          ),
-          h('div', { style: { 'font-weight': '600', 'font-size': '13px', 'line-height': '1.45' } }, info.plan),
-          h('div', { class: 'pkg-tiles' }, h('div', null, h('span', null, t('side.pkgSupplier')), h('b', null, info.supplier)), h('div', null, h('span', null, t('side.pkgApn')), h('b', null, info.apn))),
-          iccids.map((id) => h('div', { class: 'pkg-id' }, h('span', { class: 'muted' }, 'ICCID'), h('span', { class: 'mono' }, id), h('button', { class: 'ibtn', style: { width: '24px', height: '24px' }, 'aria-label': t('side.copyId', { k: 'ICCID' }), onclick: () => copyText(id, t('side.copied', { k: 'ICCID' })) }, icon(IC.copy, 13)))),
-        ),
-        h('div', { class: 'pkg-f' }, t('side.pkgFoot', { t: ago < 1 ? t('side.pkgJustNow') : t('side.pkgMinutes', { n: ago }) })),
-      );
-    }
-  }
-  return h(
-    'div',
-    { class: cx('pkg', { hot: s.pkgHot }) },
-    h(
-      'div',
-      { class: 'pkg-h' },
-      h('b', null, t('side.pkg')),
-      h('span', { class: 'chip chip-muted' }, t('side.pkgCount', { n: info ? 1 : 0 })),
-      h('span', { class: 'sp' }),
-      h('button', { class: 'ibtn', style: { width: '26px', height: '26px' }, title: t('side.pkgRefresh'), 'aria-label': t('side.pkgRefresh'), disabled: iccids.length === 0 || busy, onclick: () => void queryPackage(info?.iccid ?? iccids[0] ?? '', true) }, busy ? h('span', { class: 'spin' }) : icon(IC.refresh, 14)),
-      h('button', { class: 'ibtn', style: { width: '26px', height: '26px' }, title: t('side.pkgToggle'), 'aria-label': t('side.pkgToggle'), onclick: () => store.patch({ pkgOpen: !S().pkgOpen }) }, icon(s.pkgOpen ? IC.chevDown : IC.chevUp, 14)),
-    ),
-    body,
-  );
+  const view: PackagePreviewState = !s.tsimStatus ? { ...PKG_IDLE, status: 'error', failure: 'login', error: s.pkg.error ?? 'TSim 登录状态尚未核验，请刷新状态或打开设置登录。' } : packageViewApplies(s.pkg, packageContext()) ? s.pkg : PKG_IDLE;
+  const order = packageOrderId(conv), iccids = findIccids(s.messages[conv.gid] ?? []);
+  const plans = view.summary?.plans ?? (view.info ? [view.info] : []);
+  const busy = view.status === 'busy';
+  const owner = { ...conv.account };
+  const applies = (): boolean => stillActive(owner) && activeConv()?.gid === conv.gid && (view === S().pkg || !S().tsimStatus) && (view.key === null || packageViewApplies(view, packageContext()));
+  return h('div', { class: cx('pkg', { hot: s.pkgHot }), dataset: { packageState: view.status } },
+    h('div', { class: 'pkg-h' }, h('b', null, 'TSim 套餐速览'), h('span', { class: 'chip chip-muted' }, `${view.summary?.total ?? plans.length} 个套餐`), h('span', { class: 'sp' }),
+      h('button', { class: 'ibtn', title: '刷新套餐', 'aria-label': '刷新套餐', disabled: busy || !order && !iccids.length, dataset: { packageAction: 'refresh' }, onclick: () => { if (applies()) void refreshPackages(); } }, busy ? h('span', { class: 'spin' }) : icon(IC.refresh, 14)),
+      h('button', { class: 'ibtn', title: '展开或收起套餐', 'aria-label': '展开或收起套餐', onclick: () => store.patch({ pkgOpen: !S().pkgOpen }) }, icon(s.pkgOpen ? IC.chevDown : IC.chevUp, 14))),
+    s.pkgOpen ? h('div', { class: 'pkg-scroll' },
+      h('div', { class: 'pkg-f' }, order ? `关联订单：${order}` : iccids.length ? '未识别关联订单，按 ICCID 查询' : '当前会话暂无有效订单号或 ICCID'),
+      !s.tsimStatus?.logged_in || view.failure === 'login' ? h('div', { class: 'pkg-b' }, h('span', { class: 'muted' }, s.tsimStatus ? 'TSim 尚未登录' : 'TSim 登录状态待核对'), h('button', { class: 'btn sm', dataset: { packageAction: 'login' }, onclick: () => { if (applies()) openTsimSettings(); } }, '打开设置登录 TSim')) : null,
+      view.error ? h('div', { class: 'pkg-b notice-box err', role: 'alert' }, view.error,
+        h('button', { class: 'btn sm', disabled: busy, dataset: { packageAction: 'retry' }, onclick: () => { if (applies()) void refreshPackages(); } }, '重新核对')) : null,
+      busy ? h('div', { class: 'pkg-b', role: 'status' }, '正在查询订单套餐…') : null,
+      view.status === 'done' && !plans.length ? h('div', { class: 'pkg-b empty' }, '该订单暂无可查看套餐') : null,
+      plans.map((plan, index) => h('section', { class: 'pkg-b', dataset: { packagePlan: String(index) } },
+        h('div', { style: { 'font-weight': '600', 'font-size': '13px' } }, plan.plan),
+        h('div', { class: 'pkg-id' }, plan.iccid || 'ICCID 待查询'),
+        h('div', { style: { display: 'flex', gap: '8px', 'align-items': 'center', margin: '8px 0' } }, h('span', { class: 'chip chip-warn' }, plan.status), h('b', null, plan.remain || '用量待查询'), h('span', { class: 'muted' }, plan.total ? ` / ${plan.total}` : '')),
+        h('div', { class: 'pkg-tiles' }, h('div', null, h('span', null, '供应商'), h('b', null, plan.supplier)), h('div', null, h('span', null, 'APN'), h('b', null, plan.apn))),
+        h('p', { class: 'muted', style: { 'font-size': '11px' } }, `读取时间：${new Date(plan.fetched_at_ms).toLocaleString('zh-CN')}`),
+        view.summary ? h('button', { class: 'btn sm', dataset: { packageAction: 'detail', planIndex: String(index) }, onclick: () => { if (applies() && view.summary) void packagePreview.openDetail(view, view.summary.plans[index]!); } }, '打开 TSim 详情') : h('p', { class: 'muted' }, 'ICCID 速览；订单套餐可打开详情')))) : null);
 }
 
 function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
@@ -2241,6 +2251,8 @@ ipc.listen<unknown>(
 );
 ipc.listen<unknown>(Events.IM_MESSAGE_NEW, receiveMainMessage);
 ipc.listen<unknown>(UiEvents.MEDIA_SEND_PROGRESS, receiveMediaProgress);
+ipc.listen<unknown>(UiEvents.TSIM_STATUS, receivePackageIdentity);
+subscribeBatched(store, () => autoQueryPackage());
 ipc.listen<unknown>(HostEvents.LOCATE, guarded(HostEvents.LOCATE, isLocatePayload, (p) => void locateConversation(p.account, p.gid)));
 ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, (p) => store.patch({ prefs: p })));
 ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => store.patch({ clockTrusted: c.quality.kind === 'anchored' })));
@@ -2282,6 +2294,7 @@ setInterval(() => {
 
 void (async () => {
   await Promise.all([loadAccounts(), loadPrefs(), loadNet()]);
+  await refreshPackageIdentity();
   // Alarm counts arrive only through `Events.ALARM_SNAPSHOT`: notify commands are reserved for the alarm window (strong-alert §6).
   await loadForActiveAccount();
 })();

@@ -482,6 +482,7 @@ fn emit_conversations(app: &AppHandle, ctx: &AccountContext, gids: &[String]) {
             .collect()
     };
     for conv in to_ui(app, ctx, rows) {
+        crate::assistant::order_commands::on_conversation_change(app, ctx, &conv.display.fact.gid, conv.display.assistant_context_revision.as_deref());
         events::to_main(app, events::IM_CONVERSATION_CHANGED, conv);
     }
 }
@@ -574,6 +575,26 @@ async fn forward<T: DeserializeOwned>(
 ) -> Result<T, AppError> {
     let v = request(app, ctx, op, args, timeout).await?;
     serde_json::from_value(v).map_err(|_| bad_reply())
+}
+
+#[derive(Deserialize)]
+struct AssistantScopeReply { context_revision: String, order_id: Option<String> }
+
+/// Validate both the host projection and the current full in-page service/customer identity.
+pub async fn validate_assistant_scope(app: &AppHandle, account: &AccountContext, gid: &str, order_id: &str, revision: &str) -> Result<(), AppError> {
+    core_assistant::order::validate_order_id(order_id)?;
+    if uuid::Uuid::parse_str(revision).is_err() { return Err(bad_reply()); }
+    let local = || -> Result<(), AppError> {
+        app.state::<HostState>().lock().accounts.validate(account)?;
+        let m = module(app)?;
+        let row = lock(&m.display).conversation(account, gid)?.ok_or_else(|| not_ready("order conversation is unavailable"))?;
+        if row.assistant_context_revision.as_deref() != Some(revision) || row.order.as_ref().map(|o| o.order_id.as_str()) != Some(order_id) { return Err(AppError::new(codes::ACCOUNT_STALE_GENERATION, "order conversation binding changed")); }
+        Ok(())
+    };
+    local()?;
+    let reply: AssistantScopeReply = forward(app, account, "assistant.scope", serde_json::json!({ "gid": gid, "context_revision": revision }), READ_TIMEOUT).await?;
+    if reply.context_revision != revision || reply.order_id.as_deref() != Some(order_id) { return Err(bad_reply()); }
+    local()
 }
 
 pub async fn capture_media_target(
@@ -1053,6 +1074,7 @@ pub fn adapter_push_display(
     let delta = apply_display_diagnosed(&m, &ctx, body(&request, "payload")).map_err(e2dto)?;
     match delta {
         DisplayDelta::Conversations { changed, removed } => {
+            for gid in &removed { crate::assistant::order_commands::on_conversation_change(&app, &ctx, gid, None); }
             emit_conversations(&app, &ctx, &changed);
             if !changed.is_empty() || !removed.is_empty() {
                 sync_unread(&app, &ctx);

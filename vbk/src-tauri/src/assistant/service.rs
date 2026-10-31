@@ -15,6 +15,9 @@
 //!   the request, so an old `session_generation` is rejected;
 //! * nothing is retried automatically (a timeout surfaces as `net.timeout`).
 
+#[path = "order_service.rs"]
+pub mod orders;
+
 use std::sync::{Mutex, MutexGuard};
 
 use contracts::json::JsonValue;

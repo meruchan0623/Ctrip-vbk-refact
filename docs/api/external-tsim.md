@@ -83,3 +83,22 @@
 | 翻译限流、保护、服务异常 | 429 / 503 / 500 等，不等同客户发送失败 |
 
 以上静态签名已经核对，但线上认证、真实套餐归属、可选补充区块、协议切换及超时行为未动态验收。不使用真实凭据或客户正文补造成功样本。
+
+## 2026-10-31 Windows 本地订单套餐入口（新增修复轮）
+
+以下是本仓库新增的宿主IPC契约，TSim服务器的上述HTTP协议不变，线上验收状态以本轮运行记录为准。`context_revision`来自官方WebView适配器当前完整客户/服务会话边界的非秘密随机代次；不会将订单号当聊天室、套餐ID或ICCID。此实现仍依赖官方页面/SDK，不是脱离浏览器的携程协议客户端。
+
+| IPC | 请求与返回 | 绑定与权限 |
+| --- | --- | --- |
+| `assistant_tsim_status` / login / logout | 状态增加 `session_epoch:number`；同名重登也变化 | 凭据留宿主；登录/退出存储错误不可假报成功；本地 `assistant://tsim-status` 仅传状态、用户名和epoch |
+| `assistant_order_summary` | `{account,gid,order_id,context_revision,session_epoch}` → 回显上述边界及 `{query_handle,plans,total,fetched_at_ms}` | main角色；每次外部请求前后核对当前官方会话及TSim身份；固定 `/perform` → `/dataplan-list`，订单以10或16位字符串保真 |
+| `assistant_package_detail_open` | `{account,gid,query_handle,detail_handle}` → 打开本地受限详情窗口 | 只接受宿主实际列表签发的两个随机句柄；前端不能传真实card ID、token或URL |
+| `assistant_package_detail` | 无参数 → 当前窗口已绑定套餐、白名单详情/实时字段/CDR及读取时间 | 详情角色；窗口实例、完整会话及TSim代次仍有效才可读取，固定 `/detail`、`/live-detail`、`/cdr-more` |
+
+自动摘要保留列表内全部套餐（最多100项，超出明确失败），不静默选第一条。列表缺用量时用量/百分比为未知；点击每份套餐再读取实际详情和补充块，不从套餐名称猜流量或把未知填为0。已有 `{iccid}` 速览保留作为没有关联订单时的后备。
+
+缓存和句柄在宿主按完整scope及TSim代次隔离；普通消息、未读数和备注广播不等于更换客户身份。身份失效后旧结果和详情不可重新绑定到新账号。详情是本地只读投影，不复制旧助手的远端iframe/token handoff，不包含退款、订单修改或权限操作。全部时间、字段是否在线有效，需用户正常登录后的实际查询验证。
+
+本地资源边界：查询结果复用60秒，句柄有效期5分钟，最多保留16组查询，同时最多8个详情窗口；CDR按接口源顺序最多展示前100条并在界面标明。详情的补充接口无可显示结果时明确显示“未返回可显示的数据/用量记录”，不据空投影推断套餐实际没有用量。
+
+Windows只读来源核对：本机TSim `agent-frontend/src/types/package.ts` 的 `PackageInfo`、详情和CDR类型，以及 `central-backend/api/routers/agent_package_query.py` 的 perform/list/detail/live/CDR 路由。已安装助手实际使用远端 `csagent.tsim.tech/embed/operator` 的会话handoff，本地实现没有复用其令牌或嵌入协议；本机源字段与安装代码仅证明契约来源，不证明线上请求已经成功。

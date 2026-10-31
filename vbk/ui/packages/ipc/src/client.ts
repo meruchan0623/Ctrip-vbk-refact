@@ -144,11 +144,15 @@ export const UiCommands = {
   ASSIST_TSIM_LOGIN: 'assistant_tsim_login', // {user, password} → {logged_in, user}  (password never stored in UI)
   ASSIST_TSIM_LOGOUT: 'assistant_tsim_logout',
   ASSIST_TRANSLATE: 'assistant_translate', // {account, gid, draft_version, text, target} → {draft_version, text}
+  ASSIST_ORDER_SUMMARY: 'assistant_order_summary',
+  ASSIST_PACKAGE_DETAIL_OPEN: 'assistant_package_detail_open',
+  ASSIST_PACKAGE_DETAIL: 'assistant_package_detail',
   ASSIST_PACKAGE: 'assistant_package_quick_view', // {iccid} → UiPackageInfo
 } as const;
 
 /** Events needed in addition to `Events`. */
 export const UiEvents = {
+  PACKAGE_DETAIL_INVALIDATED: 'assistant://package-detail-invalidated',
   TSIM_STATUS: 'assistant://tsim-status', // UiTsimStatus; local views only
   MEDIA_SEND_PROGRESS: 'media://send-progress',
   NET_STATUS: 'net://status', // UiNetStatus
@@ -261,6 +265,7 @@ export interface UiOrderSummary {
 }
 
 export interface UiConversation extends ConversationFact {
+  readonly assistant_context_revision?: string;
   /** Avatar of the verified conversation customer uid; never the account agent. */
   readonly customer_avatar?: string | null;
   readonly vendor_name?: string;
@@ -411,3 +416,17 @@ export interface UiInviteCandidates {
 /** Only a matching independent read-back makes an action confirmed. A repeated
  * same action in the same session returns the original result without another write. */
 export interface UiPeripheralWrite { readonly kind: 'confirmed' | 'accepted' | 'unknown' | 'not_submitted'; readonly confirmed: boolean; readonly reason?: string }
+
+export type UiOrderPackageInfo = Omit<UiPackageInfo, 'remain_pct'> & { readonly remain_pct: number | null };
+export interface UiOrderPackagePlan extends UiOrderPackageInfo { readonly detail_handle: string }
+export interface UiOrderPackageSummary {
+  readonly account: AccountContext; readonly gid: string; readonly order_id: string;
+  readonly session_epoch: number; readonly context_revision: string; readonly query_handle: string;
+  readonly plans: readonly UiOrderPackagePlan[]; readonly total: number; readonly fetched_at_ms: number;
+}
+export interface UiPackageField { readonly label: string; readonly value: string }
+export interface UiPackageDetail {
+  readonly order_id: string; readonly session_epoch: number; readonly plan: UiOrderPackageInfo;
+  readonly detail_fields: readonly UiPackageField[]; readonly live_fields: readonly UiPackageField[];
+  readonly cdrs: readonly (readonly UiPackageField[])[]; readonly fetched_at_ms: number;
+}

@@ -40,6 +40,7 @@ import { roomJidFromMessage, type ConversationStore, RoleBook } from './stores.t
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
 
 export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
+  'assistant.scope': 'read-only local complete conversation identity revision; no upstream call',
   'media.target': 'read-only local full conversation identity capability',
   'media.validate': 'read-only local capability validation',
   'media.release': 'local attachment capability revocation; never clears durable/no-replay evidence',
@@ -588,6 +589,14 @@ const imTransfer: Handler<'im.transfer'> = (ctx, args, state) => peripheralWrite
 const imFinish: Handler<'im.finish'> = (ctx, args, state) => peripheralWrite(ctx, args, state, 'finish');
 
 const HANDLERS: { readonly [K in AdapterOp]: Handler<K> } = {
+  'assistant.scope': async (ctx, args) => {
+    const gid = requireString(args, 'gid'), expected = requireString(args, 'context_revision');
+    const current = ctx.captureWriteGuard?.() ?? (() => true);
+    const view = requireConversation(ctx, gid);
+    const revision = ctx.store.assistantContextRevision(gid, ctx.roles.selfUid, partnerJidOf(ctx, gid));
+    if (!current() || !revision || revision !== expected) fail(ErrorCodes.ACCOUNT_STALE_GENERATION, 'assistant conversation identity changed');
+    return { context_revision: revision, order_id: view.orderId };
+  },
   'media.target': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).target(args),
   'media.validate': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).validate(args),
   'media.release': (ctx, args, state) => (state.media ??= createMediaRpc(ctx)).release(args),
