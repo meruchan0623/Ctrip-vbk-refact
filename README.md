@@ -12,6 +12,8 @@
 
 ## 当前开发入口
 
+2026-10-31 Windows接续已到原第6轮上限并停止，整体验收未通过。已生成并运行本机Windows候选包，完整离线检查通过；历史分页视觉失败、官方网页登录和真实双向/媒体等缺口仍保留。当前断点见[PROGRESS](PROGRESS.md)、[BLOCKED](BLOCKED.md)与[第6轮产物及运行记录](docs/research/2026-10-31-round6-windows-runtime.md)。这不是正式发布或TSim整体接入。
+
 | 文档 | 用途 |
 | --- | --- |
 | [逐接口请求契约与开发准入](docs/api/README.md) | 完整 Header、Authentication、方法、嵌套参数、脱敏样本与未闭环项；全部必要要素齐备后才开发 |

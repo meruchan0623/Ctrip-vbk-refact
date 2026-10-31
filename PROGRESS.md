@@ -1,5 +1,14 @@
 # VBooking 消息面板对齐（2026-10-31）
 
+## 最新断点：第6轮满轮停止，整体验收未通过
+- 按目标的原6轮上限停止新增修复，未重置轮数；第5、6轮Windows消息发送/附件上传均0，官方网页登录未有效，不进行盲发或旧unknown重发。
+- 第6轮源码7bd269077eea568c4d66070b2c432634aa4b35b6，dirty=[]；643文件manifest c06ab51d62db69079912eb60eb026e3f2713a205c2d7809e8d1703419e204bcc。typecheck、TS536/核心304/Windows宿主126（0失败/skip/ignored）、bundle、Tauri NSIS、diff全部通过。
+- 新程序12:17:56实际启动PID58224，路径vbk/release/windows-round6-7bd2690/vbk-host.exe，SHA256 72111798daed2db6a31efb9c7a2d0ccbc770e046a611ca759634c1851932318b；安装包2bd8bcbd800bca102a4d7982a0bde665ae7acec52d75591b5f0e049c88ca72bd。独立评审重核源码/产物/进程一致，未执行安装器。
+- 新包自动恢复账号，受控订单/客户已再次核对；本地PNG/TXT选择、附件独立提示及移除通过，TXT作为视频被拒绝。未证明真实上传/SDK/自然双向。
+- 12:18分页原撤回行仍跳到更早订单卡，现场失败未解决；列表11/9与官方此前同刻11/24差异未关闭。无ID指纹修复只是条件性缺口，不能当现场根因已确认。
+- Edge专用页最终仍在登录；媒体真实读回、客户已读、引用撤回、真实unknown恢复、重连/切账号、三端矩阵和Windows截图/大视频分片等保持未完成。TSim只读，无push/合并/部署。
+- 完整命令输出摘要、红绿、提交、hash、实机与边界见[第6轮记录](docs/research/2026-10-31-round6-windows-runtime.md)；问题入口见[BLOCKED](BLOCKED.md)。下文为过程记录。
+
 ## Windows 开工回执（2026-10-31，Asia/Shanghai）
 - 已读取目标、交接、阻塞、TSim说明、重勘、round4及能力矩阵；任务范围仍为完整示例与迁移准备。
 - 初始目录为干净main/f61a0bf，已安全切换feat/prototype-restore-macos；本地/远端均66b876907f0fa7bf75f00fcdfb3aa863aef80f99，暂无遗留dirty。
@@ -22,7 +31,8 @@
 - 11:55用户回复登录后，新包实证Meru已登录、账号/列表/本人及同事头像显示；受控客户与订单双核成功。Edge原专用页重新进工作台仍跳登录，已告知准确状态。客户端本轮没有出站；不把原生登录替代网页身份核对。
 - 11:58新包受控历史实测分页后原18:33撤回行锚点未保持，改显示18:21订单卡；源码根因调查中，暂记未通过。同时官方同一时点11处理中/24完成，新包11/9，列表完整性/计数差异待定位；订单旧页后Trip-App来源/产品/日期/金额已实际显示。
 
-## 第6轮源码已提交，准备冻结构建
+## 第6轮冻结与修复过程（已结束，结论见顶部）
+- 源码7bd269077eea568c4d66070b2c432634aa4b35b6，独立round6-source快照dirty=[]；643文件manifest SHA256 c06ab51d62db69079912eb60eb026e3f2713a205c2d7809e8d1703419e204bcc。此快照已完成完整Windows检查与NSIS构建；运行已替换为第6轮PID58224，原第5轮PID14828退出，本轮上限仍6，不重置。
 - UI/IPC/宿主/adapter已接通候选链路，图片/一般文件/MP4采用独立媒体命令、冻结bytes与完整目标、严格upload_started→uploaded→write_started屏障；文字/引用保留，上传阶段不生成伪SDK消息行，unknown不重传/重发。
 - UI已复现并修复upload rejected/unknown且write_started=false被误认为send unknown的问题，三项真实返回组合红→绿；原附件丢失时replay_only只回放旧metadata，不能确认新附件；选择取消及终态释放资源，unknown账本不清除。
 - macOS截图变量遮蔽、连续取消附件17次导致target cap耗尽均已修复，媒体范围独立复审无剩余P1/P2。28个必要实现/契约/测试/文档已提交9771a80f0197d58c3df0ef3f82643a605fb45e2f，最终patch SHA256 950b8c7ddd636806de9f59e78146af9a0667b69f9f363072d83b9d25eb768307；独立checkout-index快照TS531/宿主126/typecheck/bundle通过，0失败/skip/ignored，尚未构建第6轮。
