@@ -84,25 +84,47 @@ fn transport_error(e: &reqwest::Error) -> AppError {
 /// Production executor.
 #[derive(Clone)]
 pub struct ReqwestExecutor {
-    client: reqwest::Client,
+    client: Option<reqwest::Client>,
 }
 
 impl ReqwestExecutor {
     pub fn new() -> Self {
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .https_only(true)
-            .timeout(REQUEST_TIMEOUT)
-            .connect_timeout(CONNECT_TIMEOUT)
-            .build()
-            .unwrap_or_else(|e| {
-                log::warn!(
-                    "assistant: http client builder failed ({}); using defaults",
-                    transport_error(&e).code
-                );
-                reqwest::Client::new()
-            });
+        Self::from_builder(
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .https_only(true)
+                .timeout(REQUEST_TIMEOUT)
+                .connect_timeout(CONNECT_TIMEOUT),
+        )
+    }
+
+    fn from_builder(builder: reqwest::ClientBuilder) -> Self {
+        let client = match builder.build() {
+            Ok(client) => Some(client),
+            Err(_) => {
+                log::warn!("assistant: HTTP initialization failed; requests blocked");
+                None
+            }
+        };
         Self { client }
+    }
+
+    async fn execute_with<F, Fut>(
+        &self,
+        request: &TsimRequest,
+        dispatch: F,
+    ) -> Result<HttpResponse, AppError>
+    where
+        F: FnOnce(reqwest::Client, TsimRequest) -> Fut + Send,
+        Fut: Future<Output = Result<HttpResponse, AppError>> + Send,
+    {
+        let client = self.client.clone().ok_or_else(|| {
+            AppError::new(
+                "assistant.service_unavailable",
+                "assistant HTTP initialization failed",
+            )
+        })?;
+        dispatch(client, request.clone()).await
     }
 }
 
@@ -151,13 +173,67 @@ impl Executor for ReqwestExecutor {
         &self,
         req: &TsimRequest,
     ) -> impl Future<Output = Result<HttpResponse, AppError>> + Send {
-        send(self.client.clone(), req.clone())
+        self.execute_with(req, send)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn real_client_builder_failure_blocks_dispatch_without_an_insecure_default_client() {
+        const INVALID_HEADER: &str = "SYNTHETIC_PRIVATE_HEADER\r\n";
+        assert!(
+            reqwest::Client::builder()
+                .user_agent(INVALID_HEADER)
+                .build()
+                .is_err(),
+            "fixture must exercise a real ClientBuilder failure"
+        );
+        let executor =
+            ReqwestExecutor::from_builder(reqwest::Client::builder().user_agent(INVALID_HEADER));
+        assert!(
+            executor.client.is_none(),
+            "initialization failure must not fall back to Client::new"
+        );
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let request = TsimRequest::get("/agent/profile", "SYNTHETIC_TOKEN");
+        let error = tauri::async_runtime::block_on(executor.execute_with(&request, |_, _| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async {
+                Ok(HttpResponse {
+                    status: 200,
+                    body: "{}".into(),
+                })
+            }
+        }))
+        .unwrap_err();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(error.is("assistant.service_unavailable"));
+        let wire = serde_json::to_string(&crate::assistant::public_error::to_dto(error)).unwrap();
+        assert!(!wire.contains("SYNTHETIC") && !wire.contains("detail"));
+    }
+    #[test]
+    fn initialized_http_executor_uses_the_same_dispatch_boundary() {
+        let executor = ReqwestExecutor::new();
+        assert!(executor.client.is_some());
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let request = TsimRequest::get("/agent/profile", "SYNTHETIC_TOKEN");
+        let response = tauri::async_runtime::block_on(executor.execute_with(&request, |_, req| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(req.url, "https://csapi.tsim.tech/agent/profile");
+            async {
+                Ok(HttpResponse {
+                    status: 200,
+                    body: "{}".into(),
+                })
+            }
+        }))
+        .unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn origin_is_pinned() {
