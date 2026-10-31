@@ -1,5 +1,10 @@
 # VBooking 消息面板对齐（2026-10-31）
 
+## 已停止：Windows交接（2026-10-31）
+
+用户要求停止运行并把全部成果分块提交、推送，后续在Windows继续。构建/实机/功能修复已停止；完整轮数仍为4/6，第5轮未开始，整体验收未通过。当前第4轮PID90073已退出，ego TaskSpace1已不存在，不沿用旧运行/登录结论。请先读[Windows接续说明](docs/integration/windows-handoff.md)，再按最新源码复验；最后历史身份/锚点增量尚未完成最终独立复审。原本机/tmp原始证据不随Git迁移，不含凭据或客户原文的回归与文档已保存。
+
+
 ## 最新断点：第4轮新包已运行，独立评审发现安全缺口（完整轮数4/6，未通过）
 - 源码cb170df+保留dirty；307文件manifest SHA256 `6e85ba537eb6f3d8f01f3a5372caa7be6b842b11f278df7e5e11569783e142fd`。修复代理后续改动不属于此构建。
 - 第4轮typecheck、TS399/核心301/宿主101（0失败/跳过）、bundle、tauri及diff通过；原始输出/tmp/vbk-goal-20261031/round4-*。
@@ -125,3 +130,15 @@
 - 完成时明确已证实、未证实和实际产物路径；继续任务先读本文件。
 
 - 第4轮后P1发送身份竞态修复已独立提交a0b4416，真实微任务及投影异常红→绿，独立暂存typecheck/6tests/bundle及Sol独立评审通过；旧PID90073尚不含修复。后台调度修复/引用安全与订单链在接续，下一次完整轮数为5。
+
+- 第4轮运行证据已独立核对并提交cf0909c；订单完整块暂存快照首次提取发生重复import/helper和mapper变量缺失导致typecheck失败，精确修正后typecheck/18tests/bundle通过，未修改工作树既有实现或削弱测试。订单宿主及独立评审进行中。
+
+- 第4轮补充只读实机：05:45加载更早消息后停留历史区，未跳底；05:46 Sara商户同事的独立接口头像与右侧消息已见，客户订单卡左侧。截图/AX为/tmp/vbk-goal-20261031/round4-{history-after,sara-history}.*；未证明精确滚动锚点稳定。
+
+- 订单完整行为已提交c670397：独立暂存typecheck/bundle/29项与host102通过，Sol评审两项身份P2已修。原6项保留，5项新身份边界红→绿；当前PID90073仍未含修复，第5轮待验。
+
+- 成员精确机器人昵称显示e22e3ea已提交，独立typecheck/5项真实面板头像/bundle与评审通过。仅完整键映射，UID与接口昵称原值保留；第5轮原生待验。
+
+- 媒体显示完整链463baa3已提交，独立12TS/host103/typecheck/bundle与评审通过；mapper漏字段6红、宿主漏URL真红→绿，保留出站媒体未实现。未知核验普通history查询间接标已读P2已转专用无广播lookup，真实组合1receipt红→0receipt绿，尚待完整块提交。
+
+- 历史完整19路径已独立typecheck/TS444全绿，但评审额外碰撞与广播先到锚点反例失败，未提交。完整index冻结tree21b12e3b343615d75fc2f043020450a8431322a1与/tmp/vbk-history-frozen-20261031.patch，继续修复；暂存切为独立unknown完整块，其typecheck/TS446/host105/bundle全绿，最终评审进行中。
