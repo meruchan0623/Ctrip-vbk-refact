@@ -517,14 +517,26 @@ export function mergeHistory(earlier: readonly UiMessage[], current: readonly Ui
   return [...groups].map(group => group.message).sort((a, b) => a.create_time_ms - b.create_time_ms);
 }
 
-/** DOM anchoring keys are scoped and namespaced; local IDs alone are not unique identities. */
+/** DOM anchor identities carry both IDs so server confirmation can enrich a local row. */
 export function historyScopeKey(account: AccountContext | null, gid: string): string {
   return account ? JSON.stringify([account.environment, account.account_id, account.session_generation, gid]) : '';
 }
 export function messageHistoryKey(account: AccountContext | null, conv: Pick<UiConversation, 'gid' | 'account'>, message: UiMessage): string {
   const id = message.message_id ?? message.local_id;
   if (!account || !id || message.gid !== conv.gid || !sameAccount(account, conv.account) || account.session_generation !== conv.account.session_generation) return '';
-  return JSON.stringify([historyScopeKey(account, conv.gid), message.message_id ? 'server' : 'local', id, message.sender_role, message.sender_id ?? null]);
+  return JSON.stringify([historyScopeKey(account, conv.gid), message.message_id || null, message.local_id || null, message.sender_role, message.sender_id?.trim().toLowerCase() || null]);
+}
+
+/** Sparse enrichment is compatible; explicit sender or server conflicts are never aliases. */
+export function messageHistoryMatches(before: string, after: string): boolean {
+  if (!before || !after) return false;
+  try {
+    const a: unknown = JSON.parse(before), b: unknown = JSON.parse(after);
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== 5 || b.length !== 5 || !a[0] || a[0] !== b[0] || a[3] !== b[3]) return false;
+    if (a[4] && b[4] && a[4] !== b[4]) return false;
+    if (a[1] && b[1]) return a[1] === b[1];
+    return !!a[2] && a[2] === b[2];
+  } catch { return false; }
 }
 
 /** Recall notices remain visible while their original content stays hidden across pages. */

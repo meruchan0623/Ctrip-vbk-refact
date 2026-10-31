@@ -6,7 +6,7 @@ import * as viewmodel from './viewmodel.ts';
 import { mergeMessageProfile } from './message-profile.ts';
 import { isUiMessage } from '../_shared/guards.ts';
 import type { UiMessage } from '../../packages/ipc/src/client.ts';
-const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+const source = readFileSync(process.env['VBK_HISTORY_MAIN_SOURCE'] ?? new URL('./main.ts', import.meta.url), 'utf8');
 const pending: UiMessage = { gid: 'synthetic-A', message_id: null, local_id: 'synthetic-local', text: 'SYNTHETIC CURRENT', kind: 'text', create_time_ms: 100, sender_role: 'merchant_self', sender_id: 'synthetic-agent', sender_name: 'Synthetic Agent', sender_avatar: 'https://example.invalid/current.png', disposition: { kind: 'unknown' }, translation: null, original: null, quote: null, order_id: null };
 const confirmed: UiMessage = { ...pending, message_id: 'synthetic-server', text: 'SYNTHETIC HISTORY', sender_name: null, sender_avatar: null, disposition: { kind: 'confirmed', server_message_id: 'synthetic-server', server_time_ms: 105 } };
 function fixture(current: UiMessage[], page: UiMessage[]) {
@@ -123,32 +123,41 @@ test('shared local alias retains separate compatible groups for later exact serv
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
 import { messageAlignment } from './message-alignment.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
-function anchorFixture() {
+function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolean; realScroll?: boolean; extra?: UiMessage[] } = {}) {
   const scope = { account_id: 'synthetic-account', environment: 'synthetic', session_generation: 1 };
   let owner = scope;
-  const base: UiMessage = { ...pending, gid: 'synthetic-anchor-room', sender_role: 'customer', sender_id: 'synthetic-customer', message_id: 'synthetic-anchor-current', local_id: null, create_time_ms: 200, disposition: null };
-  const older = { ...base, message_id: 'synthetic-anchor-old', create_time_ms: 100 };
-  const live = { ...base, message_id: 'synthetic-anchor-live', create_time_ms: 300 };
-  const store = createStore({ activeGid: base.gid, messages: { [base.gid]: [base] } as Record<string, UiMessage[]>, history: { [base.gid]: { hasMore: true, beforeMs: 200, busy: false } }, quote: null });
+  const seeded: UiMessage = { ...pending, gid: 'synthetic-anchor-room', sender_role: 'customer', sender_id: 'synthetic-customer', message_id: 'synthetic-anchor-current', local_id: null, create_time_ms: 200, disposition: null, ...options.base };
+  const { sender_id: _sender, ...withoutSender } = seeded;
+  const base: UiMessage = options.omitSender ? withoutSender : seeded;
+  const older = { ...base, message_id: 'synthetic-anchor-old', local_id: null, create_time_ms: 100 };
+  const live = { ...base, message_id: 'synthetic-anchor-live', local_id: null, create_time_ms: 300 };
+  const store = createStore({ activeGid: base.gid, messages: { [base.gid]: [base, ...(options.extra ?? [])] } as Record<string, UiMessage[]>, history: { [base.gid]: { hasMore: true, beforeMs: 200, busy: false } }, quote: null });
   let complete!: (page: unknown) => void;
   type Row = { dataset: Record<string, string>; getBoundingClientRect(): { top: number; bottom: number } };
   class Scroll {
-    scrollTop = 120; clientHeight = 400; scrollHeight = 1000;
+    private top = 120; clientHeight = 400; scrollHeight = 1000;
+    get scrollTop() { return this.top; }
+    set scrollTop(value: number) { this.top = Math.max(0, Math.min(value, this.scrollHeight - this.clientHeight)); }
     dataset: Record<string, string> = {}; rows: Row[] = [];
     getBoundingClientRect() { return { top: 50, bottom: 450 }; }
     querySelectorAll() { return this.rows; }
   }
   let scroll = new Scroll();
-  class Root { constructor(readonlyScroll: Scroll) { this.scroll = readonlyScroll; } scroll: Scroll; querySelectorAll() { return []; } querySelector() { return null; } }
-  const env: Record<string, unknown> = { ...viewmodel, messageAlignment, cx, createStore, subscribeBatched, store, S: () => store.get(), activeAccount: () => ({ context: owner }), activeConv: () => ({ gid: store.get().activeGid, account: owner }), stillActive: (account: typeof scope) => account.account_id === owner.account_id && account.environment === owner.environment && account.session_generation === owner.session_generation, isUiMessage, invokeSafe: () => new Promise(resolve => { complete = resolve; }), UiCommands: { IM_MESSAGE_PAGE: 'page' }, document: { querySelector: () => scroll }, queueMicrotask, Element: Root, CSS: { escape: encodeURIComponent }, root: { querySelector: () => null }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (key: string) => key, icon: () => null, IC: {}, richText: (text: string) => [text], h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }) };
+  class Root { constructor(readonlyScroll: Scroll) { this.scroll = readonlyScroll; } scroll: Scroll; querySelectorAll(selector: string) { return selector === '[data-keep-scroll]' ? [this.scroll] : []; } querySelector() { return null; } replaceChildren(next: Root) { this.scroll = next.scroll; scroll = next.scroll; } }
+  const env: Record<string, unknown> = { ...viewmodel, messageAlignment, cx, createStore, subscribeBatched, store, S: () => store.get(), activeAccount: () => ({ context: owner }), activeConv: () => ({ gid: store.get().activeGid, account: owner, waiting_since_ms: null, status: 'active', service_type: 'chat', lang: 'en' }), stillActive: (account: typeof scope) => account.account_id === owner.account_id && account.environment === owner.environment && account.session_generation === owner.session_generation, isUiMessage, invokeSafe: () => new Promise(resolve => { complete = resolve; }), UiCommands: { IM_MESSAGE_PAGE: 'page' }, document: { querySelector: () => scroll }, queueMicrotask, Element: Root, CSS: { escape: encodeURIComponent }, root: { querySelector: () => null }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (key: string) => key, icon: () => null, IC: {}, richText: (text: string) => [text], h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }) };
   function actual(name: string, next: string, async = false) { const a = source.indexOf(`${async ? 'async ' : ''}function ${name}(`), b = source.indexOf(`\n${next}`, a); assert.ok(a >= 0 && b > a, name); return new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   // Load the actual helper group when present; the old production callback is exercised unchanged for red evidence.
   for (const [name, next] of [['captureMessageAnchor', 'function restoreMessageAnchor('], ['restoreMessageAnchor', 'function withMessageAnchor('], ['withMessageAnchor', 'function messageRow(']] as const) if (source.includes(`function ${name}(`)) env[name] = actual(name, next);
   if (source.includes('function mediaNodeKey(')) env['mediaNodeKey'] = actual('mediaNodeKey', source.includes('function captureMessageAnchor(') ? 'function captureMessageAnchor(' : 'function messageRow(');
   const row = actual('messageRow', 'function translationBar(');
+  env['messageRow'] = row;
+  Object.assign(env, { netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, langName: (code: string) => code });
+  const pane = actual('chatPane', 'function messagesView(');
+  function findScroll(tree: any): any { if (!tree || typeof tree !== 'object') return null; if (Array.isArray(tree)) return tree.map(findScroll).find(Boolean); return tree.props?.dataset?.keepScroll === 'msgs' ? tree : findScroll(tree.children); }
   function build() {
     const next = new Scroll(); next.scrollTop = scroll.scrollTop;
     next.dataset['historyScope'] = env['historyScopeKey'] ? (env['historyScopeKey'] as (account: typeof scope, gid: string) => string)(owner, store.get().activeGid) : 'old-scope';
+    if (options.realScroll) next.dataset = findScroll(pane(store.get())).props.dataset;
     let offset = 100;
     for (const message of store.get().messages[store.get().activeGid] ?? []) {
       const rendered = row({ ...store.get(), prefs: { general: { show_msg_time: false } } }, message, { gid: store.get().activeGid, account: owner, title: 'Synthetic Customer', color: '#aaa' }, { context: owner });
@@ -162,10 +171,16 @@ function anchorFixture() {
   }
   env['render'] = build; env['rerender'] = (_root: unknown, render: () => Root) => { const top = scroll.scrollTop; const next = render(); scroll = next.scroll; scroll.scrollTop = top; };
   scroll = build().scroll;
+  if (options.realScroll) {
+    const uiSource = readFileSync(new URL('../../packages/ui-kit/src/h.ts', import.meta.url), 'utf8');
+    const rerenderStart = uiSource.indexOf('export function rerender(');
+    env['root'] = new Root(scroll);
+    env['rerender'] = new Function('document', 'mount', stripTypeScriptTypes(uiSource.slice(rerenderStart).replace('export function', 'function')) + '\nreturn rerender;')({ activeElement: null }, (root: Root, next: Root) => root.replaceChildren(next));
+  }
   const a = source.indexOf('subscribeBatched(store,'), b = source.indexOf('\nrerender(root, () => render(S()));', a);
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)))(...Object.values(env));
   const load = actual('loadEarlier', '/** `im://locate-conversation`', true), upsert = actual('upsertMessage', 'function upsertConversation(');
-  return { store, older, live, base, context: scope, scroll: () => scroll, load: () => load({ gid: base.gid, account: scope }), upsert, complete: () => complete({ items: [older], has_more: false, before_ms: null }), setScope: (next: typeof scope) => { owner = next; store.patch({ activeGid: base.gid }); } };
+  return { store, older, live, base, context: scope, scroll: () => scroll, load: () => load({ gid: base.gid, account: scope }), upsert, complete: (items: UiMessage[] = [older]) => complete({ items, has_more: false, before_ms: null }), setScope: (next: typeof scope) => { owner = next; store.patch({ activeGid: base.gid }); } };
 }
 test('actual history broadcast before RPC return preserves the visible row once, with no double adjustment', async () => {
   const f = anchorFixture(), loading = f.load(); await Promise.resolve(); f.upsert(f.older); await Promise.resolve();
@@ -186,5 +201,54 @@ test('queued history redraw never restores an anchor across account/environment/
     if (change === 'gid') f.store.patch({ activeGid: 'synthetic-other-room' });
     else f.setScope({ ...f.context, [change]: change === 'session_generation' ? 2 : 'synthetic-other' } as never);
     await Promise.resolve(); f.complete(); await loading; await Promise.resolve(); assert.equal(f.scroll().scrollTop, 120);
+  }
+});
+
+test('actual pagination keeps its visible anchor through local confirmation and sparse sender enrichment', async () => {
+  for (const change of ['server', 'sender', 'both']) {
+    const f = anchorFixture({ realScroll: true, omitSender: change !== 'server', base: { sender_role: 'merchant_self', message_id: change === 'sender' ? 'synthetic-server' : null, local_id: 'synthetic-local-anchor' } });
+    const loading = f.load(); await Promise.resolve();
+    f.complete([f.older, { ...f.base, message_id: 'synthetic-server', sender_id: 'synthetic-customer' }]); await loading; await Promise.resolve();
+    assert.equal(f.scroll().scrollTop, 420, change); assert.equal(f.store.get().messages[f.base.gid]?.length, 2);
+  }
+});
+
+test('actual history anchor rejects conflicting senders/server IDs and ambiguous local aliases', async () => {
+  for (const change of ['sender', 'role', 'server', 'ambiguous']) {
+    const f = anchorFixture({ base: { message_id: change === 'ambiguous' ? null : 'synthetic-server', local_id: 'synthetic-shared-local' } });
+    const replacement = { ...f.base, message_id: change === 'server' ? 'synthetic-other-server' : 'synthetic-server', sender_id: change === 'sender' ? 'synthetic-other-sender' : f.base.sender_id ?? '', sender_role: change === 'role' ? 'merchant_self' as const : f.base.sender_role };
+    f.store.patch({ messages: { [f.base.gid]: [f.older, replacement, ...(change === 'ambiguous' ? [{ ...replacement, message_id: 'synthetic-other-server' }] : [])] } });
+    await Promise.resolve(); assert.equal(f.scroll().scrollTop, 120, change);
+  }
+});
+
+test('actual history redraw uses a stable second visible row when the first anchor disappears', async () => {
+  const second = { ...pending, gid: 'synthetic-anchor-room', message_id: 'synthetic-second', local_id: null, create_time_ms: 250 };
+  const f = anchorFixture({ extra: [second] });
+  f.store.patch({ messages: { [f.base.gid]: [f.older, second] } }); await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 220, 'second row moves down 100px after 300px prepend and 200px first-row removal');
+});
+
+test('a newly sparse local alias cannot select between multiple former server identities', async () => {
+  const other = { ...pending, gid: 'synthetic-anchor-room', message_id: 'synthetic-other-server', local_id: 'synthetic-shared-local', create_time_ms: 250, sender_role: 'customer' as const, sender_id: 'synthetic-customer' };
+  const f = anchorFixture({ base: { local_id: 'synthetic-shared-local' }, extra: [other] });
+  f.store.patch({ messages: { [f.base.gid]: [f.older, { ...f.base, message_id: null }] } }); await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 120);
+});
+
+test('real chatPane and ui-kit rerender preserve user scrolling and follow realtime only while pinned', async () => {
+  for (const pinned of [false, true]) {
+    const f = anchorFixture({ realScroll: true }); f.scroll().scrollTop = pinned ? 600 : 200;
+    f.upsert(f.live); await Promise.resolve(); assert.equal(f.scroll().dataset['scrollBottom'], pinned ? '1' : '0'); assert.equal(f.scroll().scrollTop, pinned ? 800 : 200);
+    f.scroll().scrollTop = 240; f.upsert({ ...f.live, message_id: 'synthetic-live-next', create_time_ms: 400 }); await Promise.resolve();
+    assert.equal(f.scroll().dataset['scrollBottom'], '0'); assert.equal(f.scroll().scrollTop, 240);
+  }
+});
+
+test('real chatPane starts a new account scope at bottom even when the room ID is reused', async () => {
+  for (const change of ['account_id', 'environment', 'session_generation'] as const) {
+    const f = anchorFixture({ realScroll: true }); f.scroll().scrollTop = 200;
+    f.setScope({ ...f.context, [change]: change === 'session_generation' ? 2 : 'synthetic-other' } as never); await Promise.resolve();
+    assert.equal(f.scroll().dataset['scrollBottom'], '1'); assert.equal(f.scroll().scrollTop, 600);
   }
 });

@@ -102,6 +102,7 @@ import {
   mergeHistory,
   historyScopeKey,
   messageHistoryKey,
+  messageHistoryMatches,
   visibleMessages,
   selectedQuoteReference,
   messageQuotePreview,
@@ -1274,7 +1275,7 @@ function mediaNodeKey(account: AccountContext | null, conv: UiConversation, mess
   return JSON.stringify([account.environment, account.account_id, account.session_generation, conv.gid, message.message_id ? 'server' : 'local', id]);
 }
 
-interface MessageAnchor { readonly scope: string; readonly key: string; readonly offset: number }
+interface MessageAnchor { readonly scope: string; readonly identities: readonly string[]; readonly candidates: readonly { readonly key: string; readonly offset: number }[] }
 function captureMessageAnchor(s: MainState): MessageAnchor | null {
   const conv = activeConv(s), account = activeAccount(s)?.context ?? null;
   if (!conv) return null;
@@ -1283,11 +1284,12 @@ function captureMessageAnchor(s: MainState): MessageAnchor | null {
   if (!scope || !scroll || scroll.dataset['historyScope'] !== scope || scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 48) return null;
   const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
   const top = scroll.getBoundingClientRect().top;
+  const candidates: { key: string; offset: number }[] = [];
   for (const row of rows) {
     const key = row.dataset['historyKey'], rect = row.getBoundingClientRect();
-    if (key && rect.bottom > top && rect.top < top + scroll.clientHeight && rows.filter(candidate => candidate.dataset['historyKey'] === key).length === 1) return { scope, key, offset: rect.top - top };
+    if (key && rect.bottom > top && rect.top < top + scroll.clientHeight && rows.filter(candidate => messageHistoryMatches(key, candidate.dataset['historyKey'] ?? '')).length === 1) candidates.push({ key, offset: rect.top - top });
   }
-  return null;
+  return candidates.length ? { scope, identities: rows.map(row => row.dataset['historyKey'] ?? '').filter(Boolean), candidates } : null;
 }
 function restoreMessageAnchor(anchor: MessageAnchor | null): void {
   if (!anchor) return;
@@ -1295,9 +1297,15 @@ function restoreMessageAnchor(anchor: MessageAnchor | null): void {
   if (!conv || historyScopeKey(account, conv.gid) !== anchor.scope) return;
   const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
   if (!scroll || scroll.dataset['historyScope'] !== anchor.scope) return;
-  const matches = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')].filter(row => row.dataset['historyKey'] === anchor.key);
-  if (matches.length !== 1) return;
-  scroll.scrollTop += matches[0]!.getBoundingClientRect().top - scroll.getBoundingClientRect().top - anchor.offset;
+  const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
+  for (const candidate of anchor.candidates) {
+    const matches = rows.filter(row => messageHistoryMatches(candidate.key, row.dataset['historyKey'] ?? ''));
+    if (matches.length !== 1) continue;
+    // A newly sparse row must not arbitrarily select one of several former identities.
+    if (anchor.identities.filter(key => messageHistoryMatches(key, matches[0]!.dataset['historyKey'] ?? '')).length !== 1) continue;
+    scroll.scrollTop += matches[0]!.getBoundingClientRect().top - scroll.getBoundingClientRect().top - candidate.offset;
+    return;
+  }
 }
 function withMessageAnchor(s: MainState, redraw: () => void): void {
   const anchor = captureMessageAnchor(s);
@@ -1601,7 +1609,7 @@ function chatPane(s: MainState): HTMLElement {
   if (!conv) return h('div', { class: 'chat-empty' }, icon(IC.chat, 40), h('div', null, t('chat.empty')));
   const msgs = visibleMessages(s.messages[conv.gid] ?? []);
   const previousScroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
-  const pinned = previousScroll?.dataset['thread'] !== conv.gid || previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < 48;
+  const pinned = previousScroll?.dataset['historyScope'] !== historyScopeKey(acc?.context ?? null, conv.gid) || previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < 48;
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
   const sub = [conv.vendor_name, isDone(conv) ? t('chat.finished') : waiting ? t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) }) : ''].filter(Boolean).join(' · ');
   const type = /^[A-Za-z][A-Za-z0-9]{0,5}$/.test(conv.service_type) ? `${conv.service_type} · ${conv.biz}` : conv.biz;
