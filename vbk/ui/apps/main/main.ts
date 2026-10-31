@@ -110,7 +110,6 @@ import {
   sendStateView,
   shouldShowTranslationBar,
   tabCounts,
-  translationApplies,
   unreadTotal,
 } from './viewmodel.ts';
 import type { BannerItem, ListTab, LogoutMode, OrderContactState, TranslationState, QuotedUiMessage } from './viewmodel.ts';
@@ -690,13 +689,14 @@ async function translateAndSend(text: string): Promise<void> {
   const s = S();
   const version = s.draftVersion;
   const target = translationTarget(s, conv);
-  store.patch({ translation: { status: 'busy', gid: conv.gid, draftVersion: version, target, text: '', error: null } });
+  const request: TranslationState = { status: 'busy', gid: conv.gid, draftVersion: version, target, text: '', error: null };
+  store.patch({ translation: request });
   try {
     const r = await ipc.invoke<{ draft_version: number; text: string }>(UiCommands.ASSIST_TRANSLATE, { account: acc.context, gid: conv.gid, draft_version: version, text, target });
-    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || r.draft_version !== version) return; // account, room or draft changed while translating
+    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || S().translation !== request || r.draft_version !== version) return; // account, room, draft or translation request changed
     await sendText(r.text, text);
   } catch (e) {
-    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version) return;
+    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || S().translation !== request) return;
     const msg = isAppError(e) && e.code === 'assistant.tsim_unauthenticated' ? t('tr.needLogin') : errorMessage(e);
     store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg } });
   }
@@ -726,13 +726,15 @@ async function runPreviewTranslation(): Promise<void> {
   const text = s.draft.trim();
   if (!text) return;
   const target = translationTarget(s, conv);
-  store.patch({ translation: { status: 'busy', gid: conv.gid, draftVersion: version, target, text: '', error: null } });
+  // The busy object owns this request, including overlapping requests for the same draft/target.
+  const request: TranslationState = { status: 'busy', gid: conv.gid, draftVersion: version, target, text: '', error: null };
+  store.patch({ translation: request });
   try {
     const r = await ipc.invoke<{ draft_version: number; text: string }>(UiCommands.ASSIST_TRANSLATE, { account: acc.context, gid: conv.gid, draft_version: version, text, target });
-    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || !translationApplies(S().translation, conv.gid, version) || r.draft_version !== version) return;
+    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || S().translation !== request || r.draft_version !== version) return;
     store.patch({ translation: { status: 'done', gid: conv.gid, draftVersion: version, target, text: r.text, error: null } });
   } catch (e) {
-    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || !translationApplies(S().translation, conv.gid, version)) return;
+    if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || S().translation !== request) return;
     const msg = isAppError(e) && e.code === 'assistant.tsim_unauthenticated' ? t('tr.needLogin') : errorMessage(e);
     store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg } });
   }

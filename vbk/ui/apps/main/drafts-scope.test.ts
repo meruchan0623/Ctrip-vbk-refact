@@ -38,7 +38,8 @@ function fixture() {
   function doneTranslation(text = 'SYNTHETIC TRANSLATION') { const current = store.get(); store.patch({ translation: { status: 'done', gid: current.activeGid, draftVersion: current.draftVersion, target: 'en', text, error: null } }); }
   function translationClick(action: string): () => void { const row = actual('translationBar')(store.get(), store.get().conversations.find(c => c.gid === store.get().activeGid)); const control = nodes(row).find(node => (node.props['dataset'] as Record<string, string> | undefined)?.['tr'] === action); assert.ok(control, action); return control.props['onclick'] as () => void; }
   function switchScope(next: typeof context) { snapshot({ active_account_id: next.account_id, accounts: [{ context: next, state: 'online', color: '#aaa' }] }); }
-  return { get state() { return store.get(); }, calls, set, open, actual, doneTranslation, translationClick, switchScope, send: (result: unknown) => { sendResult = result; }, translate: (result: unknown) => { translateResult = result; } };
+  function selectTarget(target: string) { const row = actual('translationBar')(store.get(), store.get().conversations.find(c => c.gid === store.get().activeGid)); const control = nodes(row).find(node => node.tag === 'select'); assert.ok(control); (control.props['onchange'] as (event: unknown) => void)({ target: { value: target } }); }
+  return { get state() { return store.get(); }, calls, set, open, actual, doneTranslation, translationClick, selectTarget, switchScope, send: (result: unknown) => { sendResult = result; }, translate: (result: unknown) => { translateResult = result; } };
 }
 test('actual setDraft/openConversation keeps each room draft and preserves a deliberate empty draft over server text', async () => {
   const f = fixture(); f.set('SYNTHETIC A'); await f.open('synthetic-B'); f.set('SYNTHETIC B'); await f.open('synthetic-A');
@@ -106,5 +107,52 @@ test('stale translation error actions and language selection cannot mutate a lat
     await f.open('synthetic-B'); f.set('SYNTHETIC B'); const before = JSON.stringify(f.state.translation);
     click({ target: { value: 'fr' } }); await Promise.resolve(); await Promise.resolve();
     assert.equal(f.state.draft, 'SYNTHETIC B'); assert.equal(JSON.stringify(f.state.translation), before); assert.equal(f.calls.length, 0);
+  }
+});
+
+test('actual target selection prevents a late preview success or error from replacing the current request', async () => {
+  for (const result of [{ text: 'SYNTHETIC OLD ENGLISH' }, new Error('SYNTHETIC OLD ERROR')]) {
+    const f = fixture(), old = deferred(), current = deferred(); f.set('SYNTHETIC A'); const version = f.state.draftVersion;
+    f.translate(old.promise); const first = f.actual('runPreviewTranslation')(); f.selectTarget('fr');
+    f.translate(current.promise); const second = f.actual('runPreviewTranslation')(); const busy = f.state.translation;
+    assert.equal(busy.target, 'fr'); assert.equal(f.calls[1]?.payload['target'], 'fr');
+    old.resolve(result instanceof Error ? result : { ...result, draft_version: version }); await first;
+    assert.equal(f.state.translation, busy, 'old response must not replace the current busy instance');
+    current.resolve({ draft_version: version, text: 'SYNTHETIC CURRENT FRENCH' }); await second;
+    assert.equal(f.state.translation.target, 'fr'); assert.equal(f.state.translation.text, 'SYNTHETIC CURRENT FRENCH');
+    f.translationClick('send')(); await Promise.resolve(); await Promise.resolve();
+    assert.deepEqual(f.calls.filter(c => c.command === 'send').map(c => c.payload['text']), ['SYNTHETIC CURRENT FRENCH']);
+  }
+});
+
+test('actual preview requests use instance ownership even when the target and draft version are identical', async () => {
+  for (const oldFinishesFirst of [true, false]) {
+    const f = fixture(), old = deferred(), current = deferred(); f.set('SYNTHETIC A'); const version = f.state.draftVersion;
+    f.translate(old.promise); const first = f.actual('runPreviewTranslation')();
+    f.translate(current.promise); const second = f.actual('runPreviewTranslation')(); const busy = f.state.translation;
+    if (oldFinishesFirst) { old.resolve({ draft_version: version, text: 'SYNTHETIC OLD' }); await first; assert.equal(f.state.translation, busy); }
+    current.resolve({ draft_version: version, text: 'SYNTHETIC CURRENT' }); await second; const done = f.state.translation;
+    if (!oldFinishesFirst) { old.resolve({ draft_version: version, text: 'SYNTHETIC OLD' }); await first; }
+    assert.equal(f.state.translation, done); assert.equal(done.text, 'SYNTHETIC CURRENT');
+  }
+});
+
+test('actual target selection invalidates old translated buttons across a language round trip', async () => {
+  for (const action of ['replace', 'send']) {
+    const f = fixture(); f.set('SYNTHETIC A'); f.doneTranslation('SYNTHETIC OLD ENGLISH'); const click = f.translationClick(action);
+    f.selectTarget('fr'); f.selectTarget('en'); const idle = f.state.translation;
+    click(); await Promise.resolve(); await Promise.resolve();
+    assert.equal(f.state.translation, idle); assert.equal(f.state.draft, 'SYNTHETIC A'); assert.equal(f.calls.length, 0);
+  }
+});
+
+test('actual direct translation cannot send or publish errors after the user changes language', async () => {
+  for (const result of [{ text: 'SYNTHETIC OLD ENGLISH' }, new Error('SYNTHETIC OLD ERROR')]) for (const startCurrent of [true, false]) {
+    const f = fixture(), old = deferred(), current = deferred(); f.state.prefs.assistant.send_mode = 'send_direct'; f.set('SYNTHETIC A'); const version = f.state.draftVersion;
+    f.translate(old.promise); const first = f.actual('handleSend')(); f.selectTarget('fr');
+    f.translate(current.promise); const second = startCurrent ? f.actual('handleSend')() : null; const translation = f.state.translation;
+    old.resolve(result instanceof Error ? result : { ...result, draft_version: version }); await first;
+    assert.equal(f.calls.filter(c => c.command === 'send').length, 0); assert.equal(f.state.translation, translation); assert.equal(f.state.draft, 'SYNTHETIC A');
+    if (second) { current.resolve({ draft_version: version, text: 'SYNTHETIC CURRENT FRENCH' }); await second; assert.deepEqual(f.calls.filter(c => c.command === 'send').map(c => c.payload['text']), ['SYNTHETIC CURRENT FRENCH']); }
   }
 });
