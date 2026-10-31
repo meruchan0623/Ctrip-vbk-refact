@@ -1,4 +1,5 @@
 import { personDisplayName } from './person-name.ts';
+import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
 /**
  * Main window (prototype 02-main): title bar with account tabs, left nav
  * (消息 / 通知 / 订单联系, bottom 设置 / 账号), messages workspace,
@@ -1447,8 +1448,15 @@ function restoreMessageAnchor(anchor: MessageAnchor | null): void {
 }
 function withMessageAnchor(s: MainState, redraw: () => void): void {
   const anchor = captureMessageAnchor(s);
+  stopHistoryLayout();
   redraw();
   restoreMessageAnchor(anchor);
+  const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
+  const scope = scroll?.dataset['historyScope'];
+  startHistoryLayout(scroll, () => captureMessageAnchor(S()), restoreMessageAnchor, () => {
+    const current = S(), conv = activeConv(current);
+    return !!scroll?.isConnected && !!scope && !!conv && historyScopeKey(activeAccount(current)?.context ?? null, conv.gid) === scope;
+  });
 }
 
 function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAccount | null): HTMLElement {

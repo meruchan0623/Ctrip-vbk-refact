@@ -123,9 +123,11 @@ test('shared local alias retains separate compatible groups for later exact serv
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
 import { messageAlignment } from './message-alignment.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
+import { observeHistoryLayout } from './history-layout.ts';
 function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolean; realScroll?: boolean; extra?: UiMessage[] } = {}) {
   const scope = { account_id: 'synthetic-account', environment: 'synthetic', session_generation: 1 };
   let owner = scope;
+  let lateGrowth = 0, resize = () => {}, stopLayout = () => {};
   const seeded: UiMessage = { ...pending, gid: 'synthetic-anchor-room', sender_role: 'customer', sender_id: 'synthetic-customer', message_id: 'synthetic-anchor-current', local_id: null, create_time_ms: 200, disposition: null, ...options.base };
   const { sender_id: _sender, ...withoutSender } = seeded;
   const base: UiMessage = options.omitSender ? withoutSender : seeded;
@@ -139,6 +141,10 @@ function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolea
     get scrollTop() { return this.top; }
     set scrollTop(value: number) { this.top = Math.max(0, Math.min(value, this.scrollHeight - this.clientHeight)); }
     dataset: Record<string, string> = {}; rows: Row[] = [];
+    isConnected = true;
+    get children() { return this.rows; }
+    addEventListener() {}
+    removeEventListener() {}
     getBoundingClientRect() { return { top: 50, bottom: 450 }; }
     querySelectorAll() { return this.rows; }
   }
@@ -146,6 +152,11 @@ function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolea
   class Root { constructor(readonlyScroll: Scroll) { this.scroll = readonlyScroll; } scroll: Scroll; querySelectorAll(selector: string) { return selector === '[data-keep-scroll]' ? [this.scroll] : []; } querySelector() { return null; } replaceChildren(next: Root) { this.scroll = next.scroll; scroll = next.scroll; } }
   const env: Record<string, unknown> = { ...viewmodel, messageAlignment, cx, createStore, subscribeBatched, store, S: () => store.get(), activeAccount: () => ({ context: owner }), activeConv: () => ({ gid: store.get().activeGid, account: owner, waiting_since_ms: null, status: 'active', service_type: 'chat', lang: 'en' }), stillActive: (account: typeof scope) => account.account_id === owner.account_id && account.environment === owner.environment && account.session_generation === owner.session_generation, isUiMessage, invokeSafe: () => new Promise(resolve => { complete = resolve; }), UiCommands: { IM_MESSAGE_PAGE: 'page' }, document: { querySelector: () => scroll }, queueMicrotask, Element: Root, CSS: { escape: encodeURIComponent }, root: { querySelector: () => null }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (key: string) => key, icon: () => null, IC: {}, richText: (text: string) => [text], h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }) };
   function actual(name: string, next: string, async = false) { const a = source.indexOf(`${async ? 'async ' : ''}function ${name}(`), b = source.indexOf(`\n${next}`, a); assert.ok(a >= 0 && b > a, name); return new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn ' + name + ';')(...Object.values(env)); }
+  env['stopHistoryLayout'] = () => stopLayout();
+  env['startHistoryLayout'] = (pane: HTMLElement, capture: () => unknown, restore: (anchor: unknown) => void, current: () => boolean) => {
+    class Observer { constructor(fn: () => void) { resize = fn; } observe() {} disconnect() {} }
+    stopLayout = observeHistoryLayout(pane, capture, restore, current, Observer as unknown as typeof ResizeObserver);
+  };
   // Load the actual helper group when present; the old production callback is exercised unchanged for red evidence.
   if (source.includes('function historyAnchorMatches(')) env['historyAnchorMatches'] = actual('historyAnchorMatches', 'interface MessageAnchor');
   for (const [name, next] of [['captureMessageAnchor', 'function restoreMessageAnchor('], ['restoreMessageAnchor', 'function withMessageAnchor('], ['withMessageAnchor', 'function messageRow(']] as const) if (source.includes(`function ${name}(`)) env[name] = actual(name, next);
@@ -164,7 +175,7 @@ function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolea
       const rendered = row({ ...store.get(), prefs: { general: { show_msg_time: false } } }, message, { gid: store.get().activeGid, account: owner, title: 'Synthetic Customer', color: '#aaa' }, { context: owner });
       const height = message.create_time_ms < 200 ? 300 : 200;
       const at = offset;
-      next.rows.push({ dataset: rendered.props.dataset ?? {}, getBoundingClientRect: () => ({ top: 50 + at - next.scrollTop, bottom: 50 + at + height - next.scrollTop }) });
+      next.rows.push({ dataset: rendered.props.dataset ?? {}, getBoundingClientRect: () => ({ top: 50 + at + (message.create_time_ms >= 200 ? lateGrowth : 0) - next.scrollTop, bottom: 50 + at + height + (message.create_time_ms >= 200 ? lateGrowth : 0) - next.scrollTop }) });
       offset += height;
     }
     next.scrollHeight = 1000 + (store.get().messages[store.get().activeGid] ?? []).filter(m => m.create_time_ms < 200).length * 300 + (store.get().messages[store.get().activeGid] ?? []).filter(m => m.create_time_ms > 200).length * 200;
@@ -181,8 +192,15 @@ function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolea
   const a = source.indexOf('subscribeBatched(store,'), b = source.indexOf('\nrerender(root, () => render(S()));', a);
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)))(...Object.values(env));
   const load = actual('loadEarlier', '/** `im://locate-conversation`', true), upsert = actual('upsertMessage', 'function upsertConversation(');
-  return { store, older, live, base, context: scope, scroll: () => scroll, load: () => load({ gid: base.gid, account: scope }), upsert, complete: (items: UiMessage[] = [older]) => complete({ items, has_more: false, before_ms: null }), setScope: (next: typeof scope) => { owner = next; store.patch({ activeGid: base.gid }); } };
+  return { store, older, live, base, context: scope, scroll: () => scroll, growMedia: () => { lateGrowth += 240; scroll.scrollHeight += 240; resize(); }, load: () => load({ gid: base.gid, account: scope }), upsert, complete: (items: UiMessage[] = [older]) => complete({ items, has_more: false, before_ms: null }), setScope: (next: typeof scope) => { owner = next; store.patch({ activeGid: base.gid }); } };
 }
+
+test('actual pagination retains the visible row after older media gains its intrinsic height', async () => {
+  const f = anchorFixture({ realScroll: true });
+  const loading = f.load(); await Promise.resolve(); f.complete(); await loading; await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 420);
+  f.growMedia(); assert.equal(f.scroll().scrollTop, 660);
+});
 test('actual history broadcast before RPC return preserves the visible row once, with no double adjustment', async () => {
   const f = anchorFixture(), loading = f.load(); await Promise.resolve(); f.upsert(f.older); await Promise.resolve();
   f.complete(); await loading; await Promise.resolve(); assert.equal(f.scroll().scrollTop, 420);

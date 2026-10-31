@@ -5,6 +5,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import * as vm from './viewmodel.ts';
 import { messageAlignment } from './message-alignment.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
+import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
 const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
 const scope = { account_id: 'synthetic-account', environment: 'prod', session_generation: 1 };
 class ElementFixture {
@@ -31,6 +32,7 @@ function actualReuse(oldVideo: ElementFixture, nextVideo: ElementFixture): void 
   const oldRoot = new ElementFixture('div', {}, [oldVideo]); const nextRoot = new ElementFixture('div', {}, [nextVideo]);
   let trigger!: (state: object) => void;
   const env: Record<string, unknown> = { ...vm, activeConv: () => null, activeAccount: () => null, S: () => ({}), Element: ElementFixture, CSS: { escape: encodeURIComponent }, root: oldRoot, store: {}, render: () => nextRoot, subscribeBatched: (_store: unknown, callback: typeof trigger) => { trigger = callback; }, rerender: (_root: unknown, callback: () => unknown) => callback() };
+  Object.assign(env, { startHistoryLayout, stopHistoryLayout, document: { querySelector: () => null } });
   for (const [name, next] of [['captureMessageAnchor', 'restoreMessageAnchor'], ['restoreMessageAnchor', 'withMessageAnchor'], ['withMessageAnchor', 'messageRow']] as const) {
     const start = source.indexOf(`function ${name}(`), end = source.indexOf(`\nfunction ${next}(`, start);
     assert.ok(start >= 0 && end > start);
