@@ -97,7 +97,8 @@ html[data-platform="macos"] .wbtns { display: none; }
 .chat-name { font-weight: 600; font-size: var(--fs-lg); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .chat-sub { font-size: 12px; color: var(--c-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-empty { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--c-text-muted); }
-.msgs { flex: 1; overflow-y: auto; padding: 16px 18px 8px; display: flex; flex-direction: column; gap: 14px; }
+/* Synchronous row restore and ResizeObserver own this pane's reading position. */
+.msgs { flex: 1; overflow-y: auto; overflow-anchor: none; padding: 16px 18px 8px; display: flex; flex-direction: column; gap: 14px; }
 .msg-sys { display: flex; justify-content: center; }
 .msg-sys span { font-size: 11.5px; color: var(--c-text-muted); background: #E8ECF2; border-radius: 10px; padding: 3px 10px; max-width: 80%; text-align: center; }
 .msg { display: flex; gap: 8px; align-items: flex-start; position: relative; }

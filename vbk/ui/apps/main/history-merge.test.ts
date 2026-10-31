@@ -126,7 +126,7 @@ import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.t
 import { messageAlignment } from './message-alignment.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
 import { observeHistoryLayout } from './history-layout.ts';
-function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolean; realScroll?: boolean; extra?: UiMessage[] } = {}) {
+function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolean; realScroll?: boolean; extra?: UiMessage[]; topPadding?: number; rowHeight?: (message: UiMessage) => number } = {}) {
   const scope = { account_id: 'synthetic-account', environment: 'synthetic', session_generation: 1 };
   let owner = scope;
   let lateGrowth = 0, resize = () => {}, stopLayout = () => {};
@@ -145,8 +145,9 @@ function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolea
     dataset: Record<string, string> = {}; rows: Row[] = [];
     isConnected = true;
     get children() { return this.rows; }
-    addEventListener() {}
-    removeEventListener() {}
+    onScroll: (() => void) | undefined;
+    addEventListener(_name: string, callback: () => void) { this.onScroll = callback; }
+    removeEventListener() { this.onScroll = undefined; }
     getBoundingClientRect() { return { top: 50, bottom: 450 }; }
     querySelectorAll() { return this.rows; }
   }
@@ -173,10 +174,10 @@ function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolea
     const next = new Scroll(); next.scrollTop = scroll.scrollTop;
     next.dataset['historyScope'] = env['historyScopeKey'] ? (env['historyScopeKey'] as (account: typeof scope, gid: string) => string)(owner, store.get().activeGid) : 'old-scope';
     if (options.realScroll) next.dataset = findScroll(pane(store.get())).props.dataset;
-    let offset = 100;
+    let offset = options.topPadding ?? 100;
     for (const message of store.get().messages[store.get().activeGid] ?? []) {
       const rendered = row({ ...store.get(), prefs: { general: { show_msg_time: false } } }, message, { gid: store.get().activeGid, account: owner, title: 'Synthetic Customer', color: '#aaa' }, { context: owner });
-      const height = message.create_time_ms < 200 ? 300 : 200;
+      const height = options.rowHeight?.(message) ?? (message.create_time_ms < 200 ? 300 : 200);
       const at = offset;
       next.rows.push({ dataset: rendered.props.dataset ?? {}, getBoundingClientRect: () => ({ top: 50 + at + (message.create_time_ms >= 200 ? lateGrowth : 0) - next.scrollTop, bottom: 50 + at + height + (message.create_time_ms >= 200 ? lateGrowth : 0) - next.scrollTop }) });
       offset += height;
@@ -195,7 +196,7 @@ function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolea
   const a = source.indexOf('subscribeBatched(store,'), b = source.indexOf('\nrerender(root, () => render(S()));', a);
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)))(...Object.values(env));
   const load = actual('loadEarlier', '/** `im://locate-conversation`', true), upsert = actual('upsertMessage', 'function upsertConversation(');
-  return { store, older, live, base, context: scope, scroll: () => scroll, growMedia: () => { lateGrowth += 240; scroll.scrollHeight += 240; resize(); }, load: () => load({ gid: base.gid, account: scope }), upsert, complete: (items: UiMessage[] = [older]) => complete({ items, has_more: false, before_ms: null }), setScope: (next: typeof scope) => { owner = next; store.patch({ activeGid: base.gid }); } };
+  return { store, older, live, base, context: scope, scroll: () => scroll, userScroll: (top: number) => { scroll.scrollTop = top; scroll.onScroll?.(); }, growMedia: () => { lateGrowth += 240; scroll.scrollHeight += 240; resize(); }, load: () => load({ gid: base.gid, account: scope }), upsert, complete: (items: UiMessage[] = [older]) => complete({ items, has_more: false, before_ms: null }), setScope: (next: typeof scope) => { owner = next; store.patch({ activeGid: base.gid }); } };
 }
 
 test('actual pagination retains the visible row after older media gains its intrinsic height', async () => {
@@ -203,6 +204,47 @@ test('actual pagination retains the visible row after older media gains its intr
   const loading = f.load(); await Promise.resolve(); f.complete(); await loading; await Promise.resolve();
   assert.equal(f.scroll().scrollTop, 420);
   f.growMedia(); assert.equal(f.scroll().scrollTop, 660);
+});
+
+test('incremental history rows cannot take over the original reading anchor while it remains visible', async () => {
+  const f = anchorFixture({ realScroll: true, topPadding: 57, rowHeight: message => message.create_time_ms === 100 ? 115 : message.create_time_ms === 150 ? 253 : 23 });
+  f.scroll().scrollTop = 0;
+  const loading = f.load(); await Promise.resolve();
+  f.upsert(f.older); await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 115);
+  assert.equal(f.scroll().rows[1]!.getBoundingClientRect().top - 50, 57);
+  f.scroll().onScroll?.(); // Queued programmatic scroll must not erase the preference.
+  const middle = { ...f.older, message_id: 'synthetic-middle-page-row', create_time_ms: 150 };
+  f.upsert(middle); await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 368, 'second insertion must preserve the original row, not the newly clipped first row');
+  assert.equal(f.scroll().rows[2]!.getBoundingClientRect().top - 50, 57);
+  f.complete([f.older, middle]); await loading; await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 368);
+});
+
+test('user scrolling during incremental history selects a fresh reading row even if the former anchor is visible', async () => {
+  const f = anchorFixture({ realScroll: true, topPadding: 57, rowHeight: message => message.create_time_ms === 100 ? 115 : message.create_time_ms === 150 ? 253 : 23 });
+  f.scroll().scrollTop = 0;
+  f.upsert(f.older); await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 115);
+  f.userScroll(0);
+  f.upsert({ ...f.older, message_id: 'synthetic-middle-page-row', create_time_ms: 150 }); await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 0, 'explicit scroll to the new first row replaces the former preference');
+  assert.equal(f.scroll().rows[0]!.getBoundingClientRect().top - 50, 57);
+});
+
+test('the managed message pane disables competing native anchoring and keeps its reading row through media then another page row', async () => {
+  const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+  assert.match(css.match(/\.msgs\s*\{([^}]+)\}/)?.[1] ?? '', /overflow-anchor\s*:\s*none\b/);
+  const f = anchorFixture({ realScroll: true, topPadding: 57, rowHeight: message => message.create_time_ms === 100 ? 115 : message.create_time_ms === 150 ? 253 : 23 });
+  f.scroll().scrollTop = 0;
+  f.upsert(f.older); await Promise.resolve();
+  f.growMedia();
+  assert.equal(f.scroll().scrollTop, 355, 'ResizeObserver compensates the media layout without a native scroll adjustment');
+  assert.equal(f.scroll().rows[1]!.getBoundingClientRect().top - 50, 57);
+  f.upsert({ ...f.older, message_id: 'synthetic-middle-page-row', create_time_ms: 150 }); await Promise.resolve();
+  assert.equal(f.scroll().scrollTop, 608);
+  assert.equal(f.scroll().rows[2]!.getBoundingClientRect().top - 50, 57);
 });
 test('actual capture/restore diagnostics are opt-in and report only geometry and match rejection', async () => {
   historyDiagnostics.clear();

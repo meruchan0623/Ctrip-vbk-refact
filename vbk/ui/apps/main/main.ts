@@ -1499,6 +1499,15 @@ function captureMessageAnchor(s: MainState): MessageAnchor | null {
       if (key && matches === 1) candidates.push({ key, offset: rect.top - top, row: index });
     }
   }
+  // A page arrives through several message broadcasts. A newly inserted clipped row
+  // must not replace the row we just restored while that reading row is still visible.
+  // Re-read its current offset on every capture so actual user scrolling still wins.
+  const preferred = scroll.dataset['historyAnchorKey'];
+  const preferredCandidates = preferred ? candidates.filter(candidate => historyAnchorMatches(preferred, candidate.key)) : [];
+  if (preferredCandidates.length === 1) {
+    const index = candidates.indexOf(preferredCandidates[0]!);
+    candidates.unshift(...candidates.splice(index, 1));
+  }
   historyDiagnostics.record('capture_done', { capture: diagnosticId, visible, candidates: candidates.length }, candidates.length ? 'observed' : 'no_candidates');
   return candidates.length ? { scope, diagnosticId, identities: rows.map(row => row.dataset['historyKey'] ?? '').filter(Boolean), candidates } : null;
 }
@@ -1517,6 +1526,7 @@ function restoreMessageAnchor(anchor: MessageAnchor | null): void {
     if (reverseMatches !== 1) { historyDiagnostics.record('match', { capture: anchor.diagnosticId, row: candidate.row, matches: 1, reverseMatches }, 'reverse_ambiguous'); continue; }
     const before = scroll.scrollTop, delta = matches[0]!.getBoundingClientRect().top - scroll.getBoundingClientRect().top - candidate.offset;
     scroll.scrollTop += delta;
+    scroll.dataset['historyAnchorKey'] = matches[0]!.dataset['historyKey']!;
     historyDiagnostics.record('restore', { capture: anchor.diagnosticId, row: candidate.row, newRow: rows.indexOf(matches[0]!), matches: 1, reverseMatches, offset: candidate.offset, before, after: scroll.scrollTop, delta, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'applied');
     return;
   }

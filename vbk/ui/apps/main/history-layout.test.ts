@@ -9,6 +9,7 @@ function fixture(pinned = false) {
   let top = pinned ? 600 : 120;
   const watched: unknown[] = [];
   const scroll = {
+    dataset: {} as Record<string, string>,
     get scrollTop() { return top; },
     set scrollTop(value: number) { top = Math.max(0, Math.min(value, this.scrollHeight - this.clientHeight)); },
     scrollHeight: 1000, clientHeight: 400,

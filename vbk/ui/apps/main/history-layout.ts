@@ -18,6 +18,7 @@ export function observeHistoryLayout<Anchor>(
     lastTop = scroll.scrollTop;
   };
   const onScroll = (): void => {
+    if (disposed || !current()) return;
     // A scroll queued by synchronous restore may arrive after media layout, before RO.
     // If the viewport did not move, that event must not erase the pending layout delta.
     const maximum = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
@@ -25,7 +26,10 @@ export function observeHistoryLayout<Anchor>(
     // not a new reading position; keep the old row offset for the resize callback.
     if (lastTop > maximum && Math.abs(scroll.scrollTop - maximum) < 1) { historyDiagnostics.record('clamp', { before: lastTop, after: scroll.scrollTop, maximum }, 'observed'); return; }
     historyDiagnostics.record('scroll', { before: lastTop, after: scroll.scrollTop, maximum }, scroll.scrollTop === lastTop ? 'unchanged' : 'observed');
-    if (scroll.scrollTop !== lastTop) remember();
+    if (scroll.scrollTop !== lastTop) {
+      delete scroll.dataset['historyAnchorKey'];
+      remember();
+    }
   };
   const observer = new Observer(() => {
     if (disposed || !current()) return;
