@@ -1,3 +1,4 @@
+import { historyDiagnostics } from './history-diagnostics.ts';
 import { readHistoryPage } from './history-read.ts';
 import { personDisplayName } from './person-name.ts';
 import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
@@ -1446,35 +1447,47 @@ function historyAnchorMatches(before: string, after: string): boolean {
   return messageHistoryMatches(before, after);
 }
 
-interface MessageAnchor { readonly scope: string; readonly identities: readonly string[]; readonly candidates: readonly { readonly key: string; readonly offset: number }[] }
+interface MessageAnchor { readonly scope: string; readonly diagnosticId: number; readonly identities: readonly string[]; readonly candidates: readonly { readonly key: string; readonly offset: number; readonly row: number }[] }
 function captureMessageAnchor(s: MainState): MessageAnchor | null {
   const conv = activeConv(s), account = activeAccount(s)?.context ?? null;
-  if (!conv) return null;
+  if (!conv) { historyDiagnostics.record('capture_skip', {}, 'no_conversation'); return null; }
   const scope = historyScopeKey(account, conv.gid);
   const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
-  if (!scope || !scroll || scroll.dataset['historyScope'] !== scope || scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 48) return null;
+  if (!scope || !scroll || scroll.dataset['historyScope'] !== scope) { historyDiagnostics.record('capture_skip', {}, 'wrong_scope'); return null; }
+  if (scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 48) { historyDiagnostics.record('capture_skip', { scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'pinned'); return null; }
   const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
   const top = scroll.getBoundingClientRect().top;
-  const candidates: { key: string; offset: number }[] = [];
-  for (const row of rows) {
+  const diagnosticId = historyDiagnostics.record('capture', { rows: rows.length, scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight });
+  const candidates: { key: string; offset: number; row: number }[] = [];
+  let visible = 0;
+  for (const [index, row] of rows.entries()) {
     const key = row.dataset['historyKey'], rect = row.getBoundingClientRect();
-    if (key && rect.bottom > top && rect.top < top + scroll.clientHeight && rows.filter(candidate => historyAnchorMatches(key, candidate.dataset['historyKey'] ?? '')).length === 1) candidates.push({ key, offset: rect.top - top });
+    if (rect.bottom > top && rect.top < top + scroll.clientHeight) {
+      visible++;
+      const matches = key ? rows.filter(candidate => historyAnchorMatches(key, candidate.dataset['historyKey'] ?? '')).length : 0;
+      historyDiagnostics.record('candidate', { capture: diagnosticId, row: index, keyType: !key ? 0 : key.startsWith('scroll-system:') ? 1 : 2, top: rect.top - top, bottom: rect.bottom - top, matches }, !key ? 'missing' : matches === 1 ? 'observed' : 'ambiguous');
+      if (key && matches === 1) candidates.push({ key, offset: rect.top - top, row: index });
+    }
   }
-  return candidates.length ? { scope, identities: rows.map(row => row.dataset['historyKey'] ?? '').filter(Boolean), candidates } : null;
+  historyDiagnostics.record('capture_done', { capture: diagnosticId, visible, candidates: candidates.length }, candidates.length ? 'observed' : 'no_candidates');
+  return candidates.length ? { scope, diagnosticId, identities: rows.map(row => row.dataset['historyKey'] ?? '').filter(Boolean), candidates } : null;
 }
 function restoreMessageAnchor(anchor: MessageAnchor | null): void {
-  if (!anchor) return;
+  if (!anchor) { historyDiagnostics.record('restore_skip', {}, 'no_anchor'); return; }
   const current = S(), conv = activeConv(current), account = activeAccount(current)?.context ?? null;
-  if (!conv || historyScopeKey(account, conv.gid) !== anchor.scope) return;
+  if (!conv || historyScopeKey(account, conv.gid) !== anchor.scope) { historyDiagnostics.record('restore_skip', { capture: anchor.diagnosticId }, 'wrong_scope'); return; }
   const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
-  if (!scroll || scroll.dataset['historyScope'] !== anchor.scope) return;
+  if (!scroll || scroll.dataset['historyScope'] !== anchor.scope) { historyDiagnostics.record('restore_skip', { capture: anchor.diagnosticId }, 'wrong_scope'); return; }
   const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
   for (const candidate of anchor.candidates) {
     const matches = rows.filter(row => historyAnchorMatches(candidate.key, row.dataset['historyKey'] ?? ''));
-    if (matches.length !== 1) continue;
+    if (matches.length !== 1) { historyDiagnostics.record('match', { capture: anchor.diagnosticId, row: candidate.row, matches: matches.length }, matches.length ? 'ambiguous' : 'missing'); continue; }
     // A newly sparse row must not arbitrarily select one of several former identities.
-    if (anchor.identities.filter(key => historyAnchorMatches(key, matches[0]!.dataset['historyKey'] ?? '')).length !== 1) continue;
-    scroll.scrollTop += matches[0]!.getBoundingClientRect().top - scroll.getBoundingClientRect().top - candidate.offset;
+    const reverseMatches = anchor.identities.filter(key => historyAnchorMatches(key, matches[0]!.dataset['historyKey'] ?? '')).length;
+    if (reverseMatches !== 1) { historyDiagnostics.record('match', { capture: anchor.diagnosticId, row: candidate.row, matches: 1, reverseMatches }, 'reverse_ambiguous'); continue; }
+    const before = scroll.scrollTop, delta = matches[0]!.getBoundingClientRect().top - scroll.getBoundingClientRect().top - candidate.offset;
+    scroll.scrollTop += delta;
+    historyDiagnostics.record('restore', { capture: anchor.diagnosticId, row: candidate.row, newRow: rows.indexOf(matches[0]!), matches: 1, reverseMatches, offset: candidate.offset, before, after: scroll.scrollTop, delta, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'applied');
     return;
   }
 }
@@ -2057,7 +2070,13 @@ function receiveDiagnosticsDialog(s: MainState): HTMLElement | null {
           h('p', null, `${labels[snapshot.availability]} · ${formatClock(snapshot.captured_at_ms, true)}`),
           h('p', null, `SDK：${snapshot.page?.sdk?.binding.listener_health ?? '无数据'}；页面消息：${snapshot.page?.session.received ?? '—'}；宿主投影：${snapshot.host?.changed_messages ?? '—'}`),
           h('p', null, `主界面：收到 ${snapshot.main.received} / 格式拒绝 ${snapshot.main.guard_rejected} / 账号丢弃 ${snapshot.main.account_dropped} / 已写入 ${snapshot.main.upserted}`)) : null,
-        snapshot ? h('pre', { class: 'receive-diagnostics-json', tabindex: '0', 'aria-label': '不含身份或消息正文的接收诊断JSON' }, receiveDiagnosticsJson(snapshot)) : null),
+        snapshot ? h('pre', { class: 'receive-diagnostics-json', tabindex: '0', 'aria-label': '不含身份或消息正文的接收诊断JSON' }, receiveDiagnosticsJson(snapshot)) : null,
+        h('p', { class: 'muted' }, `滚动诊断：${historyDiagnostics.active() ? '记录中' : '已停止'}。仅在本机内存保留行数、匹配数量与位置，不记录消息正文或身份。`),
+        h('button', { class: 'btn', dataset: { historyDiagnostic: 'start' }, onclick: () => { historyDiagnostics.start(); store.patch({}); } }, '开始滚动诊断'),
+        h('button', { class: 'btn', dataset: { historyDiagnostic: 'stop' }, onclick: () => { historyDiagnostics.stop(); store.patch({}); } }, '停止滚动诊断'),
+        h('button', { class: 'btn', dataset: { historyDiagnostic: 'clear' }, onclick: () => { historyDiagnostics.clear(); store.patch({}); } }, '清空滚动诊断'),
+        h('button', { class: 'btn', dataset: { historyDiagnostic: 'copy' }, onclick: () => copyText(JSON.stringify(historyDiagnostics.snapshot(), null, 2)) }, '复制滚动诊断'),
+        h('pre', { class: 'receive-diagnostics-json', tabindex: '0', 'aria-label': '不含身份或正文的滚动诊断JSON' }, JSON.stringify(historyDiagnostics.snapshot(), null, 2))),
       h('div', { class: 'dlg-f' },
         h('button', { class: 'btn', disabled: view.busy, onclick: () => void receiveDiagnostics.refresh() }, '只读刷新'),
         h('button', { class: 'btn', disabled: view.busy || !snapshot, onclick: () => { if (snapshot) copyText(receiveDiagnosticsJson(snapshot)); } }, '复制安全JSON'),

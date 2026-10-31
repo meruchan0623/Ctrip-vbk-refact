@@ -1,3 +1,4 @@
+import { historyDiagnostics } from './history-diagnostics.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -104,7 +105,7 @@ test('actual visible diagnostics dialog copies only safe JSON and performs no im
   interface Node { tag: string; props: Record<string, unknown>; children: unknown[] }
   const walk = (tree: unknown): Node[] => Array.isArray(tree) ? tree.flatMap(walk) : tree && typeof tree === 'object' ? [tree as Node, ...walk((tree as Node).children ?? [])] : [];
   const copies: string[] = []; let refreshes = 0;
-  const env = { receiveDiagnostics: { close() {}, refresh() { refreshes++; } }, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, formatClock: () => 'synthetic-time', receiveDiagnosticsJson, copyText: (text: string) => { copies.push(text); } };
+  const env = { historyDiagnostics, store: { patch() {} }, receiveDiagnostics: { close() {}, refresh() { refreshes++; } }, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, formatClock: () => 'synthetic-time', receiveDiagnosticsJson, copyText: (text: string) => { copies.push(text); } };
   const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)) + '\nreturn receiveDiagnosticsDialog;')(...Object.values(env));
   const snapshot = { ...safeReceiveDiagnostics(fullDiagnostics, 100), main: { received: 1, guard_rejected: 0, account_dropped: 0, upserted: 1 } };
   const tree = walk(render({ receiveDiagnostics: { busy: false, snapshot } }));
@@ -122,4 +123,13 @@ test('actual visible diagnostics dialog copies only safe JSON and performs no im
   assert.ok(refresh);
   (refresh.props['onclick'] as () => void)();
   assert.equal(refreshes, 1);
+  const geometry = (action: string) => {
+    const button = tree.find(node => (node.props['dataset'] as Record<string, string> | undefined)?.['historyDiagnostic'] === action);
+    assert.ok(button); (button.props['onclick'] as () => void)();
+  };
+  historyDiagnostics.clear(); assert.equal(historyDiagnostics.active(), false);
+  geometry('start'); historyDiagnostics.record('capture', { rows: 2 }); geometry('stop'); geometry('copy');
+  assert.equal(historyDiagnostics.active(), false); assert.equal(JSON.parse(copies[1]!).events.length, 1);
+  geometry('clear'); assert.equal(historyDiagnostics.snapshot().events.length, 0);
+  assert.equal(refreshes, 1, 'geometry controls perform no host reads or history requests');
 });

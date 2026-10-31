@@ -1,3 +1,4 @@
+import { historyDiagnostics } from './history-diagnostics.ts';
 /** Keep the current reading position when media resolves after a synchronous render. */
 export function observeHistoryLayout<Anchor>(
   scroll: HTMLElement,
@@ -22,11 +23,13 @@ export function observeHistoryLayout<Anchor>(
     const maximum = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
     // Shrinking media may clamp the old offset before RO. That is a layout move,
     // not a new reading position; keep the old row offset for the resize callback.
-    if (lastTop > maximum && Math.abs(scroll.scrollTop - maximum) < 1) return;
+    if (lastTop > maximum && Math.abs(scroll.scrollTop - maximum) < 1) { historyDiagnostics.record('clamp', { before: lastTop, after: scroll.scrollTop, maximum }, 'observed'); return; }
+    historyDiagnostics.record('scroll', { before: lastTop, after: scroll.scrollTop, maximum }, scroll.scrollTop === lastTop ? 'unchanged' : 'observed');
     if (scroll.scrollTop !== lastTop) remember();
   };
   const observer = new Observer(() => {
     if (disposed || !current()) return;
+    historyDiagnostics.record('resize', { scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight, pinned: pinned ? 1 : 0 }, 'observed');
     if (pinned) scroll.scrollTop = scroll.scrollHeight;
     else restore(anchor);
     remember();

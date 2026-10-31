@@ -1,3 +1,4 @@
+import { historyDiagnostics } from './history-diagnostics.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -20,7 +21,7 @@ class ElementFixture {
 }
 function descendants(tree: unknown): ElementFixture[] { if (Array.isArray(tree)) return tree.flatMap(descendants); if (!(tree instanceof ElementFixture)) return []; return [tree, ...descendants(tree.children)]; }
 function renderVideo(account = scope, room = 'synthetic-room', id: string | null = 'synthetic-message', url = 'https://media.ctrip.com/synthetic.mp4', owner = account): ElementFixture {
-  const env: Record<string, unknown> = { ...vm, cx, messageAlignment, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => new ElementFixture(tag, props ?? {}, children), document: {}, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: () => null, IC: {} };
+  const env: Record<string, unknown> = { ...vm, historyDiagnostics, cx, messageAlignment, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => new ElementFixture(tag, props ?? {}, children), document: {}, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: () => null, IC: {} };
   if (source.includes('function mediaNodeKey(')) { const a = source.indexOf('function mediaNodeKey('), b = source.indexOf('\nfunction messageRow(', a); env['mediaNodeKey'] = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn mediaNodeKey;')(...Object.values(env)); }
   const a = source.indexOf('function messageRow('), b = source.indexOf('\nfunction translationBar(', a);
   const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn messageRow;')(...Object.values(env));
@@ -31,7 +32,7 @@ function renderVideo(account = scope, room = 'synthetic-room', id: string | null
 function actualReuse(oldVideo: ElementFixture, nextVideo: ElementFixture): void {
   const oldRoot = new ElementFixture('div', {}, [oldVideo]); const nextRoot = new ElementFixture('div', {}, [nextVideo]);
   let trigger!: (state: object) => void;
-  const env: Record<string, unknown> = { ...vm, activeConv: () => null, activeAccount: () => null, S: () => ({}), Element: ElementFixture, CSS: { escape: encodeURIComponent }, root: oldRoot, store: {}, render: () => nextRoot, subscribeBatched: (_store: unknown, callback: typeof trigger) => { trigger = callback; }, rerender: (_root: unknown, callback: () => unknown) => callback() };
+  const env: Record<string, unknown> = { ...vm, historyDiagnostics, activeConv: () => null, activeAccount: () => null, S: () => ({}), Element: ElementFixture, CSS: { escape: encodeURIComponent }, root: oldRoot, store: {}, render: () => nextRoot, subscribeBatched: (_store: unknown, callback: typeof trigger) => { trigger = callback; }, rerender: (_root: unknown, callback: () => unknown) => callback() };
   Object.assign(env, { startHistoryLayout, stopHistoryLayout, document: { querySelector: () => null } });
   env['composerInput'] = { deferRender: () => false }; // Playback fixture has no composing editor.
   for (const [name, next] of [['captureMessageAnchor', 'restoreMessageAnchor'], ['restoreMessageAnchor', 'withMessageAnchor'], ['withMessageAnchor', 'messageRow']] as const) {

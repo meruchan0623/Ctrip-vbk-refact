@@ -1,3 +1,4 @@
+import { historyDiagnostics } from './history-diagnostics.ts';
 import { readHistoryPage } from './history-read.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +13,7 @@ const pending: UiMessage = { gid: 'synthetic-A', message_id: null, local_id: 'sy
 const confirmed: UiMessage = { ...pending, message_id: 'synthetic-server', text: 'SYNTHETIC HISTORY', sender_name: null, sender_avatar: null, disposition: { kind: 'confirmed', server_message_id: 'synthetic-server', server_time_ms: 105 } };
 function fixture(current: UiMessage[], page: UiMessage[]) {
   const state = { activeGid: 'synthetic-B', messages: { [pending.gid]: current }, drafts: {}, conversations: [{ gid: pending.gid, unread_count: 0 }], history: {}, banners: [], draftVersion: 0, view: 'messages', quote: null };
-  const env = { ...viewmodel, readHistoryPage, mergeMessageProfile, isUiMessage, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => ({ context: { account_id: 'synthetic-account', environment: 'test', session_generation: 1 } }), stillActive: () => true, peripheral: { close: () => {} }, TRANSLATION_IDLE: {}, PKG_IDLE: {}, UiCommands: { IM_MESSAGE_PAGE: 'page' }, invokeQuiet: async () => ({ items: page, has_more: false, before_ms: null }), autoQueryPackage: () => {} };
+  const env = { ...viewmodel, historyDiagnostics, readHistoryPage, mergeMessageProfile, isUiMessage, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => ({ context: { account_id: 'synthetic-account', environment: 'test', session_generation: 1 } }), stillActive: () => true, peripheral: { close: () => {} }, TRANSLATION_IDLE: {}, PKG_IDLE: {}, UiCommands: { IM_MESSAGE_PAGE: 'page' }, invokeQuiet: async () => ({ items: page, has_more: false, before_ms: null }), autoQueryPackage: () => {} };
   function actual(name: string, next: string, async = false): (...args: unknown[]) => unknown {
     const a = source.indexOf(`${async ? 'async ' : ''}function ${name}(`); const b = source.indexOf(`\n${next}`, a);
     assert.ok(a >= 0 && b > a);
@@ -51,7 +52,7 @@ test('actual loadEarlier uses the exclusive cursor, fences duplicate clicks and 
   const requests: unknown[][] = [], queued: (() => void)[] = [];
   const scroll = { scrollHeight: 1000, scrollTop: 120 };
   const state = { activeGid: pending.gid, messages: { [pending.gid]: [pending] }, history: { [pending.gid]: { hasMore: true, beforeMs: 100, busy: false } } };
-  const env = { ...viewmodel, readHistoryPage, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, stillActive: () => active, invokeSafe: (...args: unknown[]) => { requests.push(args); return new Promise(resolve => { complete = resolve; }); }, UiCommands: { IM_MESSAGE_PAGE: 'page' }, isUiMessage, document: { querySelector: () => scroll }, queueMicrotask: (callback: () => void) => queued.push(callback) };
+  const env = { ...viewmodel, historyDiagnostics, readHistoryPage, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, stillActive: () => active, invokeSafe: (...args: unknown[]) => { requests.push(args); return new Promise(resolve => { complete = resolve; }); }, UiCommands: { IM_MESSAGE_PAGE: 'page' }, isUiMessage, document: { querySelector: () => scroll }, queueMicrotask: (callback: () => void) => queued.push(callback) };
   const a = source.indexOf('async function loadEarlier('), b = source.indexOf('\n/** `im://locate-conversation`', a);
   assert.ok(a >= 0 && b > a);
   const load = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn loadEarlier;')(...Object.values(env));
@@ -67,7 +68,7 @@ test('actual loadEarlier uses the exclusive cursor, fences duplicate clicks and 
 test('actual loadEarlier drops a late page after account generation changes', async () => {
   let complete!: (page: unknown) => void; let active = true;
   const state = { activeGid: pending.gid, messages: { [pending.gid]: [pending] }, history: { [pending.gid]: { hasMore: true, beforeMs: 100, busy: false } } };
-  const env = { ...viewmodel, readHistoryPage, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, stillActive: () => active, invokeSafe: () => new Promise(resolve => { complete = resolve; }), UiCommands: { IM_MESSAGE_PAGE: 'page' }, isUiMessage, document: { querySelector: () => { throw new Error('stale page must not inspect current DOM'); } } };
+  const env = { ...viewmodel, historyDiagnostics, readHistoryPage, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, stillActive: () => active, invokeSafe: () => new Promise(resolve => { complete = resolve; }), UiCommands: { IM_MESSAGE_PAGE: 'page' }, isUiMessage, document: { querySelector: () => { throw new Error('stale page must not inspect current DOM'); } } };
   const a = source.indexOf('async function loadEarlier('), b = source.indexOf('\n/** `im://locate-conversation`', a);
   const load = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn loadEarlier;')(...Object.values(env));
   const request = load({ gid: pending.gid, account: {} }); active = false;
@@ -151,7 +152,7 @@ function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolea
   }
   let scroll = new Scroll();
   class Root { constructor(readonlyScroll: Scroll) { this.scroll = readonlyScroll; } scroll: Scroll; querySelectorAll(selector: string) { return selector === '[data-keep-scroll]' ? [this.scroll] : []; } querySelector() { return null; } replaceChildren(next: Root) { this.scroll = next.scroll; scroll = next.scroll; } }
-  const env: Record<string, unknown> = { ...viewmodel, readHistoryPage, messageAlignment, cx, createStore, subscribeBatched, store, S: () => store.get(), activeAccount: () => ({ context: owner }), activeConv: () => ({ gid: store.get().activeGid, account: owner, waiting_since_ms: null, status: 'active', service_type: 'chat', lang: 'en' }), stillActive: (account: typeof scope) => account.account_id === owner.account_id && account.environment === owner.environment && account.session_generation === owner.session_generation, isUiMessage, invokeSafe: () => new Promise(resolve => { complete = resolve; }), UiCommands: { IM_MESSAGE_PAGE: 'page' }, document: { querySelector: () => scroll }, queueMicrotask, Element: Root, CSS: { escape: encodeURIComponent }, root: { querySelector: () => null }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (key: string) => key, icon: () => null, IC: {}, richText: (text: string) => [text], h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }) };
+  const env: Record<string, unknown> = { ...viewmodel, historyDiagnostics, readHistoryPage, messageAlignment, cx, createStore, subscribeBatched, store, S: () => store.get(), activeAccount: () => ({ context: owner }), activeConv: () => ({ gid: store.get().activeGid, account: owner, waiting_since_ms: null, status: 'active', service_type: 'chat', lang: 'en' }), stillActive: (account: typeof scope) => account.account_id === owner.account_id && account.environment === owner.environment && account.session_generation === owner.session_generation, isUiMessage, invokeSafe: () => new Promise(resolve => { complete = resolve; }), UiCommands: { IM_MESSAGE_PAGE: 'page' }, document: { querySelector: () => scroll }, queueMicrotask, Element: Root, CSS: { escape: encodeURIComponent }, root: { querySelector: () => null }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (key: string) => key, icon: () => null, IC: {}, richText: (text: string) => [text], h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }) };
   env['composerInput'] = { deferRender: () => false }; // This fixture has no composing editor.
   function actual(name: string, next: string, async = false) { const a = source.indexOf(`${async ? 'async ' : ''}function ${name}(`), b = source.indexOf(`\n${next}`, a); assert.ok(a >= 0 && b > a, name); return new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   env['stopHistoryLayout'] = () => stopLayout();
@@ -202,6 +203,23 @@ test('actual pagination retains the visible row after older media gains its intr
   const loading = f.load(); await Promise.resolve(); f.complete(); await loading; await Promise.resolve();
   assert.equal(f.scroll().scrollTop, 420);
   f.growMedia(); assert.equal(f.scroll().scrollTop, 660);
+});
+test('actual capture/restore diagnostics are opt-in and report only geometry and match rejection', async () => {
+  historyDiagnostics.clear();
+  const off = anchorFixture(); off.upsert(off.older); await Promise.resolve();
+  assert.equal(historyDiagnostics.snapshot().events.length, 0);
+  historyDiagnostics.start();
+  const system = { ...pending, gid: 'synthetic-anchor-room', kind: 'system' as const, sender_role: 'unknown' as const, message_id: null, local_id: null, create_time_ms: 200, disposition: null, text: 'SECRET CUSTOMER TEXT' };
+  const ambiguous = anchorFixture({ base: system, extra: [system] }); ambiguous.upsert(ambiguous.older); await Promise.resolve();
+  const rejected = historyDiagnostics.snapshot();
+  assert.ok(rejected.events.some(e => e.stage === 'candidate' && e.reason === 'ambiguous' && e.metrics.matches === 2));
+  assert.ok(rejected.events.some(e => e.stage === 'capture_done' && e.reason === 'no_candidates'));
+  assert.ok(rejected.events.some(e => e.stage === 'restore_skip' && e.reason === 'no_anchor'));
+  assert.ok(!JSON.stringify(rejected).includes('SECRET')); assert.ok(!JSON.stringify(rejected).includes('synthetic'));
+  historyDiagnostics.start();
+  const reading = anchorFixture(); reading.upsert(reading.older); await Promise.resolve();
+  assert.ok(historyDiagnostics.snapshot().events.some(e => e.stage === 'restore' && e.metrics.before === 120 && e.metrics.after === 420 && e.metrics.delta === 300));
+  historyDiagnostics.clear();
 });
 test('actual history broadcast before RPC return preserves the visible row once, with no double adjustment', async () => {
   const f = anchorFixture(), loading = f.load(); await Promise.resolve(); f.upsert(f.older); await Promise.resolve();
