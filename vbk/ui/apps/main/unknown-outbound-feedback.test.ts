@@ -15,7 +15,7 @@ const reads: string[] = [], state = { activeGid: gid, view: 'messages', conversa
 const a = source.indexOf('function upsertConversation('), b = source.indexOf('\nasync function sendText(', a);
 const upsert = new Function('S', 'store', 'document', 'invokeQuiet', 'UiCommands', stripTypeScriptTypes(source.slice(a, b)) + ';return upsertConversation;')(
   () => state, { patch: (p: object) => Object.assign(state, p) }, { visibilityState: 'visible' },
-  (cmd: string, p: { gid: string }) => { reads.push(cmd); return session.rpc.handle({ req_id: 'implicit-read', op: 'im.mark_read', args: { gid: p.gid } }); }, UiCommands);
+  (cmd: string, p: { gid: string; expected_message_id: string; expected_context_revision: string }) => { reads.push(cmd); return session.rpc.handle({ req_id: 'implicit-read', op: 'im.mark_read', args: { gid: p.gid, expected_message_id: p.expected_message_id, expected_context_revision: p.expected_context_revision } }); }, UiCommands);
 const base = makeDeps(c => jsonResponse(c.url.includes('getConversationList')
   ? { ResponseStatus: OK_STATUS, conversationList: [sampleRow(gid)], haveRest: false }
   : c.url.includes('getMessageList')

@@ -525,9 +525,17 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     [UiCommands.IM_MARK_READ]: async (p) => {
       const ctx = checkAccount(p);
       const gid = String((p as { gid?: string }).gid ?? '');
-      // read state only: the waiting round (waiting_since_ms) is untouched (10-im: 已读不能清掉提醒)
-      convFor(ctx, gid);
-      updateConv(gid, (c) => ({ ...c, unread_count: 0 }));
+      const conv = convFor(ctx, gid);
+      const revision = (p as { expected_context_revision?: unknown }).expected_context_revision;
+      if (typeof revision !== 'string' || revision === '' || revision !== conv.assistant_context_revision) {
+        throw appError(ErrorCodes.ADAPTER_FAILED, 'Read conversation context changed');
+      }
+      const expected = (p as { expected_message_id?: unknown }).expected_message_id;
+      const latest = (st.messages.get(gid) ?? []).at(-1)?.message_id;
+      if (typeof expected !== 'string' || expected === '' || !latest || expected !== latest) {
+        throw appError(ErrorCodes.ADAPTER_FAILED, '已读目标缺失或已变化');
+      }
+      // Receipt acknowledgment cannot clear authoritative unread or the waiting round.
       return null;
     },
     [UiCommands.IM_SET_TOP]: async (p) => {

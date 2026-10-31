@@ -1,4 +1,5 @@
 import { historyDiagnostics } from './history-diagnostics.ts';
+import { createVisibleRead } from './visible-read.ts';
 import { readHistoryPage } from './history-read.ts';
 import { personDisplayName } from './person-name.ts';
 import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
@@ -170,7 +171,7 @@ interface MainState {
   readonly tab: ListTab;
   readonly query: string;
   readonly activeGid: string | null;
-  readonly history: Readonly<Record<string, { hasMore: boolean; beforeMs: number | null; busy: boolean; firstPage?: 'loading' | 'loaded' | 'error'; pageError?: boolean }>>;
+  readonly history: Readonly<Record<string, { hasMore: boolean; beforeMs: number | null; busy: boolean; firstPage?: 'loading' | 'loaded' | 'error'; pageError?: boolean; readContextRevision?: string | undefined }>>;
   readonly messages: Readonly<Record<string, readonly UiMessage[]>>;
   readonly draft: string;
   readonly drafts: Readonly<Record<string, string>>;
@@ -618,14 +619,19 @@ async function openConversation(gid: string, reveal = true): Promise<void> {
   const acc = activeAccount();
   if (!acc) return;
   const s = S();
+  const readContextRevision = s.conversations.find(c => c.gid === gid)?.assistant_context_revision;
+  if (reveal) visibleReads.retry(acc.context, gid, readContextRevision);
+  const previousHistory = s.history[gid];
+  if (previousHistory && previousHistory.readContextRevision !== readContextRevision) {
+    const history = { ...s.history }; delete history[gid];
+    store.patch({ history, messages: { ...s.messages, [gid]: [] } });
+  }
   const view: View = reveal ? 'messages' : s.view;
   // Opening a conversation dismisses its banner; it never touches the alarm round (host-owned).
   const banners = s.banners.filter((b) => !(b.gid === gid && sameAccount(b.account, acc.context)));
   if (s.activeGid === gid) {
     store.patch({ view, ctxMenu: null, banners });
-    if (s.history[gid]?.firstPage === 'loaded') {
-      const conv = S().conversations.find((c) => c.gid === gid);
-      if (view === 'messages' && (typeof document === 'undefined' || document.visibilityState === 'visible') && conv && conv.unread_count > 0) await invokeQuiet(UiCommands.IM_MARK_READ, { account: acc.context, gid });
+    if (S().history[gid]?.firstPage === 'loaded') {
       return;
     }
   } else {
@@ -634,18 +640,20 @@ async function openConversation(gid: string, reveal = true): Promise<void> {
     store.patch({ activeGid: gid, view, banners, draft: s.drafts[gid] ?? s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, attachmentSelection: null, mediaOperation: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
   }
   if (S().history[gid]?.firstPage === 'loading') return;
-  const request = { hasMore: false, beforeMs: null, busy: true, firstPage: 'loading' as const };
+  const request = { hasMore: false, beforeMs: null, busy: true, firstPage: 'loading' as const, readContextRevision };
   store.patch({ history: { ...S().history, [gid]: request } });
-  const page = await readHistoryPage(invokeQuiet<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: acc.context, gid }));
+  const page = await readHistoryPage(invokeQuiet<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: acc.context, gid, ...(readContextRevision ? { expected_context_revision: readContextRevision } : {}) }));
   if (!stillActive(acc.context) || S().history[gid] !== request) return;
+  if (S().conversations.find(c => c.gid === gid)?.assistant_context_revision !== readContextRevision) {
+    store.patch({ history: { ...S().history, [gid]: { ...request, busy: false, firstPage: 'error' } } });
+    return;
+  }
   if (!page || page.items.some((m) => !isUiMessage(m) || m.gid !== gid)) {
     store.patch({ history: { ...S().history, [gid]: { ...request, busy: false, firstPage: 'error' } } });
     return;
   }
-  store.patch({ messages: { ...S().messages, [gid]: mergeHistory(page.items.filter((m) => isUiMessage(m) && m.gid === gid), S().messages[gid] ?? []) }, history: { ...S().history, [gid]: { hasMore: page.has_more, beforeMs: page.before_ms, busy: false, firstPage: 'loaded' } } });
+  store.patch({ messages: { ...S().messages, [gid]: mergeHistory(page.items.filter((m) => isUiMessage(m) && m.gid === gid), S().messages[gid] ?? []) }, history: { ...S().history, [gid]: { hasMore: page.has_more, beforeMs: page.before_ms, busy: false, firstPage: 'loaded', readContextRevision } } });
   if (S().activeGid === gid && S().view === 'messages' && (typeof document === 'undefined' || document.visibilityState === 'visible')) {
-    const conv = S().conversations.find((c) => c.gid === gid);
-    if (conv && conv.unread_count > 0) await invokeQuiet(UiCommands.IM_MARK_READ, { account: acc.context, gid });
     autoQueryPackage();
   }
 }
@@ -653,11 +661,11 @@ async function openConversation(gid: string, reveal = true): Promise<void> {
 async function loadEarlier(conv: UiConversation): Promise<void> {
   if (!stillActive(conv.account)) return;
   const entry = S().history[conv.gid];
-  if (!entry?.hasMore || entry.busy || entry.beforeMs === null) return;
+  if (!entry?.hasMore || entry.busy || entry.beforeMs === null || entry.readContextRevision !== conv.assistant_context_revision) return;
   const request = { ...entry, busy: true, pageError: false };
   store.patch({ history: { ...S().history, [conv.gid]: request } });
-  const page = await readHistoryPage(invokeSafe<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: conv.account, gid: conv.gid, before_ms: entry.beforeMs }));
-  if (!stillActive(conv.account) || S().history[conv.gid] !== request) return;
+  const page = await readHistoryPage(invokeSafe<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: conv.account, gid: conv.gid, before_ms: entry.beforeMs, ...(entry.readContextRevision ? { expected_context_revision: entry.readContextRevision } : {}) }));
+  if (!stillActive(conv.account) || S().history[conv.gid] !== request || S().conversations.find(c => c.gid === conv.gid)?.assistant_context_revision !== entry.readContextRevision) return;
   const validPage = page && page.items.every((m) => isUiMessage(m) && m.gid === conv.gid) ? page : null;
   store.patch({
     ...(validPage ? { messages: { ...S().messages, [conv.gid]: mergeHistory(validPage.items, S().messages[conv.gid] ?? []) } } : {}),
@@ -718,10 +726,7 @@ function upsertConversation(c: UiConversation): void {
   const s = S();
   const exists = s.conversations.some((x) => x.gid === c.gid);
   store.patch({ conversations: exists ? s.conversations.map((x) => (x.gid === c.gid ? c : x)) : [...s.conversations, c] });
-  // Viewing the conversation reads it; the waiting round stays host-owned (read ≠ replied).
-  if (c.gid === S().activeGid && c.unread_count > 0 && S().view === 'messages' && document.visibilityState === 'visible') {
-    void invokeQuiet(UiCommands.IM_MARK_READ, { account: c.account, gid: c.gid });
-  }
+  // Conversation previews do not prove that their latest message has been displayed.
 }
 
 async function sendText(text: string, original: string | null): Promise<void> {
@@ -1898,7 +1903,7 @@ function chatPane(s: MainState): HTMLElement {
       h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side' }, onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     ),
     netView(s.net).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
-    h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: historyScopeKey(acc?.context ?? null, conv.gid) } },
+    h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: historyScopeKey(acc?.context ?? null, conv.gid), readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
       s.history[conv.gid]?.firstPage === 'loading' ? h('div', { class: 'history-more', role: 'status' }, '正在读取聊天记录…') : null,
       s.history[conv.gid]?.firstPage === 'error' ? h('button', { class: 'history-more', onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
       s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null, msgs.map((m) => messageRow(s, m, conv, acc))),
@@ -2253,6 +2258,20 @@ function render(s: MainState): Node {
 
 // --------------------------------------------------------------- wiring
 
+const visibleReads = createVisibleRead({
+  current: () => {
+    const s = S(), conversation = activeConv(s);
+    return { account: activeAccount(s)?.context ?? null, conversation,
+      messages: conversation ? s.messages[conversation.gid] ?? [] : [],
+      firstPage: conversation ? s.history[conversation.gid]?.firstPage : undefined,
+      readContextRevision: conversation ? s.history[conversation.gid]?.readContextRevision : undefined,
+      view: s.view, blocked: !!(s.logoutDialog || s.peripheral || s.receiveDiagnostics || s.unknownOutbound) };
+  },
+  pane: () => root.querySelector<HTMLElement>('[data-keep-scroll="msgs"]'),
+  visible: () => document.visibilityState === 'visible' && document.hasFocus(),
+  invoke: args => ipc.invoke(UiCommands.IM_MARK_READ, args),
+});
+
 subscribeBatched(store, (s) => {
   if (composerInput.deferRender()) return;
   withMessageAnchor(s, () => rerender(root, () => {
@@ -2268,8 +2287,13 @@ subscribeBatched(store, (s) => {
   }
   return next;
   }));
+  visibleReads.afterRender();
 });
 rerender(root, () => render(S()));
+// Scrolling into view and returning focus must re-check the live scope and mounted rows.
+root.addEventListener('scroll', () => visibleReads.afterRender(), true);
+window.addEventListener('focus', () => visibleReads.afterRender());
+document.addEventListener('visibilitychange', () => visibleReads.afterRender());
 
 document.addEventListener('mousedown', () => {
   const s = S();

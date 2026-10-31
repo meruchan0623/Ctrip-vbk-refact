@@ -15,7 +15,7 @@ function fixture() {
   const requests: string[] = [];
   const invoke = async (cmd: string) => { requests.push(cmd); return await response; };
   const visibility = { visibilityState: 'visible' };
-  const env = { ...vm, readHistoryPage, document: visibility, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => ({ context: account }), stillActive: () => active, peripheral: { close() {} }, isUiMessage, TRANSLATION_IDLE: vm.TRANSLATION_IDLE, PKG_IDLE: {}, releaseAttachment: async () => {}, autoQueryPackage() {}, UiCommands: { IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages', IM_MARK_READ: 'read' }, invokeQuiet: invoke, invokeSafe: invoke };
+  const env = { visibleReads: { retry() {}, afterRender() {} }, ...vm, readHistoryPage, document: visibility, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => ({ context: account }), stillActive: () => active, peripheral: { close() {} }, isUiMessage, TRANSLATION_IDLE: vm.TRANSLATION_IDLE, PKG_IDLE: {}, releaseAttachment: async () => {}, autoQueryPackage() {}, UiCommands: { IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages', IM_MARK_READ: 'read' }, invokeQuiet: invoke, invokeSafe: invoke };
   const a = source.indexOf('async function openConversation('), b = source.indexOf('\nasync function loadEarlier(', a);
   const open = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn openConversation;')(...Object.values(env));
   const loadEnd = source.indexOf('\n/** `im://locate-conversation`', b);
@@ -46,7 +46,7 @@ test('concurrent clicks share initial read and completion while another room is 
   assert.equal(f.state.history['synthetic-room'].firstPage, 'loading');
   f.state.activeGid = 'other'; complete(f.page); await first;
   assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded'); assert.deepEqual(f.requests, ['page']);
-  f.state.activeGid = 'synthetic-room'; await f.open(); assert.deepEqual(f.requests, ['page', 'read'], 'explicit return acknowledges the cached page without reloading');
+  f.state.activeGid = 'synthetic-room'; await f.open(); assert.deepEqual(f.requests, ['page'], 'explicit return waits for a visible rendered server row before acknowledging');
 });
 test('late account result and malformed first pages cannot become a loaded empty history', async () => {
   const f = fixture(); let complete!: (value: unknown) => void;
@@ -89,7 +89,7 @@ test('late first page on another view or hidden window does not mark the convers
     f.respond(new Promise(resolve => { complete = resolve; })); const pending = f.open();
     if (hidden) f.visibility.visibilityState = 'hidden'; else f.state.view = 'notifications';
     complete(f.page); await pending; assert.deepEqual(f.requests, ['page']);
-    f.visibility.visibilityState = 'visible'; await f.open(); assert.deepEqual(f.requests, ['page', 'read']);
+    f.visibility.visibilityState = 'visible'; await f.open(); assert.deepEqual(f.requests, ['page']);
   }
 });
 test('earlier-page renderer timeout remains visibly retryable with its old cursor', async t => {
@@ -98,4 +98,28 @@ test('earlier-page renderer timeout remains visibly retryable with its old curso
   f.respond(new Promise(() => {})); const pending = f.earlier(); t.mock.timers.tick(20_000); await pending;
   assert.equal(f.state.history['synthetic-room'].pageError, true); assert.equal(f.state.history['synthetic-room'].beforeMs, 100);
   assert.match(JSON.stringify(f.render()), /历史记录读取失败或超时，点击重试/);
+});
+
+test('actual first page retains its source revision and rejects a replaced service while awaiting history', async () => {
+  const f = fixture(); f.state.conversations[0].assistant_context_revision = 'service-A';
+  let done!: (value: unknown) => void; f.respond(new Promise(resolve => { done = resolve; }));
+  const loading = f.open(); f.state.conversations[0] = { ...f.state.conversations[0], assistant_context_revision: 'service-B' };
+  done(f.page); await loading;
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'error');
+  assert.equal(f.state.history['synthetic-room'].readContextRevision, 'service-A');
+  f.state.messages['synthetic-room'] = [{ message_id: 'old-customer' }]; f.respond(f.page); await f.open();
+  assert.equal(f.state.history['synthetic-room'].readContextRevision, 'service-B');
+  assert.deepEqual(f.state.messages['synthetic-room'], []);
+  assert.equal(f.requests.filter(cmd => cmd === 'page').length, 2);
+  assert.equal(f.requests.includes('read'), false);
+});
+test('actual earlier-page reply cannot cross a service revision or stamp old rows with the new revision', async () => {
+  const f = fixture(); f.state.conversations[0].assistant_context_revision = 'A';
+  f.state.history['synthetic-room'] = { firstPage: 'loaded', hasMore: true, beforeMs: 100, busy: false, readContextRevision: 'A' };
+  let done!: (value: unknown) => void; f.respond(new Promise(resolve => { done = resolve; }));
+  const loading = f.earlier(); f.state.conversations[0] = { ...f.state.conversations[0], assistant_context_revision: 'B' };
+  done(f.page); await loading;
+  assert.equal(f.state.history['synthetic-room'].readContextRevision, 'A');
+  assert.deepEqual(f.state.messages['synthetic-room'], []);
+  await f.earlier(); assert.equal(f.requests.length, 1, 'old-service pagination is refused before another request');
 });

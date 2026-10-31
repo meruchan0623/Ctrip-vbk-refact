@@ -206,12 +206,17 @@ const imMessagePage: Handler<'im.message_page'> = async (ctx, args): Promise<UiM
   const before = recordOrNull(args)?.['before_ms'];
   if (before !== undefined && !is13DigitMs(before)) fail(ErrorCodes.ADAPTER_FAILED, 'invalid history cursor');
   const view = requireConversation(ctx, gid);
+  const expectedRevision = recordOrNull(args)?.['expected_context_revision'];
+  if (expectedRevision !== undefined && (typeof expectedRevision !== 'string' || !expectedRevision)) fail(ErrorCodes.ADAPTER_FAILED, 'invalid history context revision');
+  const messageContext = ctx.store.messageContext(gid);
   const historyOwner = JSON.stringify([sendIdentity(ctx, view), view.orderId]);
   const checkHistoryContext = (): void => {
     ensureCurrent(current);
     const live = requireConversation(ctx, gid);
-    if (JSON.stringify([sendIdentity(ctx, live), live.orderId]) !== historyOwner) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation changed during history read');
+    if (expectedRevision !== undefined && ctx.store.assistantContextRevision(gid, ctx.roles.selfUid, partnerJidOf(ctx, gid)) !== expectedRevision) fail(ErrorCodes.ADAPTER_NOT_READY, 'history source context changed');
+    if (ctx.store.messageContext(gid) !== messageContext || JSON.stringify([sendIdentity(ctx, live), live.orderId]) !== historyOwner) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation changed during history read');
   };
+  checkHistoryContext();
   if (!view.conversationType) fail(ErrorCodes.ADAPTER_FAILED, 'conversationType unknown for this conversation');
   await ctx.roles.ensure(ctx.deps, ctx.soa, gid);
   checkHistoryContext();
@@ -227,9 +232,9 @@ const imMessagePage: Handler<'im.message_page'> = async (ctx, args): Promise<UiM
     if (typeof row === 'object' && row !== null) {
       const order = ui ? orderSummaryFromMessage(row) : null;
       if (order && ui) ctx.store.noteOrder(gid, order, ui.create_time_ms);
-      ctx.store.noteMessage(gid, row.msgId, row.createTime);
       const jid = roomJidFromMessage(gid, row);
-      if (jid) ctx.sdk.rememberPartnerJid(gid, jid);
+      const authoritativeRoom = roomJidFromMessage(gid, ctx.store.view(gid)?.lastMessage ?? null);
+      if (jid && (!authoritativeRoom || authoritativeRoom === jid)) ctx.sdk.rememberPartnerJid(gid, jid);
     }
   }
   items.sort(byCreateTime);
@@ -321,12 +326,24 @@ const imSendText: Handler<'im.send_text'> = async (ctx, args, state) => {
 };
 
 const imMarkRead: Handler<'im.mark_read'> = async (ctx, args) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  ensureCurrent(current);
   const gid = requireString(args, 'gid');
+  const expectedMessageId = requireString(args, 'expected_message_id');
+  if (!expectedMessageId.trim() || expectedMessageId.length > 512) fail(ErrorCodes.ADAPTER_FAILED, 'invalid read target message id');
+  const expectedRevision = requireString(args, 'expected_context_revision');
   requireConversation(ctx, gid);
   const partnerJid = partnerJidOf(ctx, gid);
   const latest = ctx.store.latestMessage(gid);
   if (!partnerJid || !latest) fail(ErrorCodes.ADAPTER_NOT_READY, 'no message / target jid known for this conversation yet', true);
-  const r = await markRead(ctx.sdk, { partnerJid, msgId: latest.msgId });
+  const authoritativeRoom = roomJidFromMessage(gid, ctx.store.view(gid)?.lastMessage ?? null);
+  if (!authoritativeRoom || authoritativeRoom !== partnerJid) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation read target has not been verified');
+  const revision = ctx.store.assistantContextRevision(gid, ctx.roles.selfUid, partnerJid);
+  if (!revision || revision !== expectedRevision) fail(ErrorCodes.ADAPTER_FAILED, 'read conversation context changed since visibility was observed');
+  if (latest.msgId !== expectedMessageId) fail(ErrorCodes.ADAPTER_FAILED, 'read target changed since visibility was observed');
+  const r = await markRead(ctx.sdk, { partnerJid, msgId: expectedMessageId });
+  ensureCurrent(current);
+  if (ctx.store.assistantContextRevision(gid, ctx.roles.selfUid, partnerJidOf(ctx, gid)) !== revision) fail(ErrorCodes.ADAPTER_FAILED, 'conversation changed while read receipt was in flight');
   if (r.kind === 'acked') return null;
   if (r.kind === 'unknown') fail(ErrorCodes.ADAPTER_TIMEOUT, 'read receipt outcome unknown (not retried)', false, 'unknown');
   return fail(ErrorCodes.ADAPTER_FAILED, 'read receipt rejected');

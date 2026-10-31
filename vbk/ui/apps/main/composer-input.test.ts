@@ -16,7 +16,7 @@ function fixture() {
   const conv = { gid: 'synthetic-room', account, status: 'active', lang: 'en' };
   const store = createStore<any>({ view: 'messages', draft: 'committed', drafts: {}, draftVersion: 3, activeGid: conv.gid, conversations: [conv], accounts: { active_account_id: account.account_id, accounts: [{ context: account, state: 'online' }] }, translation: { status: 'done', text: 'OLD', target: 'en' }, messages: {}, quote: null, attachment: null, prefs: { keys: { send_key: 'enter' }, assistant: { enabled: false } } });
   let renders = 0, translations = 0, sends = 0;
-  const env: Record<string, any> = {
+  const env: Record<string, any> = { visibleReads: { retry() {}, afterRender() {} },
     ...vm, createComposerInput, cx, store, S: () => store.get(),
     activeAccount: () => store.get().accounts.accounts[0], activeConv: () => store.get().conversations.find((c: any) => c.gid === store.get().activeGid),
     scheduleTranslation: () => { translations++; }, clearTimeout,

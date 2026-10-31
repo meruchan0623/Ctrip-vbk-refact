@@ -3,11 +3,17 @@ import assert from 'node:assert/strict';
 import type { AdapterFact } from '../../ipc/src/contracts.ts';
 import type { AdapterDisplayPayload, AdapterReplyPayload } from '../../ipc/src/adapterProtocol.ts';
 import { createRpc, type AgentStatusBox, type RpcContext } from './rpc.ts';
-import { ConversationStore, RoleBook } from './stores.ts';
+import { ConversationStore, RoleBook, roomJidFromMessage } from './stores.ts';
 import { SoaClient } from './soa.ts';
 import { FakePageSdk, OK_STATUS, flush, jsonResponse, makeDeps, sampleRow, type FetchScript } from './testing.ts';
 
 const GID = '123456';
+
+function readRevision(ctx: RpcContext): string {
+  const revision = ctx.store.assistantContextRevision(GID, ctx.roles.selfUid, ctx.sdk.partnerJidOf(GID) ?? roomJidFromMessage(GID, ctx.store.view(GID)?.lastMessage ?? null));
+  assert.ok(revision);
+  return revision;
+}
 
 function notSubmitted(r: AdapterReplyPayload | null): string {
   const data = ok(r) as { kind: string; confirmed: boolean; reason?: string };
@@ -115,10 +121,31 @@ test('rpc: im.set_mark sends sessionId / numeric groupId / worksheetId from the 
   assert.equal(err(await rpc.handle({ req_id: 'r', op: 'im.set_mark', args: { gid: GID, action: 9 } })), 'adapter.failed');
 });
 
-test('rpc: im.mark_read uses the room jid + latest message id', async () => {
-  const { sdk, rpc } = setup();
-  assert.equal(ok(await rpc.handle({ req_id: 'r', op: 'im.mark_read', args: { gid: GID } })), null);
+test('rpc: im.mark_read submits only the explicitly observed current message id', async () => {
+  const { sdk, rpc, ctx } = setup();
+  assert.equal(ok(await rpc.handle({ req_id: 'r', op: 'im.mark_read', args: { gid: GID, expected_context_revision: readRevision(ctx), expected_message_id: `m-${GID}` } })), null);
   assert.deepEqual(sdk.readReceipts[0], { partnerJid: `${GID}@conf.x`, msgId: `m-${GID}`, conversationType: 'groupchat' });
+});
+
+test('rpc: im.mark_read rejects missing or stale visibility evidence before SDK submission', async () => {
+  const { sdk, rpc, store, facts, displays, ctx } = setup();
+  for (const expected_message_id of [undefined, null, '', 123, 'not-observed']) {
+    assert.equal(err(await rpc.handle({ req_id: 'invalid', op: 'im.mark_read', args: { gid: GID, expected_context_revision: readRevision(ctx), expected_message_id } })), 'adapter.failed');
+    assert.equal(sdk.readReceipts.length, 0);
+  }
+  for (const expected_context_revision of [undefined, null, '', 123, 'wrong-revision']) {
+    assert.equal(err(await rpc.handle({ req_id: 'invalid-context', op: 'im.mark_read', args: { gid: GID, expected_context_revision, expected_message_id: `m-${GID}` } })), 'adapter.failed');
+    assert.equal(sdk.readReceipts.length, 0);
+  }
+  // A fresh list update arrives after the UI saw the old last message.
+  store.update([sampleRow(GID, { lastMessageJsonString: JSON.stringify({ msgId: 'new-unseen', fromJid: `cust-${GID}@im.x`, toJid: `${GID}@conf.x`, createTime: 1700000000700, msgtype: 0 }) })]);
+  assert.equal(err(await rpc.handle({ req_id: 'stale', op: 'im.mark_read', args: { gid: GID, expected_context_revision: readRevision(ctx), expected_message_id: `m-${GID}` } })), 'adapter.failed');
+  assert.equal(sdk.readReceipts.length, 0, 'never fall back to the newer unseen message');
+  assert.deepEqual(facts, []);
+  assert.deepEqual(displays, [], 'rejection must not clear local unread');
+  assert.equal(ok(await rpc.handle({ req_id: 'observed', op: 'im.mark_read', args: { gid: GID, expected_context_revision: readRevision(ctx), expected_message_id: 'new-unseen' } })), null);
+  assert.deepEqual(sdk.readReceipts.map(r => r.msgId), ['new-unseen']);
+  assert.deepEqual(displays, [], 'ack is not an authoritative unread count');
 });
 
 test('rpc: im.messages fetches history, pushes body-free facts and merges partial display', async () => {
@@ -348,4 +375,58 @@ test('rpc peripheral: invite missing ack identifiers is unknown and read-back al
   assert.deepEqual(ok(await rpc.handle(req)), { kind: 'confirmed', confirmed: true });
   assert.deepEqual(ok(await rpc.handle(req)), { kind: 'confirmed', confirmed: true });
   assert.equal(base.fakeFetch.calls.filter(c => c.url.includes('/inviteVenAgent')).length, 1);
+});
+
+test('rpc: same gid replacement cannot acknowledge the former customer latest message', async () => {
+  const { sdk, rpc, store, ctx } = setup();
+  const oldRevision = readRevision(ctx);
+  store.update([sampleRow(GID, { uid: 'new-customer', sessionId: 'new-session', lastMessageTime: 1700000000400,
+    lastMessageJsonString: JSON.stringify({ msgId: 'new-customer-message', fromJid: 'new-customer@im.x', toJid: `${GID}@conf.x`, createTime: 1700000000400, msgtype: 0 }) })]);
+  assert.equal(store.view(GID)?.customerUid, 'new-customer');
+  const r = await rpc.handle({ req_id: 'stale-customer-read', op: 'im.mark_read', args: { gid: GID, expected_context_revision: oldRevision, expected_message_id: `m-${GID}` } });
+  assert.equal(r?.ok, false);
+  assert.equal(sdk.readReceipts.length, 0);
+  const currentRevision = readRevision(ctx);
+  assert.notEqual(currentRevision, oldRevision);
+  assert.equal(store.latestMessage(GID)?.msgId, 'new-customer-message');
+  // Only a current authoritative server row may advance the receipt boundary.
+  store.update([sampleRow(GID, { uid: 'new-customer', sessionId: 'new-session', lastMessageTime: 1700000000800,
+    lastMessageJsonString: JSON.stringify({ msgId: 'current-customer-message', fromJid: 'new-customer@im.x', toJid: `${GID}@conf.x`, createTime: 1700000000800, msgtype: 0 }) })]);
+  assert.equal(ok(await rpc.handle({ req_id: 'current-customer-read', op: 'im.mark_read', args: { gid: GID, expected_context_revision: currentRevision, expected_message_id: 'current-customer-message' } })), null);
+  assert.deepEqual(sdk.readReceipts.map(r => r.msgId), ['current-customer-message']);
+});
+
+test('rpc: a receipt completion from a replaced service cannot acknowledge the new context', async () => {
+  const { sdk, rpc, store } = setup();
+  const expected_context_revision = store.assistantContextRevision(GID, 'me', `${GID}@conf.x`);
+  let release!: () => void;
+  sdk.putAdviceOfReadByMsgId = async () => { await new Promise<void>(resolve => { release = resolve; }); return { kind: 'success', raw: null }; };
+  const pending = rpc.handle({ req_id: 'held-read', op: 'im.mark_read', args: { gid: GID, expected_message_id: `m-${GID}`, expected_context_revision } });
+  await flush(); store.update([sampleRow(GID, { uid: 'new-customer', sessionId: 'new-session' })]);
+  release(); assert.equal((await pending)?.ok, false);
+});
+test('rpc: reused gid cannot use an SDK room cached from the former service', async () => {
+  const { sdk, rpc, store } = setup();
+  sdk.rememberPartnerJid(GID, `${GID}@old-domain`);
+  store.update([sampleRow(GID, { uid: 'new-customer', sessionId: 'new-session' })]);
+  const expected_context_revision = store.assistantContextRevision(GID, 'me', `${GID}@old-domain`);
+  const result = await rpc.handle({ req_id: 'old-room', op: 'im.mark_read', args: { gid: GID, expected_message_id: `m-${GID}`, expected_context_revision } });
+  assert.equal(result?.ok, false); assert.equal(sdk.readReceipts.length, 0);
+});
+
+test('rpc: history request from a stale UI revision fails before any history transport', async () => {
+  const { base, rpc, store } = setup();
+  const expected_context_revision = store.assistantContextRevision(GID, 'me', `${GID}@conf.x`);
+  store.update([sampleRow(GID, { uid: 'B', sessionId: 'session-B' })]);
+  const result = await rpc.handle({ req_id: 'stale-ui-history', op: 'im.message_page', args: { gid: GID, expected_context_revision } });
+  assert.equal(result?.ok, false);
+  assert.equal(base.fakeFetch.calls.some(c => c.url.includes('getMessageList')), false);
+});
+
+test('rpc: even the first service cannot acknowledge through an unrelated cached SDK room', async () => {
+  const { sdk, rpc, store } = setup();
+  sdk.rememberPartnerJid(GID, `${GID}@old-domain`);
+  const expected_context_revision = store.assistantContextRevision(GID, 'me', `${GID}@old-domain`);
+  const result = await rpc.handle({ req_id: 'first-service-old-room', op: 'im.mark_read', args: { gid: GID, expected_message_id: `m-${GID}`, expected_context_revision } });
+  assert.equal(result?.ok, false); assert.equal(sdk.readReceipts.length, 0);
 });

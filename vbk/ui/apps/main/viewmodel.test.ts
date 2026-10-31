@@ -196,10 +196,11 @@ test('mock: marking read never touches the waiting round; conversations and crea
   const before = (await ipc.invoke<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account: a })).find((c) => c.gid === 'g-demo-2');
   assert.ok(before && before.unread_count > 0 && before.waiting_since_ms !== null);
   const alarmBefore = await ipc.invoke<{ entries: unknown[] }>('notify_snapshot');
-  await ipc.invoke(UiCommands.IM_MARK_READ, { account: a, gid: 'g-demo-2' });
+  const page = await ipc.invoke<{ items: { message_id: string | null }[] }>(UiCommands.IM_MESSAGE_PAGE, { account: a, gid: 'g-demo-2' });
+  await ipc.invoke(UiCommands.IM_MARK_READ, { account: a, gid: 'g-demo-2', expected_message_id: page.items.at(-1)?.message_id, expected_context_revision: before.assistant_context_revision });
   const after = (await ipc.invoke<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account: a })).find((c) => c.gid === 'g-demo-2');
   assert.ok(after);
-  assert.equal(after.unread_count, 0);
+  assert.equal(after.unread_count, before.unread_count);
   assert.equal(after.waiting_since_ms, before.waiting_since_ms, 'waiting indicator comes only from host data; read state does not clear it');
   assert.equal(after.waiting_confirmed, before.waiting_confirmed);
   assert.deepEqual(await ipc.invoke('notify_snapshot').then((s) => (s as { entries: unknown[] }).entries), alarmBefore.entries, 'alarm rounds untouched by mark-read');

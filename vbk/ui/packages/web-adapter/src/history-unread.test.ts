@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AdapterDisplayPayload } from '../../ipc/src/adapterProtocol.ts';
 import { createPageSession } from './session.ts';
+import { roomJidFromMessage } from './stores.ts';
 import { SoaClient } from './soa.ts';
 import { FakePageSdk, OK_STATUS, jsonResponse, makeDeps, sampleRow } from './testing.ts';
 
@@ -35,7 +36,7 @@ test('history preserves authoritative unread across unchanged polling until serv
     assert.equal(latestUnread(), 3);
     // This is the UI gate: history must leave the pending receipt eligible.
     if ((latestUnread() ?? 0) > 0) {
-      assert.equal((await session.rpc.handle({ req_id: 'read', op: 'im.mark_read', args: { gid: '123456' } }))?.ok, true);
+      assert.equal((await session.rpc.handle({ req_id: 'read', op: 'im.mark_read', args: { gid: '123456', expected_message_id: 'm-123456', expected_context_revision: session.store.assistantContextRevision('123456', 'me', roomJidFromMessage('123456', session.store.view('123456')?.lastMessage ?? null)) } }))?.ok, true);
     }
     assert.equal(sdk.readReceipts.length, 1);
     assert.equal(latestUnread(), 3, 'SDK acknowledgment alone does not prove server unread zero');

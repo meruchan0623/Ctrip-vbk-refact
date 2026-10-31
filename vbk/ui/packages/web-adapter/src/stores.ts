@@ -80,8 +80,10 @@ export class ConversationStore {
       this.#rows.set(view.gid, r as ConversationListItem);
       this.#views.set(view.gid, view);
       gids.push(view.gid);
+      // A reused gid is not a message identity. Drop even a higher-time old target.
+      if (!previous || previous.context !== context) this.#latest.delete(view.gid);
       const lm = view.lastMessage;
-      if (lm) this.noteMessage(view.gid, lm.msgId, lm.createTime);
+      if (lm) this.#rememberMessage(view.gid, lm.msgId, lm.createTime);
     }
     if (gids.length > 0) for (const w of [...this.#watchers]) w(gids);
     return gids;
@@ -121,8 +123,14 @@ export class ConversationStore {
     return null;
   }
 
-  /** Remembers the newest message id seen for a gid (any source). */
-  noteMessage(gid: string, msgId: unknown, createTime: unknown): void {
+  /** Monotonic service epoch; A -> B -> A cannot reuse the first A's evidence. */
+  messageContext(gid: string): number | null {
+    return this.#orderScopes.get(gid)?.revision ?? null;
+  }
+
+  // Only authoritative conversation rows may advance the read frontier. History,
+  // unread and SDK/compensation frames are gid-only even in the first observed epoch.
+  #rememberMessage(gid: string, msgId: unknown, createTime: unknown): void {
     const id = idStr(msgId);
     const t = typeof createTime === 'number' ? createTime : typeof createTime === 'string' && /^\d+$/.test(createTime) ? Number(createTime) : 0;
     if (id === null) return;
@@ -271,6 +279,8 @@ export class UnreadBook implements UnreadLookup {
     return this.#counts.get(gid) ?? null;
   }
 
+  invalidate(gid: string): void { this.#counts.delete(gid); }
+
   set(gid: string, n: number): boolean {
     const prev = this.#counts.get(gid);
     this.#counts.set(gid, n);
@@ -282,7 +292,7 @@ export class UnreadBook implements UnreadLookup {
    * embedded `message` of each info row is reported through `onMessage`
    * (last message id / room jid).
    */
-  async refresh(deps: AdapterDeps, soa: SoaClient, gids: readonly string[], onMessage?: (gid: string, msg: HttpMessageObject) => void): Promise<string[]> {
+  async refresh(deps: AdapterDeps, soa: SoaClient, gids: readonly string[], onMessage?: (gid: string, msg: HttpMessageObject) => void, current: (gid: string) => boolean = () => true): Promise<string[]> {
     const changed: string[] = [];
     const unique = [...new Set(gids)];
     for (let i = 0; i < unique.length; i += UNREAD_BATCH) {
@@ -294,7 +304,7 @@ export class UnreadBook implements UnreadLookup {
         const r = recordOrNull(item);
         const gid = r?.['gid'];
         const n = r?.['unreadCount'];
-        if (typeof gid !== 'string' || !batch.includes(gid)) continue;
+        if (typeof gid !== 'string' || !batch.includes(gid) || !current(gid)) continue;
         if (typeof n === 'number' && Number.isInteger(n) && n >= 0 && this.set(gid, n)) changed.push(gid);
         const msg = recordOrNull(r?.['message']);
         if (msg && onMessage) onMessage(gid, msg as HttpMessageObject);

@@ -105,7 +105,7 @@ export type AdapterRequest =
   | { readonly req_id: string; readonly op: 'adapter.diagnostics'; readonly args: Record<string, never> }
   | { readonly req_id: string; readonly op: 'im.outbound_lookup'; readonly args: { readonly gid: string } }
   | { readonly req_id: string; readonly op: 'im.messages'; readonly args: { readonly gid: string } }
-  | { readonly req_id: string; readonly op: 'im.message_page'; readonly args: { readonly gid: string; readonly before_ms?: number } }
+  | { readonly req_id: string; readonly op: 'im.message_page'; readonly args: { readonly gid: string; readonly before_ms?: number; readonly expected_context_revision?: string } }
   | { readonly req_id: string; readonly op: 'im.send_text'; readonly args: { readonly gid: string; readonly local_id: string; readonly text: string; readonly original: string | null; readonly quote_id: string | null } }
   | { readonly req_id: string; readonly op: 'im.customer_scripts'; readonly args: { readonly content: string } }
   | { readonly req_id: string; readonly op: 'im.members'; readonly args: { readonly gid: string } }
@@ -113,7 +113,7 @@ export type AdapterRequest =
   | { readonly req_id: string; readonly op: 'im.invite'; readonly args: { readonly gid: string; readonly selection_token: string; readonly target_uids: readonly string[] } }
   | { readonly req_id: string; readonly op: 'im.transfer'; readonly args: { readonly gid: string; readonly selection_token: string; readonly target_uid: string } }
   | { readonly req_id: string; readonly op: 'im.finish'; readonly args: { readonly gid: string; readonly selection_token: string } }
-  | { readonly req_id: string; readonly op: 'im.mark_read'; readonly args: { readonly gid: string } }
+  | { readonly req_id: string; readonly op: 'im.mark_read'; readonly args: { readonly gid: string; readonly expected_message_id: string; readonly expected_context_revision: string } }
   | { readonly req_id: string; readonly op: 'im.set_mark'; readonly args: { readonly gid: string; readonly action: MarkAction } }
   | { readonly req_id: string; readonly op: 'notice.categories'; readonly args: Record<string, never> }
   | { readonly req_id: string; readonly op: 'notice.list'; readonly args: { readonly category_id: string } }

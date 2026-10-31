@@ -73,6 +73,7 @@ export function isUiConversation(x: unknown): x is UiConversation {
     str(x['lang']) &&
     str(x['biz']) &&
     str(x['preview']) &&
+    (x['read_target_message_id'] === undefined || x['read_target_message_id'] === null || (str(x['read_target_message_id']) && x['read_target_message_id'].trim().length > 0 && x['read_target_message_id'].length <= 512)) &&
     str(x['draft']) &&
     bool(x['is_top']) &&
     num(x['mark']) &&

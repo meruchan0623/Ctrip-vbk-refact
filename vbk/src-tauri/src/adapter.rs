@@ -1295,6 +1295,7 @@ pub async fn im_message_page(
     account: AccountContextDto,
     gid: String,
     before_ms: Option<i64>,
+    expected_context_revision: Option<String>,
 ) -> CmdResult<UiMessagePageDto> {
     guard(&state, webview.label(), "im_message_page")?;
     let ctx = read_account(&state, account)?;
@@ -1302,6 +1303,9 @@ pub async fn im_message_page(
     let mut args = serde_json::json!({ "gid": gid });
     if let Some(before) = before_ms {
         args["before_ms"] = before.into();
+    }
+    if let Some(revision) = expected_context_revision {
+        args["expected_context_revision"] = revision.into();
     }
     let page: UiMessagePageDto = forward(&app, &ctx, "im.message_page", args, READ_TIMEOUT)
         .await
@@ -1365,6 +1369,8 @@ pub async fn im_mark_read(
     state: State<'_, HostState>,
     account: AccountContextDto,
     gid: String,
+    expected_message_id: String,
+    expected_context_revision: String,
 ) -> CmdResult<()> {
     guard(&state, webview.label(), "im_mark_read")?;
     let ctx = ui_account(&app, &state, account)?;
@@ -1372,7 +1378,7 @@ pub async fn im_mark_read(
         &app,
         &ctx,
         "im.mark_read",
-        serde_json::json!({ "gid": gid }),
+        serde_json::json!({ "gid": gid, "expected_message_id": expected_message_id, "expected_context_revision": expected_context_revision }),
         WRITE_TIMEOUT,
     )
     .await

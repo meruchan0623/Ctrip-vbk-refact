@@ -121,6 +121,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
             // The row's customer uid is the only association for this surface.
             // RoleBook preserves known profile fields on incomplete refreshes.
             customer_avatar: uid ? roles.profileOf(uid).avatar : null,
+            read_target_message_id: store.latestMessage(item.gid)?.msgId ?? null,
             assistant_context_revision: store.assistantContextRevision(item.gid, roles.selfUid, opts.sdk.partnerJidOf(item.gid) ?? roomJidFromMessage(item.gid, store.view(item.gid)?.lastMessage ?? null)) ?? '',
             ...(previous && (previous.last_message_time_ms ?? 0) > (item.last_message_time_ms ?? 0)
               ? { preview: previous.preview, last_message_time_ms: previous.last_message_time_ms }
@@ -159,18 +160,29 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   let unreadTimer: unknown = null;
   let running = false;
   let runGeneration = 0;
+  const unreadContexts = new Map<string, number | null>();
+  store.watch(gids => {
+    for (const gid of gids) {
+      const current = store.messageContext(gid);
+      const room = roomJidFromMessage(gid, store.view(gid)?.lastMessage ?? null);
+      if (room) opts.sdk.rememberPartnerJid(gid, room);
+      if (unreadContexts.has(gid) && unreadContexts.get(gid) !== current) unread.invalidate(gid);
+      unreadContexts.set(gid, current);
+    }
+  });
   const flushUnread = async (): Promise<void> => {
     const generation = runGeneration;
     unreadTimer = null;
     const gids = [...pendingUnread];
     pendingUnread.clear();
     if (gids.length === 0 || !running) return;
+    const contexts = new Map(gids.map(gid => [gid, store.messageContext(gid)]));
+    const current = (gid: string): boolean => running && generation === runGeneration && contexts.get(gid) === store.messageContext(gid);
     const changed = await unread.refresh(deps, soa, gids, (gid, msg) => {
       if (!running || generation !== runGeneration) return;
-      store.noteMessage(gid, msg.msgId, msg.createTime);
       const jid = roomJidFromMessage(gid, msg);
-      if (jid) opts.sdk.rememberPartnerJid(gid, jid);
-    });
+      if (jid && roomJidFromMessage(gid, store.view(gid)?.lastMessage ?? null) === jid) opts.sdk.rememberPartnerJid(gid, jid);
+    }, current);
     if (!running || generation !== runGeneration) return;
     const items: DisplayConversation[] = [];
     for (const gid of changed) {
@@ -271,7 +283,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       const d = displays.get(gid);
       const row = store.row(gid);
       const order = store.order(gid) ?? (row ? toDisplayConversation(row, false, unread)?.order : null) ?? null;
-      const newerPreview = last && (d?.last_message_time_ms ?? 0) <= last.create_time_ms;
+      const verifiedTarget = store.messageContext(gid) === 1 || last?.message_id === store.latestMessage(gid)?.msgId;
+      const newerPreview = last && verifiedTarget && (d?.last_message_time_ms ?? 0) <= last.create_time_ms;
       if (last && d && (newerPreview || JSON.stringify(d.order) !== JSON.stringify(order))) {
         const next = { ...d, order, ...(newerPreview ? { preview: previewOfUi(last), last_message_time_ms: last.create_time_ms } : {}), is_full_snapshot: false };
         convs.push(next);
@@ -287,12 +300,12 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     if (!ui) { diagnostics.session.ui_dropped = receiveCount(diagnostics.session.ui_dropped); return; }
     diagnostics.session.ui_mapped = receiveCount(diagnostics.session.ui_mapped);
     rememberPending(ui, roomJidFromMessage(ui.gid, { fromJid: evt.from, toJid: evt.to }), evt.threadid);
-    if (ui.message_id) store.noteMessage(ui.gid, ui.message_id, ui.create_time_ms);
     const order = orderSummaryFromMessage({ msgtype: evt.msgtype, messageBody: evt.body });
     if (order) store.noteOrder(ui.gid, order, ui.create_time_ms);
     pushMessages([ui]);
+    const messageContext = store.messageContext(ui.gid);
     if (store.has(ui.gid)) void roles.ensure(deps, soa, ui.gid).then(() => {
-      if (!running || generation !== runGeneration) return;
+      if (!running || generation !== runGeneration || store.messageContext(ui.gid) !== messageContext) return;
       const enriched = sdkMessageToUi(evt, roles);
       if (enriched?.sender_id) pushDisplay({ kind: 'message_profiles', gid: enriched.gid, items: [{
         message_id: enriched.message_id, local_id: enriched.local_id,
@@ -314,11 +327,10 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (!ui) { diagnostics.compensation.dropped = receiveCount(diagnostics.compensation.dropped); continue; }
       diagnostics.compensation.mapped = receiveCount(diagnostics.compensation.mapped);
       rememberPending(ui, roomJidFromMessage(ui.gid, m), recordOrNull(m)?.['threadId'] ?? recordOrNull(m)?.['threadid']);
-      store.noteMessage(ui.gid, m.msgId, m.createTime);
       const order = orderSummaryFromMessage(m);
       if (order) store.noteOrder(ui.gid, order, ui.create_time_ms);
       const jid = roomJidFromMessage(ui.gid, m);
-      if (jid) opts.sdk.rememberPartnerJid(ui.gid, jid);
+      if (jid && roomJidFromMessage(ui.gid, store.view(ui.gid)?.lastMessage ?? null) === jid) opts.sdk.rememberPartnerJid(ui.gid, jid);
       items.push(ui);
     }
     if (items.length > 0) pushMessages(items);

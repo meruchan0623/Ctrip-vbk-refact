@@ -67,6 +67,8 @@ pub struct DisplayConversationDto {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assistant_context_revision: Option<String>,
     #[serde(default)]
+    pub read_target_message_id: Option<String>,
+    #[serde(default)]
     pub customer_avatar: Option<String>,
     #[serde(flatten)]
     pub fact: ConversationFactDto,
@@ -380,6 +382,9 @@ fn validate_conversation(c: &DisplayConversationDto) -> Result<(), AppError> {
     }
     if c.fact.gid.is_empty() {
         return Err(invalid("conversation gid is empty"));
+    }
+    if c.read_target_message_id.as_ref().is_some_and(|id| id.trim().is_empty() || id.encode_utf16().count() > 512) {
+        return Err(invalid("invalid read target message id"));
     }
     if c.mark > 5 {
         return Err(invalid("mark must be 0..=5"));
@@ -1048,6 +1053,24 @@ mod tests {
             "title": "T", "color": "#fff", "lang": "zh", "biz": "b", "preview": "p",
             "mark": 0, "customer_tags": [], "order": null
         })
+    }
+
+    #[test]
+    fn read_frontier_is_optional_but_typed_and_bounded() {
+        let legacy: DisplayConversationDto = serde_json::from_value(conv_json("g", 3)).unwrap();
+        assert!(legacy.read_target_message_id.is_none());
+        let mut raw = conv_json("g", 3);
+        raw["read_target_message_id"] = serde_json::json!("x".repeat(512));
+        let valid: DisplayConversationDto = serde_json::from_value(raw.clone()).unwrap();
+        assert!(validate_conversation(&valid).is_ok());
+        assert_eq!(serde_json::to_value(&valid).unwrap()["read_target_message_id"], raw["read_target_message_id"]);
+        for id in ["".to_owned(), " ".to_owned(), "x".repeat(513)] {
+            raw["read_target_message_id"] = serde_json::json!(id);
+            let invalid: DisplayConversationDto = serde_json::from_value(raw.clone()).unwrap();
+            assert!(validate_conversation(&invalid).is_err());
+        }
+        raw["read_target_message_id"] = serde_json::json!(123);
+        assert!(serde_json::from_value::<DisplayConversationDto>(raw).is_err());
     }
 
     fn convs(full: bool, items: &[(&str, u32)], removed: &[&str]) -> DisplayPayload {

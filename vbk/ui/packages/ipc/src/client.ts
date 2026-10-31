@@ -106,12 +106,12 @@ export const UiCommands = {
   IM_OUTBOUND_LOOKUP: 'im_outbound_lookup', // {account, gid} -> UiOutboundLookup; no display or read-receipt effects
   IM_UNKNOWN_OUTBOUND: 'im_unknown_outbound', // {account} -> UiUnknownOutboundRecord[]; read-only metadata
   IM_MESSAGES: 'im_messages', // {account, gid} → UiMessage[]
-  IM_MESSAGE_PAGE: 'im_message_page', // {account, gid, before_ms?} → UiMessagePage
+  IM_MESSAGE_PAGE: 'im_message_page', // {account, gid, before_ms?, expected_context_revision?} → UiMessagePage
   IM_SEND_TEXT: 'im_send_text', // {account, gid, local_id, text, original?, quote_id?} → SendDisposition
   IM_SEND_MEDIA: 'im_send_media', // {account,gid,local_id,attachment_id} → UiMediaSendResult
   IM_SET_TOP: 'im_set_top', // {account, gid, top}
   IM_SET_MARK: 'im_set_mark', // {account, gid, action: 0..5}  (official setWorkSheetStar)
-  IM_MARK_READ: 'im_mark_read', // {account, gid}
+  IM_MARK_READ: 'im_mark_read', // {account, gid, expected_message_id, expected_context_revision}
   IM_CUSTOMER_SCRIPTS: 'im_customer_scripts', // {account, content} → UiCustomerScripts
   IM_MEMBERS: 'im_members', // {account, gid} → UiMembers
   IM_INVITE_CANDIDATES: 'im_invite_candidates', // {account, gid, parent_skill_group_ids?} → UiInviteCandidates
@@ -269,6 +269,8 @@ export interface UiConversation extends ConversationFact {
   /** Raw bounded official business type; old DTOs may omit it, unknown is never inferred. */
   readonly conversation_type?: string | null;
   readonly assistant_context_revision?: string;
+  /** Current verified read frontier; never inferred from the highest-time mixed history row. */
+  readonly read_target_message_id?: string | null;
   /** Avatar of the verified conversation customer uid; never the account agent. */
   readonly customer_avatar?: string | null;
   readonly vendor_name?: string;

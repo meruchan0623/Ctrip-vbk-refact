@@ -24,7 +24,7 @@ test('first list retains newer customer SDK preview, with no additional HTTP or 
     const calls = f.base.fakeFetch.calls.length;
     f.sdk.emit('message', event()); await flush(); assert.equal(f.base.fakeFetch.calls.length, calls);
     await f.release([sampleRow(GID)]);
-    assert.equal(f.session.store.latestMessage(GID)?.createTime, TIME);
+    assert.equal(f.session.store.latestMessage(GID)?.msgId, 'm-' + GID, 'preview evidence is not a current-service read frontier');
     assert.equal(f.last()?.last_message_time_ms, TIME); assert.equal(f.last()?.preview, 'SYNTHETIC NEW PREVIEW');
   } finally { f.session.stop(); }
 });
@@ -126,5 +126,21 @@ test('duplicate embedded rows cannot stamp customer A preview with customer B id
     assert.equal(f.last()?.title, 'CUSTOMER B'); assert.equal(f.last()?.preview, 'SYNTHETIC CUSTOMER B');
     assert.equal(f.last()?.last_message_time_ms, 1700000000500);
     assert.equal(f.displays.flatMap(d => d.kind === 'conversations' ? d.items : []).some(d => d.preview === 'SYNTHETIC PRIVATE A'), false);
+  } finally { f.session.stop(); }
+});
+
+test('reused gid late former-customer high-time message cannot mask the current authoritative preview/read frontier', async () => {
+  const f = fixture(); await f.start();
+  const currentB = (id: string, time: number) => sampleRow(GID, { uid: 'customer-B', sessionId: 'service-B', lastMessageTime: time, lastMessageJsonString: JSON.stringify({ msgId: id, fromJid: 'customer-B@x', toJid: GID + '@conf.x', createTime: time, msgtype: 0, messageBody: 'CURRENT B' }) });
+  try {
+    await f.release([sampleRow(GID)]);
+    await f.base.clock.advance(5000); await f.release([currentB('B-first', 1700000001000)]);
+    f.sdk.emit('message', event(GID, { id: 'late-former-A', create_time: String(TIME), body: 'OLD A HIGH' })); await flush();
+    assert.notEqual(f.last()?.preview, 'OLD A HIGH');
+    await f.base.clock.advance(5000); await f.release([currentB('B-current', 1700000001200)]);
+    assert.equal(f.last()?.preview, 'CURRENT B');
+    assert.equal(f.last()?.read_target_message_id, 'B-current');
+    assert.equal(f.session.store.latestMessage(GID)?.msgId, 'B-current');
+    assert.equal(f.sdk.readReceipts.length, 0);
   } finally { f.session.stop(); }
 });
