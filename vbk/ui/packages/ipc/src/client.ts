@@ -232,6 +232,7 @@ export interface UiOrderSummary {
   readonly contact: string;
   readonly source_channel?: string;
   readonly total_amount?: string;
+  readonly remark_name?: string;
   readonly source_title?: string;
   readonly source_description?: string;
 }
@@ -239,6 +240,7 @@ export interface UiOrderSummary {
 export interface UiConversation extends ConversationFact {
   /** Avatar of the verified conversation customer uid; never the account agent. */
   readonly customer_avatar?: string | null;
+  readonly vendor_name?: string;
   readonly account: AccountContext;
   readonly title: string;
   readonly color: string;

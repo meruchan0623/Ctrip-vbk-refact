@@ -1155,7 +1155,7 @@ function conversationList(s: MainState): HTMLElement {
         h(
           'div',
           { class: 'crow', style: { 'margin-top': '2px' } },
-          h('span', { class: 'chip chip-biz' }, c.biz),
+          c.vendor_name ? h('span', { class: 'conv-vendor' }, c.vendor_name) : c.biz ? h('span', { class: 'chip chip-biz' }, c.biz) : null,
           waiting ? h('span', { class: cx('wait', waited >= RED_AFTER_SECONDS ? 'red' : 'amber'), title: c.waiting_confirmed ? undefined : t('alarm.pendingTitle') }, icon(IC.clock, 11), c.waiting_confirmed ? t('list.waiting', { t: formatDuration(waited) }) : `${t('list.waiting', { t: formatDuration(waited) })} · ${t('list.waitingPending')}`) : null,
           isDone(c) ? h('span', { class: 'chip chip-muted' }, t('list.finished')) : null,
           c.is_top ? icon(IC.pin, 12, { style: 'color: var(--c-text-faint)', 'aria-label': t('list.pinned') }) : null,
@@ -1576,6 +1576,7 @@ function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
               row('产品名称', o.product),
               row('使用日期', o.use_date),
               row('订单总额', o.total_amount),
+              row('备注名称', o.remark_name),
               row('数量', o.quantity),
               row('订单状态', o.status),
             ),
@@ -1599,7 +1600,7 @@ function chatPane(s: MainState): HTMLElement {
   const previousScroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
   const pinned = previousScroll?.dataset['thread'] !== conv.gid || previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < 48;
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
-  const sub = isDone(conv) ? t('chat.finished') : `${t('chat.owner')}${waiting ? ` · ${t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) })}` : ''}`;
+  const sub = [conv.vendor_name, isDone(conv) ? t('chat.finished') : waiting ? t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) }) : ''].filter(Boolean).join(' · ');
   const type = /^[A-Za-z][A-Za-z0-9]{0,5}$/.test(conv.service_type) ? `${conv.service_type} · ${conv.biz}` : conv.biz;
   return h(
     'div',
@@ -1608,7 +1609,7 @@ function chatPane(s: MainState): HTMLElement {
       'div',
       { class: 'chat-h' },
       h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)),
-      h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, conv.title, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null, h('span', { class: 'chip chip-biz' }, type)), h('div', { class: 'chat-sub' }, sub)),
+      h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, conv.title, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null, h('span', { class: 'chip chip-biz' }, type)), sub ? h('div', { class: 'chat-sub' }, sub) : null),
       h('button', { class: 'ibtn', 'aria-label': t('chat.transfer'), disabled: isDone(conv), dataset: { chatAct: 'transfer' }, onclick: () => openPeripheral('transfer') }, icon(IC.swap, 17)),
       h('button', { class: 'ibtn', 'aria-label': t('chat.invite'), disabled: isDone(conv), dataset: { chatAct: 'invite' }, onclick: () => openPeripheral('invite') }, icon(IC.userPlus, 17)),
       h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end' }, onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),

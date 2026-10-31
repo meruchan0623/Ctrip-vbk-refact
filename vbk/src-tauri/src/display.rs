@@ -49,6 +49,8 @@ pub struct UiOrderSummaryDto {
     #[serde(default)]
     pub total_amount: String,
     #[serde(default)]
+    pub remark_name: String,
+    #[serde(default)]
     pub source_title: String,
     #[serde(default)]
     pub source_description: String,
@@ -64,6 +66,8 @@ pub struct DisplayConversationDto {
     #[serde(flatten)]
     pub fact: ConversationFactDto,
     pub title: String,
+    #[serde(default)]
+    pub vendor_name: String,
     #[serde(default)]
     pub color: String,
     #[serde(default)]

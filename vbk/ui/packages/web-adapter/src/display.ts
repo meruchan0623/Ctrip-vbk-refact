@@ -259,6 +259,7 @@ export function toDisplayConversation(row: ConversationListItem, isFullSnapshot:
   return {
     ...fact,
     title,
+    vendor_name: str((row as { vendorName?: unknown }).vendorName) ?? '',
     color: colorOf(view.gid),
     lang: langOf(row),
     biz: bizLabel(view.serviceType),
