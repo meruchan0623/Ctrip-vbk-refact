@@ -24,7 +24,7 @@ import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isPrefsSnapshot, isUiAccountSnapshot } from '../_shared/guards.ts';
-import { CACHE_DAY_OPTIONS, EMPTY_TSIM_FORM, SECTIONS, ZOOM_OPTIONS, isSectionId, prefsCommand, reminderCommand, sectionLabel, sendModeDescription, tsimFormValid, tsimStatusText } from './viewmodel.ts';
+import { CACHE_DAY_OPTIONS, EMPTY_TSIM_FORM, SECTIONS, ZOOM_OPTIONS, isSectionId, isTsimStatus, prefsCommand, reminderCommand, sectionLabel, sendModeDescription, tsimErrorText, tsimFormValid, tsimStatusText } from './viewmodel.ts';
 import { SETTING_STRINGS as S, fmt } from './strings.ts';
 import type { SectionId, TsimForm } from './viewmodel.ts';
 
@@ -34,6 +34,11 @@ interface SettingState {
   readonly tsimForm: TsimForm;
   readonly tsimBusy: boolean;
   readonly tsimError: string | null;
+  readonly tsimStatus: UiTsimStatus | null;
+  readonly tsimRequest: number;
+  readonly settingsRequest: number;
+  readonly loading: boolean;
+  readonly loadError: string | null;
   readonly net: UiNetStatus | null;
   readonly toast: string | null;
   /** Nick of the active account for the title (prototype 「设置 · 昵称」). */
@@ -42,7 +47,7 @@ interface SettingState {
 }
 
 const params = new URLSearchParams(location.search).get('section');
-const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'notify', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, net: null, toast: null, nick: null, version: null });
+const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'notify', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, nick: null, version: null });
 const sel = selectIpc();
 const ipc = sel.ipc;
 const root = document.getElementById('app');
@@ -57,6 +62,23 @@ function toast(text: string): void {
 
 function msg(e: unknown): string {
   return isAppError(e) ? e.message : e instanceof Error ? e.message : String(e);
+}
+
+function applySettingsSnapshot(prefs: PrefsSnapshot): void {
+  store.patch({ prefs, settingsRequest: store.get().settingsRequest + 1, loading: false, loadError: null });
+}
+
+async function loadSettings(): Promise<void> {
+  const ticket = store.get().settingsRequest + 1;
+  store.patch({ settingsRequest: ticket, loading: true, loadError: null });
+  try {
+    const [prefs, net] = await Promise.all([ipc.invoke<unknown>(PrefsCommands.SNAPSHOT), ipc.invoke<UiNetStatus>(UiCommands.NET_STATUS, {}).catch(() => null)]);
+    if (store.get().settingsRequest !== ticket) return;
+    if (!isPrefsSnapshot(prefs)) throw new Error('invalid preferences snapshot');
+    store.patch({ prefs, net, loading: false });
+  } catch {
+    if (store.get().settingsRequest === ticket) store.patch({ loading: false, loadError: '无法读取设置，请重试；若仍失败，请重新打开设置。' });
+  }
 }
 
 async function setReminder<K extends keyof ReminderSettings>(key: K, value: ReminderSettings[K]): Promise<void> {
@@ -95,25 +117,43 @@ async function setPref(section: PrefsSection, key: string, value: boolean | stri
 async function tsimLogin(): Promise<void> {
   const s = store.get();
   if (!tsimFormValid(s.tsimForm) || s.tsimBusy) return;
-  store.patch({ tsimBusy: true, tsimError: null });
+  const ticket = s.tsimRequest + 1;
+  store.patch({ tsimRequest: ticket, tsimBusy: true, tsimError: null, tsimForm: { user: s.tsimForm.user, password: '' } });
   try {
-    await ipc.invoke<UiTsimStatus>(UiCommands.ASSIST_TSIM_LOGIN, { user: s.tsimForm.user.trim(), password: s.tsimForm.password });
-    // never keep the password in UI state after submit
-    store.patch({ tsimBusy: false, tsimForm: EMPTY_TSIM_FORM });
-    const p = await ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT);
-    store.patch({ prefs: p });
+    const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_LOGIN, { user: s.tsimForm.user.trim(), password: s.tsimForm.password });
+    if (store.get().tsimRequest !== ticket) return;
+    if (!isTsimStatus(status)) throw { code: 'assistant.malformed_response' };
+    store.patch({ tsimBusy: false, tsimStatus: status, tsimError: status.logged_in ? null : '登录未获确认，请检查用户名和密码后重新输入。' });
   } catch (e) {
-    store.patch({ tsimBusy: false, tsimError: t('set.asst.tsimFailed', { msg: msg(e) }), tsimForm: { user: s.tsimForm.user, password: '' } });
+    if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimError: tsimErrorText(e) });
   }
 }
 
 async function tsimLogout(): Promise<void> {
+  const s = store.get();
+  if (s.tsimBusy) return;
+  const ticket = s.tsimRequest + 1;
+  store.patch({ tsimRequest: ticket, tsimBusy: true, tsimError: null, tsimForm: EMPTY_TSIM_FORM });
   try {
-    await ipc.invoke(UiCommands.ASSIST_TSIM_LOGOUT, {});
-    const p = await ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT);
-    store.patch({ prefs: p });
+    const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_LOGOUT, {});
+    if (store.get().tsimRequest !== ticket) return;
+    if (!isTsimStatus(status)) throw { code: 'assistant.malformed_response' };
+    store.patch({ tsimBusy: false, tsimStatus: status, tsimError: status.logged_in ? '退出未获确认，请刷新登录状态后再操作。' : null });
   } catch (e) {
-    toast(t('set.saveFailed', { msg: msg(e) }));
+    if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimError: tsimErrorText(e) });
+  }
+}
+
+async function refreshTsimStatus(): Promise<void> {
+  const ticket = store.get().tsimRequest + 1;
+  store.patch({ tsimRequest: ticket, tsimBusy: true, tsimError: null });
+  try {
+    const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_STATUS, {});
+    if (store.get().tsimRequest !== ticket) return;
+    if (!isTsimStatus(status)) throw { code: 'assistant.malformed_response' };
+    store.patch({ tsimStatus: status, tsimBusy: false });
+  } catch (e) {
+    if (store.get().tsimRequest === ticket) store.patch({ tsimStatus: null, tsimBusy: false, tsimError: tsimErrorText(e) });
   }
 }
 
@@ -202,6 +242,7 @@ function keysSection(p: PrefsSnapshot): Child[] {
 
 function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
   const a = p.assistant;
+  const status = s.tsimStatus;
   return [
     head(t('set.assistant')),
     toggle(t('set.asst.enabled'), null, a.enabled, (v) => void setPref('assistant', 'enabled', v), 'assistant.enabled'),
@@ -223,14 +264,15 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
     h(
       'div',
       { class: 'set-row col', dataset: { tsim: '1' } },
-      h('div', { class: 'set-l' }, h('div', { class: 'set-label' }, t('set.asst.tsim'), ' ', h('span', { class: cx('chip', a.tsim_logged_in ? 'chip-ok' : 'chip-muted'), dataset: { tsimStatus: a.tsim_logged_in ? 'in' : 'out' } }, tsimStatusText(a))), h('div', { class: 'set-desc' }, t('set.asst.tsimDesc'))),
-      a.tsim_logged_in
-        ? h('div', null, h('button', { class: 'btn sm', dataset: { action: 'tsim-logout' }, onclick: () => void tsimLogout() }, t('set.asst.tsimLogout')))
+      h('div', { class: 'set-l' }, h('div', { class: 'set-label' }, t('set.asst.tsim'), ' ', h('span', { class: cx('chip', status?.logged_in ? 'chip-ok' : 'chip-muted'), dataset: { tsimStatus: status ? status.logged_in ? 'in' : 'out' : 'unknown' } }, status ? tsimStatusText({ ...a, tsim_logged_in: status.logged_in, tsim_user: status.user }) : '登录状态未知')), h('div', { class: 'set-desc' }, t('set.asst.tsimDesc'))),
+      h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-refresh' }, onclick: () => void refreshTsimStatus() }, s.tsimBusy ? '正在核对…' : '刷新 TSim 登录状态'),
+      status?.logged_in
+        ? h('div', null, h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-logout' }, onclick: () => void tsimLogout() }, t('set.asst.tsimLogout')))
         : h(
             'form',
             { class: 'tsim-form', onsubmit: (e: Event) => { e.preventDefault(); void tsimLogin(); } },
-            h('input', { class: 'inp', placeholder: t('set.asst.tsimUser'), 'aria-label': t('set.asst.tsimUser'), value: s.tsimForm.user, autocomplete: 'username', dataset: { fid: 'tsim-user' }, oninput: (e: Event) => store.patch({ tsimForm: { ...store.get().tsimForm, user: (e.target as HTMLInputElement).value } }) }),
-            h('input', { class: 'inp', type: 'password', placeholder: t('set.asst.tsimPass'), 'aria-label': t('set.asst.tsimPass'), value: s.tsimForm.password, autocomplete: 'current-password', dataset: { fid: 'tsim-pass' }, oninput: (e: Event) => store.patch({ tsimForm: { ...store.get().tsimForm, password: (e.target as HTMLInputElement).value } }) }),
+            h('input', { class: 'inp', disabled: s.tsimBusy, placeholder: t('set.asst.tsimUser'), 'aria-label': t('set.asst.tsimUser'), value: s.tsimForm.user, autocomplete: 'username', dataset: { fid: 'tsim-user' }, oninput: (e: Event) => store.patch({ tsimForm: { ...store.get().tsimForm, user: (e.target as HTMLInputElement).value } }) }),
+            h('input', { class: 'inp', disabled: s.tsimBusy, type: 'password', placeholder: t('set.asst.tsimPass'), 'aria-label': t('set.asst.tsimPass'), value: s.tsimForm.password, autocomplete: 'current-password', dataset: { fid: 'tsim-pass' }, oninput: (e: Event) => store.patch({ tsimForm: { ...store.get().tsimForm, password: (e.target as HTMLInputElement).value } }) }),
             h('button', { class: 'btn pri', type: 'submit', disabled: !tsimFormValid(s.tsimForm) || s.tsimBusy, dataset: { action: 'tsim-login' } }, s.tsimBusy ? h('span', { class: 'spin' }) : null, t('set.asst.tsimLogin')),
           ),
       s.tsimError ? h('div', { class: 'notice-box err', role: 'alert' }, s.tsimError) : null,
@@ -325,7 +367,7 @@ function render(s: SettingState): Node {
       'div',
       { class: 'setbody-wrap' },
       h('div', { class: 'setnav', role: 'tablist' }, h('div', { class: 'setnav-g' }, t('set.group.desktop')), SECTIONS.map((sec) => h('button', { class: cx({ on: s.section === sec.id }), role: 'tab', 'aria-selected': String(s.section === sec.id), dataset: { section: sec.id }, onclick: () => store.patch({ section: sec.id }) }, sectionLabel(sec)))),
-      h('div', { class: 'setbody', dataset: { keepScroll: 'set' } }, s.prefs ? body(s, s.prefs) : h('div', { class: 'muted' }, t('app.loading'))),
+      h('div', { class: 'setbody', dataset: { keepScroll: 'set' } }, s.loadError ? h('div', { class: 'notice-box err', role: 'alert' }, s.loadError, h('button', { class: 'btn sm', dataset: { action: 'retry-settings' }, disabled: s.loading, onclick: () => void loadSettings() }, s.loading ? '正在重试…' : '重新读取设置')) : null, s.prefs ? body(s, s.prefs) : !s.loadError ? h('div', { class: 'muted', role: 'status' }, t('app.loading')) : null),
     ),
     s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast) : null,
   );
@@ -339,7 +381,7 @@ function activeNick(snap: UiAccountSnapshot): string | null {
 subscribeBatched(store, (s) => rerender(root, () => render(s)));
 rerender(root, () => render(store.get()));
 
-ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, (p) => store.patch({ prefs: p })));
+ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, applySettingsSnapshot));
 ipc.listen<unknown>(Events.ACCOUNT_CHANGED, guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, (snap) => store.patch({ nick: activeNick(snap) })));
 void ipc
   .invoke<unknown>(AccountCommands.SNAPSHOT)
@@ -356,13 +398,7 @@ if (!sel.mock) {
     })
     .catch(() => undefined);
 }
-void (async () => {
-  try {
-    const [p, net] = await Promise.all([ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT), ipc.invoke<UiNetStatus>(UiCommands.NET_STATUS, {}).catch(() => null)]);
-    store.patch({ prefs: p, net });
-  } catch (e) {
-    toast(t('set.saveFailed', { msg: msg(e) }));
-  }
-})();
+void loadSettings();
+void refreshTsimStatus();
 
 exposeForTests(sel, { __vbkStore: store });

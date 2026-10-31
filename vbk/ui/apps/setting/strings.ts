@@ -1,6 +1,7 @@
 /** Settings-window copy local to this window (shared copy stays in ui-kit/i18n.ts). */
 export const SETTING_STRINGS = {
   titleWithAccount: '设置 · {nick}',
+  assistant: '商家助手 · TSim 登录',
   close: '关闭设置',
   about: '关于与更新',
   aboutHead: '关于与更新',

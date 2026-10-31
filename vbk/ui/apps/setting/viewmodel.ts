@@ -3,7 +3,7 @@
 import type { ReminderSettings } from '../../packages/ipc/src/contracts.ts';
 import { ALLOWED_T1_SECONDS } from '../../packages/ipc/src/contracts.ts';
 import { NotifyCommands } from '../../packages/ipc/src/commands.ts';
-import type { PrefsSection, PrefsSnapshot, SendMode } from '../../packages/ipc/src/client.ts';
+import type { PrefsSection, PrefsSnapshot, SendMode, UiTsimStatus } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { I18nKey } from '../../packages/ui-kit/src/i18n.ts';
@@ -17,7 +17,7 @@ export const SECTIONS: readonly ({ id: SectionId; labelKey: I18nKey; label?: und
   { id: 'display', labelKey: 'set.display' },
   { id: 'notify', labelKey: 'set.notify' },
   { id: 'keys', labelKey: 'set.keys' },
-  { id: 'assistant', labelKey: 'set.assistant' },
+  { id: 'assistant', label: SETTING_STRINGS.assistant },
   { id: 'network', labelKey: 'set.network' },
   { id: 'storage', labelKey: 'set.storage' },
   { id: 'privacy', labelKey: 'set.privacy' },
@@ -94,6 +94,31 @@ export const EMPTY_TSIM_FORM: TsimForm = { user: '', password: '' };
 
 export function tsimFormValid(f: TsimForm): boolean {
   return f.user.trim().length > 0 && f.password.length > 0;
+}
+
+export function isTsimStatus(value: unknown): value is UiTsimStatus {
+  if (!value || typeof value !== 'object') return false;
+  const s = value as Partial<UiTsimStatus>;
+  return typeof s.logged_in === 'boolean' && (s.user === null || typeof s.user === 'string') && (!s.logged_in || typeof s.user === 'string' && !!s.user.trim());
+}
+
+/** Whitelisted codes only: upstream messages can echo credentials or transport details. */
+export function tsimErrorText(error: unknown): string {
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
+  const descriptions: Readonly<Record<string, string>> = {
+    'assistant.tsim_bad_credentials': '用户名或密码未通过验证，请检查后重新输入。',
+    'assistant.invalid_input': '登录信息格式不正确，请检查输入。',
+    'assistant.forbidden': 'TSim 拒绝了当前账号的权限，请联系管理员。',
+    'assistant.permission_denied': '当前窗口或账号没有操作权限，请重新打开设置或联系管理员。',
+    'assistant.tsim_unauthenticated': 'TSim 尚未登录，请重新登录。',
+    'assistant.session_cleared': 'TSim 会话已失效，请重新登录。',
+    'net.timeout': '请求超时，结果尚待核对。请先刷新登录状态。',
+    'net.offline': '无法连接 TSim，请检查网络后刷新登录状态。',
+    'assistant.service_unavailable': 'TSim 服务暂不可用，请稍后刷新登录状态。',
+    'assistant.malformed_response': '返回的登录状态无法识别，请刷新状态后再操作。',
+    'store.io': '系统凭据存储不可用，请检查系统权限后重试。',
+  };
+  return typeof code === 'string' && Object.hasOwn(descriptions, code) ? `${descriptions[code]}（${code}）` : '操作未完成，登录状态尚待核对。请先刷新 TSim 登录状态后再操作。';
 }
 
 export const ZOOM_OPTIONS: readonly PrefsSnapshot['display']['zoom'][] = [75, 100, 125, 150];
