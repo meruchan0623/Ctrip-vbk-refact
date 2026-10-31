@@ -1022,6 +1022,7 @@ pub fn adapter_identity(
         )));
     }
     let ctx = login::on_identity(&app, webview.label(), identity).map_err(e2dto)?;
+    crate::clock_anchor::start(&app, &ctx);
     Ok((&ctx).into())
 }
 
@@ -1857,6 +1858,7 @@ pub async fn request(
 
 /// Drops display cache and pending requests of a removed / logged-out account.
 pub fn on_account_removed(app: &AppHandle, account: &contracts::AccountContext) {
+    crate::clock_anchor::stop(app, account);
     let Ok(m) = module(app) else {
         return;
     };

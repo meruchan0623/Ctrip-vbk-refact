@@ -18,6 +18,7 @@ export interface FetchInit {
   readonly headers: Readonly<Record<string, string>>;
   readonly body: string | Uint8Array;
   readonly credentials: 'include' | 'omit';
+  readonly redirect?: 'error';
 }
 
 export interface FetchResponseLike {

@@ -12,6 +12,7 @@
 //! settings are in `tauri.macos.conf.json`.
 
 pub mod adapter;
+pub mod clock_anchor;
 pub mod peripheral_journal;
 pub mod media_outbound;
 pub mod assistant;
@@ -71,6 +72,7 @@ pub fn run() {
                 }
             }
             app.manage(state);
+            app.manage(clock_anchor::ClockAnchors::default());
 
             let handle = app.handle().clone();
             // Main window: close → hide to tray (docs/dev/01-shell.md).

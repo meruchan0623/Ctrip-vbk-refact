@@ -23,12 +23,12 @@ import type { AdapterDisplayPayload, AdapterOp, AdapterReplyPayload, AdapterResu
 import type { AdapterDeps } from './deps.ts';
 import { getCustomerScripts, getCurrentMembers, getInviteMemberListBySkillGroup, getLatestConversationState, finishConversation, inviteVenAgent, transferVenMaster, type PeripheralFailure, type PeripheralReadResult, type CurrentMember, type PeripheralConversation } from './peripheral.ts';
 import { Endpoints } from './endpoints.ts';
-import { businessHead } from './heads.ts';
+import { businessHead, sdkHead } from './heads.ts';
 import type { SoaClient, SoaOutcome } from './soa.ts';
-import { recordOrNull } from './soa.ts';
+import { recordOrNull, parseSoaTimestamp } from './soa.ts';
 import { conversationListBody, type ConversationListResponse } from './conversationList.ts';
 import { fetchHistoryPage } from './history.ts';
-import { is13DigitMs, normalizeTimeMs } from './facts.ts';
+import { is13DigitMs, normalizeTimeMs, jidLocal } from './facts.ts';
 import { createSendIntent, submitIntent, type SendIntent } from './send.ts';
 import { markRead } from './markRead.ts';
 import { createMediaRpc } from './media.ts';
@@ -40,6 +40,7 @@ import { roomJidFromMessage, type ConversationStore, RoleBook } from './stores.t
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
 
 export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
+  'clock.sample': 'host-requested fixed GetMyInfo.json authenticated SOA Timestamp; no display, facts or read receipts',
   'assistant.scope': 'read-only local complete conversation identity revision; no upstream call',
   'media.target': 'read-only local full conversation identity capability',
   'media.validate': 'read-only local capability validation',
@@ -589,6 +590,19 @@ const imTransfer: Handler<'im.transfer'> = (ctx, args, state) => peripheralWrite
 const imFinish: Handler<'im.finish'> = (ctx, args, state) => peripheralWrite(ctx, args, state, 'finish');
 
 const HANDLERS: { readonly [K in AdapterOp]: Handler<K> } = {
+  'clock.sample': async (ctx) => {
+    const current = ctx.captureWriteGuard?.() ?? (() => true);
+    ensureCurrent(current);
+    const self = ctx.roles.selfUid;
+    // No endpoint, URL, timestamp or identity is accepted from the requester.
+    const outcome = await ctx.soa.post<{ jid?: unknown; ResponseStatus?: unknown }>(Endpoints.MY_INFO, { head: sdkHead(ctx.deps.context) }, { rejectRedirects: true });
+    ensureCurrent(current);
+    if (ctx.roles.selfUid !== self || outcome.kind !== 'success') fail(ErrorCodes.ADAPTER_NOT_READY, 'server clock sample unavailable', true);
+    const jid = outcome.body.jid;
+    const stamp = parseSoaTimestamp(recordOrNull(outcome.body.ResponseStatus)?.['Timestamp']);
+    if (!self || typeof jid !== 'string' || jidLocal(jid).toLowerCase() !== self.toLowerCase() || stamp === null || !Number.isSafeInteger(stamp) || stamp < 946684800000 || stamp >= 4102444800000) fail(ErrorCodes.ADAPTER_FAILED, 'invalid server clock sample');
+    return { server_ms: stamp };
+  },
   'assistant.scope': async (ctx, args) => {
     const gid = requireString(args, 'gid'), expected = requireString(args, 'context_revision');
     const current = ctx.captureWriteGuard?.() ?? (() => true);

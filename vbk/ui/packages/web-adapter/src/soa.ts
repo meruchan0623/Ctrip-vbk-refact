@@ -62,6 +62,8 @@ export interface SoaClientOptions {
 }
 
 export interface PostOptions {
+  /** Fixed-source security reads must never accept redirected responses. */
+  readonly rejectRedirects?: boolean;
   readonly timeoutMs?: number;
   /** Extra HTTP headers (never cookies/authorization). */
   readonly headers?: Readonly<Record<string, string>>;
@@ -211,6 +213,7 @@ export class SoaClient {
       headers: soaHeaders(deps.context, opts.headers),
       body: JSON.stringify(body),
       credentials: 'include',
+      ...(opts.rejectRedirects ? { redirect: 'error' as const } : {}),
     };
     const timeoutMs = opts.timeoutMs ?? this.#opts.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
 

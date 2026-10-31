@@ -92,6 +92,7 @@ export interface MessageProfilePatch {
 
 /** Operations the host may ask the page to perform. `args` per op below. */
 export type AdapterRequest =
+  | { readonly req_id: string; readonly op: 'clock.sample'; readonly args: Record<string, never> }
   | { readonly req_id: string; readonly op: 'assistant.scope'; readonly args: { readonly gid: string; readonly context_revision: string } }
   | { readonly req_id: string; readonly op: 'media.target'; readonly args: { readonly gid: string; readonly target_token: string } }
   | { readonly req_id: string; readonly op: 'media.validate'; readonly args: { readonly gid: string; readonly target_token: string } }
@@ -126,6 +127,7 @@ export type AdapterOp = AdapterRequest['op'];
 
 /** Result data per op (reply `data`). */
 export interface AdapterResultMap {
+  'clock.sample': { readonly server_ms: number };
   'assistant.scope': { readonly context_revision: string; readonly order_id: string | null };
   'media.target': MediaTarget;
   'media.validate': MediaTarget;
