@@ -1,6 +1,6 @@
 # Windows接续断点
 
-Windows接续状态（2026-10-31，优先于下方Mac交接历史）：已从指定66b8769恢复工作，环境见[Windows重核](../research/2026-10-31-windows-resurvey.md)。译文实例1a32e8d、历史身份补全锚点e21a6e9及Windows严格持久化a3fbb22均已独立验证/评审并本地提交。第5轮冻结a3fbb22构建中；网页待用户正常登录，尚无新包双向验收。后续媒体工作属于第6轮，不混入第5轮快照。未推送、合并或部署。
+Windows接续状态（2026-10-31，优先于下方Mac交接历史）：已从指定66b8769恢复工作，环境见[Windows重核](../research/2026-10-31-windows-resurvey.md)。译文实例1a32e8d、历史身份补全锚点e21a6e9及Windows严格持久化a3fbb22均已独立验证/评审并本地提交。第5轮冻结a3fbb22已构建并启动PID14828，欢迎页与官方登录窗可见，见[第5轮运行记录](../research/2026-10-31-round5-windows-runtime.md)；网页及新包待用户正常登录，尚无双向验收。后续媒体工作属于第6轮，不混入第5轮快照。未推送、合并或部署。
 
 2026-10-31，用户明确要求停止运行、分块提交并推送。分支feat/prototype-restore-macos，远端origin=https://github.com/meruchan0623/Ctrip-vbk-refact.git。本次仅保存与迁移成果，没有部署、合并或继续第5轮。
 

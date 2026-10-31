@@ -10,14 +10,15 @@
 - 本轮允许既有真实浏览器工具替代ego；仅专用任务页面，客户端与官方网页双核前不出站。
 - TSim与官方/助手源码安装均只读；持久化失败保留发送屏障；不push、合并、部署或迁移秘密。
 
-## Windows 第5轮冻结与构建（进行中）
+## Windows 第5轮已构建启动，等待登录（未通过）
 - 基线TS483/核心Rust301通过，0失败/跳过；初次typecheck因缺tsc失败。98311bf锁定开发依赖，独立暂存npm ci/typecheck/bundle/Tauri CLI通过。
 - 1a32e8d译文请求实例隔离：独立暂存16项/typecheck/bundle及独立24交错复审；新增回归13绿3红→16绿，旧12项完整保留。
 - e21a6e9历史像素锚点：允许无冲突身份补全但双向唯一匹配，完整scope隔离；独立暂存历史21+草稿16项/typecheck/bundle通过。真实渲染故障注入top120≠420及反向唯一性反例均红→绿；独立复审无未修P1/P2。
 - a3fbb22 Windows严格持久化：修复OS5句柄权限，统一目录/状态文件同步并同步祖先；失败仍关闭发送。独立暂存核心304/Windows宿主115全部通过，0失败/ignored；真实共享句柄及双进程unknown不重发红→绿，独立复审通过。
-- 第5轮冻结a3fbb22f1586b62beb411432c10c7640a540027d，独立源码快照dirty=[]；635文件manifest SHA256 07596ea75643c053b6937551961fd5ddb5f158c829fdf135cf62f858eb675c17。完整检查及Windows安装包正在该快照执行，不混入后续媒体改动。
+- 第5轮冻结a3fbb22f1586b62beb411432c10c7640a540027d，独立源码快照dirty=[]；635文件manifest SHA256 07596ea75643c053b6937551961fd5ddb5f158c829fdf135cf62f858eb675c17。完整检查及Windows安装包已在该快照完成，不混入后续媒体改动。
 - 官方Windows1.2.12已登录，原生受控订单/客户/iframe身份已读回；助手0.5.41翻译栏与有效套餐速览可见。Edge专用网页登录失效，桌面授权唤起失败，已请求用户正常登录；新包/网页双核与出站尚未进行。
 - 第6轮媒体链路独立实施中：绑定完整目标及附件快照，分阶段持久化，unknown不重传/重发；不计入第5轮包，尚未完成/验收。
+- 第5轮493TS/304core/115host及typecheck/bundle/Tauri NSIS/diff通过；全新host首次缺bundle退出101已保留并修正前置。11:37:57新包PID14828在release/windows-round5-a3fbb22运行，exe hash6150ef53…12c2654，安装包d818f35d…fd456ff；欢迎页和官方登录窗实际可见，用户登录待完成。详见[第5轮Windows记录](docs/research/2026-10-31-round5-windows-runtime.md)。未执行NSIS安装或任何消息发送。
 
 ## 已停止：Windows交接（2026-10-31）
 
