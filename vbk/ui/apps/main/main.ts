@@ -445,34 +445,61 @@ async function loadAccounts(): Promise<void> {
   }
 }
 
+let accountLoadTicket = 0;
+let stopAccountLoadObservation: (() => void) | null = null;
+
 async function loadForActiveAccount(): Promise<void> {
+  const ticket = ++accountLoadTicket;
+  stopAccountLoadObservation?.();
+  stopAccountLoadObservation = null;
   const acc = activeAccount();
   if (!acc) return;
   const account = acc.context;
-  const [convs, agent, net, cats] = await Promise.all([
-    invokeQuiet<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account }),
-    invokeQuiet<unknown>(UiCommands.ACCOUNT_AGENT_STATUS, { account }),
-    invokeQuiet<unknown>(UiCommands.NET_STATUS, {}),
-    invokeQuiet<UiNoticeCategory[]>(UiCommands.NOTICE_CATEGORIES, { account }),
-  ]);
-  if (!stillActive(account)) return; // the user switched accounts meanwhile: these belong to the old one
-  const s = S();
-  const conversations = Array.isArray(convs) ? convs.filter(isUiConversation) : [];
-  const lostConversation = !!s.activeGid && !conversations.some(c => c.gid === s.activeGid);
-  if (lostConversation && s.attachment) void releaseAttachment(s.attachment);
-  const noticeCats = Array.isArray(cats) ? cats : [];
-  store.patch({
-    conversations,
-    noticeCats,
-    agent: isUiAgentStatus(agent) ? agent : s.agent,
-    net: isUiNetStatus(net) ? net : s.net,
-    noticeCat: s.noticeCat && noticeCats.some((c) => c.id === s.noticeCat) ? s.noticeCat : (noticeCats[0]?.id ?? null),
-    activeGid: lostConversation ? null : s.activeGid,
-    ...(lostConversation ? { attachment: null, attachmentSelection: null, mediaOperation: null } : {}),
+  const belongs = (c: UiConversation): boolean => sameAccount(c.account, account) && c.account.session_generation === account.session_generation;
+  // Preserve mutations received after this read began, including removals. A
+  // union of the two lists would resurrect deleted rows from the old snapshot.
+  const changes = new Map<string, UiConversation | null>();
+  let observed = S().conversations;
+  const stop = store.subscribe((next) => {
+    if (next.conversations === observed) return;
+    const before = new Map(observed.map(c => [c.gid, c]));
+    const after = new Map(next.conversations.map(c => [c.gid, c]));
+    for (const gid of before.keys()) if (!after.has(gid)) changes.set(gid, null);
+    for (const [gid, c] of after) if (before.get(gid) !== c) changes.set(gid, belongs(c) ? c : null);
+    observed = next.conversations;
   });
-  if (S().noticeCat) await loadNotices();
-  // Opening a conversation can acknowledge unread messages. Background account
-  // refresh must wait for an explicit user selection instead of opening row one.
+  stopAccountLoadObservation = stop;
+  try {
+    const [convs, agent, net, cats] = await Promise.all([
+      invokeQuiet<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account }),
+      invokeQuiet<unknown>(UiCommands.ACCOUNT_AGENT_STATUS, { account }),
+      invokeQuiet<unknown>(UiCommands.NET_STATUS, {}),
+      invokeQuiet<UiNoticeCategory[]>(UiCommands.NOTICE_CATEGORIES, { account }),
+    ]);
+    if (ticket !== accountLoadTicket || !stillActive(account)) return;
+    const s = S();
+    const snapshot = Array.isArray(convs) ? convs.filter(isUiConversation).filter(belongs) : [];
+    const conversations = snapshot.filter(c => !changes.has(c.gid));
+    for (const c of changes.values()) if (c) conversations.push(c);
+    const lostConversation = !!s.activeGid && !conversations.some(c => c.gid === s.activeGid);
+    if (lostConversation && s.attachment) void releaseAttachment(s.attachment);
+    const noticeCats = Array.isArray(cats) ? cats : [];
+    store.patch({
+      conversations,
+      noticeCats,
+      agent: isUiAgentStatus(agent) ? agent : s.agent,
+      net: isUiNetStatus(net) ? net : s.net,
+      noticeCat: s.noticeCat && noticeCats.some((c) => c.id === s.noticeCat) ? s.noticeCat : (noticeCats[0]?.id ?? null),
+      activeGid: lostConversation ? null : s.activeGid,
+      ...(lostConversation ? { attachment: null, attachmentSelection: null, mediaOperation: null } : {}),
+    });
+    if (S().noticeCat) await loadNotices();
+    // Opening a conversation can acknowledge unread messages. Background account
+    // refresh must wait for an explicit user selection instead of opening row one.
+  } finally {
+    stop();
+    if (ticket === accountLoadTicket) stopAccountLoadObservation = null;
+  }
 }
 
 async function loadNotices(): Promise<void> {
