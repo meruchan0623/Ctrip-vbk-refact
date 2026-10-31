@@ -155,6 +155,7 @@ interface MainState {
   readonly history: Readonly<Record<string, { hasMore: boolean; beforeMs: number | null; busy: boolean }>>;
   readonly messages: Readonly<Record<string, readonly UiMessage[]>>;
   readonly draft: string;
+  readonly drafts: Readonly<Record<string, string>>;
   readonly draftVersion: number;
   readonly quote: UiMessage | null;
   readonly attachment: Attachment | null;
@@ -211,6 +212,7 @@ const initial: MainState = {
   messages: {},
   history: {},
   draft: '',
+  drafts: {},
   draftVersion: 0,
   quote: null,
   attachment: null,
@@ -339,6 +341,7 @@ const ACCOUNT_SCOPED_RESET = {
   messages: {},
   history: {},
   draft: '',
+  drafts: {},
   quote: null,
   attachment: null,
   translation: TRANSLATION_IDLE,
@@ -557,7 +560,7 @@ async function openConversation(gid: string, reveal = true): Promise<void> {
     return;
   }
   peripheral.close();
-  store.patch({ activeGid: gid, view, banners, draft: s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
+  store.patch({ activeGid: gid, view, banners, draft: s.drafts[gid] ?? s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
   const page = await invokeQuiet<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: acc.context, gid });
   const list = page?.items ?? await invokeQuiet<UiMessage[]>(UiCommands.IM_MESSAGES, { account: acc.context, gid });
   if (list && S().activeGid === gid && stillActive(acc.context)) {
@@ -641,7 +644,7 @@ async function sendText(text: string, original: string | null): Promise<void> {
   const localId = nextLocalId(Date.now());
   const quote = selectedQuoteReference(s.quote, s.messages[conv.gid] ?? [], conv.gid);
   const local: QuotedUiMessage = { gid: conv.gid, message_id: null, local_id: localId, create_time_ms: Date.now(), sender_role: 'merchant_self', kind: 'text', text, translation: null, original, quote: quote?.target_id ?? null, quote_target_id: quote?.target_id ?? null, order_id: null, disposition: null };
-  store.patch({ messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] }, draft: '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: { ...TRANSLATION_IDLE, target: s.translation.target } });
+  store.patch({ messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] }, drafts: { ...s.drafts, [conv.gid]: '' }, draft: '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: { ...TRANSLATION_IDLE, target: s.translation.target } });
   const result = await settleAccountSend(acc.context,
     () => ipc.invoke<SendDisposition>(UiCommands.IM_SEND_TEXT, { account: acc.context, gid: conv.gid, local_id: localId, text, original: original ?? undefined, quote_id: quote?.target_id }),
     () => activeAccount()?.context ?? null);
@@ -737,7 +740,7 @@ async function runPreviewTranslation(): Promise<void> {
 
 function setDraft(value: string): void {
   const s = S();
-  store.patch({ draft: value, draftVersion: s.draftVersion + 1 });
+  store.patch({ draft: value, drafts: s.activeGid ? { ...s.drafts, [s.activeGid]: value } : s.drafts, draftVersion: s.draftVersion + 1 });
   scheduleTranslation();
 }
 
@@ -1124,7 +1127,8 @@ function conversationList(s: MainState): HTMLElement {
     const waiting = c.waiting_since_ms !== null && !isDone(c);
     const waited = waiting ? waitedSeconds(c, s.now) : 0;
     const mark = MARK_COLORS.find((m) => m.action === c.mark);
-    const hasDraft = !!c.draft && !on;
+    const draft = s.drafts[c.gid] ?? c.draft;
+    const hasDraft = !!draft && !on;
     return h(
       'div',
       {
@@ -1147,7 +1151,7 @@ function conversationList(s: MainState): HTMLElement {
         'div',
         { class: 'conv-main' },
         h('div', { class: 'crow' }, h('span', { class: 'cname' }, c.title), c.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, langName(c.lang)) : null, h('span', { class: 'ctime' }, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '')),
-        h('div', { class: 'crow' }, hasDraft ? h('span', { class: 'cdraft' }, t('list.draft')) : null, h('span', { class: 'cprev' }, hasDraft ? c.draft : c.preview), accBadge(c.unread_count)),
+        h('div', { class: 'crow' }, hasDraft ? h('span', { class: 'cdraft' }, t('list.draft')) : null, h('span', { class: 'cprev' }, hasDraft ? draft : c.preview), accBadge(c.unread_count)),
         h(
           'div',
           { class: 'crow', style: { 'margin-top': '2px' } },
@@ -1367,6 +1371,13 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
   if (!p || !translationOn(s, conv)) return null;
   const direct = p.assistant.send_mode === 'send_direct';
   const tr = s.translation;
+  const account = activeAccount(s)?.context;
+  const owner = account ? { ...account } : null;
+  const draftVersion = s.draftVersion;
+  const applies = (): boolean => {
+    const current = S();
+    return !!owner && stillActive(owner) && current.activeGid === conv.gid && current.draftVersion === draftVersion && current.translation === tr;
+  };
   const target = translationTarget(s, conv);
   const stale = tr.status === 'done' && tr.draftVersion !== s.draftVersion;
   let bodyEl: HTMLElement;
@@ -1377,8 +1388,8 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
       icon(IC.alert, 14, { style: 'color: var(--c-alert)' }),
       h('span', { style: { color: 'var(--c-alert-text)' } }, `${t('tr.failed')}：${tr.error ?? ''}`),
       h('span', { class: 'sp' }),
-      h('button', { class: 'btn sm', dataset: { tr: 'send-original' }, onclick: () => void sendText(S().draft.trim(), null) }, t('tr.sendOriginal')),
-      h('button', { class: 'btn sm pri', dataset: { tr: 'retry' }, onclick: () => (direct ? void translateAndSend(S().draft.trim()) : void runPreviewTranslation()) }, t('tr.retry')),
+      h('button', { class: 'btn sm', dataset: { tr: 'send-original' }, onclick: () => { if (applies()) void sendText(S().draft.trim(), null); } }, t('tr.sendOriginal')),
+      h('button', { class: 'btn sm pri', dataset: { tr: 'retry' }, onclick: () => { if (applies()) { if (direct) void translateAndSend(S().draft.trim()); else void runPreviewTranslation(); } } }, t('tr.retry')),
     );
   } else if (direct) {
     bodyEl = h('div', { class: 'trprev wait', dataset: { trState: tr.status } }, tr.status === 'busy' ? h('span', { class: 'spin' }) : null, tr.status === 'busy' ? t('tr.busy') : t('composer.directMode'));
@@ -1394,8 +1405,8 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
         { class: 'trrow' },
         h('span', { class: 'sp' }),
         h('button', { class: 'btn sm', onclick: () => copyText(tr.text) }, t('tr.copy')),
-        h('button', { class: 'btn sm', dataset: { tr: 'replace' }, onclick: () => store.patch({ draft: tr.text, draftVersion: S().draftVersion + 1, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target } }) }, t('tr.replace')),
-        h('button', { class: 'btn sm pri', dataset: { tr: 'send' }, onclick: () => void sendText(tr.text, S().draft.trim()) }, t('tr.sendTranslated')),
+        h('button', { class: 'btn sm', dataset: { tr: 'replace' }, onclick: () => { if (applies()) store.patch({ draft: tr.text, drafts: { ...S().drafts, [conv.gid]: tr.text }, draftVersion: S().draftVersion + 1, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target } }); } }, t('tr.replace')),
+        h('button', { class: 'btn sm pri', dataset: { tr: 'send' }, onclick: () => { if (applies()) void sendText(tr.text, S().draft.trim()); } }, t('tr.sendTranslated')),
       ),
     );
   } else {
@@ -1418,6 +1429,7 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
           'aria-label': '目标语言',
           value: target,
           onchange: (e: Event) => {
+            if (!applies()) return;
             store.patch({ translation: { ...TRANSLATION_IDLE, gid: conv.gid, target: (e.target as HTMLSelectElement).value } });
             scheduleTranslation();
           },
