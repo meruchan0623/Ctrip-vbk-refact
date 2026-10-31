@@ -568,7 +568,7 @@ async fn forward<T: DeserializeOwned>(
     serde_json::from_value(v).map_err(|_| bad_reply())
 }
 
-/// Read-only recovery seam for the UI's future reconciliation entry point.
+/// Read-only recovery metadata for the UI's explicit verification entry point.
 /// This exposes no payload and cannot dispatch or create an attempt.
 pub fn unknown_outbound_attempts(
     app: &AppHandle,
@@ -835,6 +835,50 @@ pub fn im_conversations(
     let m = module(&app).map_err(e2dto)?;
     let rows = lock(&m.display).conversations(&ctx).map_err(e2dto)?;
     Ok(to_ui(&app, &ctx, rows))
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct OutboundLookupItemDto {
+    gid: String,
+    message_id: Option<String>,
+    local_id: Option<String>,
+    sender_role: String,
+}
+#[derive(Deserialize, Serialize)]
+pub struct OutboundLookupDto {
+    items: Vec<OutboundLookupItemDto>,
+}
+
+/// Isolated evidence lookup: no focus, display-cache, fact, receipt or journal mutation.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_outbound_lookup(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+) -> CmdResult<OutboundLookupDto> {
+    guard(&state, webview.label(), "im_outbound_lookup")?;
+    let ctx: AccountContext = account.into();
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    let result = forward(&app, &ctx, "im.outbound_lookup", serde_json::json!({ "gid": gid }), READ_TIMEOUT).await.map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(result)
+}
+
+/// Explicit metadata read: no focus mutation, page RPC, dispatch or journal transition.
+#[tauri::command(rename_all = "snake_case")]
+pub fn im_unknown_outbound(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+) -> CmdResult<Vec<outbound_journal::UnknownAttemptMetadata>> {
+    guard(&state, webview.label(), "im_unknown_outbound")?;
+    let ctx: AccountContext = account.into();
+    let rows = unknown_outbound_attempts(&app, &ctx).map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(rows)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1768,5 +1812,22 @@ mod receive_diagnostic_tests {
         bind_diagnostic_result(&mut result, Some(&requested), lock(&m.focus).as_ref(), true);
         let result = result.unwrap(); assert!(result.availability == display::DiagnosticAvailability::Unavailable); assert!(result.page.is_none());
         assert_eq!(*lock(&m.focus), Some(b));
+    }
+}
+
+#[cfg(test)]
+mod outbound_lookup_tests {
+    use super::*;
+    #[test]
+    fn host_lookup_whitelists_identity_metadata_and_rejects_numeric_ids() {
+        let raw = serde_json::json!({ "items": [{ "gid": "synthetic-room", "message_id": "900719925474099312345", "local_id": "synthetic-local", "sender_role": "merchant_self", "text": "SYNTHETIC PRIVATE BODY", "media_url": "https://example.invalid/private" }] });
+        let response: OutboundLookupDto = serde_json::from_value(raw.clone()).unwrap();
+        let returned = serde_json::to_value(response).unwrap();
+        assert_eq!(returned["items"][0]["message_id"], "900719925474099312345");
+        assert_eq!(returned["items"][0].as_object().unwrap().len(), 4);
+        assert!(!returned.to_string().contains("PRIVATE"));
+        assert!(!returned.to_string().contains("private"));
+        let mut numeric = raw; numeric["items"][0]["message_id"] = serde_json::json!(9007199254740992_u64);
+        assert!(serde_json::from_value::<OutboundLookupDto>(numeric).is_err());
     }
 }

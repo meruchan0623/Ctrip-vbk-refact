@@ -63,6 +63,7 @@ import { createPeripheralPanel, type PeripheralKind, type PeripheralPanelState }
 import { settleAccountSend } from './sendScope.ts';
 import { messageAlignment } from './message-alignment.ts';
 import { mergeMessageProfile, renderMessageAvatar } from './message-profile.ts';
+import { createUnknownOutbound, type UnknownOutboundView } from './unknown-outbound.ts';
 import { createReceiveCounters, createReceiveDiagnostics, receiveDiagnosticsJson, type ReceiveDiagnosticsView } from './receive-diagnostics.ts';
 import {
   AGENT_STATUS_ORDER,
@@ -174,6 +175,7 @@ interface MainState {
   // overlays
   readonly peripheral: PeripheralPanelState | null;
   readonly receiveDiagnostics: ReceiveDiagnosticsView | null;
+  readonly unknownOutbound: UnknownOutboundView | null;
   readonly scriptsQuery: string;
   readonly meMenu: boolean;
   readonly logoutDialog: { readonly account: UiAccount; readonly mode: LogoutMode } | null;
@@ -224,6 +226,7 @@ const initial: MainState = {
   orderBusyId: null,
   peripheral: null,
   receiveDiagnostics: null,
+  unknownOutbound: null,
   scriptsQuery: '',
   meMenu: false,
   logoutDialog: null,
@@ -272,6 +275,22 @@ const receiveDiagnostics = createReceiveDiagnostics({
     if (opening) queueMicrotask(() => document.querySelector<HTMLElement>('[data-receive-diagnostics]')?.focus());
   },
 });
+
+const unknownOutbound = createUnknownOutbound({
+  current: () => activeAccount()?.context ?? null,
+  invoke: (command, payload) => ipc.invoke(command, payload),
+  publish: (view) => {
+    const opening = view !== null && S().unknownOutbound === null;
+    store.patch({ unknownOutbound: view });
+    if (opening) queueMicrotask(() => document.querySelector<HTMLElement>('[data-unknown-outbound]')?.focus());
+  },
+});
+
+function openUnknownOutbound(): void {
+  peripheral.close();
+  receiveDiagnostics.close();
+  void unknownOutbound.open();
+}
 
 function openPeripheral(kind: PeripheralKind): void {
   if (activeAccount() && activeConv()) {
@@ -436,13 +455,14 @@ async function loadNet(): Promise<void> {
 function applyAccountSnapshot(snap: UiAccountSnapshot): void {
   const prev = S().accounts?.active_account_id ?? null;
   const nextAccount = snap.accounts.find((a) => a.context.account_id === snap.active_account_id);
-  if (nextAccount?.state !== 'online') { peripheral.close(); receiveDiagnostics.close(); }
+  if (nextAccount?.state !== 'online') { peripheral.close(); receiveDiagnostics.close(); unknownOutbound.close(); }
   const attempt = S().loginAttempt;
   // The login attempt is over once no account is logging in any more.
   const loginAttempt = attempt && snap.accounts.some((a) => a.state === 'logging_in') ? attempt : null;
   if (snap.active_account_id !== prev || activeAccount()?.context.environment !== nextAccount?.context.environment || activeAccount()?.context.session_generation !== nextAccount?.context.session_generation) {
     peripheral.close();
     receiveDiagnostics.close();
+    unknownOutbound.close();
     store.patch({ accounts: snap, accountsError: null, loginAttempt, ...ACCOUNT_SCOPED_RESET });
     void loadForActiveAccount();
   } else {
@@ -1717,12 +1737,35 @@ function statusBar(s: MainState): HTMLElement {
     hasAccount ? h('span', { class: 'sb-item', dataset: { sb: 'agent', known: String(av.known) } }, h('span', { class: 'dot', style: { background: `var(${av.colorVar})` } }), av.label, av.known ? h('span', { class: 'muted' }, ` · ${t('status.readback')}`) : null) : null,
     h('span', { class: cx('sb-item', { 'sb-bad': nv.offline, 'sb-muted': !nv.ok && !nv.offline }), dataset: { sb: 'net' } }, icon(nv.ok ? IC.wifi : IC.wifiOff, 13), nv.label),
     s.alarmCount > 0 ? h('span', { class: 'sb-item sb-alarm', dataset: { sb: 'alarm' } }, icon(IC.clock, 13), t('bar.alarmCount', { n: s.alarmCount })) : null,
+    h('button', { class: 'link sb-diagnostics', disabled: !hasAccount, dataset: { action: 'unknown-outbound' }, onclick: openUnknownOutbound }, '未知发送核验'),
     h('button', { class: 'link sb-diagnostics', dataset: { action: 'receive-diagnostics' }, onclick: () => void receiveDiagnostics.open() }, '接收诊断'),
     h('span', { class: 'sp' }),
     sel.mock ? h('span', { class: 'sb-item muted' }, t('app.mockMode')) : null,
     s.clockTrusted ? null : h('span', { class: 'sb-item sb-warn', title: t('bar.clockUntrustedTitle'), dataset: { sb: 'clock-untrusted' } }, icon(IC.alert, 13), t('bar.clockUntrusted')),
     clockEl,
   );
+}
+
+/** Metadata and one manually requested latest page only; no journal settlement or send actions. */
+function unknownOutboundDialog(s: MainState): HTMLElement | null {
+  const view = s.unknownOutbound;
+  if (!view || !stillActive(view.scope)) return null;
+  return h('div', { class: 'shade', onclick: () => unknownOutbound.close() },
+    h('div', { class: 'dlg peripheral-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'unknown-outbound-title', tabindex: '-1', dataset: { unknownOutbound: '1' }, onclick: (e: Event) => e.stopPropagation() },
+      h('div', { class: 'dlg-h' }, h('span', { id: 'unknown-outbound-title' }, '未知发送只读核验'), h('button', { class: 'ibtn', 'aria-label': '关闭未知发送核验', onclick: () => unknownOutbound.close() }, icon(IC.close, 16))),
+      h('div', { class: 'peripheral-body' },
+        h('p', null, '仅查询当前账号的未知发送元数据。选择一条后，只读取该会话的当前最新页；不会重发、清除账本或标记客户消息已读。'),
+        view.notice ? h('p', { class: 'notice-box', role: 'status' }, view.notice) : null,
+        view.busy ? h('p', { role: 'status' }, '正在只读查询…') : null,
+        !view.busy && !view.records.length ? h('p', null, '当前没有可显示的未知发送记录。') : null,
+        h('div', { class: 'peripheral-list', role: 'radiogroup', 'aria-label': '未知发送记录' }, view.records.map((row) => h('label', { class: 'peripheral-member' },
+          h('input', { type: 'radio', name: 'unknown-outbound-record', checked: view.selected?.gid === row.gid && view.selected?.local_id === row.local_id, disabled: view.busy, onchange: () => unknownOutbound.select(row.gid, row.local_id) }),
+          h('span', null, h('b', null, `本地ID：${row.local_id}`), h('span', { class: 'peripheral-id' }, `会话：${row.gid}`), h('span', { class: 'peripheral-id' }, `${formatDate(row.created_at_ms)} ${formatClock(row.created_at_ms, true)} · 创建代次 ${row.creation_generation} · 结果未知`))))),
+        view.result ? h('div', { class: 'notice-box', role: 'status' }, view.result.message, view.result.server_id ? h('div', { class: 'mono' }, `服务端消息ID：${view.result.server_id}`) : null) : null),
+      h('div', { class: 'dlg-f' },
+        h('button', { class: 'btn', disabled: view.busy, onclick: () => void unknownOutbound.refresh() }, '只读刷新列表'),
+        h('button', { class: 'btn pri', disabled: view.busy || !view.selected, onclick: () => void unknownOutbound.verify() }, '读取所选会话最新页'),
+        h('button', { class: 'btn', onclick: () => unknownOutbound.close() }, '关闭'))));
 }
 
 function receiveDiagnosticsDialog(s: MainState): HTMLElement | null {
@@ -1844,6 +1887,7 @@ function render(s: MainState): Node {
     logoutDialog(s),
     peripheralDialog(s),
     receiveDiagnosticsDialog(s),
+    unknownOutboundDialog(s),
     bannerStack(s),
     s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast) : null,
   );
@@ -1871,8 +1915,8 @@ document.addEventListener('mousedown', () => {
   if (s.ctxMenu || s.meMenu || s.emoOpen) store.patch({ ctxMenu: null, meMenu: false, emoOpen: false });
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Tab' && (S().peripheral || S().receiveDiagnostics)) {
-    const dialog = document.querySelector<HTMLElement>(S().receiveDiagnostics ? '[data-receive-diagnostics]' : '[data-peripheral-dialog]');
+  if (e.key === 'Tab' && (S().peripheral || S().receiveDiagnostics || S().unknownOutbound)) {
+    const dialog = document.querySelector<HTMLElement>(S().unknownOutbound ? '[data-unknown-outbound]' : S().receiveDiagnostics ? '[data-receive-diagnostics]' : '[data-peripheral-dialog]');
     const controls = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')] : [];
     const first = controls[0];
     const last = controls[controls.length - 1];
@@ -1884,6 +1928,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (S().peripheral) peripheral.close();
     if (S().receiveDiagnostics) receiveDiagnostics.close();
+    if (S().unknownOutbound) unknownOutbound.close();
     const s = S();
     if (s.ctxMenu || s.meMenu || s.logoutDialog || s.emoOpen) store.patch({ ctxMenu: null, meMenu: false, logoutDialog: null, emoOpen: false });
   }

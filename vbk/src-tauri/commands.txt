@@ -32,6 +32,8 @@ account_agent_status
 account_set_agent_status
 im_conversations
 im_messages
+im_unknown_outbound
+im_outbound_lookup
 im_send_text
 im_mark_read
 im_set_top

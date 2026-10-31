@@ -61,6 +61,8 @@ impl Role {
             "im_locate_conversation",
             "im_conversations",
             "im_messages",
+            "im_unknown_outbound",
+            "im_outbound_lookup",
             "im_send_text",
             "im_mark_read",
             "im_set_top",
@@ -208,6 +210,20 @@ mod tests {
             r.authorize(MAIN, "prefs_snapshot").is_err(),
             "unregistered main"
         );
+    }
+
+    #[test]
+    fn unknown_outbound_metadata_is_available_only_to_registered_main() {
+        for command in ["im_unknown_outbound", "im_outbound_lookup"] {
+            let mut registry = ViewRegistry::default();
+            assert!(registry.authorize(MAIN, command).is_err());
+            registry.register(MAIN);
+            assert!(registry.authorize(MAIN, command).is_ok());
+            for label in [ALARM, SETTING, UPDATE, LOGIN, "acct-synthetic", "webview-1"] {
+                registry.register(label);
+                assert!(registry.authorize(label, command).is_err());
+            }
+        }
     }
 
     #[test]

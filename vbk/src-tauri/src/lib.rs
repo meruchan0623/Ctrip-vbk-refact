@@ -131,6 +131,8 @@ pub fn run() {
             adapter::account_set_agent_status,
             adapter::im_conversations,
             adapter::im_messages,
+            adapter::im_unknown_outbound,
+            adapter::im_outbound_lookup,
             adapter::im_send_text,
             adapter::im_mark_read,
             adapter::im_set_top,

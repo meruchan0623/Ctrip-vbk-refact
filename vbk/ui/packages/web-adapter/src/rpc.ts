@@ -34,7 +34,7 @@ import { numericGid, setWorkSheetStar } from './worksheetStar.ts';
 import { createImChat, isValidOrderId, validateImUrl } from './order.ts';
 import { AGENT_STATUS_CODES, agentStatusOf, byCreateTime, httpMessageToUi, orderSummaryFromMessage, toDisplayConversation } from './display.ts';
 import type { PageSdk } from './sdkGlue.ts';
-import { roomJidFromMessage, type ConversationStore, type RoleBook } from './stores.ts';
+import { roomJidFromMessage, type ConversationStore, RoleBook } from './stores.ts';
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
 
 export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
@@ -45,6 +45,7 @@ export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
   'im.invite': 'inviteVenAgent (evidence 29), independent membership read-back',
   'im.transfer': 'transferVenMaster (evidence 26), targetRoles=[3,4,4] read-back',
   'im.finish': 'finishConversation (47), status=4/inGroup=-1 read-back (48)',
+  'im.outbound_lookup': 'getMessageList latest page, identity metadata only; no facts, display or mark-read',
   'im.messages': 'getMessageList (endpoint doc, evidence 70); checkMemberStatus roles (13500 doc, evidence 55)',
   'im.send_text': 'WS body/send_result (transports.md, evidence 35/40); SDK facade name unverified',
   'im.mark_read': 'PutAdviceOfReadByMsgId.json body (11679 doc, evidence 71)',
@@ -164,6 +165,25 @@ interface RpcState {
   selectionSequence?: number;
   readonly selectionNamespace: string;
 }
+
+/** Isolated latest-page evidence read. No shared role/store mutation or UI/fact publication. */
+const imOutboundLookup: Handler<'im.outbound_lookup'> = async (ctx, args) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  ensureCurrent(current);
+  const gid = requireString(args, 'gid');
+  const view = requireConversation(ctx, gid);
+  if (!view.conversationType) fail(ErrorCodes.ADAPTER_FAILED, 'conversationType unknown for this conversation');
+  const owner = JSON.stringify([sendIdentity(ctx, view), view.orderId]);
+  const roles = new RoleBook(ctx.roles.selfUid);
+  const res = await fetchHistoryPage(ctx.deps, ctx.soa, { gid, conversationType: view.conversationType, pageSize: 30 }, roles);
+  ensureCurrent(current);
+  if (JSON.stringify([sendIdentity(ctx, requireConversation(ctx, gid)), requireConversation(ctx, gid).orderId]) !== owner) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation changed during outbound lookup');
+  if (res.kind === 'invalid_cursor') fail(ErrorCodes.ADAPTER_FAILED, 'invalid history cursor');
+  if (res.kind === 'failed') throw new RpcError(outcomeError(res.outcome, 'outbound lookup'));
+  const items = res.page.rows.map(row => httpMessageToUi(row, roles, gid)).filter((row): row is UiMessage => row !== null)
+    .map(({ gid, message_id, local_id, sender_role }) => ({ gid, message_id, local_id, sender_role }));
+  return { items };
+};
 
 const imMessages: Handler<'im.messages'> = async (ctx, args) => {
   const current = ctx.captureWriteGuard?.() ?? (() => true);
@@ -558,6 +578,7 @@ const HANDLERS: { readonly [K in AdapterOp]: Handler<K> } = {
   'im.invite': imInvite,
   'im.transfer': imTransfer,
   'im.finish': imFinish,
+  'im.outbound_lookup': imOutboundLookup,
   'im.messages': imMessages,
   'im.send_text': imSendText,
   'im.mark_read': imMarkRead,

@@ -326,6 +326,12 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     return current.context;
   }
 
+  function checkEvidenceAccount(payload: unknown): AccountContext {
+    const ctx = checkAccount(payload), given = (payload as { account: AccountContext }).account;
+    if (given.environment !== ctx.environment || given.session_generation !== ctx.session_generation) throw appError(ErrorCodes.ACCOUNT_STALE_GENERATION, '账号上下文不匹配');
+    return ctx;
+  }
+
   function accountSnapshot(): UiAccountSnapshot {
     return { accounts: st.accounts.map((a) => ({ ...a })), active_account_id: st.active, max_accounts: 16 };
   }
@@ -466,6 +472,12 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     // ---- im
     [ImCommands.CONVERSATION_SNAPSHOT]: async (p) => conversationsOf(checkAccount(p)),
     [UiCommands.IM_CONVERSATIONS]: async (p) => conversationsOf(checkAccount(p)).map((c) => ({ ...c })),
+    [UiCommands.IM_OUTBOUND_LOOKUP]: async (p) => {
+      const ctx = checkEvidenceAccount(p), gid = String((p as { gid?: string }).gid ?? '');
+      convFor(ctx, gid);
+      return { items: (st.messages.get(gid) ?? []).slice(-30).map(({ gid, message_id, local_id, sender_role }) => ({ gid, message_id, local_id, sender_role })) };
+    },
+    [UiCommands.IM_UNKNOWN_OUTBOUND]: async (p) => { checkEvidenceAccount(p); return []; },
     [UiCommands.IM_MESSAGES]: async (p) => {
       const ctx = checkAccount(p);
       const gid = String((p as { gid?: string }).gid ?? '');

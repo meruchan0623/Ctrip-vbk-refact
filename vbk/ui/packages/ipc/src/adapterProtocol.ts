@@ -85,6 +85,7 @@ export interface MessageProfilePatch {
 /** Operations the host may ask the page to perform. `args` per op below. */
 export type AdapterRequest =
   | { readonly req_id: string; readonly op: 'adapter.diagnostics'; readonly args: Record<string, never> }
+  | { readonly req_id: string; readonly op: 'im.outbound_lookup'; readonly args: { readonly gid: string } }
   | { readonly req_id: string; readonly op: 'im.messages'; readonly args: { readonly gid: string } }
   | { readonly req_id: string; readonly op: 'im.send_text'; readonly args: { readonly gid: string; readonly local_id: string; readonly text: string; readonly original: string | null; readonly quote_id: string | null } }
   | { readonly req_id: string; readonly op: 'im.customer_scripts'; readonly args: { readonly content: string } }
@@ -108,6 +109,7 @@ export type AdapterOp = AdapterRequest['op'];
 /** Result data per op (reply `data`). */
 export interface AdapterResultMap {
   'adapter.diagnostics': import('./client.ts').UiPageReceiveDiagnostics;
+  'im.outbound_lookup': import('./client.ts').UiOutboundLookup;
   'im.messages': readonly UiMessage[];
   'im.send_text': SendDisposition;
   'im.mark_read': null;

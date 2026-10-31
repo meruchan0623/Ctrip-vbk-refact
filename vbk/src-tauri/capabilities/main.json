@@ -25,6 +25,8 @@
     "allow-im-locate-conversation",
     "allow-im-conversations",
     "allow-im-messages",
+    "allow-im-unknown-outbound",
+    "allow-im-outbound-lookup",
     "allow-im-send-text",
     "allow-im-mark-read",
     "allow-im-set-top",

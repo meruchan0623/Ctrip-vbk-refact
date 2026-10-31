@@ -100,7 +100,7 @@
 
 ## 示例宿主的持久发送边界（2026-10-31新增）
 
-本仓库已在79e5e50把实际Tauri im_send_text接入独立FileStore账本，详见[宿主发送屏障](../api/outbound-journal.md)。稳定environment/account/local_id去重、不可变payload hash、write_started落盘/fsync、confirmed/rejected/unknown回放可供迁移第6步参考；generation仅作审计。故障测试使用真实FileStore，但不是TSim数据库实现，也没有完成unknown只读核验UI或跨进程运行验收。
+本仓库已在79e5e50把实际Tauri im_send_text接入独立FileStore账本，详见[宿主发送屏障](../api/outbound-journal.md)。稳定environment/account/local_id去重、不可变payload hash、write_started落盘/fsync、confirmed/rejected/unknown回放可供迁移第6步参考；generation仅作审计。故障测试使用真实FileStore，但不是TSim数据库实现。示例新增手动未知发送核验：im_unknown_outbound只列脱敏metadata，专用im_outbound_lookup仅返回最新页四个身份字段，不发事实/display广播，避免普通历史查询间接标已读；唯一gid/local_id/本人/服务端ID匹配可供人工核对，但账本仍保留unknown，不结算、不重发。它不是自动全量reconciler；新包UI与跨进程运行仍待验收。迁移时应保留这一无副作用查询边界，并另行设计持久核验审计。
 
 未来dispatcher/reconciler应把这个准入边界替换为TSim事务与租约，保留原幂等键，不能直接把本地文件当正式共享数据库。Rejected的原始reason可能回显正文，需固定说明或脱敏后持久化；write_started代表已准入但不证明网络包已发。实例重启先读回不确定状态，不能转pending盲重发。现有离线adapter演示仍是纯内存回调演示，与这份宿主测试分别说明。
 

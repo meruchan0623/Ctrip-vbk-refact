@@ -103,6 +103,8 @@ export const UiCommands = {
   ACCOUNT_CANCEL_LOGIN: 'account_cancel_login', // {attempt_id} → UiAccountSnapshot
   // im display models (web adapter → host → main)
   IM_CONVERSATIONS: 'im_conversations', // {account} → UiConversation[]
+  IM_OUTBOUND_LOOKUP: 'im_outbound_lookup', // {account, gid} -> UiOutboundLookup; no display or read-receipt effects
+  IM_UNKNOWN_OUTBOUND: 'im_unknown_outbound', // {account} -> UiUnknownOutboundRecord[]; read-only metadata
   IM_MESSAGES: 'im_messages', // {account, gid} → UiMessage[]
   IM_SEND_TEXT: 'im_send_text', // {account, gid, local_id, text, original?, quote_id?} → SendDisposition
   IM_SET_TOP: 'im_set_top', // {account, gid, top}
@@ -277,6 +279,21 @@ export interface UiMessage {
   readonly order_id: string | null;
   /** null while sending; otherwise confirmed/rejected/unknown. */
   readonly disposition: SendDisposition | null;
+}
+
+export interface UiOutboundLookup {
+  readonly items: readonly Pick<UiMessage, 'gid' | 'message_id' | 'local_id' | 'sender_role'>[];
+}
+
+export interface UiUnknownOutboundRecord {
+  readonly environment: string;
+  readonly account_id: string;
+  readonly local_id: string;
+  readonly gid: string;
+  readonly creation_generation: number;
+  readonly created_at_ms: number;
+  readonly write_started: true;
+  readonly phase: 'write_started' | 'unknown';
 }
 
 export interface UiNoticeCategory {
