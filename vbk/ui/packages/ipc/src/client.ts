@@ -403,6 +403,12 @@ export interface UiPackageInfo {
   readonly supplier: string;
   readonly apn: string;
   readonly fetched_at_ms: number;
+  /** Safe display-only fields; supplied by the order-query projection. */
+  readonly detail_fields?: readonly UiPackageField[];
+  readonly live_fields?: readonly UiPackageField[];
+  readonly cdrs?: readonly (readonly UiPackageField[])[];
+  readonly usage_scope?: 'daily' | 'total';
+  readonly unlimited?: boolean;
 }
 
 export interface UiTsimStatus {

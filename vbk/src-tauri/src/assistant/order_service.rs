@@ -79,6 +79,11 @@ pub struct OrderPackageInfo {
     pub supplier: String,
     pub apn: String,
     pub fetched_at_ms: i64,
+    pub detail_fields: Vec<PackageField>,
+    pub live_fields: Vec<PackageField>,
+    pub cdrs: Vec<Vec<PackageField>>,
+    pub usage_scope: &'static str,
+    pub unlimited: bool,
 }
 impl OrderPackageInfo {
     fn project(detail: &JsonValue, live: Option<&JsonValue>, now: i64) -> Self {
@@ -93,6 +98,13 @@ impl OrderPackageInfo {
             supplier: sum.supplier,
             apn: sum.apn,
             fetched_at_ms: now,
+            detail_fields: order::detail_fields(detail).into_iter()
+                .filter(|field| field.label != "当日用量（MB）" || order::daily_usage_available(detail, live))
+                .map(Into::into).collect(),
+            live_fields: live.map(order::live_fields).unwrap_or_default().into_iter().map(Into::into).collect(),
+            cdrs: order::cdr_fields(detail, None).into_iter().map(|row| row.into_iter().map(Into::into).collect()).collect(),
+            usage_scope: order::usage_scope(detail, live),
+            unlimited: order::unlimited(detail, live),
         }
     }
 }
@@ -400,10 +412,27 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
             Err(error) => return Err(error),
         };
         let mut info = OrderPackageInfo::project(&detail, live.as_ref(), self.service.now_ms());
+        // Match the original companion: supplemental CDR rows take precedence
+        // over detail.cdr_list, under the same scope and total read budget.
+        let cdr = self.summary_request(epoch, cdr_more_request(session, card), validate, read).await;
+        let (cdr, cdr_reusable) = match cdr {
+            Ok(response) => {
+                if response.status == 403 {
+                    return Err(AppError::new(codes::FORBIDDEN, "package CDR is not permitted"));
+                }
+                let value = parse_supplement(response.status, &response.body)
+                    .map_err(|e| self.service.auth_error(epoch, e))?;
+                let reusable = value.is_some();
+                (value, reusable)
+            }
+            Err(error) if read.check().is_ok() && [contracts::codes::NET_OFFLINE, contracts::codes::NET_TIMEOUT, contracts::codes::NET_PAYLOAD_TOO_LARGE].contains(&error.code.as_str()) => (None, false),
+            Err(error) => return Err(error),
+        };
+        info.cdrs = order::cdr_fields(&detail, cdr.as_ref()).into_iter().map(|row| row.into_iter().map(Into::into).collect()).collect();
         if info.iccid.is_empty() {
             info.iccid = OrderPackageInfo::project(row, None, info.fetched_at_ms).iccid;
         }
-        Ok(SummaryPlan { info, reusable })
+        Ok(SummaryPlan { info, reusable: reusable && cdr_reusable })
     }
     async fn enrich_plans<F, Fut>(
         &self,
@@ -714,6 +743,9 @@ mod tests {
             assert_eq!(summary.plans.len(), 2);
             assert_eq!(summary.plans[1].info.iccid, "synthetic-iccid-2");
             assert!(summary.plans.iter().all(|p| p.info.remain_pct.is_none()));
+            assert!(summary.plans[0].info.detail_fields.iter().any(|field| field.label == "渠道套餐" && field.value == "synthetic-plan-1"));
+            let summary_wire = serde_json::to_string(&summary).unwrap();
+            assert!(!summary_wire.contains("FORBIDDEN_SECRET") && !summary_wire.contains("activation_code"));
             assert_eq!(
                 *http.paths.lock().unwrap(),
                 [
@@ -721,12 +753,15 @@ mod tests {
                     "/agent/package-query/dataplan-list",
                     "/agent/package-query/detail",
                     "/agent/package-query/live-detail",
+                    "/agent/package-query/cdr-more",
                     "/agent/package-query/detail",
-                    "/agent/package-query/live-detail"
+                    "/agent/package-query/live-detail",
+                    "/agent/package-query/cdr-more"
                 ]
             );
             book.summary(scope.clone(), epoch, &valid).await.unwrap();
-            assert_eq!(http.paths.lock().unwrap().len(), 6);
+            assert_eq!(http.paths.lock().unwrap().len(), 8);
+            assert_eq!(summary.plans[0].info.cdrs.len(), 1);
             let plan = book
                 .resolve(
                     &scope.account,

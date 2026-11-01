@@ -94,7 +94,7 @@ fn fields(value: &JsonValue, schema: &[(&str, &str)]) -> Vec<Field> {
 }
 /// Field names verified in TSim frontend types/package.ts and the installed assistant projector.
 pub fn detail_fields(value: &JsonValue) -> Vec<Field> {
-    fields(
+    let mut result = fields(
         value,
         &[
             ("iccid", "ICCID"),
@@ -116,7 +116,11 @@ pub fn detail_fields(value: &JsonValue) -> Vec<Field> {
             ("today_usage", "当日用量（MB）"),
             ("spec_name", "套餐规格"),
         ],
-    )
+    );
+    if !daily_usage_available(value, None) {
+        result.retain(|field| field.label != "当日用量（MB）");
+    }
+    result
 }
 pub fn live_fields(value: &JsonValue) -> Vec<Field> {
     let mut result = fields(
@@ -136,7 +140,179 @@ pub fn live_fields(value: &JsonValue) -> Vec<Field> {
     if let Some(original) = value.get("original_data") {
         result.extend(fields(original, &[("data_usage", "原始累计用量（MB）")]));
     }
+    if !daily_usage_available(value, None) {
+        result.retain(|field| field.label != "当日用量（MB）");
+    }
     result
+}
+
+fn truthy(value: Option<&JsonValue>) -> bool {
+    matches!(value, Some(JsonValue::Bool(true)))
+        || matches!(value, Some(JsonValue::Number { value, .. }) if *value == 1.0)
+        || value
+            .and_then(JsonValue::as_str)
+            .is_some_and(|s| s == "1" || s == "true")
+}
+
+/// Work out the denominator's scope from the supplier's explicit daily flag.
+pub fn usage_scope(detail: &JsonValue, live: Option<&JsonValue>) -> &'static str {
+    if truthy(detail.get("is_daily")) || live.is_some_and(|v| truthy(v.get("is_daily"))) {
+        "daily"
+    } else {
+        "total"
+    }
+}
+
+fn amount_mb(value: Option<&JsonValue>) -> Option<f64> {
+    if let Some(JsonValue::Number { value, .. }) = value {
+        return (value.is_finite() && *value >= 0.0).then_some(*value);
+    }
+    let text = scalar(value)?;
+    let text = text.trim().to_ascii_uppercase();
+    let end = text
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(text.len());
+    let number = &text[..end];
+    if number.is_empty()
+        || number.starts_with('.')
+        || number.ends_with('.')
+        || number.matches('.').count() > 1
+    {
+        return None;
+    }
+    let raw_unit = text[end..].trim();
+    let unit = if raw_unit.starts_with('(') || raw_unit.ends_with(')') {
+        raw_unit.strip_prefix('(')?.strip_suffix(')')?.trim()
+    } else {
+        raw_unit
+    };
+    let factor = match unit {
+        "" | "MB" => 1.0,
+        "KB" => 1.0 / 1024.0,
+        "GB" => 1024.0,
+        "TB" => 1024.0 * 1024.0,
+        _ => return None,
+    };
+    let result = number.parse::<f64>().ok()? * factor;
+    (result.is_finite() && result >= 0.0).then_some(result)
+}
+
+fn selected_spec(detail: &JsonValue, live: Option<&JsonValue>) -> Option<String> {
+    live.and_then(|v| scalar(v.get("spec_name")))
+        .or_else(|| scalar(detail.get("spec_name")))
+}
+fn is_unlimited(spec: &str) -> bool {
+    let lower = spec.to_ascii_lowercase();
+    ["无限", "無限", "unlimited", "不限量"]
+        .iter()
+        .any(|word| lower.contains(word))
+}
+
+/// Only explicit per-day quantities in the dedicated specification are usable.
+/// Product/channel/source titles never supply a guessed denominator.
+fn daily_spec_quota(spec: &str) -> Option<f64> {
+    if is_unlimited(spec) {
+        return None;
+    }
+    let spec = spec.to_ascii_lowercase();
+    let mut quantities = Vec::new();
+    for (start, ch) in spec.char_indices() {
+        if !ch.is_ascii_digit()
+            || spec[..start]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '.')
+        {
+            continue;
+        }
+        let tail = &spec[start..];
+        let end = tail
+            .find(|c: char| !c.is_ascii_digit() && c != '.')
+            .unwrap_or(tail.len());
+        let after = tail[end..].trim_start();
+        let unit = if after.starts_with("gb") {
+            "gb"
+        } else if after.starts_with("mb") {
+            "mb"
+        } else {
+            continue;
+        };
+        let suffix = &after[2..];
+        if suffix
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic())
+        {
+            continue;
+        }
+        let prefix = spec[..start].trim_end();
+        let prefix_daily = ["每日", "每天", "daily", "per day"].iter().any(|word| {
+            prefix.strip_suffix(word).is_some_and(|rest| {
+                !word.is_ascii()
+                    || !rest
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_ascii_alphanumeric())
+            })
+        });
+        let suffix_daily = suffix
+            .trim_start()
+            .strip_prefix('/')
+            .map(str::trim_start)
+            .is_some_and(|s| {
+                s.starts_with('天')
+                    || s.starts_with('日')
+                    || s.strip_prefix("day").is_some_and(|rest| {
+                        !rest.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+                    })
+            });
+        if !prefix_daily && !suffix_daily {
+            continue;
+        }
+        if let Some(value) = amount_mb(Some(&JsonValue::String(format!("{} {unit}", &tail[..end]))))
+            .filter(|v| *v > 0.0)
+        {
+            if !quantities.contains(&value) {
+                quantities.push(value);
+            }
+        }
+    }
+    (quantities.len() == 1).then(|| quantities[0])
+}
+
+fn usage_quota(detail: &JsonValue, live: Option<&JsonValue>) -> Option<f64> {
+    if usage_scope(detail, live) == "daily" {
+        return selected_spec(detail, live).and_then(|s| daily_spec_quota(&s));
+    }
+    live.and_then(|v| amount_mb(v.get("volume")))
+        .filter(|n| *n > 0.0)
+        .or_else(|| {
+            let value = detail.get("total_data")?;
+            value
+                .as_str()
+                .filter(|s| s.chars().any(|c| c.is_ascii_alphabetic()))?;
+            amount_mb(Some(value)).filter(|n| *n > 0.0)
+        })
+}
+
+/// Unlimited plans expose their explicit label, without a fabricated percentage.
+pub fn unlimited(detail: &JsonValue, live: Option<&JsonValue>) -> bool {
+    usage_quota(detail, live).is_none()
+        && selected_spec(detail, live).is_some_and(|s| is_unlimited(&s))
+}
+
+pub fn daily_usage_available(detail: &JsonValue, live: Option<&JsonValue>) -> bool {
+    live.and_then(|v| v.get("can_check_daily_usage"))
+        .or_else(|| detail.get("can_check_daily_usage"))
+        .map_or(true, |v| truthy(Some(v)))
+}
+
+pub fn today_usage_mb(detail: &JsonValue, live: Option<&JsonValue>) -> Option<f64> {
+    if !daily_usage_available(detail, live) {
+        return None;
+    }
+    live.and_then(|v| amount_mb(v.get("today_usage")))
+        .or_else(|| amount_mb(detail.get("today_usage")))
 }
 pub fn cdr_fields(detail: &JsonValue, supplement: Option<&JsonValue>) -> Vec<Vec<Field>> {
     fn records(value: &JsonValue) -> Option<&Vec<JsonValue>> {
@@ -158,6 +334,9 @@ pub fn cdr_fields(detail: &JsonValue, supplement: Option<&JsonValue>) -> Vec<Vec
                     ("start_time", "开始时间"),
                     ("end_time", "结束时间"),
                     ("event_time", "时间"),
+                    ("update_datetime", "更新时间"),
+                    ("update_time", "更新时间戳"),
+                    ("date", "日期"),
                     ("duration", "时长（秒）"),
                     ("country", "国家/地区"),
                     ("region", "地区"),
@@ -186,30 +365,15 @@ pub fn order_summary(detail: &JsonValue, live: Option<&JsonValue>) -> PackageSum
         .or_else(|| scalar(detail.get("apn")))
         .or_else(|| detail.get("operate").and_then(|v| scalar(v.get("apn"))))
         .unwrap_or_default();
-    // No evidence for numeric units in the legacy generic keys: derive only from
-    // the installed operator contract (MB, 1024 MB = 1 GB), never plan-name guesses.
-    let number = |value: Option<&JsonValue>| {
-        scalar(value)
-            .and_then(|s| s.parse::<f64>().ok())
-            .filter(|n| n.is_finite() && *n >= 0.0)
-    };
-    let truthy = |v: Option<&JsonValue>| {
-        matches!(v, Some(JsonValue::Bool(true)))
-            || matches!(v, Some(JsonValue::Number { value, .. }) if *value == 1.0)
-            || v.and_then(JsonValue::as_str)
-                .is_some_and(|s| s == "1" || s == "true")
-    };
-    let daily = truthy(detail.get("is_daily")) || live.is_some_and(|v| truthy(v.get("is_daily")));
-    let quota = if daily {
-        None
+    let quota = usage_quota(detail, live);
+    let usage = if usage_scope(detail, live) == "daily" {
+        today_usage_mb(detail, live)
     } else {
-        live.and_then(|v| number(v.get("volume")))
+        live.and_then(|v| v.get("original_data"))
+            .and_then(|v| amount_mb(v.get("data_usage")))
+            .or_else(|| live.and_then(|v| amount_mb(v.get("data_usage"))))
+            .or_else(|| amount_mb(detail.get("data_usage")))
     };
-    let usage = live
-        .and_then(|v| v.get("original_data"))
-        .and_then(|v| number(v.get("data_usage")))
-        .or_else(|| live.and_then(|v| number(v.get("data_usage"))))
-        .or_else(|| number(detail.get("data_usage")));
     result.remain.clear();
     result.total.clear();
     result.remain_pct = 0.0;
@@ -336,5 +500,120 @@ mod tests {
             Some(&j(r#"{"is_daily":1,"volume":2048,"data_usage":0}"#)),
         );
         assert!(daily.remain.is_empty() && daily.total.is_empty());
+    }
+
+    #[test]
+    fn daily_quota_uses_today_instead_of_cumulative_or_live_volume() {
+        for spec in [
+            "每日 1GB",
+            "每天1GB",
+            "Daily 1 GB",
+            "1GB/天",
+            "1GB / 日",
+            "1 GB/day",
+            "per day 1024MB",
+        ] {
+            let detail = j(&format!(
+                r#"{{"is_daily":1,"spec_name":"{spec}","today_usage":512}}"#
+            ));
+            let live = j(
+                r#"{"data_usage":8192,"volume":51200,"today_usage":"256 MB","can_check_daily_usage":1}"#,
+            );
+            assert_eq!(usage_scope(&detail, Some(&live)), "daily");
+            let summary = order_summary(&detail, Some(&live));
+            assert_eq!(summary.total, "1 GB", "{spec}");
+            assert_eq!(summary.remain, "768 MB", "{spec}");
+            assert_eq!(summary.remain_pct, 75.0, "{spec}");
+        }
+    }
+
+    #[test]
+    fn unavailable_daily_usage_is_never_a_fabricated_zero() {
+        let detail = j(r#"{"is_daily":true,"spec_name":"每日2GB","today_usage":0,"data_usage":0}"#);
+        for denied in ["0", "false", "\"0\"", "null"] {
+            let live = j(&format!(
+                r#"{{"today_usage":0,"can_check_daily_usage":{denied}}}"#
+            ));
+            assert!(!daily_usage_available(&detail, Some(&live)));
+            assert_eq!(today_usage_mb(&detail, Some(&live)), None);
+            let summary = order_summary(&detail, Some(&live));
+            assert!(summary.remain.is_empty() && summary.total.is_empty());
+            assert!(live_fields(&live)
+                .iter()
+                .all(|field| field.label != "当日用量（MB）"));
+        }
+        let no_today = j(r#"{"is_daily":1,"spec_name":"每日2GB","data_usage":0}"#);
+        assert!(order_summary(&no_today, None).remain.is_empty());
+        let enabled = j(r#"{"can_check_daily_usage":true,"today_usage":0}"#);
+        assert_eq!(order_summary(&detail, Some(&enabled)).remain, "2 GB");
+    }
+
+    #[test]
+    fn daily_quotas_reject_total_amounts_product_titles_and_ambiguous_specifications() {
+        for spec in [
+            "8GB",
+            "每日1GB 或 每日2GB",
+            "notdaily 1GB",
+            "1GB/days",
+            "每日0GB",
+            "每日1e3GB",
+            "每日-1GB",
+        ] {
+            let detail = j(&format!(
+                r#"{{"is_daily":1,"spec_name":"{spec}","dataplan_name":"每日3GB","channel_dataplan_name":"每日3GB","today_usage":0}}"#
+            ));
+            let summary = order_summary(&detail, None);
+            assert!(
+                summary.total.is_empty() && summary.remain.is_empty(),
+                "{spec}"
+            );
+        }
+    }
+
+    #[test]
+    fn unlimited_labels_never_fabricate_a_remaining_gauge() {
+        for spec in ["每日无限量", "無限流量", "Unlimited", "不限量"] {
+            let detail = j(&format!(r#"{{"spec_name":"{spec}","data_usage":0}}"#));
+            assert!(unlimited(&detail, None), "{spec}");
+            assert!(order_summary(&detail, None).remain.is_empty());
+        }
+        let detail = j(r#"{"spec_name":"Unlimited","data_usage":0}"#);
+        let numeric = j(r#"{"volume":2048,"data_usage":512}"#);
+        assert!(
+            !unlimited(&detail, Some(&numeric)),
+            "explicit numeric supplier quota wins as in the operator projector"
+        );
+        let newer = j(r#"{"spec_name":"每日1GB","is_daily":1,"today_usage":0}"#);
+        assert!(!unlimited(&detail, Some(&newer)));
+    }
+
+    #[test]
+    fn units_zero_and_overage_use_the_same_verified_denominator() {
+        let total = j(r#"{"total_data":"3 GB","data_usage":"1024(MB)"}"#);
+        let summary = order_summary(&total, None);
+        assert_eq!(
+            (
+                summary.total.as_str(),
+                summary.remain.as_str(),
+                (summary.remain_pct * 100.0).round() / 100.0
+            ),
+            ("3 GB", "2 GB", 66.67)
+        );
+        let ambiguous = j(r#"{"total_data":3000,"spec_name":"8GB","data_usage":0}"#);
+        assert!(order_summary(&ambiguous, None).remain.is_empty());
+        let daily = j(r#"{"is_daily":"true","spec_name":"每日512MB","today_usage":"1 GB"}"#);
+        let summary = order_summary(&daily, None);
+        assert_eq!(
+            (
+                summary.total.as_str(),
+                summary.remain.as_str(),
+                summary.remain_pct
+            ),
+            ("512 MB", "0 MB", 0.0)
+        );
+        assert_eq!(amount_mb(Some(&j("1e3"))), Some(1000.0));
+        for malformed in ["((GB))", "1 GB)", "1(GB", "-1 MB", "NaN", "1e3 MB"] {
+            assert_eq!(amount_mb(Some(&JsonValue::String(malformed.into()))), None);
+        }
     }
 }

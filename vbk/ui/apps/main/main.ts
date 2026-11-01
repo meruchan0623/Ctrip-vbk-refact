@@ -1,3 +1,4 @@
+import { companionPackageCard } from './companion-card.ts';
 import { historyDiagnostics } from './history-diagnostics.ts';
 import { createVisibleRead } from './visible-read.ts';
 import { readHistoryPage } from './history-read.ts';
@@ -1828,24 +1829,22 @@ function packageCard(s: MainState, conv: UiConversation): HTMLElement | null {
   const busy = view.status === 'busy';
   const owner = { ...conv.account };
   const applies = (): boolean => stillActive(owner) && activeConv()?.gid === conv.gid && (view === S().pkg || !S().tsimStatus) && (view.key === null || packageViewApplies(view, packageContext()));
-  return h('div', { class: cx('pkg', { hot: s.pkgHot }), dataset: { packageState: view.status } },
-    h('div', { class: 'pkg-h' }, h('b', null, 'TSim 套餐速览'), h('span', { class: 'chip chip-muted' }, `${view.summary?.total ?? plans.length} 个套餐`), h('span', { class: 'sp' }),
-      h('button', { class: 'ibtn', title: '刷新套餐', 'aria-label': '刷新套餐', disabled: busy || !order && !iccids.length, dataset: { packageAction: 'refresh' }, onclick: () => { if (applies()) void refreshPackages(); } }, busy ? h('span', { class: 'spin' }) : icon(IC.refresh, 14)),
-      h('button', { class: 'ibtn', title: '展开或收起套餐', 'aria-label': '展开或收起套餐', onclick: () => store.patch({ pkgOpen: !S().pkgOpen }) }, icon(s.pkgOpen ? IC.chevDown : IC.chevUp, 14))),
-    s.pkgOpen ? h('div', { class: 'pkg-scroll' },
-      h('div', { class: 'pkg-f' }, order ? `关联订单：${order}` : iccids.length ? '未识别关联订单，按 ICCID 查询' : '当前会话暂无有效订单号或 ICCID'),
-      !s.tsimStatus?.logged_in || view.failure === 'login' ? h('div', { class: 'pkg-b' }, h('span', { class: 'muted' }, s.tsimStatus ? 'TSim 尚未登录' : 'TSim 登录状态待核对'), h('button', { class: 'btn sm', dataset: { packageAction: 'login' }, onclick: () => { if (applies()) openTsimSettings(); } }, '打开设置登录 TSim')) : null,
-      view.error ? h('div', { class: 'pkg-b notice-box err', role: 'alert' }, view.error,
-        h('button', { class: 'btn sm', disabled: busy, dataset: { packageAction: 'retry' }, onclick: () => { if (applies()) void refreshPackages(); } }, '重新核对')) : null,
-      busy ? h('div', { class: 'pkg-b', role: 'status' }, '正在查询订单套餐…') : null,
-      view.status === 'done' && !plans.length ? h('div', { class: 'pkg-b empty' }, '该订单暂无可查看套餐') : null,
-      plans.map((plan, index) => h('section', { class: 'pkg-b', dataset: { packagePlan: String(index) } },
-        h('div', { style: { 'font-weight': '600', 'font-size': '13px' } }, plan.plan),
-        h('div', { class: 'pkg-id' }, plan.iccid || 'ICCID 待查询'),
-        h('div', { style: { display: 'flex', gap: '8px', 'align-items': 'center', margin: '8px 0' } }, h('span', { class: 'chip chip-warn' }, plan.status), h('b', null, plan.remain || '用量待查询'), h('span', { class: 'muted' }, plan.total ? ` / ${plan.total}` : '')),
-        h('div', { class: 'pkg-tiles' }, h('div', null, h('span', null, '供应商'), h('b', null, plan.supplier)), h('div', null, h('span', null, 'APN'), h('b', null, plan.apn))),
-        h('p', { class: 'muted', style: { 'font-size': '11px' } }, `读取时间：${new Date(plan.fetched_at_ms).toLocaleString('zh-CN')}`),
-        view.summary ? h('button', { class: 'btn sm', dataset: { packageAction: 'detail', planIndex: String(index) }, onclick: () => { if (applies() && view.summary) void packagePreview.openDetail(view, view.summary.plans[index]!); } }, '打开 TSim 详情') : h('p', { class: 'muted' }, 'ICCID 速览；订单套餐可打开详情')))) : null);
+  const notice = [
+    !s.tsimStatus?.logged_in || view.failure === 'login' ? h('div', { class: 'callout', dataset: { tone: 'info' } }, h('div', null, h('p', null, s.tsimStatus ? 'TSim 尚未登录' : 'TSim 登录状态待核对'), h('button', { class: 'solid', dataset: { packageAction: 'login' }, onclick: () => { if (applies()) openTsimSettings(); } }, '打开设置登录 TSim'))) : null,
+    view.error ? h('div', { class: 'callout', dataset: { tone: 'bad' }, role: 'alert' }, h('div', null, h('p', null, view.error), h('button', { class: 'outline', disabled: busy, dataset: { packageAction: 'retry' }, onclick: () => { if (applies()) void refreshPackages(); } }, '重新核对'))) : null,
+    busy ? h('div', { class: 'skeleton', role: 'status' }, h('i'), h('i'), h('span', null, '正在查询订单套餐…')) : null,
+    view.status === 'done' && !plans.length ? h('div', { class: 'callout' }, h('p', null, '该订单暂无可查看套餐')) : null,
+    view.status === 'idle' && !order && !iccids.length ? h('div', { class: 'callout' }, h('p', null, '当前会话暂无有效订单号或 ICCID')) : null,
+  ];
+  return companionPackageCard({ plans, total: view.summary?.total ?? plans.length, open: s.pkgOpen, busy, hot: s.pkgHot, scope: view.key ?? JSON.stringify([owner, conv.gid, conv.assistant_context_revision]),
+    identity: order ? `关联订单：${order}` : iccids.length ? '按 ICCID 查询' : '暂无关联订单',
+    refreshDisabled: busy || !order && !iccids.length, notice,
+    refresh: () => { if (applies()) void refreshPackages(); },
+    toggle: () => store.patch({ pkgOpen: !S().pkgOpen }),
+    canDetail: !!view.summary,
+    detail: (index) => { if (applies() && view.summary) void packagePreview.openDetail(view, view.summary.plans[index]!); },
+    copy: (value) => { if (applies()) void copyText(value, '已复制'); },
+  }, h, icon);
 }
 
 function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
@@ -1866,8 +1865,8 @@ function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
             o.source_description ? h('div', { class: 'source-description' }, o.source_description) : null,
             h('div', { class: 'info-grid' },
               row('来源渠道', o.source_channel),
-              row('订单ID', o.order_id),
-              row('产品名称', o.product),
+              row('订单号', o.order_id),
+              row('商品名称', o.product),
               row('使用日期', o.use_date),
               row('订单总额', o.total_amount),
               row('备注名称', o.remark_name),

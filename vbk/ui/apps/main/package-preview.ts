@@ -1,5 +1,5 @@
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
-import { UiCommands, type UiConversation, type UiPackageInfo, type UiOrderPackageSummary, type UiOrderPackagePlan, type UiTsimStatus } from '../../packages/ipc/src/client.ts';
+import { UiCommands, type UiConversation, type UiPackageInfo, type UiOrderPackageSummary, type UiOrderPackagePlan, type UiTsimStatus, type UiPackageField } from '../../packages/ipc/src/client.ts';
 
 export interface PackageContext { readonly account: AccountContext; readonly conversation: UiConversation; readonly identity: UiTsimStatus; readonly enabled: boolean; readonly iccid: string | null }
 export interface PackagePreviewState {
@@ -18,14 +18,32 @@ export function packageFailure(error: unknown): { failure: 'login' | 'permission
   if (code === 'net.timeout') return { failure: 'error', error: '查询超时，请手动刷新；不会自动重复请求。' };
   return { failure: 'error', error: '套餐查询未完成，可能是会话、订单或 TSim 身份已变化。请核对后刷新。' };
 }
-export type PackagePlanInfo = Omit<UiPackageInfo, 'remain_pct'> & { readonly remain_pct: number | null };
+export type PackagePlanInfo = Omit<UiPackageInfo, 'remain_pct'> & { readonly remain_pct: number | null; readonly usage_scope?: 'daily' | 'total'; readonly unlimited?: boolean; readonly detail_fields?: readonly UiPackageField[]; readonly live_fields?: readonly UiPackageField[]; readonly cdrs?: readonly (readonly UiPackageField[])[] };
+const DETAIL_LABELS = new Set(['ICCID', '业务流水号', '渠道套餐', '来源套餐', '供应商', '渠道', '套餐状态', '查询状态', '支持地区', 'APN', '有效期', 'eSIM状态', 'eSIM更新时间', 'EID', '设备型号', '累计用量（MB）', '当日用量（MB）', '套餐规格']);
+const LIVE_LABELS = new Set(['实时状态', '累计用量（MB）', '当日用量（MB）', '容量（MB）', '套餐规格', 'APN', 'eSIM状态', 'EID', '设备型号', '原始累计用量（MB）']);
+const CDR_LABELS = new Set(['更新时间', '更新时间戳', '日期', '开始时间', '结束时间', '时间', '时长（秒）', '国家/地区', '地区', '运营商', '网络', '上行（MB）', '下行（MB）', '总用量（MB）', '总用量（KB）']);
+function safeFields(value: unknown, labels: ReadonlySet<string>): readonly UiPackageField[] | null {
+  if (!Array.isArray(value) || value.length > 100) return null;
+  const fields: UiPackageField[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || typeof item.label !== 'string' || !labels.has(item.label) || typeof item.value !== 'string' || item.value.length > 4000) return null;
+    fields.push({ label: item.label, value: item.value });
+  }
+  return fields;
+}
 export function packageInfo(value: unknown): UiPackageInfo | null;
 export function packageInfo(value: unknown, unknownUsage: true): PackagePlanInfo | null;
 export function packageInfo(value: unknown, unknownUsage = false): PackagePlanInfo | null {
   if (!value || typeof value !== 'object') return null;
   const p = value as PackagePlanInfo;
   if (!['iccid', 'plan', 'status', 'remain', 'total', 'supplier', 'apn'].every(k => typeof (p as unknown as Record<string, unknown>)[k] === 'string') || !(unknownUsage && p.remain_pct === null || typeof p.remain_pct === 'number' && Number.isFinite(p.remain_pct) && p.remain_pct >= 0 && p.remain_pct <= 100) || !Number.isFinite(new Date(p.fetched_at_ms).getTime())) return null;
-  return { iccid: p.iccid, plan: p.plan, status: p.status, remain_pct: p.remain_pct, remain: p.remain, total: p.total, supplier: p.supplier, apn: p.apn, fetched_at_ms: p.fetched_at_ms };
+  if (p.usage_scope !== undefined && p.usage_scope !== 'daily' && p.usage_scope !== 'total' || p.unlimited !== undefined && typeof p.unlimited !== 'boolean') return null;
+  const detail = p.detail_fields === undefined ? undefined : safeFields(p.detail_fields, DETAIL_LABELS);
+  const live = p.live_fields === undefined ? undefined : safeFields(p.live_fields, LIVE_LABELS);
+  const cdrs = p.cdrs === undefined ? undefined : Array.isArray(p.cdrs) && p.cdrs.length <= 100 ? p.cdrs.map(row => safeFields(row, CDR_LABELS)) : null;
+  if (detail === null || live === null || cdrs === null || cdrs?.some(row => row === null)) return null;
+  return { iccid: p.iccid, plan: p.plan, status: p.status, remain_pct: p.remain_pct, remain: p.remain, total: p.total, supplier: p.supplier, apn: p.apn, fetched_at_ms: p.fetched_at_ms,
+    ...(p.usage_scope !== undefined ? { usage_scope: p.usage_scope } : {}), ...(p.unlimited !== undefined ? { unlimited: p.unlimited } : {}), ...(detail ? { detail_fields: detail } : {}), ...(live ? { live_fields: live } : {}), ...(cdrs ? { cdrs: cdrs as readonly (readonly UiPackageField[])[] } : {}) };
 }
 export function packageOrderId(conv: UiConversation): string | null { const id = conv.order?.order_id; return typeof id === 'string' && /^(?:\d{10}|\d{16})$/.test(id) ? id : null; }
 function queryKey(context: PackageContext, iccid?: string): string {

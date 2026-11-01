@@ -161,6 +161,10 @@ impl Executor for Http {
                     ),
                 }
             }
+            "/agent/package-query/cdr-more" => reply(
+                200,
+                serde_json::json!({"code":1,"result":[]}),
+            ),
             _ => panic!("unexpected synthetic endpoint"),
         }
     }
@@ -231,6 +235,7 @@ fn automatic_summary_hydrates_sparse_list_with_real_detail_and_live_without_gues
         }
         assert_eq!(http.calls("/detail?"), 2);
         assert_eq!(http.calls("/live-detail?"), 2);
+        assert_eq!(http.calls("/cdr-more?"), 2);
         let calls = http.calls.lock().unwrap().len();
         book.summary(scope.clone(), epoch, &valid).await.unwrap();
         assert_eq!(http.calls.lock().unwrap().len(), calls);
@@ -266,7 +271,7 @@ fn live_absence_is_cacheable_but_transient_or_malformed_live_is_unknown_and_not_
             book.summary(scope, epoch, &valid).await.unwrap();
             assert_eq!(
                 http.calls.lock().unwrap().len(),
-                if mode == 3 { requests } else { requests + 4 },
+                if mode == 3 { requests } else { requests + 5 },
                 "mode {mode}"
             );
         }
@@ -329,6 +334,7 @@ fn bounded_parallel_hydration_retains_all_one_hundred_plans_in_list_order() {
         assert_eq!(http.peak.load(Ordering::SeqCst), 4);
         assert_eq!(http.calls("/detail?"), 100);
         assert_eq!(http.calls("/live-detail?"), 100);
+        assert_eq!(http.calls("/cdr-more?"), 100);
         let (book, _, http, _, epoch) = fixture(101).await;
         assert!(book
             .summary(scope(), epoch, &|| async { Ok(()) })
