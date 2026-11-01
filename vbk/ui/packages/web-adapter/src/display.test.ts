@@ -12,7 +12,7 @@ test('display: conversation row → DisplayConversation', () => {
   const d = toDisplayConversation(sampleRow('g1') as never, true, { unreadOf: () => 3 });
   assert.ok(d);
   assert.equal(d.gid, 'g1');
-  assert.equal(d.title, 'Title g1');
+  assert.equal(d.title, 'cust-g1');
   assert.equal(d.lang, 'en');
   assert.equal(d.biz, '门票活动');
   assert.equal(d.preview, 'hello there');
@@ -24,6 +24,15 @@ test('display: conversation row → DisplayConversation', () => {
   assert.equal(d.color, colorOf('g1'));
   assert.deepEqual(d.customer_tags, []);
   for (const k of ['account', 'waiting_since_ms', 'waiting_confirmed', 'is_top', 'draft']) assert.equal(k in d, false, k);
+});
+
+test('display: a product/group title is never a customer-name fallback', () => {
+  for (const uid of ['customer-id', '', null]) {
+    const d = toDisplayConversation(sampleRow('g1', { uid, groupTitle: '日本 5G eSIM 10GB', nickName: 'unverified row nickname' }) as never, true);
+    assert.equal(d?.title, uid || '访客');
+    assert.equal(d?.order?.order_id, '1234567890');
+    assert.equal(d?.order?.product, '日本 5G eSIM 10GB', 'product title belongs to the associated order');
+  }
 });
 
 test('display: row view carries the fields RPC needs; junk rows are skipped', () => {

@@ -61,7 +61,7 @@ test('session order: same gid/order under a new session or customer cannot inher
       await f.base.clock.advance(50); f.sdk.emit('message', frame('old service details', 1700000001000)); await flush();
       assert.equal(f.session.store.order(gid)?.product, 'old service details');
       f.changeRow(change); assert.equal(f.session.store.order(gid), null);
-      await f.base.clock.advance(5000); assert.equal(f.last()?.order?.product, '');
+      await f.base.clock.advance(5000); assert.equal(f.last()?.order?.product, `Title ${gid}`, 'only the new row product is visible until a current source card arrives');
       f.sdk.emit('message', frame('old delayed card', 1700000000900)); await flush();
       assert.equal(f.session.store.order(gid), null, 'older source evidence cannot rebind an old card to the new service');
       f.sdk.emit('message', frame('new service details', 1700000002000)); await flush();

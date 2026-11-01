@@ -37,7 +37,7 @@ test('session: display conversations + agent status; unread from getConversation
   await base.clock.advance(50);
   await session.adapter.bridge.flush();
   const conv = displays.find((d) => d.kind === 'conversations');
-  assert.ok(conv && conv.kind === 'conversations' && conv.full === true && conv.items[0]?.title === 'Title g1');
+  assert.ok(conv && conv.kind === 'conversations' && conv.full === true && conv.items[0]?.title === 'cust-g1');
   assert.ok(displays.some((d) => d.kind === 'agent_status' && d.status === 'leaving' && d.confirmed));
   const facts = envs(base).filter((e) => e.fact.kind === 'conversation');
   assert.ok(facts.length >= 2);

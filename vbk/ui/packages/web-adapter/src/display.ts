@@ -261,7 +261,10 @@ export function toDisplayConversation(row: ConversationListItem, isFullSnapshot:
   const fact = toConversationFact(row, isFullSnapshot, unread);
   const view = rowView(row);
   if (!fact || !view) return null;
-  const title = str((row as { groupTitle?: unknown }).groupTitle) ?? view.customerUid ?? view.gid;
+  // groupTitle describes the product/group, not the person. Member enrichment
+  // replaces this identity fallback only after matching the row's customer uid.
+  const title = view.customerUid ?? '访客';
+  const order = orderSummary(view.orderId);
   return {
     ...fact,
     conversation_type: displayConversationType(row.conversationType),
@@ -273,7 +276,7 @@ export function toDisplayConversation(row: ConversationListItem, isFullSnapshot:
     preview: previewOf(view.lastMessage),
     mark: markOf(row.star),
     customer_tags: [],
-    order: orderSummary(view.orderId),
+    order: order ? { ...order, product: str((row as { groupTitle?: unknown }).groupTitle) ?? '' } : null,
   };
 }
 

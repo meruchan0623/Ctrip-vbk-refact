@@ -35,6 +35,7 @@ test('conversation avatar: real list/member/history chain resolves only the row 
   try {
     await f.base.clock.advance(50);
     assert.equal(f.last()?.customer_avatar, avatar);
+    assert.equal(f.last()?.title, 'Customer');
     assert.equal((await f.session.rpc.handle({ req_id: 'h', op: 'im.messages', args: { gid } }))?.ok, true);
     assert.equal(f.last()?.customer_avatar, avatar);
     await f.base.clock.advance(5000);
@@ -42,6 +43,7 @@ test('conversation avatar: real list/member/history chain resolves only the row 
     f.changeCustomer('different-customer');
     await f.base.clock.advance(5000);
     assert.equal(f.last()?.customer_avatar, null, 'same gid must not inherit the previous customer avatar or the self avatar');
+    assert.equal(f.last()?.title, 'different-customer', 'a changed customer must inherit neither the old nickname nor the product title');
     f.session.roles.addMembers([{ uid: 'different-customer', avatar: 'https://example.invalid/next.png' }]);
     await f.session.rpc.handle({ req_id: 'next', op: 'im.messages', args: { gid } });
     assert.equal(f.last()?.customer_avatar, 'https://example.invalid/next.png');
@@ -51,6 +53,7 @@ test('conversation avatar: real list/member/history chain resolves only the row 
 test('conversation avatar: delayed member enrichment cannot publish after stop', async () => {
   const f = fixture({ holdMembers: true }); f.session.start();
   await f.base.clock.advance(50);
+  assert.equal(f.last()?.title, customer, 'pending profile lookup must not display the product title');
   f.session.stop();
   const before = f.displays.length;
   const stopped = f.displays.at(-1);

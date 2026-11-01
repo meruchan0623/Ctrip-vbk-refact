@@ -123,7 +123,7 @@ test('duplicate embedded rows cannot stamp customer A preview with customer B id
     const b = sampleRow(GID, { uid: 'customer-B', sessionId: 'session-B', groupTitle: 'CUSTOMER B', lastUpdateTime: TIME + 1000,
       lastMessageJsonString: JSON.stringify({ msgId: 'b', fromJid: 'customer-B@x', toJid: `${GID}@conf.x`, createTime: 1700000000500, msgtype: 0, messageBody: 'SYNTHETIC CUSTOMER B' }) });
     await f.release([a, b]);
-    assert.equal(f.last()?.title, 'CUSTOMER B'); assert.equal(f.last()?.preview, 'SYNTHETIC CUSTOMER B');
+    assert.equal(f.last()?.title, 'customer-B'); assert.equal(f.last()?.preview, 'SYNTHETIC CUSTOMER B');
     assert.equal(f.last()?.last_message_time_ms, 1700000000500);
     assert.equal(f.displays.flatMap(d => d.kind === 'conversations' ? d.items : []).some(d => d.preview === 'SYNTHETIC PRIVATE A'), false);
   } finally { f.session.stop(); }
