@@ -127,6 +127,8 @@ impl Role {
             "assistant_tsim_login",
             "assistant_tsim_logout",
             "assistant_tsim_import_session",
+            "assistant_tsim_browser_profiles",
+            "assistant_tsim_browser_connect",
         ];
         const DETAIL_CMDS: &[&str] = &["assistant_package_detail", "assistant_tsim_status", "shell_window"];
         const UPDATE_CMDS: &[&str] = &["prefs_snapshot", "shell_window"];
@@ -224,6 +226,21 @@ mod tests {
             registry.register(label); assert!(registry.authorize(label, "assistant_tsim_import_session").is_err(), "{label}");
         }
         registry.unregister(SETTING); assert!(registry.authorize(SETTING, "assistant_tsim_import_session").is_err());
+    }
+
+    #[test]
+    fn browser_session_commands_are_settings_only() {
+        for command in ["assistant_tsim_browser_profiles", "assistant_tsim_browser_connect"] {
+            let mut registry = ViewRegistry::default();
+            registry.register(SETTING);
+            assert!(registry.authorize(SETTING, command).is_ok());
+            for label in [MAIN, ALARM, UPDATE, LOGIN, "acct-synthetic"] {
+                registry.register(label);
+                assert!(registry.authorize(label, command).is_err());
+            }
+            registry.unregister(SETTING);
+            assert!(registry.authorize(SETTING, command).is_err());
+        }
     }
 
     #[test]

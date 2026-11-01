@@ -19,6 +19,8 @@
 pub mod orders;
 #[path = "session_import.rs"]
 pub mod session_import;
+#[path = "browser_session.rs"]
+mod browser_session;
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -95,6 +97,7 @@ struct Inner {
     profile_loaded: bool,
     login_ready: bool,
     borrowed_session: bool,
+    browser_profile: Option<super::browser_storage::BrowserProfile>,
     login_revocation: u64,
     /// Bumps on login, logout and session clear (not on refresh).
     epoch: u64,
@@ -147,7 +150,8 @@ impl<E: Executor, V: Vault> Service<E, V> {
         }
     }
 
-    fn check_epoch(&self, epoch: u64) -> Result<(), AppError> {
+    async fn check_epoch(&self, epoch: u64) -> Result<(), AppError> {
+        self.check_browser_binding(epoch).await?;
         let g = self.lock();
         if g.epoch == epoch && g.session.is_some() { Ok(()) } else { Err(not_logged_in("tsim identity changed")) }
     }
@@ -175,6 +179,11 @@ impl<E: Executor, V: Vault> Service<E, V> {
         let mut g = self.lock();
         if g.epoch != epoch { return Err(not_logged_in("tsim identity changed before persistence")); }
         let s = g.session.as_ref().ok_or_else(|| not_logged_in("tsim login required"))?;
+        if g.browser_profile.is_some() {
+            if complete_login { g.login_ready = true; }
+            self.publish(&g);
+            return Ok(());
+        }
         let stored = StoredSession {
             borrowed_session: g.borrowed_session,
             user: g.user.clone().unwrap_or_default(), access_token: s.access_token.expose().to_string(),
@@ -214,6 +223,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
     fn reset_identity(&self, g: &mut Inner) {
         g.login_ready = false;
         g.borrowed_session = false;
+        g.browser_profile = None;
         g.session = None;
         g.user = None;
         g.profile_loaded = false;
@@ -284,6 +294,11 @@ impl<E: Executor, V: Vault> Service<E, V> {
         let (s, epoch) = self
             .snapshot()
             .ok_or_else(|| not_logged_in("tsim login required"))?;
+        self.check_epoch(epoch).await?;
+        if self.lock().browser_profile.is_some() {
+            if s.is_expired(now) { self.clear_if(epoch); return Err(not_logged_in("browser session expired; reconnect required")); }
+            return Self::usable(s, epoch, now);
+        }
         if !s.refresh_due(now) || now < self.lock().refresh_not_before_ms {
             return Self::usable(s, epoch, now);
         }
@@ -327,7 +342,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
                         g.refresh_not_before_ms = now + REFRESH_RETRY_MS;
                     }
                 }
-                self.check_epoch(epoch)?;
+                self.check_epoch(epoch).await?;
                 if s.is_expired(now) {
                     Err(e)
                 } else {
@@ -437,7 +452,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
             // Best effort: end the replaced server session.
             let _ = self.exec.execute(&logout(old.expose())).await;
         }
-        self.check_epoch(epoch)?;
+        self.check_epoch(epoch).await?;
         match self.load_profile().await {
             Ok((_, profile_epoch)) if profile_epoch == epoch => self.persist_current(epoch, true)?,
             Ok(_) => return Err(not_logged_in("tsim identity changed during login")),
@@ -447,7 +462,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
                 self.persist_current(epoch, true)?;
             }
         }
-        self.check_epoch(epoch)?;
+        self.check_epoch(epoch).await?;
         Ok(self.status())
     }
 
@@ -494,7 +509,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
         let owned = match claim {
             CacheClaim::Hit(t) => {
                 validate(account)?;
-                self.check_epoch(epoch)?;
+                self.check_epoch(epoch).await?;
                 return Ok(t);
             }
             CacheClaim::InFlight => false,
@@ -536,6 +551,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
                     .complete(account, text, target, translated.clone(), self.now_ms());
             }
         }
+        self.check_epoch(epoch).await?;
         validate(account)?;
         Ok(translated)
     }
@@ -554,12 +570,12 @@ impl<E: Executor, V: Vault> Service<E, V> {
         };
         if epoch != identity.session_epoch { return Err(not_logged_in("tsim identity changed before package query")); }
         PackagePermission::evaluate(&session).check()?;
-        self.check_epoch(epoch)?;
+        self.check_epoch(epoch).await?;
         let key = AccountContext::new(AccountId::new("tsim"), Environment::named("tsim"), epoch);
         let now = self.now_ms();
         let hit = self.lock().packages.get(&key, &identifier, now).cloned();
         if let Some(hit) = hit {
-            self.check_epoch(epoch)?;
+            self.check_epoch(epoch).await?;
             return Ok(hit);
         }
         let info = self
@@ -588,23 +604,23 @@ impl<E: Executor, V: Vault> Service<E, V> {
         epoch: u64,
         identifier: &str,
     ) -> Result<PackageInfo, AppError> {
-        self.check_epoch(epoch)?;
+        self.check_epoch(epoch).await?;
         let r = self.run(perform_request(s, identifier)).await?;
-        self.check_epoch(epoch)?;
+        self.check_epoch(epoch).await?;
         let query_id = parse_perform(r.status, &r.body)?;
         let r = self.run(dataplan_list_request(s, &query_id)).await?;
-        self.check_epoch(epoch)?;
+        self.check_epoch(epoch).await?;
         let rows = parse_dataplan_list(r.status, &r.body)?;
         let card = pick_dataplan(&rows, identifier)?;
         let r = self.run(detail_request(s, &card)).await?;
-        self.check_epoch(epoch)?;
+        self.check_epoch(epoch).await?;
         let detail = parse_detail(r.status, &r.body)?;
         // Supplementary: a transport failure is an empty block, 401/423 surface.
         let live: Option<JsonValue> = match self.run(live_detail_request(s, &card)).await {
             Ok(r) => parse_supplement(r.status, &r.body)?,
             Err(_) => None,
         };
-        self.check_epoch(epoch)?;
+        self.check_epoch(epoch).await?;
         let sum = summarize(identifier, &detail, live.as_ref());
         Ok(PackageInfo {
             iccid: sum.iccid,

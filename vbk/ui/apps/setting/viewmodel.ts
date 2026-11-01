@@ -115,6 +115,7 @@ export function isTsimStatus(value: unknown): value is UiTsimStatus {
 export function tsimErrorText(error: unknown): string {
   const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
   const descriptions: Readonly<Record<string, string>> = {
+    'assistant.browser_storage_unavailable': '无法读取浏览器会话，可能正在写入、格式不支持或没有访问权限。请稍后重试，或使用账号密码登录。',
     'assistant.tsim_bad_credentials': '用户名或密码未通过验证，请检查后重新输入。',
     'assistant.invalid_input': '登录信息格式不正确，请检查输入。',
     'assistant.forbidden': 'TSim 拒绝了当前账号的权限，请联系管理员。',

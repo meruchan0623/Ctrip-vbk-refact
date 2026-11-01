@@ -4,9 +4,13 @@ use core_assistant::session_import as wire;
 
 impl<E: Executor, V: Vault> Service<E, V> {
     pub async fn import_session(&self, access_token: String) -> Result<TsimStatus, AppError> {
+        let submitted = self.lock().login_revocation;
+        self.import_session_inner(access_token, None, submitted).await
+    }
+
+    pub(super) async fn import_session_inner(&self, access_token: String, browser_profile: Option<super::super::browser_storage::BrowserProfile>, submitted: u64) -> Result<TsimStatus, AppError> {
         wire::validate_access_token(&access_token)?;
         let token = SecretString::new(access_token);
-        let submitted = self.lock().login_revocation;
         let _serial = self.login_lock.lock().await;
         let epoch = {
             let mut g = self.lock();
@@ -39,6 +43,13 @@ impl<E: Executor, V: Vault> Service<E, V> {
         let response = response?;
         let session_ref = wire::parse_session_ref(response.status, &response.body)
             .map_err(|e| self.auth_error(epoch, e))?;
+        if let Some(ref selected) = browser_profile {
+            let directory = selected.directory.clone();
+            let current_token = super::super::browser_work(move || super::super::browser_storage::read_token(&directory)).await?;
+            if current_token.as_ref().map(|v| v.expose()) != Some(token.expose()) {
+                return Err(not_logged_in("browser session changed during verification"));
+            }
+        }
         let token = TokenData {
             access_token: token,
             token_type: "bearer".into(),
@@ -58,9 +69,10 @@ impl<E: Executor, V: Vault> Service<E, V> {
             // The browser owns this server session. Local logout/replacement
             // must not invoke the server's session-revoking logout endpoint.
             g.borrowed_session = true;
+            g.browser_profile = browser_profile;
         }
         self.persist_current(epoch, true)?;
-        self.check_epoch(epoch)?;
+        self.check_epoch(epoch).await?;
         Ok(self.status())
     }
 }

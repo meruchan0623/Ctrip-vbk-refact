@@ -22,7 +22,7 @@ async function fixture(overrides: Record<string, any> = {}) {
   const invoke = async (command: string, payload?: object) => { calls.push({ command }); if (command === UiCommands.ASSIST_TSIM_IMPORT_SESSION) importKeys = Object.keys(payload ?? {}); const result = await results.get(command); if (result instanceof Error || (result && typeof result === 'object' && 'code' in result)) throw result; return result; };
   const env: Record<string, any> = { ...vm, S: SETTING_STRINGS, fmt, store, ipc: { invoke }, PrefsCommands, UiCommands, isPrefsSnapshot, cx, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, msg: () => 'SYNTHETIC_UNTRUSTED_ERROR', toast: (value: string) => store.patch({ toast: value }), icon: () => null, IC: {}, sel: { mock: true }, platform: 'windows', closeWindow() {}, setPref() {}, setReminder() {}, ...overrides };
   function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name); const tail = source.slice(a); const next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z]|subscribeBatched\()/.exec(tail); assert.ok(next, name); return new Function(...Object.keys(env), stripTypeScriptTypes(tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
-  for (const name of ['head', 'row', 'toggle', 'segment', 'text', 'loadSettings', 'refreshTsimStatus', 'tsimLogin', 'tsimLogout', 'tsimImportSession', 'generalSection', 'displaySection', 'notifySection', 'keysSection', 'assistantSection', 'networkSection', 'storageSection', 'privacySection', 'aboutSection', 'body', 'closeWindow', 'titleBar', 'render']) if (source.includes(`function ${name}(`)) env[name] = actual(name);
+  for (const name of ['head', 'row', 'toggle', 'segment', 'text', 'loadSettings', 'refreshTsimStatus', 'tsimLogin', 'tsimLogout', 'tsimImportSession', 'tsimBrowserConnect', 'generalSection', 'displaySection', 'notifySection', 'keysSection', 'assistantSection', 'networkSection', 'storageSection', 'privacySection', 'aboutSection', 'body', 'closeWindow', 'titleBar', 'render']) if (source.includes(`function ${name}(`)) env[name] = actual(name);
   function bootstrap() { if (env['loadSettings']) return env['loadSettings'](); const a = source.lastIndexOf('void (async () => {'), b = source.indexOf('\n})();', a) + '\n})();'.length; assert.ok(a >= 0 && b > a); return new Function(...Object.keys(env), 'return ' + stripTypeScriptTypes(source.slice(a, b).replace('void ', '')))(...Object.values(env)); }
   return { store, calls, actual, bootstrap, importKeys: () => importKeys, setResult: (command: string, value: unknown) => results.set(command, value), tree: () => env['render'](store.get()) };
 }
@@ -165,4 +165,51 @@ test('failed replacement login does not retain the previous logged-in UI identit
   await f.actual('tsimLogin')();
   assert.equal(f.store.get().tsimStatus, null);
   assert.ok(nodes(f.tree()).some(n => n.props.dataset?.action === 'tsim-login'));
+});
+
+
+test('one browser profile requires explicit source selection without exposing a token', async () => {
+  const f = await fixture();
+  f.setResult(UiCommands.ASSIST_TSIM_BROWSER_PROFILES, [{ id: 'edge:Default', label: 'Edge · Default' }]);
+  f.setResult(UiCommands.ASSIST_TSIM_BROWSER_CONNECT, { logged_in: true, user: 'synthetic-browser-user', session_epoch: 8 });
+  await f.actual('tsimBrowserConnect')();
+  assert.equal(f.calls.length, 1);
+  assert.equal(nodes(f.tree()).filter(n => n.props.dataset?.browserProfile).length, 1);
+  await f.actual('tsimBrowserConnect')('edge:Default');
+  assert.deepEqual(f.calls.map(c => c.command), [UiCommands.ASSIST_TSIM_BROWSER_PROFILES, UiCommands.ASSIST_TSIM_BROWSER_CONNECT]);
+  assert.equal(f.store.get().tsimStatus.user, 'synthetic-browser-user');
+  assert.equal(f.store.get().tsimForm.password, '');
+});
+
+test('multiple browser profiles require selection and missing profiles retain manual login', async () => {
+  const f = await fixture();
+  f.setResult(UiCommands.ASSIST_TSIM_BROWSER_PROFILES, [{ id: 'edge:Default', label: 'Edge · Default' }, { id: 'chrome:Default', label: 'Chrome · Default' }]);
+  await f.actual('tsimBrowserConnect')();
+  assert.equal(f.calls.length, 1);
+  assert.equal(nodes(f.tree()).filter(n => n.props.dataset?.browserProfile).length, 2);
+  f.setResult(UiCommands.ASSIST_TSIM_BROWSER_PROFILES, []);
+  await f.actual('tsimBrowserConnect')();
+  assert.match(f.store.get().tsimError, /没有找到/);
+  assert.ok(nodes(f.tree()).some(n => n.props.dataset?.action === 'tsim-login'));
+});
+
+test('late browser discovery cannot connect after newer user intent', async () => {
+  const f = await fixture(), pending = deferred();
+  f.setResult(UiCommands.ASSIST_TSIM_BROWSER_PROFILES, pending.promise);
+  const request = f.actual('tsimBrowserConnect')();
+  f.store.patch({ tsimRequest: f.store.get().tsimRequest + 1, tsimBusy: false });
+  pending.resolve([{ id: 'edge:Default', label: 'Edge · Default' }]); await request;
+  assert.equal(f.calls.length, 1);
+});
+
+
+test('browser invalidation event removes stale logged-in identity without cancelling an active login', async () => {
+  const f = await fixture();
+  f.store.patch({ tsimStatus: { logged_in: true, user: 'synthetic', session_epoch: 4 }, tsimBusy: true, tsimRequest: 8 });
+  f.actual('receiveTsimStatus')({ logged_in: false, user: null, session_epoch: 5 });
+  assert.equal(f.store.get().tsimStatus.logged_in, false);
+  assert.equal(f.store.get().tsimBusy, true);
+  assert.equal(f.store.get().tsimRequest, 8);
+  f.actual('receiveTsimStatus')({ logged_in: true, user: 'old', session_epoch: 4 });
+  assert.equal(f.store.get().tsimStatus.logged_in, false);
 });

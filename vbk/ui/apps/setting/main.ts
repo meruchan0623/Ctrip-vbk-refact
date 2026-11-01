@@ -16,7 +16,7 @@ import type { ReminderSettings } from '../../packages/ipc/src/contracts.ts';
 import { ALLOWED_T1_SECONDS, isAppError } from '../../packages/ipc/src/contracts.ts';
 import { AccountCommands, Events, PrefsCommands } from '../../packages/ipc/src/commands.ts';
 import type { PrefsSection, PrefsSnapshot, UiAccountSnapshot, UiNetStatus, UiTsimStatus } from '../../packages/ipc/src/client.ts';
-import { UiCommands } from '../../packages/ipc/src/client.ts';
+import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
 import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import type { Child } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
@@ -36,6 +36,7 @@ interface SettingState {
   readonly tsimError: string | null;
   readonly tsimStatus: UiTsimStatus | null;
   readonly tsimRequest: number;
+  readonly tsimBrowserProfiles?: readonly { id: string; label: string }[];
   readonly tsimImportExpanded: boolean;
   readonly tsimImportToken: string;
   readonly settingsRequest: number;
@@ -130,6 +131,8 @@ async function tsimLogin(form?: HTMLFormElement): Promise<void> {
     const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_LOGIN, { user: credentials.user.trim(), password: credentials.password });
     if (store.get().tsimRequest !== ticket) return;
     if (!isTsimStatus(status)) throw { code: 'assistant.malformed_response' };
+    const observed = store.get().tsimStatus;
+    if (observed && observed.session_epoch > status.session_epoch) { store.patch({ tsimBusy: false }); return; }
     store.patch({ tsimBusy: false, tsimStatus: status, tsimError: status.logged_in ? null : '登录未获确认，请检查用户名和密码后重新输入。' });
   } catch (e) {
     if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimError: tsimErrorText(e) });
@@ -145,10 +148,19 @@ async function tsimLogout(): Promise<void> {
     const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_LOGOUT, {});
     if (store.get().tsimRequest !== ticket) return;
     if (!isTsimStatus(status)) throw { code: 'assistant.malformed_response' };
+    const observed = store.get().tsimStatus;
+    if (observed && observed.session_epoch > status.session_epoch) { store.patch({ tsimBusy: false }); return; }
     store.patch({ tsimBusy: false, tsimStatus: status, tsimError: status.logged_in ? '退出未获确认，请刷新登录状态后再操作。' : null });
   } catch (e) {
     if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimError: tsimErrorText(e) });
   }
+}
+
+function receiveTsimStatus(value: unknown): void {
+  if (!isTsimStatus(value) || !Number.isSafeInteger(value.session_epoch) || value.session_epoch < 0) return;
+  const previous = store.get().tsimStatus;
+  if (previous && Number.isSafeInteger(previous.session_epoch) && value.session_epoch < previous.session_epoch) return;
+  store.patch({ tsimStatus: value });
 }
 
 async function refreshTsimStatus(): Promise<void> {
@@ -158,6 +170,8 @@ async function refreshTsimStatus(): Promise<void> {
     const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_STATUS, {});
     if (store.get().tsimRequest !== ticket) return;
     if (!isTsimStatus(status)) throw { code: 'assistant.malformed_response' };
+    const observed = store.get().tsimStatus;
+    if (observed && observed.session_epoch > status.session_epoch) { store.patch({ tsimBusy: false }); return; }
     store.patch({ tsimStatus: status, tsimBusy: false });
   } catch (e) {
     if (store.get().tsimRequest === ticket) store.patch({ tsimStatus: null, tsimBusy: false, tsimError: tsimErrorText(e) });
@@ -174,7 +188,35 @@ async function tsimImportSession(): Promise<void> {
     const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_IMPORT_SESSION, { access_token: accessToken });
     if (store.get().tsimRequest !== ticket) return;
     if (!isTsimStatus(status) || !Number.isSafeInteger(status.session_epoch) || status.session_epoch < 0) throw { code: 'assistant.malformed_response' };
+    const observed = store.get().tsimStatus;
+    if (observed && observed.session_epoch > status.session_epoch) { store.patch({ tsimBusy: false }); return; }
     store.patch({ tsimBusy: false, tsimStatus: status, tsimImportExpanded: !status.logged_in, tsimError: status.logged_in ? null : '已有会话导入未获确认，请重新取得会话或使用账号密码登录。' });
+  } catch (error) {
+    if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimStatus: null, tsimError: tsimImportErrorText(error) });
+  }
+}
+
+async function tsimBrowserConnect(profileId?: string): Promise<void> {
+  const s = store.get();
+  if (s.tsimBusy) return;
+  const ticket = s.tsimRequest + 1;
+  store.patch({ tsimRequest: ticket, tsimBusy: true, tsimError: null, tsimBrowserProfiles: [], tsimForm: EMPTY_TSIM_FORM, tsimImportToken: '' });
+  try {
+    if (!profileId) {
+      const profiles = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_BROWSER_PROFILES, {});
+      if (store.get().tsimRequest !== ticket) return;
+      if (!Array.isArray(profiles) || profiles.length > 64 || profiles.some(p => !p || typeof p.id !== 'string' || typeof p.label !== 'string')) throw { code: 'assistant.malformed_response' };
+      // Always show the source, including a sole readable profile: another
+      // browser profile may be temporarily unavailable during discovery.
+      store.patch({ tsimBusy: false, tsimBrowserProfiles: profiles, tsimError: profiles.length ? null : '没有找到 TSim 网页会话。请先在 Edge 或 Chrome 普通窗口登录客服系统，再重试。' });
+      return;
+    }
+    const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_BROWSER_CONNECT, { profile_id: profileId });
+    if (store.get().tsimRequest !== ticket) return;
+    if (!isTsimStatus(status) || !status.logged_in) throw { code: 'assistant.malformed_response' };
+    const observed = store.get().tsimStatus;
+    if (observed && observed.session_epoch > status.session_epoch) { store.patch({ tsimBusy: false }); return; }
+    store.patch({ tsimBusy: false, tsimStatus: status });
   } catch (error) {
     if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimStatus: null, tsimError: tsimImportErrorText(error) });
   }
@@ -289,6 +331,9 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
       { class: 'set-row col', dataset: { tsim: '1' } },
       h('div', { class: 'set-l' }, h('div', { class: 'set-label' }, t('set.asst.tsim'), ' ', h('span', { class: cx('chip', status?.logged_in ? 'chip-ok' : 'chip-muted'), dataset: { tsimStatus: status ? status.logged_in ? 'in' : 'out' : 'unknown' } }, status ? tsimStatusText({ ...a, tsim_logged_in: status.logged_in, tsim_user: status.user }) : '登录状态未知')), h('div', { class: 'set-desc' }, t('set.asst.tsimDesc'))),
       h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-refresh' }, onclick: () => void refreshTsimStatus() }, s.tsimBusy ? '正在核对…' : '刷新 TSim 登录状态'),
+      platform === 'windows' ? h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-browser-connect' }, onclick: () => void tsimBrowserConnect() }, '复用 Edge / Chrome 客服登录态') : null,
+      platform === 'windows' ? h('p', { class: 'set-desc' }, '使用客服网页的现有会话，无需再次输入密码；网页退出、切换账号或更新会话后需重新连接。断开不会退出客服网页。') : null,
+      ...(s.tsimBrowserProfiles ?? []).map(p => h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { browserProfile: p.id }, onclick: () => void tsimBrowserConnect(p.id) }, `连接 ${p.label}`)),
       status?.logged_in
         ? h('div', null, h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-logout' }, onclick: () => void tsimLogout() }, t('set.asst.tsimLogout')))
         : h(
@@ -429,6 +474,7 @@ if (!sel.mock) {
     })
     .catch(() => undefined);
 }
+ipc.listen<unknown>(UiEvents.TSIM_STATUS, receiveTsimStatus);
 void loadSettings();
 void refreshTsimStatus();
 

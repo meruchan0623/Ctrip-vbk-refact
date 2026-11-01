@@ -17,6 +17,8 @@ pub mod order_commands;
 pub mod public_error;
 #[path = "assistant/session_storage.rs"]
 mod session_storage;
+#[path = "assistant/browser_storage.rs"]
+pub mod browser_storage;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,7 +39,7 @@ type CmdResult<T> = Result<T, AppErrorDto>;
 /// Keychain / Credential Manager service name for the TSim session.
 pub const KEYRING_SERVICE: &str = "tech.tsim.vbk.client.tsim";
 /// Background upkeep period (refresh when due, load profile once).
-const UPKEEP_PERIOD: Duration = Duration::from_secs(60);
+const UPKEEP_PERIOD: Duration = Duration::from_secs(4);
 
 fn guard(state: &HostState, window: &Window, command: &str) -> CmdResult<()> {
     state
@@ -156,6 +158,43 @@ pub async fn assistant_tsim_logout(
 ) -> CmdResult<TsimStatus> {
     guard(&state, &window, "assistant_tsim_logout")?;
     require(&app)?.logout().await.map_err(public_error::to_dto)
+}
+
+// Serialize bounded local-store scans off the async executor; the permit stays
+// with the worker even if its requesting command is cancelled.
+async fn browser_work<T: Send + 'static>(work: impl FnOnce() -> Result<T, AppError> + Send + 'static) -> Result<T, AppError> {
+    static SCANS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+    let permit = SCANS.acquire().await.map_err(|_| AppError::new("assistant.browser_storage_unavailable", "browser read unavailable"))?;
+    tauri::async_runtime::spawn_blocking(move || { let _permit = permit; work() }).await
+        .map_err(|_| AppError::new("assistant.browser_storage_unavailable", "browser read failed"))?
+}
+
+#[derive(Serialize)]
+pub struct BrowserChoice { id: String, label: String }
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn assistant_tsim_browser_profiles(window: Window, state: State<'_, HostState>) -> CmdResult<Vec<BrowserChoice>> {
+    guard(&state, &window, "assistant_tsim_browser_profiles")?;
+    browser_work(|| {
+        let mut choices = Vec::new();
+        let mut failed = None;
+        for profile in browser_storage::discover_profiles()? {
+            match browser_storage::read_token(&profile.directory) {
+                Ok(Some(_)) => choices.push(BrowserChoice { id: profile.id, label: profile.label }),
+                Ok(None) => {},
+                Err(e) => failed = Some(e),
+            }
+        }
+        if choices.is_empty() { if let Some(e) = failed { return Err(e); } }
+        Ok(choices)
+    }).await.map_err(public_error::to_dto)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn assistant_tsim_browser_connect(app: AppHandle, window: Window, state: State<'_, HostState>, profile_id: String) -> CmdResult<TsimStatus> {
+    guard(&state, &window, "assistant_tsim_browser_connect")?;
+    let svc = require(&app)?;
+    svc.connect_browser(&profile_id).await.map_err(public_error::to_dto)
 }
 
 #[derive(Debug, Clone, Serialize)]

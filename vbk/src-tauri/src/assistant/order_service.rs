@@ -171,7 +171,7 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
         if !status.logged_in || status.session_epoch != epoch {
             return Err(not_logged_in("tsim identity changed during order query"));
         }
-        self.service.check_epoch(epoch)
+        self.service.check_epoch(epoch).await
     }
     async fn session<F, Fut>(&self, epoch: u64, validate: &F) -> Result<TsimSession, AppError>
     where

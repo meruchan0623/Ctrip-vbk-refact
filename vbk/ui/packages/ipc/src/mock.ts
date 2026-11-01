@@ -793,6 +793,8 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       pushPrefs();
       return { ...st.tsim };
     },
+    [UiCommands.ASSIST_TSIM_BROWSER_PROFILES]: async () => [],
+    [UiCommands.ASSIST_TSIM_BROWSER_CONNECT]: async () => { throw appError('assistant.browser_storage_unavailable', '演示模式不读取浏览器会话'); },
     [UiCommands.ASSIST_TSIM_IMPORT_SESSION]: async (p) => {
       const token = (p as { access_token?: unknown }).access_token;
       if (typeof token !== 'string' || token !== 'SYNTHETIC_IMPORT_TOKEN') throw appError('assistant.invalid_input', '演示模式不验证真实访问令牌，请使用原生客户端。');
