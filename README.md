@@ -21,6 +21,7 @@
 | [开发总纲](docs/dev/00-architecture.md) | 当前架构、职责与实现边界 |
 | [原型还原与端到端接线计划](docs/plan/2026-10-30-prototype-restoration-plan.md) | 当前执行顺序：macOS 外观、契约统一、登录、IM 数据接线 |
 | [收敛后的开发计划](docs/plan/00-master-development-plan.md) | 范围、不变量与任务正文 |
+| [rea 逆向分析与 Tauri 实施计划](docs/reverse/2026-11-01-rea/00-README.md) | 官方 Mac 1.2.13 / Win 1.2.12 的功能清单、架构、44+ 项缺陷；vbk 差距；30 个模块的依赖、波次、验收标准与风险 |
 | [独立强提醒窗口](docs/dev/03-strong-alert.md) | 消息来源、等待轮次、独立窗口、恢复和验收 |
 | [订单联系客人](docs/research/2026-10-30-web-order-conversation.md) | 已实测的订单详情与 IM 联系流程 |
 | [网页提醒调查](docs/research/2026-10-30-web-reminders.md) | 网页实际行为，区别于新扩展 |
