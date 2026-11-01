@@ -158,6 +158,7 @@ interface MainState {
   readonly loginAttempt: string | null;
   readonly view: View;
   readonly agent: UiAgentStatus;
+  readonly agentOperation: object | null;
   readonly agentBusy: boolean;
   /** null until the host has reported the network state. */
   readonly net: UiNetStatus | null;
@@ -223,6 +224,7 @@ const initial: MainState = {
   loginAttempt: null,
   view: 'messages',
   agent: { status: 'online', confirmed: false },
+  agentOperation: null,
   agentBusy: false,
   net: null,
   clockTrusted: true,
@@ -394,6 +396,8 @@ const ACCOUNT_SCOPED_RESET = {
   emoOpen: false,
   // The read-back belongs to the previous account; the new one starts unknown until the host answers.
   agent: { status: 'online', confirmed: false },
+  agentBusy: false,
+  agentOperation: null,
 } as const satisfies Partial<MainState>;
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -461,6 +465,7 @@ async function loadForActiveAccount(): Promise<void> {
   const acc = activeAccount();
   if (!acc) return;
   const account = acc.context;
+  const agentAtRead = S().agent;
   const belongs = (c: UiConversation): boolean => sameAccount(c.account, account) && c.account.session_generation === account.session_generation;
   // Preserve mutations received after this read began, including removals. A
   // union of the two lists would resurrect deleted rows from the old snapshot.
@@ -493,7 +498,7 @@ async function loadForActiveAccount(): Promise<void> {
     store.patch({
       conversations,
       noticeCats,
-      agent: isUiAgentStatus(agent) ? agent : s.agent,
+      agent: s.agent === agentAtRead && isUiAgentStatus(agent) ? agent : s.agent,
       net: isUiNetStatus(net) ? net : s.net,
       noticeCat: s.noticeCat && noticeCats.some((c) => c.id === s.noticeCat) ? s.noticeCat : (noticeCats[0]?.id ?? null),
       activeGid: lostConversation ? null : s.activeGid,
@@ -593,22 +598,25 @@ async function confirmLogout(): Promise<void> {
   if (isUiAccountSnapshot(snap)) applyAccountSnapshot(snap);
 }
 
-/** Work status changes only after the server read-back (`account_set_agent_status` result). */
+/** Server pushes outrank an older command's read-back. */
 async function setAgentStatus(status: AgentStatus): Promise<void> {
   const acc = activeAccount();
   if (!acc || S().agentBusy) return;
-  store.patch({ agentBusy: true, meMenu: false });
+  const operation = {};
+  store.patch({ agentBusy: true, agentOperation: operation, meMenu: false });
+  const agentAtWrite = S().agent;
   try {
     const r = await ipc.invoke<unknown>(UiCommands.ACCOUNT_SET_AGENT_STATUS, { account: acc.context, status });
-    if (!stillActive(acc.context)) return;
+    if (!stillActive(acc.context) || S().agentOperation !== operation) return;
     if (isUiAgentStatus(r)) {
-      store.patch({ agent: r });
-      toast(r.confirmed && r.status === status ? t('me.statusOk', { s: agentStatusLabel(r.status) }) : t('me.statusUnconfirmed'));
+      if (S().agent === agentAtWrite) store.patch({ agent: r });
+      const current = S().agent;
+      toast(current.confirmed && current.status === status ? t('me.statusOk', { s: agentStatusLabel(current.status) }) : t('me.statusUnconfirmed'));
     }
   } catch (e) {
-    toast(t('me.statusFailed', { msg: errorMessage(e) }));
+    if (stillActive(acc.context) && S().agentOperation === operation) toast(t('me.statusFailed', { msg: errorMessage(e) }));
   } finally {
-    store.patch({ agentBusy: false });
+    if (stillActive(acc.context) && S().agentOperation === operation) store.patch({ agentBusy: false, agentOperation: null });
   }
 }
 

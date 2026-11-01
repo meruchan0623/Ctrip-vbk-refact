@@ -71,7 +71,8 @@ export interface AdapterOptions {
   /** Raw conversation rows per poll (display cache, sessionId/worksheetId lookups). Never logged. */
   readonly onConversationRows?: (rows: readonly ConversationListItem[], full: boolean, variant: ConversationListVariant) => void;
   /** Every classified conversation-list outcome (e.g. `currentStatus` read-back, `haveRest`). */
-  readonly onConversationListOutcome?: (outcome: SoaOutcome<ConversationListResponse>, variant: ConversationListVariant) => void;
+  readonly onConversationListRequest?: () => unknown;
+  readonly onConversationListOutcome?: (outcome: SoaOutcome<ConversationListResponse>, variant: ConversationListVariant, ticket?: unknown) => void;
   /** Every classified `getRecentMessages` outcome (display bodies of compensated messages). */
   readonly onCompensationOutcome?: (outcome: SoaOutcome<RecentMessagesResponse>) => void;
 }
@@ -132,7 +133,8 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
       includeLocale: opts.includeLocaleInConversationList ?? false,
       ...(opts.unread ? { unread: opts.unread } : {}),
       ...(opts.onConversationRows ? { onRows: (rows: readonly ConversationListItem[], full: boolean) => opts.onConversationRows?.(rows, full, variant) } : {}),
-      ...(opts.onConversationListOutcome ? { onOutcome: (o: SoaOutcome<ConversationListResponse>) => opts.onConversationListOutcome?.(o, variant) } : {}),
+      ...(opts.onConversationListRequest ? { onRequest: opts.onConversationListRequest } : {}),
+      ...(opts.onConversationListOutcome ? { onOutcome: (o: SoaOutcome<ConversationListResponse>, ticket?: unknown) => opts.onConversationListOutcome?.(o, variant, ticket) } : {}),
     }),
   );
 

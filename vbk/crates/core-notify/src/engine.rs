@@ -6,7 +6,7 @@
 //! order and call `tick` at 1 Hz while the alarm window is visible (more
 //! often is harmless; less often only delays escalation).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use contracts::{
     AccountContext, AlarmEntry, AlarmLevel, AlarmSnapshot, AppError, ClockReading, ReconcileState,
@@ -21,6 +21,16 @@ use crate::now::Now;
 use crate::rounds::RoundState;
 use crate::snapshot::{sort_entries, LOCKED_LABEL};
 use crate::unread::{BadgeText, UnreadBook};
+
+/// Maximum age of host-confirmed working status. Uses the host monotonic
+/// clock so a frozen page cannot leave notifications enabled indefinitely.
+pub const ACCOUNT_STATUS_TTL_MS: u64 = 15_000;
+
+#[derive(Debug)]
+struct AccountPermission {
+    allowed: bool,
+    until_monotonic: u64,
+}
 
 /// Module-private error codes (prefix convention from `contracts::codes`).
 pub mod codes {
@@ -85,6 +95,11 @@ pub struct NotifyCore {
     sound_active: bool,
     tray_flashing: bool,
     last_badge: BadgeText,
+    /// `None` preserves the standalone core's legacy policy. The desktop
+    /// host explicitly opts in, with every unknown account denied.
+    account_permissions: Option<HashMap<AccountContext, AccountPermission>>,
+    flash_sources: HashSet<AccountContext>,
+    sound_sources: HashSet<AccountContext>,
 }
 
 impl Default for NotifyCore {
@@ -114,6 +129,9 @@ impl NotifyCore {
             sound_active: false,
             tray_flashing: false,
             last_badge: BadgeText::None,
+            account_permissions: None,
+            flash_sources: HashSet::new(),
+            sound_sources: HashSet::new(),
         }
     }
 
@@ -123,6 +141,104 @@ impl NotifyCore {
         let mut core = Self::new();
         core.settings = settings;
         Ok(core)
+    }
+
+    /// Desktop policy: no attention channels until the host confirms this
+    /// exact account generation is working. Facts, rounds and unread remain.
+    pub fn with_account_gating() -> Self {
+        let mut core = Self::new();
+        core.account_permissions = Some(HashMap::new());
+        core
+    }
+
+    pub fn account_notifications_allowed(&self, account: &AccountContext, now: &Now) -> bool {
+        self.account_permissions
+            .as_ref()
+            .map_or(true, |permissions| {
+                permissions
+                    .get(account)
+                    .is_some_and(|lease| lease.allowed && now.monotonic_ms < lease.until_monotonic)
+            })
+            && !self.is_stale_generation(account)
+    }
+
+    /// Confirmed working status renews a short lease; getoff, unknown,
+    /// transport loss or failed verification revoke only this account.
+    pub fn set_account_notifications(
+        &mut self,
+        account: &AccountContext,
+        allowed: bool,
+        now: &Now,
+    ) -> Vec<Effect> {
+        if !self.accept_generation(account) {
+            return Vec::new();
+        }
+        if !allowed || !self.account_notifications_allowed(account, now) {
+            self.banners
+                .clear_account(account.environment.as_str(), account.account_id.as_str());
+        }
+        let permissions = self.account_permissions.get_or_insert_with(HashMap::new);
+        permissions.insert(
+            account.clone(),
+            AccountPermission {
+                allowed,
+                until_monotonic: now.monotonic_ms.saturating_add(ACCOUNT_STATUS_TTL_MS),
+            },
+        );
+        self.evaluate(now)
+    }
+
+    /// One-shot expiry reports include confirmed getoff states too: the UI
+    /// must stop claiming certainty when its page stopped reporting.
+    pub fn take_expired_account_statuses(&mut self, now: &Now) -> Vec<AccountContext> {
+        let mut expired = Vec::new();
+        if let Some(permissions) = &mut self.account_permissions {
+            permissions.retain(|account, lease| {
+                if now.monotonic_ms >= lease.until_monotonic {
+                    expired.push(account.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        for account in &expired {
+            self.banners
+                .clear_account(account.environment.as_str(), account.account_id.as_str());
+        }
+        expired
+    }
+
+    /// Recheck queued effects just before host execution. A permission may
+    /// have expired or been revoked since the effect was produced.
+    pub fn effect_is_current(&self, effect: &Effect, now: &Now) -> bool {
+        if self.account_permissions.is_none() {
+            return true;
+        }
+        match effect {
+            Effect::Banner { account, .. } | Effect::SystemToast { account, .. } => {
+                self.account_notifications_allowed(account, now)
+            }
+            Effect::ShowAlarm { .. } => {
+                self.alarm_visible
+                    && self.rounds.iter().any(|r| {
+                        self.account_notifications_allowed(&r.round.account, now)
+                            && r.is_presentable(now, self.t1_ms(), self.restore_barrier)
+                    })
+            }
+            Effect::PlaySound(_) => self
+                .sound_sources
+                .iter()
+                .any(|a| self.account_notifications_allowed(a, now)),
+            Effect::TrayFlash(true) => {
+                self.tray_flashing
+                    && self
+                        .flash_sources
+                        .iter()
+                        .any(|a| self.account_notifications_allowed(a, now))
+            }
+            _ => true,
+        }
     }
 
     // ------------------------------------------------------------ getters
@@ -195,6 +311,7 @@ impl NotifyCore {
 
         if self.system.main_window_focused && self.tray_flashing {
             self.tray_flashing = false;
+            self.flash_sources.clear();
             out.push(Effect::TrayFlash(false));
         }
         if !previous.locked && self.system.locked {
@@ -206,12 +323,21 @@ impl NotifyCore {
         }
         if previous.locked && !self.system.locked {
             self.awaiting_unlock_reconcile = true;
-            let released = self.banners.take_held(now);
+            let released: Vec<_> = self
+                .banners
+                .take_held(now)
+                .into_iter()
+                .filter(|b| self.account_notifications_allowed(&b.account, now))
+                .collect();
             if !released.is_empty() && self.l2_allowed(now) {
                 for b in released {
+                    self.sound_sources.insert(b.account.clone());
                     out.push(self.banner_effect(b.account, b.gid, b.count));
                 }
                 if self.banners.try_sound(now) {
+                    if self.account_permissions.is_some() {
+                        self.sound_active = true;
+                    }
                     out.push(Effect::PlaySound(Sound::NewMessage));
                 }
             }
@@ -226,6 +352,7 @@ impl NotifyCore {
         let mut out = Vec::new();
         if self.dnd_active(now) && self.tray_flashing {
             self.tray_flashing = false;
+            self.flash_sources.clear();
             out.push(Effect::TrayFlash(false));
         }
         out.extend(self.evaluate(now));
@@ -419,7 +546,7 @@ impl NotifyCore {
         now: &Now,
     ) -> Vec<Effect> {
         let mut out = Vec::new();
-        if !self.accept_generation(account) {
+        if !self.accept_generation(account) || !self.account_notifications_allowed(account, now) {
             return out;
         }
         let dnd = self.dnd_active(now);
@@ -430,6 +557,9 @@ impl NotifyCore {
         {
             self.tray_flashing = true;
             out.push(Effect::TrayFlash(true));
+        }
+        if !self.system.main_window_focused && self.settings.tray_flash && !dnd {
+            self.flash_sources.insert(account.clone());
         }
         if !is_customer || !self.l2_allowed(now) {
             return out;
@@ -443,6 +573,10 @@ impl NotifyCore {
         }
         out.push(self.banner_effect(account.clone(), gid.to_string(), count));
         if self.banners.try_sound(now) {
+            self.sound_sources.insert(account.clone());
+            if self.account_permissions.is_some() {
+                self.sound_active = true;
+            }
             out.push(Effect::PlaySound(Sound::NewMessage));
         }
         out
@@ -464,6 +598,7 @@ impl NotifyCore {
         }
         if self.unread.total() == 0 && self.tray_flashing {
             self.tray_flashing = false;
+            self.flash_sources.clear();
             out.push(Effect::TrayFlash(false));
         }
         out
@@ -483,7 +618,11 @@ impl NotifyCore {
         let mut entries: Vec<AlarmEntry> = self
             .rounds
             .iter()
-            .filter(|r| self.settings.enabled && r.is_listed(now, t1, self.restore_barrier))
+            .filter(|r| {
+                self.settings.enabled
+                    && self.account_notifications_allowed(&r.round.account, now)
+                    && r.is_listed(now, t1, self.restore_barrier)
+            })
             .map(|r| {
                 estimated |= r.estimated;
                 AlarmEntry {
@@ -602,6 +741,7 @@ impl NotifyCore {
 
     /// Emits `StopSound` if something may be playing (hide / snooze).
     pub(crate) fn silence(&mut self) -> Vec<Effect> {
+        self.sound_sources.clear();
         if self.sound_active {
             self.sound_active = false;
             vec![Effect::StopSound]
@@ -622,6 +762,13 @@ impl NotifyCore {
                 }
         });
         self.banners.clear_account(&env, &id);
+        if let Some(permissions) = &mut self.account_permissions {
+            permissions.retain(|a, _| {
+                !(a.environment.as_str() == env
+                    && a.account_id.as_str() == id
+                    && up_to.map_or(true, |gen| a.session_generation <= gen))
+            });
+        }
         if self.unread.clear_account(&env, &id) {
             out.extend(self.unread_effect());
         }
@@ -653,6 +800,7 @@ impl NotifyCore {
         }
         if !new.tray_flash && self.tray_flashing {
             self.tray_flashing = false;
+            self.flash_sources.clear();
             out.push(Effect::TrayFlash(false));
         }
         if old.enabled && !new.enabled {
@@ -697,6 +845,25 @@ impl NotifyCore {
 
     /// The escalation pass shared by every input and by `tick`.
     pub(crate) fn evaluate(&mut self, now: &Now) -> Vec<Effect> {
+        let mut out = Vec::new();
+        if let Some(permissions) = &self.account_permissions {
+            let allowed = |account: &AccountContext| {
+                permissions
+                    .get(account)
+                    .is_some_and(|lease| lease.allowed && now.monotonic_ms < lease.until_monotonic)
+            };
+            self.flash_sources.retain(&allowed);
+            self.sound_sources.retain(&allowed);
+            self.banners.retain_accounts(&allowed);
+            if self.tray_flashing && self.flash_sources.is_empty() {
+                self.tray_flashing = false;
+                out.push(Effect::TrayFlash(false));
+            }
+            if self.sound_active && self.sound_sources.is_empty() {
+                self.sound_active = false;
+                out.push(Effect::StopSound);
+            }
+        }
         let settings = self.settings.clone();
         let t1_ms = self.t1_ms();
         let barrier = self.restore_barrier;
@@ -718,7 +885,15 @@ impl NotifyCore {
         for r in &mut self.rounds {
             r.expire_snooze(now);
             r.advance(now, &settings);
-            if !settings.enabled || !r.is_presentable(now, t1_ms, barrier) {
+            let account_allowed = self
+                .account_permissions
+                .as_ref()
+                .map_or(true, |permissions| {
+                    permissions.get(&r.round.account).is_some_and(|lease| {
+                        lease.allowed && now.monotonic_ms < lease.until_monotonic
+                    })
+                });
+            if !account_allowed || !settings.enabled || !r.is_presentable(now, t1_ms, barrier) {
                 // Not presentable right now (待核对, below T1 again after a
                 // re-anchor, snoozed, pending restore…): forget how it was
                 // presented so that it is shown again when it becomes
@@ -730,6 +905,7 @@ impl NotifyCore {
             let level = r.level;
             let mut presented_now = false;
             if pol.window_new && r.raised_for_level != Some(level) {
+                self.flash_sources.insert(r.round.account.clone());
                 r.raised_for_level = Some(level);
                 presented_now = true;
                 flash = true;
@@ -742,11 +918,13 @@ impl NotifyCore {
                     }
                 }
             } else if !pol.window_new && pol.flash && r.flashed_for_level != Some(level) {
+                self.flash_sources.insert(r.round.account.clone());
                 r.flashed_for_level = Some(level);
                 presented_now = true;
                 flash = true;
             }
             if presented_now && pol.sound && settings.timeout_sound && !r.l3_sound_played {
+                self.sound_sources.insert(r.round.account.clone());
                 r.l3_sound_played = true;
                 timeout_sound = true;
             }
@@ -759,11 +937,13 @@ impl NotifyCore {
                             Some(last) => now.monotonic_ms.saturating_sub(last) >= L4_PERIOD_MS,
                         };
                         if due {
+                            self.sound_sources.insert(r.round.account.clone());
                             r.last_l4_sound_monotonic = Some(now.monotonic_ms);
                             r.l4_sound_count = r.l4_sound_count.saturating_add(1);
                             loop_sound = true;
                         }
                     } else if !r.l4_cap_flashed {
+                        self.flash_sources.insert(r.round.account.clone());
                         r.l4_cap_flashed = true;
                         flash = true;
                     }
@@ -771,7 +951,6 @@ impl NotifyCore {
             }
         }
 
-        let mut out = Vec::new();
         if !pol.window_keep {
             if self.alarm_visible {
                 self.alarm_visible = false;

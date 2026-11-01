@@ -104,6 +104,10 @@ impl BannerBook {
         });
     }
 
+    pub(crate) fn retain_accounts(&mut self, allowed: impl Fn(&AccountContext) -> bool) {
+        self.entries.retain(|entry| allowed(&entry.account));
+    }
+
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.entries.len()

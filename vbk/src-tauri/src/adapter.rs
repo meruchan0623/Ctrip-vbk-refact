@@ -514,7 +514,27 @@ fn is_focus(app: &AppHandle, ctx: &AccountContext) -> bool {
         .unwrap_or(true)
 }
 
-fn emit_agent_status(app: &AppHandle, ctx: &AccountContext, s: UiAgentStatusDto) {
+fn apply_agent_status(app: &AppHandle, ctx: &AccountContext, payload: DisplayPayload) -> Result<(), AppError> {
+    let state = app.state::<HostState>();
+    let mut cores = state.lock();
+    cores.accounts.validate(ctx)?;
+    let m = module(app)?;
+    // Apply cursor, gate and publication under the same host lock. An older
+    // already-decoded push must not emit after a newer push or watchdog expiry.
+    let DisplayDelta::AgentStatus(s) = apply_display_diagnosed(&m, ctx, Ok(payload))? else {
+        return Err(bad_reply());
+    };
+    let now = state.now(&mut cores);
+    if !cores.set_account_notifications(ctx, s.confirmed && s.status != AgentStatusDto::Getoff, &now) {
+        return Ok(());
+    }
+    // Keep cache, gate and UI publication in host→display lock order. A
+    // concurrent lease expiry cannot overwrite a newer observed status.
+    emit_agent_status_event(app, ctx, s);
+    Ok(())
+}
+
+fn emit_agent_status_event(app: &AppHandle, ctx: &AccountContext, s: UiAgentStatusDto) {
     events::to_main(
         app,
         events::AGENT_STATUS,
@@ -523,6 +543,26 @@ fn emit_agent_status(app: &AppHandle, ctx: &AccountContext, s: UiAgentStatusDto)
             account: ctx.into(),
         },
     );
+}
+
+/// Host watchdog runs even when the adapter page is frozen. Expiry changes
+/// certainty only; it neither changes work status nor renews its own lease.
+pub fn expire_agent_statuses(app: &AppHandle) {
+    let state = app.state::<HostState>();
+    let mut cores = state.lock();
+    let now = state.now(&mut cores);
+    let expired = cores.notify.take_expired_account_statuses(&now);
+    let Ok(m) = module(app) else { return; };
+    let mut display = lock(&m.display);
+    for ctx in expired {
+        if cores.accounts.validate(&ctx).is_err() { continue; }
+        let Some(mut status) = display.agent_status(&ctx) else { continue; };
+        if !status.confirmed { continue; }
+        status.confirmed = false;
+        if display.set_agent_status(&ctx, status).is_ok() {
+            emit_agent_status_event(app, &ctx, status);
+        }
+    }
 }
 
 // ------------------------------------------------------------------ request
@@ -1072,7 +1112,11 @@ pub fn adapter_push_display(
 ) -> CmdResult<()> {
     let ctx = bound_caller(&app, &state, &webview, "adapter_push_display")?;
     let m = module(&app).map_err(e2dto)?;
-    let delta = apply_display_diagnosed(&m, &ctx, body(&request, "payload")).map_err(e2dto)?;
+    let payload = body(&request, "payload");
+    if matches!(&payload, Ok(DisplayPayload::AgentStatus { .. })) {
+        return apply_agent_status(&app, &ctx, payload.map_err(e2dto)?).map_err(e2dto);
+    }
+    let delta = apply_display_diagnosed(&m, &ctx, payload).map_err(e2dto)?;
     match delta {
         DisplayDelta::Conversations { changed, removed } => {
             for gid in &removed { crate::assistant::order_commands::on_conversation_change(&app, &ctx, gid, None); }
@@ -1098,7 +1142,7 @@ pub fn adapter_push_display(
                 );
             }
         }
-        DisplayDelta::AgentStatus(s) => emit_agent_status(&app, &ctx, s),
+        DisplayDelta::AgentStatus(_) => unreachable!("agent status uses ordered host transaction"),
         DisplayDelta::Transport(t) => {
             if is_focus(&app, &ctx) {
                 events::to_local_windows(
@@ -1160,8 +1204,7 @@ pub async fn account_agent_status(
 ) -> CmdResult<UiAgentStatusDto> {
     guard(&state, webview.label(), "account_agent_status")?;
     let ctx = ui_account(&app, &state, account)?;
-    let m = module(&app).map_err(e2dto)?;
-    match forward::<UiAgentStatusDto>(
+    forward::<UiAgentStatusDto>(
         &app,
         &ctx,
         "agent.status",
@@ -1169,13 +1212,7 @@ pub async fn account_agent_status(
         READ_TIMEOUT,
     )
     .await
-    {
-        Ok(s) => {
-            let _ = lock(&m.display).set_agent_status(&ctx, s);
-            Ok(s)
-        }
-        Err(e) => lock(&m.display).agent_status(&ctx).ok_or_else(|| e2dto(e)),
-    }
+    .map_err(e2dto)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1197,9 +1234,8 @@ pub async fn account_set_agent_status(
     )
     .await
     .map_err(e2dto)?;
-    let m = module(&app).map_err(e2dto)?;
-    let _ = lock(&m.display).set_agent_status(&ctx, s);
-    emit_agent_status(&app, &ctx, s);
+    // Status display pushes carry the adapter's ordering/freshness fences.
+    // Replaying this RPC result here could overwrite a newer poll observation.
     Ok(s)
 }
 

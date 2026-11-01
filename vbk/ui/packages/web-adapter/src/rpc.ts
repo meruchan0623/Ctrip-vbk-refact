@@ -38,6 +38,7 @@ import { AGENT_STATUS_CODES, agentStatusOf, byCreateTime, httpMessageToUi, order
 import type { PageSdk } from './sdkGlue.ts';
 import { roomJidFromMessage, type ConversationStore, RoleBook } from './stores.ts';
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
+import type { StatusRead } from './presence.ts';
 
 export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
   'clock.sample': 'host-requested fixed GetMyInfo.json authenticated SOA Timestamp; no display, facts or read receipts',
@@ -80,6 +81,10 @@ export const MAX_TEXT_CHARS = 5000;
 export interface AgentStatusBox {
   current(): { readonly status: AgentStatus; readonly confirmed: boolean } | null;
   set(status: AgentStatus, confirmed: boolean): void;
+  captureRead?(writeback?: boolean): StatusRead;
+  invalidate?(): void;
+  beginWrite?(): boolean;
+  endWrite?(): void;
 }
 
 export interface RpcContext {
@@ -158,11 +163,22 @@ function sendIdentity(ctx: RpcContext, view: ReturnType<typeof requireConversati
 
 // ------------------------------------------------------------- agent status read-back
 
-export async function readCurrentStatus(ctx: RpcContext): Promise<AgentStatus | null> {
+export async function readCurrentStatus(ctx: RpcContext, writeback = false): Promise<AgentStatus | null> {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  ensureCurrent(current);
+  const ticket = ctx.agent.captureRead?.(writeback);
   const outcome = await ctx.soa.post<ConversationListResponse>(Endpoints.CONVERSATION_LIST, conversationListBody(ctx.deps, null, false));
-  if (outcome.kind !== 'success') fail(outcomeError(outcome, 'agent status').code, outcomeError(outcome, 'agent status').message, true);
+  ensureCurrent(current);
+  if (outcome.kind !== 'success') {
+    ticket?.fail();
+    if (outcome.kind === 'auth_invalid') ctx.pushFact({ kind: 'auth_invalid' });
+    throw new RpcError(outcomeError(outcome, 'agent status'));
+  }
   const status = agentStatusOf(outcome.body.currentStatus);
-  if (status !== null) ctx.agent.set(status, true);
+  if (status === null) ticket?.fail();
+  else if (ticket) {
+    if (!ticket.commit(status)) fail(ErrorCodes.ADAPTER_NOT_READY, 'agent status observation superseded; refresh status', true);
+  } else ctx.agent.set(status, true);
   return status;
 }
 
@@ -178,6 +194,7 @@ interface RpcState {
   peripheralWrites?: Map<string, Promise<UiPeripheralWrite>>;
   selectionSequence?: number;
   readonly selectionNamespace: string;
+  agentWritePending?: boolean;
 }
 
 /** Isolated latest-page evidence read. No shared role/store mutation or UI/fact publication. */
@@ -434,8 +451,7 @@ const orderCreateImChat: Handler<'order.create_im_chat'> = async (ctx, args) => 
 };
 
 const agentStatus: Handler<'agent.status'> = async (ctx) => {
-  const cur = ctx.agent.current();
-  if (cur && cur.confirmed) return cur;
+  // Always read the authority: another device may have changed the status.
   const status = await readCurrentStatus(ctx);
   if (status === null) fail(ErrorCodes.ADAPTER_FAILED, 'currentStatus missing in the read-back');
   return { status, confirmed: true };
@@ -443,22 +459,35 @@ const agentStatus: Handler<'agent.status'> = async (ctx) => {
 
 const STATUSES: ReadonlySet<string> = new Set(Object.keys(AGENT_STATUS_CODES));
 
-const agentSetStatus: Handler<'agent.set_status'> = async (ctx, args) => {
+const agentSetStatus: Handler<'agent.set_status'> = async (ctx, args, state) => {
   const target = recordOrNull(args)?.['status'];
   if (typeof target !== 'string' || !STATUSES.has(target)) fail(ErrorCodes.ADAPTER_FAILED, 'invalid argument: status');
-  const code = AGENT_STATUS_CODES[target as AgentStatus];
-  const outcome = await ctx.soa.post<unknown>(Endpoints.SET_VEN_AGENT_STATUS, { head: businessHead(ctx.deps.context), agentStatus: code });
-  if (outcome.kind !== 'success' && outcome.kind !== 'unknown') throw new RpcError(outcomeError(outcome, 'set agent status'));
-  // success or unknown: the server read-back decides; the write is never repeated
-  let status: AgentStatus | null = null;
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  ensureCurrent(current);
+  if (state.agentWritePending || (ctx.agent.beginWrite && !ctx.agent.beginWrite())) fail(ErrorCodes.ADAPTER_NOT_READY, 'agent status change already pending', true);
+  state.agentWritePending = true;
   try {
-    status = await readCurrentStatus(ctx);
-  } catch {
-    status = null;
+    const code = AGENT_STATUS_CODES[target as AgentStatus];
+    const outcome = await ctx.soa.post<unknown>(Endpoints.SET_VEN_AGENT_STATUS, { head: businessHead(ctx.deps.context), agentStatus: code });
+    ensureCurrent(current);
+    if (outcome.kind === 'auth_invalid') ctx.pushFact({ kind: 'auth_invalid' });
+    if (outcome.kind !== 'success' && outcome.kind !== 'unknown') throw new RpcError(outcomeError(outcome, 'set agent status'));
+    // success or unknown: the server read-back decides; the write is never repeated
+    let status: AgentStatus | null = null;
+    try {
+      status = await readCurrentStatus(ctx, true);
+    } catch {
+      status = null;
+    }
+    ensureCurrent(current);
+    if (status !== null) return { status, confirmed: true };
+    if (outcome.kind === 'unknown') fail(ErrorCodes.ADAPTER_TIMEOUT, 'agent status write outcome unknown and read-back failed (not retried)', false, 'unknown');
+    // Never present an unverified requested value as observed server state.
+    return { status: ctx.agent.current()?.status ?? 'getoff', confirmed: false };
+  } finally {
+    state.agentWritePending = false;
+    ctx.agent.endWrite?.();
   }
-  if (status !== null) return { status, confirmed: true };
-  if (outcome.kind === 'unknown') fail(ErrorCodes.ADAPTER_TIMEOUT, 'agent status write outcome unknown and read-back failed (not retried)', false, 'unknown');
-  return { status: target as AgentStatus, confirmed: false };
 };
 
 function peripheralError(r: PeripheralFailure): never {

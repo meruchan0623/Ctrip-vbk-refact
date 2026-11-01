@@ -324,6 +324,8 @@ pub enum DisplayPayload {
     AgentStatus {
         status: AgentStatusDto,
         confirmed: bool,
+        status_epoch: u64,
+        status_seq: u64,
     },
     Transport {
         state: TransportDto,
@@ -588,6 +590,7 @@ struct AccountDisplay {
     /// Thread insertion order for eviction.
     thread_order: VecDeque<String>,
     agent_status: Option<UiAgentStatusDto>,
+    agent_status_cursor: Option<(u64, u64)>,
     transport: Option<TransportDto>,
     notice_categories: Vec<UiNoticeCategoryDto>,
 }
@@ -789,7 +792,15 @@ impl DisplayCache {
                 }
                 DisplayDelta::Messages { gid, changed }
             }
-            DisplayPayload::AgentStatus { status, confirmed } => {
+            DisplayPayload::AgentStatus { status, confirmed, status_epoch, status_seq } => {
+                let cursor = (status_epoch, status_seq);
+                if status_epoch == 0 || status_seq == 0 || status_epoch > 9_007_199_254_740_991 || status_seq > 9_007_199_254_740_991 {
+                    return Err(invalid("invalid agent status cursor"));
+                }
+                if acc.agent_status_cursor.is_some_and(|previous| cursor <= previous) {
+                    return Err(invalid("superseded agent status observation"));
+                }
+                acc.agent_status_cursor = Some(cursor);
                 let s = UiAgentStatusDto { status, confirmed };
                 acc.agent_status = Some(s);
                 DisplayDelta::AgentStatus(s)
@@ -1646,14 +1657,14 @@ mod tests {
     #[test]
     fn display_payload_json_shapes() {
         let p: DisplayPayload = serde_json::from_value(serde_json::json!({
-            "kind": "agent_status", "status": "hangup", "confirmed": true
+            "kind": "agent_status", "status": "hangup", "confirmed": true, "status_epoch": 1, "status_seq": 1
         }))
         .expect("parse");
         assert!(matches!(
             p,
             DisplayPayload::AgentStatus {
                 status: AgentStatusDto::Hangup,
-                confirmed: true
+                confirmed: true, ..
             }
         ));
         let p: DisplayPayload = serde_json::from_value(
@@ -1693,6 +1704,28 @@ mod tests {
             net,
             serde_json::json!({"online": false, "transport": "disconnected"})
         );
+    }
+
+    #[test]
+    fn agent_status_rejects_reverse_ipc_delivery_duplicate_and_old_boot() {
+        let mut cache = DisplayCache::new();
+        let packet = |epoch, seq, status, confirmed| DisplayPayload::AgentStatus {
+            status_epoch: epoch, status_seq: seq, status, confirmed,
+        };
+        cache.apply(&ctx(1), packet(10, 2, AgentStatusDto::Getoff, true)).unwrap();
+        for (epoch, seq) in [(10, 1), (10, 2), (9, 999), (0, 1), (11, 0)] {
+            assert!(cache.apply(&ctx(1), packet(epoch, seq, AgentStatusDto::Online, true)).is_err());
+            assert_eq!(cache.agent_status(&ctx(1)).unwrap().status, AgentStatusDto::Getoff);
+        }
+        // A watchdog can revoke certainty without forgetting the last cursor.
+        cache.set_agent_status(&ctx(1), UiAgentStatusDto { status: AgentStatusDto::Getoff, confirmed: false }).unwrap();
+        assert!(cache.apply(&ctx(1), packet(10, 2, AgentStatusDto::Online, true)).is_err());
+        assert!(!cache.agent_status(&ctx(1)).unwrap().confirmed);
+        cache.apply(&ctx(1), packet(11, 1, AgentStatusDto::Hangup, true)).unwrap();
+        assert!(cache.apply(&ctx(1), packet(10, 999, AgentStatusDto::Online, true)).is_err());
+        // Account generations remain an independent boundary.
+        cache.apply(&ctx(2), packet(12, 1, AgentStatusDto::Getoff, false)).unwrap();
+        assert!(cache.apply(&ctx(1), packet(13, 1, AgentStatusDto::Online, true)).is_err());
     }
 
     #[test]

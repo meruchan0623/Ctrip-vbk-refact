@@ -12,7 +12,7 @@
  */
 
 import type { AccountContext, AdapterFact, TransportState } from '../../ipc/src/contracts.ts';
-import type { AgentStatus, UiMessage } from '../../ipc/src/client.ts';
+import type { UiMessage } from '../../ipc/src/client.ts';
 import type { AdapterDisplayPayload, DisplayConversation } from '../../ipc/src/adapterProtocol.ts';
 import type { AdapterDeps, SdkMessageEvent, SdkSocketStatus } from './deps.ts';
 import { createAdapter, type Adapter } from './index.ts';
@@ -26,6 +26,7 @@ import { createRpc, type AgentStatusBox, type Rpc } from './rpc.ts';
 import type { IdentityProfile } from './identity.ts';
 import type { PageSdk } from './sdkGlue.ts';
 import { createReceiveCounters, receiveCount } from './diagnostics.ts';
+import { createPresence, type StatusRead } from './presence.ts';
 
 export interface PageSessionOptions {
   readonly account: AccountContext;
@@ -100,7 +101,6 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   };
   const log = opts.log ?? (() => undefined);
   const diagnostics = createReceiveCounters();
-  let agent: { status: AgentStatus; confirmed: boolean } | null = null;
 
   const pushDisplay = (payload: AdapterDisplayPayload): void => {
     if (payload.kind === 'conversations' && !running) return;
@@ -146,13 +146,14 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     }
   };
 
+  // Host-issued boot epoch + lifetime sequence also fence unordered IPC delivery.
+  // Do not reset the sequence on stop/start of this session instance.
+  let statusSequence = 0;
+  const presence = createPresence(deps, (status, confirmed) => pushDisplay({ kind: 'agent_status', status, confirmed, status_epoch: opts.initialEpoch, status_seq: ++statusSequence }));
   const agentBox: AgentStatusBox = {
-    current: () => agent,
-    set(status, confirmed) {
-      const changed = !agent || agent.status !== status || agent.confirmed !== confirmed;
-      agent = { status, confirmed };
-      if (changed) pushDisplay({ kind: 'agent_status', status, confirmed });
-    },
+    ...presence,
+    // All production observations use request-scoped tickets.
+    set: (status, confirmed) => { if (confirmed) presence.captureRead().commit(status); else presence.invalidate(); },
   };
 
   // ---- unread refresh (debounced, batched)
@@ -205,15 +206,16 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   };
 
   // ---- conversation list → display
-  const onListOutcome = (outcome: SoaOutcome<ConversationListResponse>, variant: ConversationListVariant): void => {
+  const onListOutcome = (outcome: SoaOutcome<ConversationListResponse>, variant: ConversationListVariant, ticket?: unknown): void => {
     if (!running) return;
     const generation = runGeneration;
     // called by the poller before it advances its cursor: a null cursor means this response is a full snapshot
     const poller = adapter.conversationPollers[(opts.variants ?? ['plain']).indexOf(variant)];
     const full = (poller?.cursor ?? null) === null;
-    if (outcome.kind !== 'success') return;
+    const statusRead = ticket as StatusRead | undefined;
+    if (outcome.kind !== 'success') { statusRead?.fail(); return; }
     const status = agentStatusOf(outcome.body.currentStatus);
-    if (status !== null) agentBox.set(status, true);
+    if (status !== null) statusRead?.commit(status); else statusRead?.fail();
     const rows = Array.isArray(outcome.body.conversationList) ? (outcome.body.conversationList as unknown[]) : [];
     const complete = full && outcome.body.haveRest !== true;
     const gids = store.update(rows);
@@ -316,6 +318,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   };
 
   const onCompensation = (outcome: SoaOutcome<RecentMessagesResponse>): void => {
+    if (outcome.kind === 'auth_invalid') presence.invalidate();
     diagnostics.compensation.last_outcome_ms = deps.now();
     diagnostics.compensation.outcomes[outcome.kind] = receiveCount(diagnostics.compensation.outcomes[outcome.kind]);
     if (outcome.kind !== 'success' || !Array.isArray(outcome.body.messages)) return;
@@ -339,6 +342,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   const onSocket = (status: SdkSocketStatus): void => {
     const state: TransportState = typeof status === 'string' && TRANSPORT_STATES.has(status) ? status : 'disconnected';
     pushDisplay({ kind: 'transport', state });
+    if (state !== 'connected') presence.invalidate();
   };
 
   const variants = opts.variants ?? ['plain'];
@@ -352,6 +356,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     roles,
     unread,
     onConversationListOutcome: onListOutcome,
+    onConversationListRequest: () => presence.captureRead(),
     onCompensationOutcome: onCompensation,
   });
 
@@ -390,8 +395,9 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (running) return;
       runGeneration++;
       running = true;
+      presence.start();
       const generation = runGeneration;
-      unsubs = [opts.sdk.on('message', evt => { if (running && generation === runGeneration) onSdkMessage(evt); }), opts.sdk.on('socket_status', onSocket)];
+      unsubs = [opts.sdk.on('message', evt => { if (running && generation === runGeneration) onSdkMessage(evt); }), opts.sdk.on('socket_status', status => { if (running && generation === runGeneration) onSocket(status); })];
       pushDisplay({ kind: 'transport', state: opts.sdk.getSocketStatus() ? 'connected' : 'disconnected' });
       adapter.start();
       log(`adapter started (epoch ${adapter.bridge.epoch})`);
@@ -400,6 +406,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (!running) return;
       runGeneration++;
       running = false;
+      presence.stop();
       for (const u of unsubs) u();
       unsubs = [];
       if (unreadTimer !== null) deps.clearTimeout(unreadTimer);

@@ -78,6 +78,23 @@ pub struct Cores {
     quit_requested: bool,
 }
 
+impl Cores {
+    /// Caller holds the host lock before touching adapter display state.
+    pub fn set_account_notifications(
+        &mut self,
+        account: &AccountContext,
+        allowed: bool,
+        now: &Now,
+    ) -> bool {
+        if self.accounts.validate(account).is_err() {
+            return false;
+        }
+        let effects = self.notify.set_account_notifications(account, allowed, now);
+        self.pending_effects.extend(effects);
+        true
+    }
+}
+
 impl std::fmt::Debug for Cores {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Cores")
@@ -106,7 +123,7 @@ impl HostState {
             cores: Mutex::new(Cores {
                 accounts: AccountRegistry::new(boot_epoch),
                 im: ImCores::new(),
-                notify: NotifyCore::new(),
+                notify: NotifyCore::with_account_gating(),
                 clock: ClockService::default(),
                 views: ViewRegistry::default(),
                 store,
@@ -193,6 +210,11 @@ impl HostState {
                 .accounts
                 .invalidate(&id, "web session reported auth invalid")
             {
+                let now = self.now(&mut cores);
+                let effects = cores
+                    .notify
+                    .set_account_notifications(&account, false, &now);
+                cores.pending_effects.extend(effects);
                 let new_ctx = cores
                     .accounts
                     .current_context(&id)
@@ -431,7 +453,16 @@ impl HostState {
         let now = self.now(&mut cores);
         let mut effects = std::mem::take(&mut cores.pending_effects);
         effects.extend(cores.notify.tick(&now));
+        effects.retain(|effect| cores.notify.effect_is_current(effect, &now));
         effects
+    }
+
+    /// Called at the execution boundary as pending prefs effects and adapter
+    /// inputs can race a scheduler iteration.
+    pub fn notification_effect_is_current(&self, effect: &Effect) -> bool {
+        let mut cores = self.lock();
+        let now = self.now(&mut cores);
+        cores.notify.effect_is_current(effect, &now)
     }
 
     pub fn set_system_state(&self, state: SystemState) {
@@ -482,6 +513,9 @@ impl HostState {
         let old_ctx = cores.accounts.current_context(&id);
         let revoke = cores.accounts.logout(&id, mode)?;
         if let Some(old) = old_ctx {
+            let now = self.now(&mut cores);
+            let effects = cores.notify.set_account_notifications(&old, false, &now);
+            cores.pending_effects.extend(effects);
             let new_ctx = cores
                 .accounts
                 .current_context(&id)

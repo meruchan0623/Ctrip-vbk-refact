@@ -77,7 +77,7 @@ export type AdapterDisplayPayload =
   | { readonly kind: 'conversations'; readonly full: boolean; readonly items: readonly DisplayConversation[]; readonly removed_gids: readonly string[] }
   | { readonly kind: 'messages'; readonly gid: string; readonly replace: boolean; readonly items: readonly UiMessage[] }
   | { readonly kind: 'message_profiles'; readonly gid: string; readonly items: readonly MessageProfilePatch[] }
-  | { readonly kind: 'agent_status'; readonly status: AgentStatus; readonly confirmed: boolean }
+  | { readonly kind: 'agent_status'; readonly status: AgentStatus; readonly confirmed: boolean; readonly status_epoch: number; readonly status_seq: number }
   | { readonly kind: 'transport'; readonly state: TransportState }
   | { readonly kind: 'notice_categories'; readonly items: readonly UiNoticeCategory[] };
 

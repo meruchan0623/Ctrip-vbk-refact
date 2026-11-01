@@ -43,11 +43,15 @@ fn run(app: AppHandle) {
         if state.quit_requested() {
             return;
         }
+        crate::adapter::expire_agent_statuses(&app);
         let mut effects = state.tick();
         // Effects from settings changed through `prefs_set`.
         effects.extend(prefs::take_pending_effects(&app));
         let mut snapshot_changed = false;
         for effect in effects {
+            if !state.notification_effect_is_current(&effect) {
+                continue;
+            }
             match effect {
                 Effect::ShowAlarm { raise } => {
                     let bottom_right = state.settings().position_bottom_right;

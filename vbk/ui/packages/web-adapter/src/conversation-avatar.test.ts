@@ -51,8 +51,11 @@ test('conversation avatar: real list/member/history chain resolves only the row 
 test('conversation avatar: delayed member enrichment cannot publish after stop', async () => {
   const f = fixture({ holdMembers: true }); f.session.start();
   await f.base.clock.advance(50);
+  f.session.stop();
   const before = f.displays.length;
-  f.session.stop(); f.releaseMembers(); await flush();
+  const stopped = f.displays.at(-1);
+  assert.ok(stopped?.kind === 'agent_status' && stopped.confirmed === false);
+  f.releaseMembers(); await flush();
   assert.equal(f.displays.length, before);
 });
 

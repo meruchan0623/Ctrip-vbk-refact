@@ -72,9 +72,13 @@ test('session order: same gid/order under a new session or customer cannot inher
 
 test('session order: queued SDK callback after stop cannot enrich the stopped session', async () => {
   const f = fixture(); f.sdk.on('message', () => f.session.stop()); f.session.start();
-  await f.base.clock.advance(50); const before = f.displays.length;
+  await f.base.clock.advance(50);
+  const before = f.displays.filter(p => p.kind !== 'agent_status').length;
   f.sdk.emit('message', frame('late stopped card')); await flush();
-  assert.equal(f.session.store.order(gid), null); assert.equal(f.displays.length, before);
+  assert.equal(f.session.store.order(gid), null);
+  assert.equal(f.displays.filter(p => p.kind !== 'agent_status').length, before);
+  const stopped = f.displays.at(-1);
+  assert.ok(stopped?.kind === 'agent_status' && stopped.confirmed === false);
 });
 
 test('session order cache: an existing proven card is invalidated by service or customer identity changes', async () => {

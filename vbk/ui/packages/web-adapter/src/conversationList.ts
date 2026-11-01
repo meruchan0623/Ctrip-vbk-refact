@@ -96,7 +96,8 @@ export interface ConversationListPollerOptions {
   readonly unread?: UnreadLookup;
   /** Raw rows for callers that need `sessionId`/`uid`/`serviceType` (never logged). */
   readonly onRows?: (rows: readonly ConversationListItem[], full: boolean) => void;
-  readonly onOutcome?: (outcome: SoaOutcome<ConversationListResponse>) => void;
+  readonly onRequest?: () => unknown;
+  readonly onOutcome?: (outcome: SoaOutcome<ConversationListResponse>, ticket?: unknown) => void;
 }
 
 export interface ConversationListRequestBody {
@@ -146,9 +147,10 @@ export function createConversationListPoller(deps: AdapterDeps, soa: SoaClient, 
   const tick = async (gen: number): Promise<void> => {
     if (!running || gen !== generation) return;
     const startTime = cursor;
+    const ticket = opts.onRequest?.();
     const outcome = await soa.post<ConversationListResponse>(spec, conversationListBody(deps, startTime, opts.includeLocale ?? false));
     if (!running || gen !== generation) return;
-    opts.onOutcome?.(outcome);
+    opts.onOutcome?.(outcome, ticket);
     if (outcome.kind === 'auth_invalid') {
       running = false;
       opts.emit({ kind: 'auth_invalid' });
