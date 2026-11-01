@@ -70,9 +70,9 @@ test('explicit reopen during an in-flight receipt cannot schedule an automatic l
   f.controller.afterRender(); assert.equal(f.calls.length, 1);
 });
 test('actual render wiring acknowledges only after DOM replacement and anchor restoration, never during IME deferral', () => {
-  const a = source.indexOf('subscribeBatched(store,'), b = source.indexOf('\nrerender(root, () => render(S()));', a);
+  const a = source.indexOf('subscribeFrame(store,'), b = source.indexOf('\nrerender(root, () => render(S()));', a);
   const order: string[] = []; let callback!: (s: unknown) => void; let deferred = false;
-  const env = { store: {}, subscribeBatched: (_: unknown, fn: typeof callback) => { callback = fn; }, composerInput: { deferRender: () => deferred },
+  const env = { store: {}, fillHistoryViewport() {}, syncConversationViewport() {}, subscribeFrame: (_: unknown, fn: typeof callback) => { callback = fn; }, composerInput: { deferRender: () => deferred },
     withMessageAnchor: (_: unknown, draw: () => void) => { draw(); order.push('anchor'); }, root: {}, rerender: (_: unknown, draw: () => unknown) => { draw(); order.push('mounted'); },
     render: () => null, Element: class {}, visibleReads: { afterRender: () => order.push('receipt') } };
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)))(...Object.values(env));

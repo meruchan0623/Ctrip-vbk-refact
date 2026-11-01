@@ -44,7 +44,7 @@ import type {
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
 import { MOCK_ORDER_SAMPLES } from '../../packages/ipc/src/mock.ts';
 import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
-import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
+import { createStore, subscribeBatched, subscribeFrame } from '../../packages/ui-kit/src/store.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { badgeText, formatClock, formatDate, formatDuration, formatRelativeTime } from '../../packages/ui-kit/src/format.ts';
 import { IC } from '../_shared/icons.ts';
@@ -93,6 +93,7 @@ import {
   errorMessage,
   expireBanners,
   filterConversations,
+  virtualConversationRange,
   findIccids,
   highlightParts,
   isDone,
@@ -167,6 +168,7 @@ interface MainState {
   readonly alarmCount: number;
   readonly prefs: PrefsSnapshot | null;
   readonly now: number;
+  readonly listWindow?: { scope: string; top: number; height: number };
   // messages
   readonly conversations: readonly UiConversation[];
   readonly business: BusinessTab;
@@ -648,7 +650,7 @@ async function openConversation(gid: string, reveal = true): Promise<void> {
     if (s.attachment) void releaseAttachment(s.attachment);
     store.patch({ activeGid: gid, view, banners, draft: s.drafts[gid] ?? s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, attachmentSelection: null, mediaOperation: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
   }
-  if (S().history[gid]?.firstPage === 'loading') return;
+  if (S().history[gid]?.firstPage === 'loading' || S().history[gid]?.firstPage === 'loaded') return;
   const request = { hasMore: false, beforeMs: null, busy: true, firstPage: 'loading' as const, readContextRevision };
   store.patch({ history: { ...S().history, [gid]: request } });
   const page = await readHistoryPage(invokeQuiet<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: acc.context, gid, ...(readContextRevision ? { expected_context_revision: readContextRevision } : {}) }));
@@ -674,8 +676,12 @@ async function loadEarlier(conv: UiConversation): Promise<void> {
   const request = { ...entry, busy: true, pageError: false };
   store.patch({ history: { ...S().history, [conv.gid]: request } });
   const page = await readHistoryPage(invokeSafe<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: conv.account, gid: conv.gid, before_ms: entry.beforeMs, ...(entry.readContextRevision ? { expected_context_revision: entry.readContextRevision } : {}) }));
-  if (!stillActive(conv.account) || S().history[conv.gid] !== request || S().conversations.find(c => c.gid === conv.gid)?.assistant_context_revision !== entry.readContextRevision) return;
-  const validPage = page && page.items.every((m) => isUiMessage(m) && m.gid === conv.gid) ? page : null;
+  if (!stillActive(conv.account) || S().history[conv.gid] !== request) return;
+  if (S().conversations.find(c => c.gid === conv.gid)?.assistant_context_revision !== entry.readContextRevision) {
+    store.patch({ history: { ...S().history, [conv.gid]: { ...entry, busy: false, hasMore: false, firstPage: 'error', pageError: true } } });
+    return;
+  }
+  const validPage = page && (!page.has_more || (page.before_ms !== null && page.before_ms < entry.beforeMs)) && page.items.every((m) => isUiMessage(m) && m.gid === conv.gid) ? page : null;
   store.patch({
     ...(validPage ? { messages: { ...S().messages, [conv.gid]: mergeHistory(validPage.items, S().messages[conv.gid] ?? []) } } : {}),
     history: { ...S().history, [conv.gid]: { ...entry, hasMore: validPage?.has_more ?? entry.hasMore, beforeMs: validPage?.before_ms ?? entry.beforeMs, busy: false, pageError: !validPage } },
@@ -1365,12 +1371,15 @@ function waitedSeconds(c: UiConversation, now: number): number {
 }
 
 function conversationList(s: MainState): HTMLElement {
-  const counts = tabCounts(s.conversations, s.business);
-  const list = filterConversations(s.conversations, s.tab, s.query, s.business);
+  const counts = tabCounts(s.conversations, 'customer');
+  const list = filterConversations(s.conversations, s.tab, s.query, 'customer');
+  const scope = JSON.stringify([activeAccount(s)?.context, s.tab, s.query]);
+  const window = s.listWindow?.scope === scope ? s.listWindow : undefined;
+  const range = virtualConversationRange(list.length, window?.top ?? 0, window?.height ?? 900);
   const acc = activeAccount(s);
   const av = agentView(s.agent);
   const nv = netView(s.net);
-  const rows = list.map((c) => {
+  const rows = list.slice(range.start, range.end).map((c) => {
     const on = c.gid === s.activeGid;
     const waiting = c.waiting_since_ms !== null && !isDone(c);
     const waited = waiting ? waitedSeconds(c, s.now) : 0;
@@ -1398,13 +1407,13 @@ function conversationList(s: MainState): HTMLElement {
       h(
         'div',
         { class: 'conv-main' },
-        h('div', { class: 'crow' }, h('span', { class: 'cname' }, c.title), c.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, langName(c.lang)) : null, h('span', { class: 'ctime' }, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '')),
+        h('div', { class: 'crow' }, h('span', { class: 'cname' }, c.title), c.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, langName(c.lang)) : null, h('span', { class: 'ctime', dataset: { relativeTime: String(c.last_message_time_ms ?? 0) } }, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '')),
         h('div', { class: 'crow' }, hasDraft ? h('span', { class: 'cdraft' }, t('list.draft')) : null, h('span', { class: 'cprev' }, hasDraft ? draft : c.preview), accBadge(c.unread_count)),
         h(
           'div',
           { class: 'crow', style: { 'margin-top': '2px' } },
           c.vendor_name ? h('span', { class: 'conv-vendor' }, c.vendor_name) : c.biz ? h('span', { class: 'chip chip-biz' }, c.biz) : null,
-          waiting ? h('span', { class: cx('wait', waited >= RED_AFTER_SECONDS ? 'red' : 'amber'), title: c.waiting_confirmed ? undefined : t('alarm.pendingTitle') }, icon(IC.clock, 11), c.waiting_confirmed ? t('list.waiting', { t: formatDuration(waited) }) : `${t('list.waiting', { t: formatDuration(waited) })} · ${t('list.waitingPending')}`) : null,
+          waiting ? h('span', { class: cx('wait', waited >= RED_AFTER_SECONDS ? 'red' : 'amber'), dataset: { waitingGid: c.gid }, title: c.waiting_confirmed ? undefined : t('alarm.pendingTitle') }, icon(IC.clock, 11), c.waiting_confirmed ? t('list.waiting', { t: formatDuration(waited) }) : `${t('list.waiting', { t: formatDuration(waited) })} · ${t('list.waitingPending')}`) : null,
           isDone(c) ? h('span', { class: 'chip chip-muted' }, t('list.finished')) : null,
           c.is_top ? icon(IC.pin, 12, { style: 'color: var(--c-text-faint)', 'aria-label': t('list.pinned') }) : null,
         ),
@@ -1432,20 +1441,20 @@ function conversationList(s: MainState): HTMLElement {
         h('span', { class: 'muted', style: { 'font-size': '12px' }, title: t('list.queueTitle'), dataset: { serving: String(counts.doing) } }, `${t('list.serving', { n: counts.doing })} · ${t('list.queue')}`),
       ),
       h('label', { class: 'search', title: t('list.searchHint') }, icon(IC.search, 15), h('input', { class: 'inp', placeholder: t('list.search'), 'aria-label': t('list.searchLabel'), value: s.query, dataset: { fid: 'search' }, oninput: (e: Event) => store.patch({ query: (e.target as HTMLInputElement).value }) })),
-      h('div', { class: 'ftabs', role: 'tablist', 'aria-label': t('list.business') },
-        (['customer', 'enterprise', 'unknown'] as const).map((business) => h('button', { class: cx('ftab', { on: s.business === business }), role: 'tab', 'aria-selected': String(s.business === business), dataset: { business }, onclick: () => store.patch({ business, tab: business === 'unknown' ? 'unknown' : 'doing' }) }, t(business === 'customer' ? 'list.customerBusiness' : business === 'enterprise' ? 'list.enterpriseBusiness' : 'list.unknownBusiness')))),
-      h('p', { class: 'muted', style: { 'font-size': '11px', margin: '4px 0' } }, t('list.businessScopeHint')),
       h(
         'div',
         { class: 'ftabs', role: 'tablist' },
         h('button', { class: cx('ftab', { on: s.tab === 'doing' }), role: 'tab', 'aria-selected': String(s.tab === 'doing'), dataset: { tab: 'doing' }, onclick: () => store.patch({ tab: 'doing' }) }, `${t('list.doing')} ${counts.doing}`),
         h('button', { class: cx('ftab', { on: s.tab === 'done' }), role: 'tab', 'aria-selected': String(s.tab === 'done'), dataset: { tab: 'done' }, onclick: () => store.patch({ tab: 'done' }) }, `${t('list.done')} ${counts.done}`),
-        h('button', { class: cx('ftab', { on: s.tab === 'unknown' }), role: 'tab', 'aria-selected': String(s.tab === 'unknown'), dataset: { tab: 'unknown' }, onclick: () => store.patch({ tab: 'unknown' }) }, `${t('list.unknownStatus')} ${counts.unknown}`),
       ),
     ),
     nv.offline ? h('div', { class: 'netbar' }, h('span', { class: 'spin', style: { 'border-top-color': '#87500A' } }), h('span', { style: { flex: '1' } }, t('list.offline')), h('button', { class: 'link', onclick: () => void loadForActiveAccount() }, t('list.retryNow'))) : null,
     acc?.state === 'expired' ? h('div', { class: 'netbar err', dataset: { expired: '1' } }, icon(IC.alert, 15), h('span', { style: { flex: '1' } }, t('list.expired')), h('button', { class: 'link', onclick: () => void startLogin(acc.context) }, t('list.relogin'))) : null,
-    h('div', { class: 'cscroll', dataset: { keepScroll: 'clist' } }, rows, rows.length === 0 ? h('div', { class: 'empty', style: { margin: '16px' } }, s.query ? t('list.emptySearch') : t('list.empty')) : null),
+    h('div', { class: 'cscroll', dataset: { keepScroll: `clist:${scope}`, listScope: scope }, onscroll: (event: Event) => {
+      const el = event.currentTarget as HTMLElement;
+      const next = virtualConversationRange(list.length, el.scrollTop, el.clientHeight);
+      if (next.start !== range.start || next.end !== range.end) store.patch({ listWindow: { scope, top: el.scrollTop, height: el.clientHeight } });
+    } }, h('div', { style: { height: `${range.start * 96}px` }, 'aria-hidden': 'true' }), rows, h('div', { style: { height: `${(list.length - range.end) * 96}px` }, 'aria-hidden': 'true' }), rows.length === 0 ? h('div', { class: 'empty', style: { margin: '16px' } }, s.query ? t('list.emptySearch') : t('list.empty')) : null),
   );
 }
 
@@ -1885,11 +1894,28 @@ function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
   );
 }
 
+// Retain the expensive message subtree across draft, sidebar and unrelated updates.
+// Only one active pane is retained, so old accounts/rooms do not accumulate DOM caches.
+let messagePaneCache: { deps: readonly unknown[]; node: HTMLElement } | undefined;
+function messagePane(s: MainState, conv: UiConversation, acc: UiAccount | null, pinned: boolean): HTMLElement {
+  const deps = [s.messages[conv.gid], s.history[conv.gid], conv, acc, s.prefs, s.hideInboundTr, s.tsimStatus];
+  if (messagePaneCache && deps.every((value, i) => value === messagePaneCache!.deps[i])) {
+    messagePaneCache.node.dataset['scrollBottom'] = pinned ? '1' : '0';
+    return messagePaneCache.node;
+  }
+  const msgs = visibleMessages(s.messages[conv.gid] ?? []);
+  const node = h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: historyScopeKey(acc?.context ?? null, conv.gid), readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
+      s.history[conv.gid]?.firstPage === 'loading' ? h('div', { class: 'history-more', role: 'status' }, '正在读取聊天记录…') : null,
+      s.history[conv.gid]?.firstPage === 'error' ? h('button', { class: 'history-more', onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
+      s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null, msgs.map((m) => messageRow(s, m, conv, acc)));
+  messagePaneCache = { deps, node };
+  return node;
+}
+
 function chatPane(s: MainState): HTMLElement {
   const conv = activeConv(s);
   const acc = activeAccount(s);
   if (!conv) return h('div', { class: 'chat-empty' }, icon(IC.chat, 40), h('div', null, t('chat.empty')));
-  const msgs = visibleMessages(s.messages[conv.gid] ?? []);
   const previousScroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
   const pinned = previousScroll?.dataset['historyScope'] !== historyScopeKey(acc?.context ?? null, conv.gid) || previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < 48;
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
@@ -1902,7 +1928,7 @@ function chatPane(s: MainState): HTMLElement {
       'div',
       { class: 'chat-h' },
       h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)),
-      h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, conv.title, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null, h('span', { class: 'chip chip-biz' }, type)), sub ? h('div', { class: 'chat-sub' }, sub) : null),
+      h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, conv.title, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null, h('span', { class: 'chip chip-biz' }, type)), sub ? h('div', { class: 'chat-sub', dataset: { chatWaitingGid: conv.gid } }, sub) : null),
       h('button', { class: 'ibtn', 'aria-label': t('chat.transfer'), disabled: isDone(conv), dataset: { chatAct: 'transfer' }, onclick: () => openPeripheral('transfer') }, icon(IC.swap, 17)),
       h('button', { class: 'ibtn', 'aria-label': t('chat.invite'), disabled: isDone(conv), dataset: { chatAct: 'invite' }, onclick: () => openPeripheral('invite') }, icon(IC.userPlus, 17)),
       h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end' }, onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),
@@ -1910,10 +1936,7 @@ function chatPane(s: MainState): HTMLElement {
       h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side' }, onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     ),
     netView(s.net).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
-    h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: historyScopeKey(acc?.context ?? null, conv.gid), readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
-      s.history[conv.gid]?.firstPage === 'loading' ? h('div', { class: 'history-more', role: 'status' }, '正在读取聊天记录…') : null,
-      s.history[conv.gid]?.firstPage === 'error' ? h('button', { class: 'history-more', onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
-      s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null, msgs.map((m) => messageRow(s, m, conv, acc))),
+    messagePane(s, conv, acc, pinned),
     composer(s, conv),
     emojiPicker(s),
   );
@@ -1951,7 +1974,7 @@ function notificationsView(s: MainState): HTMLElement {
             'div',
             { class: cx('nitem', { unread: n.unread }), dataset: { notice: n.id } },
             h('div', { style: { flex: '1', display: 'flex', 'flex-direction': 'column', gap: '4px' } }, h('div', { class: 'nt' }, n.title), h('div', { class: 'muted', style: { 'font-size': '12.5px' } }, n.body)),
-            h('div', { style: { display: 'flex', 'flex-direction': 'column', 'align-items': 'flex-end', gap: '6px' } }, h('span', { class: 'muted', style: { 'font-size': '12px' } }, formatRelativeTime(n.time_ms, s.now)), h('button', { class: 'link', onclick: () => void openNotice(n) }, t('notice.open'), ' ', icon(IC.external, 11))),
+            h('div', { style: { display: 'flex', 'flex-direction': 'column', 'align-items': 'flex-end', gap: '6px' } }, h('span', { class: 'muted', dataset: { relativeTime: String(n.time_ms) }, style: { 'font-size': '12px' } }, formatRelativeTime(n.time_ms, s.now)), h('button', { class: 'link', onclick: () => void openNotice(n) }, t('notice.open'), ' ', icon(IC.external, 11))),
           ),
         ),
         s.notices.length === 0 ? h('div', { class: 'empty', style: { margin: '16px' } }, t('notice.empty')) : null,
@@ -2279,10 +2302,26 @@ const visibleReads = createVisibleRead({
   invoke: args => ipc.invoke(UiCommands.IM_MARK_READ, args),
 });
 
-subscribeBatched(store, (s) => {
+function syncConversationViewport(): void {
+  const pane = root?.querySelector<HTMLElement>('[data-list-scope]');
+  const scope = pane?.dataset['listScope'];
+  if (!pane || !scope || pane.clientHeight <= 0) return;
+  const current = S().listWindow;
+  if (current?.scope !== scope || current.height !== pane.clientHeight) {
+    store.patch({ listWindow: { scope, top: pane.scrollTop, height: pane.clientHeight } });
+  }
+}
+
+function fillHistoryViewport(): void {
+  const pane = root?.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
+  const conv = activeConv(S());
+  if (pane && conv && pane.clientHeight > 0 && pane.scrollHeight <= pane.clientHeight + 1 && !S().history[conv.gid]?.pageError) void loadEarlier(conv);
+}
+
+subscribeFrame(store, (s) => {
   if (composerInput.deferRender()) return;
   withMessageAnchor(s, () => rerender(root, () => {
-  const next = render(s);
+  const next = render({ ...s, now: Date.now() });
   // Keep the actual video node so waiting timers and live updates do not restart playback.
   if (next instanceof Element) {
     for (const video of next.querySelectorAll<HTMLVideoElement>('video[data-media-key]')) {
@@ -2295,10 +2334,20 @@ subscribeBatched(store, (s) => {
   return next;
   }));
   visibleReads.afterRender();
+  fillHistoryViewport();
+  syncConversationViewport();
 });
 rerender(root, () => render(S()));
 // Scrolling into view and returning focus must re-check the live scope and mounted rows.
-root.addEventListener('scroll', () => visibleReads.afterRender(), true);
+root.addEventListener('scroll', (event) => {
+  visibleReads.afterRender();
+  const pane = event.target as HTMLElement;
+  if (!pane.isConnected || pane.dataset?.['keepScroll'] !== 'msgs' || pane.scrollTop > 120) return;
+  const s = S(), conv = activeConv(s);
+  if (conv && pane.dataset['historyScope'] === historyScopeKey(activeAccount(s)?.context ?? null, conv.gid) && !s.history[conv.gid]?.pageError) void loadEarlier(conv);
+}, true);
+window.addEventListener('resize', syncConversationViewport);
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(syncConversationViewport).observe(root);
 window.addEventListener('focus', () => visibleReads.afterRender());
 document.addEventListener('visibilitychange', () => visibleReads.afterRender());
 
@@ -2373,9 +2422,26 @@ setInterval(() => {
   if (next !== s.banners || hoverAt !== s.bannerHoverAt) store.patch({ banners: next, bannerHoverAt: hoverAt });
 }, 500);
 setInterval(() => {
-  // Waiting chips tick every 5 s; skipped while a popup is open so its pop-in animation does not replay.
-  const s = S();
-  if (!s.meMenu && !s.ctxMenu && !s.emoOpen) store.patch({ now: Date.now() });
+  if (document.visibilityState !== 'visible') return;
+  const s = S(), now = Date.now();
+  // Dialog expiry affects actions, so it still gets a state update.
+  if (s.peripheral) { store.patch({ now }); return; }
+  const byGid = new Map(s.conversations.map(c => [c.gid, c]));
+  for (const el of root.querySelectorAll<HTMLElement>('[data-relative-time]')) {
+    const time = Number(el.dataset['relativeTime']);
+    el.textContent = time ? formatRelativeTime(time, now) : '';
+  }
+  for (const el of root.querySelectorAll<HTMLElement>('[data-waiting-gid]')) {
+    const c = byGid.get(el.dataset['waitingGid'] ?? '');
+    if (!c) continue;
+    const waited = waitedSeconds(c, now);
+    el.className = cx('wait', waited >= RED_AFTER_SECONDS ? 'red' : 'amber');
+    el.replaceChildren(icon(IC.clock, 11), document.createTextNode(c.waiting_confirmed ? t('list.waiting', { t: formatDuration(waited) }) : `${t('list.waiting', { t: formatDuration(waited) })} · ${t('list.waitingPending')}`));
+  }
+  for (const el of root.querySelectorAll<HTMLElement>('[data-chat-waiting-gid]')) {
+    const c = byGid.get(el.dataset['chatWaitingGid'] ?? '');
+    if (c) el.textContent = [c.vendor_name, isDone(c) ? t('chat.finished') : c.waiting_since_ms !== null ? t('chat.waiting', { t: formatDuration(waitedSeconds(c, now)) }) : ''].filter(Boolean).join(' · ');
+  }
 }, 5000);
 
 void (async () => {

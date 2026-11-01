@@ -22,7 +22,7 @@ function fixture() {
     scheduleTranslation: () => { translations++; }, clearTimeout,
     h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
     t: (key: string) => key, icon: () => null, IC: {}, translationOn: () => false, translationBar: () => null, notWired: (x: unknown) => x,
-    handleSend: () => { sends++; }, subscribeBatched, withMessageAnchor: (_: unknown, redraw: () => void) => redraw(), root: {}, rerender: () => { renders++; },
+    handleSend: () => { sends++; }, subscribeFrame: subscribeBatched, fillHistoryViewport() {}, syncConversationViewport() {}, withMessageAnchor: (_: unknown, redraw: () => void) => redraw(), root: {}, rerender: () => { renders++; },
   };
   const extract = (text: string, name: string, end: string) => text.slice(text.indexOf(`function ${name}(`), text.indexOf(`\n${end}`, text.indexOf(`function ${name}(`)));
   env['setDraft'] = new Function(...Object.keys(env), stripTypeScriptTypes(extract(current, 'setDraft', 'async function resend(')) + '\nreturn setDraft;')(...Object.values(env));
@@ -30,7 +30,7 @@ function fixture() {
   const input = new Function(...Object.keys(env), stripTypeScriptTypes('let trTimer = null;\n' + current.slice(a, b)) + '\nreturn {composerInput, composerInputContext};')(...Object.values(env));
   Object.assign(env, input);
   const composer = new Function(...Object.keys(env), stripTypeScriptTypes(extract(source, 'composer', 'function emojiPicker(')) + '\nreturn composer;')(...Object.values(env));
-  const start = source.indexOf('subscribeBatched(store,'), end = source.indexOf('\nrerender(root, () => render(S()));', start);
+  const start = source.indexOf('subscribeFrame(store,'), end = source.indexOf('\nrerender(root, () => render(S()));', start);
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)))(...Object.values(env));
   const tree = composer(store.get(), conv), textarea = nodes(tree).find(x => x.tag === 'textarea')!;
   const send = nodes(tree).find(x => x.props.dataset?.action === 'send')!;

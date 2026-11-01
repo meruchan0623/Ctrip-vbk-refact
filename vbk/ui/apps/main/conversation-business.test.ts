@@ -34,34 +34,35 @@ function fixture() {
 }
 const visible = (tree: unknown) => nodes(tree).filter(n => n.props.dataset?.gid).map(n => n.props.dataset.gid);
 
-test('actual business tabs classify BC/BOP and preserve current room and draft without IPC or opening a room', () => {
+test('customer-only list has exactly pending/done tabs and preserves room/draft on filtering', () => {
   const f = fixture();
-  assert.ok(nodes(f.tree()).some(n => n.props.dataset?.business === 'customer'));
-  assert.deepEqual(visible(f.tree()), ['customer', 'special-customer']);
-  f.click('business', 'enterprise'); assert.deepEqual(visible(f.tree()), ['enterprise', 'ordinary-enterprise']);
-  assert.equal(f.store.get().activeGid, 'customer'); assert.equal(f.store.get().draft, 'SYNTHETIC DRAFT'); assert.equal(f.store.get().drafts.customer, 'SYNTHETIC DRAFT'); assert.deepEqual(f.sideEffects, []);
-  f.click('business', 'customer'); f.click('tab', 'done'); assert.deepEqual(visible(f.tree()), ['customer-finished']);
+  assert.ok(!nodes(f.tree()).some(n => n.props.dataset?.business));
+  assert.deepEqual(nodes(f.tree()).filter(n => n.props.dataset?.tab).map(n => n.props.dataset.tab), ['doing', 'done']);
+  assert.deepEqual(visible(f.tree()), ['customer', 'customer-status-unknown', 'special-customer']);
+  f.click('tab', 'done'); assert.deepEqual(visible(f.tree()), ['customer-finished']);
+  assert.equal(f.store.get().activeGid, 'customer'); assert.equal(f.store.get().draft, 'SYNTHETIC DRAFT');
   assert.deepEqual(f.sideEffects, []);
 });
 
-test('actual pending-check entries expose unknown status/types without mixing them into processing counts', () => {
-  const f = fixture(); const processing = nodes(f.tree()).find(n => n.props.dataset?.serving);
-  assert.equal(processing?.props.dataset.serving, '2');
-  f.click('tab', 'unknown'); assert.deepEqual(visible(f.tree()), ['customer-status-unknown']);
-  f.click('business', 'unknown'); assert.deepEqual(visible(f.tree()), ['missing', 'null-type', 'future-type']);
-  assert.equal(nodes(f.tree()).find(n => n.props.dataset?.serving)?.props.dataset.serving, '0');
-  assert.deepEqual(f.sideEffects, []);
-});
-
-test('business counts ignore search while visible rows respect search; reset explicitly selects customer processing', () => {
-  const f = fixture(); f.store.patch({ query: 'special' }); assert.deepEqual(visible(f.tree()), ['special-customer']);
-  assert.equal(nodes(f.tree()).find(n => n.props.dataset?.serving)?.props.dataset.serving, '2');
-  f.click('business', 'enterprise');
-  f.applyAccount({ ...f.store.get().accounts, accounts: [{ context: account, state: 'online', unread_total: 3 }] });
-  assert.equal(f.store.get().business, 'enterprise', 'same-owner metadata broadcasts keep the selected business');
+test('customer counts ignore search and legacy business selection cannot expose enterprise rows', () => {
+  const f = fixture(); f.store.patch({ query: 'special', business: 'enterprise' });
+  assert.deepEqual(visible(f.tree()), ['special-customer']);
+  assert.equal(nodes(f.tree()).find(n => n.props.dataset?.serving)?.props.dataset.serving, '3');
   const other = { ...account, account_id: 'synthetic-other' };
   f.applyAccount({ active_account_id: other.account_id, max_accounts: 16, accounts: [{ context: other, state: 'online' }] });
   assert.equal(f.store.get().business, 'customer'); assert.equal(f.store.get().tab, 'doing');
+});
+
+test('large lists mount only a viewport and scrolling reaches the end', () => {
+  const f = fixture(); const rows = Array.from({ length: 10000 }, (_, i) => row(`customer-${i}`, 'B2C'));
+  f.store.patch({ conversations: rows });
+  assert.ok(visible(f.tree()).length <= 22);
+  const scroll = nodes(f.tree()).find(n => n.props.class === 'cscroll'); assert.ok(scroll);
+  scroll.props.onscroll({ currentTarget: { scrollTop: 9999 * 96, clientHeight: 900 } });
+  assert.ok(visible(f.tree()).includes('customer-9999'));
+  assert.ok(visible(f.tree()).length <= 22);
+  f.store.patch({ query: 'customer-123' });
+  assert.equal(visible(f.tree())[0], 'customer-123');
 });
 
 test('conversation guard accepts legacy/null/unknown short types but rejects malformed type metadata', () => {
@@ -76,9 +77,9 @@ test('official type matrix and every known UI status remain separate; ownership 
   assert.equal(vm.conversationBusiness(row('wrong-case', 'b2c')), 'unknown');
   assert.equal(vm.conversationBusiness(row('padded-type', ' B2C ')), 'unknown');
   const customer = [row('active', 'B2C'), row('finished', 'B2C', 'finished'), row('transferred', 'B2C', 'transferred_out'), row('unknown', 'B2C', 'unknown')].map(c => ({ ...c, is_owner: false, agent_in_group: false }));
-  assert.deepEqual(vm.tabCounts(customer, 'customer'), { doing: 1, done: 2, unknown: 1 });
-  assert.deepEqual(vm.filterConversations(customer, 'doing', '', 'customer').map(c => c.gid), ['active']);
-  assert.deepEqual(vm.filterConversations(customer, 'unknown', '', 'customer').map(c => c.gid), ['unknown']);
+  assert.deepEqual(vm.tabCounts(customer, 'customer'), { doing: 2, done: 2, unknown: 0 });
+  assert.deepEqual(vm.filterConversations(customer, 'doing', '', 'customer').map(c => c.gid), ['active', 'unknown']);
+  assert.deepEqual(vm.filterConversations(customer, 'unknown', '', 'customer').map(c => c.gid), []);
 });
 
 test('real producer status 1/2/4 and raw conversation type flow through guard into scoped UI counts', () => {
@@ -88,6 +89,29 @@ test('real producer status 1/2/4 and raw conversation type flow through guard in
     const c = { ...projected, account, draft: '', is_top: false, waiting_since_ms: null, waiting_confirmed: false };
     assert.equal(isUiConversation(c), true); return c;
   });
-  assert.deepEqual(vm.tabCounts(rows, 'customer'), { doing: 2, done: 1, unknown: 1 });
-  assert.deepEqual(vm.filterConversations(rows, 'doing', '', 'customer').map(c => c.gid), ['synthetic-0', 'synthetic-1']);
+  assert.deepEqual(vm.tabCounts(rows, 'customer'), { doing: 3, done: 1, unknown: 0 });
+  assert.deepEqual(vm.filterConversations(rows, 'doing', '', 'customer').map(c => c.gid), ['synthetic-0', 'synthetic-1', 'synthetic-3']);
+});
+
+test('viewport resize expands the mounted window without needing a scroll event', () => {
+  const state: any = { listWindow: { scope: 'scope', top: 960, height: 600 } };
+  let patches = 0;
+  const pane = { dataset: { listScope: 'scope' }, clientHeight: 1800, scrollTop: 960 };
+  const env = { root: { querySelector: () => pane }, S: () => state, store: { patch: (value: any) => { Object.assign(state, value); patches++; } } };
+  const a = source.indexOf('function syncConversationViewport('), b = source.indexOf('function fillHistoryViewport(', a);
+  const sync = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn syncConversationViewport;')(...Object.values(env));
+  const old = vm.virtualConversationRange(10000, 960, 600); sync();
+  const next = vm.virtualConversationRange(10000, state.listWindow.top, state.listWindow.height);
+  assert.ok(next.end > old.end); assert.equal(state.listWindow.height, 1800);
+  sync(); assert.equal(patches, 1, 'unchanged geometry must not cause a render loop');
+});
+
+test('scroll/draft rerenders reuse sorting but replaced snapshots and filters invalidate it', () => {
+  const rows = [row('a', 'B2C'), row('b', 'B2C', 'finished')];
+  const first = vm.filterConversations(rows, 'doing', '');
+  assert.equal(vm.filterConversations(rows, 'doing', ''), first);
+  assert.deepEqual(vm.filterConversations(rows, 'done', '').map(c => c.gid), ['b']);
+  assert.deepEqual(vm.filterConversations(rows, 'doing', 'missing'), []);
+  const updated = rows.map(c => ({ ...c, status: 'finished' as const }));
+  assert.deepEqual(vm.filterConversations(updated, 'doing', ''), []);
 });

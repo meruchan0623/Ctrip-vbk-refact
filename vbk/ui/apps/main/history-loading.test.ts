@@ -10,18 +10,19 @@ import { cx } from '../../packages/ui-kit/src/h.ts';
 const source = readFileSync(process.env['VBK_HISTORY_MAIN_SOURCE'] ?? new URL('./main.ts', import.meta.url), 'utf8');
 function fixture() {
   const account = { account_id: 'synthetic-account', environment: 'test', session_generation: 1 };
+  const uiAccount = { context: account };
   const state: any = { activeGid: 'synthetic-room', view: 'messages', messages: { 'synthetic-room': [] }, history: {}, drafts: {}, draft: 'KEEP DRAFT', draftVersion: 1, banners: [], conversations: [{ gid: 'synthetic-room', account, unread_count: 3, waiting_since_ms: null, status: 'active', lang: 'en' }] };
   let response: unknown = null, active = true;
   const requests: string[] = [];
   const invoke = async (cmd: string) => { requests.push(cmd); return await response; };
   const visibility = { visibilityState: 'visible' };
-  const env = { visibleReads: { retry() {}, afterRender() {} }, ...vm, readHistoryPage, document: visibility, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => ({ context: account }), stillActive: () => active, peripheral: { close() {} }, isUiMessage, TRANSLATION_IDLE: vm.TRANSLATION_IDLE, PKG_IDLE: {}, releaseAttachment: async () => {}, autoQueryPackage() {}, UiCommands: { IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages', IM_MARK_READ: 'read' }, invokeQuiet: invoke, invokeSafe: invoke };
+  const env = { visibleReads: { retry() {}, afterRender() {} }, ...vm, readHistoryPage, document: visibility, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => uiAccount, stillActive: () => active, peripheral: { close() {} }, isUiMessage, TRANSLATION_IDLE: vm.TRANSLATION_IDLE, PKG_IDLE: {}, releaseAttachment: async () => {}, autoQueryPackage() {}, UiCommands: { IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages', IM_MARK_READ: 'read' }, invokeQuiet: invoke, invokeSafe: invoke };
   const a = source.indexOf('async function openConversation('), b = source.indexOf('\nasync function loadEarlier(', a);
   const open = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn openConversation;')(...Object.values(env));
   const loadEnd = source.indexOf('\n/** `im://locate-conversation`', b);
   const load = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(b, loadEnd)) + '\nreturn loadEarlier;')(...Object.values(env));
-  const renderEnv = { ...env, cx, activeConv: () => state.conversations[0], document: { querySelector: () => null }, h: (tag: string, props: any, ...children: any[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, renderMessageAvatar: () => null, netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, messageRow: () => null, openConversation: open, loadEarlier: load };
-  const ca = source.indexOf('function chatPane('), cb = source.indexOf('\nfunction messagesView(', ca);
+  const renderEnv = { ...env, cx, activeConv: () => state.conversations[0], document: { querySelector: () => null }, h: (tag: string, props: any, ...children: any[]) => ({ tag, props: props ?? {}, dataset: props?.dataset ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, renderMessageAvatar: () => null, netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, messageRow: () => null, openConversation: open, loadEarlier: load };
+  const ca = source.indexOf('let messagePaneCache:'), cb = source.indexOf('\nfunction messagesView(', ca);
   const render = new Function(...Object.keys(renderEnv), stripTypeScriptTypes(source.slice(ca, cb)) + '\nreturn chatPane;')(...Object.values(renderEnv));
   return { state, requests, visibility, render: () => render(state), open: () => open('synthetic-room'), earlier: () => load(state.conversations[0]), respond: (value: unknown) => { response = value; }, invalidate: () => { active = false; }, page: { items: [], has_more: false, before_ms: null } };
 }
@@ -122,4 +123,49 @@ test('actual earlier-page reply cannot cross a service revision or stamp old row
   assert.equal(f.state.history['synthetic-room'].readContextRevision, 'A');
   assert.deepEqual(f.state.messages['synthetic-room'], []);
   await f.earlier(); assert.equal(f.requests.length, 1, 'old-service pagination is refused before another request');
+});
+
+test('returning from another room reuses a loaded first page without another request', async () => {
+  const f = fixture(); f.respond(f.page); await f.open();
+  f.state.activeGid = 'other'; await f.open();
+  assert.equal(f.state.activeGid, 'synthetic-room'); assert.deepEqual(f.requests, ['page']);
+});
+
+test('nonadvancing cursor is retryable and cannot loop automatic history loading', async () => {
+  const f = fixture();
+  f.state.history['synthetic-room'] = { firstPage: 'loaded', hasMore: true, beforeMs: 100, busy: false };
+  f.respond({ items: [], has_more: true, before_ms: 100 }); await f.earlier();
+  assert.equal(f.state.history['synthetic-room'].pageError, true);
+  assert.equal(f.state.history['synthetic-room'].busy, false);
+  assert.equal(f.state.history['synthetic-room'].beforeMs, 100);
+  f.respond({ items: [], has_more: true, before_ms: 50 }); await f.earlier();
+  assert.equal(f.state.history['synthetic-room'].pageError, false);
+  assert.equal(f.state.history['synthetic-room'].beforeMs, 50);
+});
+
+
+test('draft changes reuse the message pane; history and profile updates invalidate it', async () => {
+  const f = fixture(); f.respond(f.page); await f.open();
+  const find = (tree: any): any => Array.isArray(tree) ? tree.map(find).find(Boolean) : tree && typeof tree === 'object' ? tree.props?.class === 'msgs' ? tree : find(tree.children) : undefined;
+  const first = find(f.render()); assert.ok(first);
+  f.state.draft = 'typing'; assert.equal(find(f.render()), first);
+  f.state.history['synthetic-room'] = { ...f.state.history['synthetic-room'], busy: true };
+  const loading = find(f.render()); assert.notEqual(loading, first);
+  f.state.conversations[0] = { ...f.state.conversations[0], title: 'updated' };
+  assert.notEqual(find(f.render()), loading);
+});
+
+test('scrolling near the top loads history only for the current mounted scope and stops on errors', () => {
+  const account = { account_id: 'a', environment: 'test', session_generation: 1 }, conv = { gid: 'g', account };
+  const state: any = { history: { g: {} } }; let calls = 0;
+  let onScroll!: (event: any) => void;
+  const env = { root: { addEventListener: (_: string, fn: typeof onScroll) => { onScroll = fn; } }, visibleReads: { afterRender() {} }, S: () => state, activeConv: () => conv, activeAccount: () => ({ context: account }), historyScopeKey: vm.historyScopeKey, loadEarlier: () => { calls++; } };
+  const a = source.indexOf("root.addEventListener('scroll',"), b = source.indexOf("window.addEventListener('resize',", a);
+  new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)))(...Object.values(env));
+  const pane = { isConnected: true, scrollTop: 100, dataset: { keepScroll: 'msgs', historyScope: vm.historyScopeKey(account, 'g') } };
+  onScroll({ target: pane }); assert.equal(calls, 1);
+  pane.scrollTop = 500; onScroll({ target: pane }); assert.equal(calls, 1);
+  pane.scrollTop = 0; state.history.g.pageError = true; onScroll({ target: pane }); assert.equal(calls, 1);
+  state.history.g.pageError = false; pane.dataset.historyScope = 'old'; onScroll({ target: pane }); assert.equal(calls, 1);
+  pane.dataset.historyScope = vm.historyScopeKey(account, 'g'); pane.isConnected = false; onScroll({ target: pane }); assert.equal(calls, 1);
 });

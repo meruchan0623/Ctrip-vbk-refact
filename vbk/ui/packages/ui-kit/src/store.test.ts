@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStore } from './store.ts';
+import { createStore, subscribeFrame } from './store.ts';
 
 test('store get/set/update/patch notify with prev', () => {
   const s = createStore({ a: 1, b: 'x' });
@@ -32,4 +32,16 @@ test('store ignores identical values and survives nested sets', () => {
   s.set(1);
   assert.equal(s.get(), 2);
   assert.equal(calls, 2);
+});
+
+test('frame subscription coalesces bursts, reads latest state and cancels on disposal', () => {
+  const store = createStore(0), seen: number[] = [];
+  let callback: FrameRequestCallback | undefined, requests = 0;
+  const cancelled: number[] = [];
+  const off = subscribeFrame(store, value => seen.push(value), fn => { callback = fn; return ++requests; }, id => cancelled.push(id));
+  for (let i = 1; i <= 100; i++) store.set(i);
+  assert.equal(store.get(), 100); assert.equal(requests, 1); assert.deepEqual(seen, []);
+  callback!(0); assert.deepEqual(seen, [100]);
+  store.set(101); assert.equal(requests, 2); off();
+  assert.deepEqual(cancelled, [2]); store.set(102); assert.equal(requests, 2);
 });

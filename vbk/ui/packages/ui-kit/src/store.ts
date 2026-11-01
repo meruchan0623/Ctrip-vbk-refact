@@ -72,3 +72,16 @@ export function subscribeBatched<S>(store: Store<S>, fn: (state: S) => void): ()
     });
   });
 }
+
+/** Coalesce IPC bursts into one paint; state and nonvisual subscribers stay synchronous. */
+export function subscribeFrame<S>(store: Store<S>, fn: (state: S) => void,
+  request: (callback: FrameRequestCallback) => number = requestAnimationFrame,
+  cancel: (id: number) => void = cancelAnimationFrame,
+): () => void {
+  let frame: number | null = null;
+  const unsubscribe = store.subscribe(() => {
+    if (frame !== null) return;
+    frame = request(() => { frame = null; fn(store.get()); });
+  });
+  return () => { unsubscribe(); if (frame !== null) cancel(frame); frame = null; };
+}

@@ -28,7 +28,8 @@ export function conversationBusiness(c: UiConversation): BusinessTab {
 }
 
 export function conversationListStatus(c: UiConversation): ListTab {
-  if (conversationBusiness(c) === 'unknown' || c.status === 'unknown') return 'unknown';
+  if (conversationBusiness(c) === 'unknown') return 'unknown';
+  if (c.status === 'unknown') return conversationBusiness(c) === 'customer' ? 'doing' : 'unknown';
   if (c.status === 'active') return 'doing';
   return isDone(c) ? 'done' : 'unknown';
 }
@@ -68,8 +69,15 @@ export function matchesQuery(c: UiConversation, query: string): boolean {
   return false;
 }
 
+// Immutable store snapshots let scrolling/draft updates reuse sorting. Keep only
+// the latest query per snapshot, with weak ownership of retired account lists.
+const conversationFilters = new WeakMap<readonly UiConversation[], { tab: ListTab; query: string; business: BusinessTab; rows: UiConversation[] }>();
 export function filterConversations(list: readonly UiConversation[], tab: ListTab, query: string, business: BusinessTab = 'customer'): UiConversation[] {
-  return sortConversations(list.filter((c) => conversationBusiness(c) === business && conversationListStatus(c) === tab && matchesQuery(c, query)));
+  const cached = conversationFilters.get(list);
+  if (cached && cached.tab === tab && cached.query === query && cached.business === business) return cached.rows;
+  const rows = sortConversations(list.filter((c) => conversationBusiness(c) === business && conversationListStatus(c) === tab && matchesQuery(c, query)));
+  conversationFilters.set(list, { tab, query, business, rows });
+  return rows;
 }
 
 export function unreadTotal(list: readonly UiConversation[]): number {
@@ -603,4 +611,11 @@ export function mergeQuoteReference(existing: UiMessage, incoming: UiMessage): U
   if (current || !previous || (incoming.quote !== null && incoming.quote !== previous)) return incoming;
   const merged: QuotedUiMessage = { ...incoming, quote: previous, quote_target_id: previous };
   return merged;
+}
+
+/** Fixed-height list window: overscan keeps scrolling smooth with bounded DOM size. */
+export function virtualConversationRange(total: number, top: number, height: number): { start: number; end: number } {
+  const visible = Math.max(1, Math.ceil(Math.max(0, height) / 96));
+  const first = Math.min(Math.max(0, Math.floor(top / 96)), Math.max(0, total - visible));
+  return { start: Math.max(0, first - 6), end: Math.min(total, first + visible + 6) };
 }
