@@ -192,6 +192,55 @@ test('rpc: im.message_page uses an exclusive earlier boundary and stops at serve
   assert.equal(err(await rpc.handle({ req_id: 'p3', op: 'im.message_page', args: { gid: GID, before_ms: 123 } })), 'adapter.failed');
 });
 
+test('rpc: history cursor follows raw rows even when the oldest row is not displayed', async () => {
+  const { rpc, base } = setup(call => !call.url.includes('getMessageList')
+    ? jsonResponse({ ResponseStatus: OK_STATUS, members: [] })
+    : jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: {
+      isDone: false, lastMessageTime: 1700000000200,
+      messages: [
+        { msgId: 'visible', messageBody: 'visible', fromJid: 'me@x', createTime: 1700000000200, msgtype: 0 },
+        { msgId: 'hidden', messageBody: '{"isPresent":false}', createTime: 1700000000100, msgtype: 1007 },
+      ],
+    } }));
+  const result = ok(await rpc.handle({ req_id: 'short-page', op: 'im.message_page', args: { gid: GID } })) as {
+    items: { message_id: string }[]; has_more: boolean; before_ms: number;
+  };
+  assert.deepEqual(result.items.map(item => item.message_id), ['visible']);
+  assert.equal(result.has_more, true, 'short pages are not completion evidence');
+  assert.equal(result.before_ms, 1700000000100, 'use oldest raw row, not newest lastMessageTime or displayed row');
+  await rpc.handle({ req_id: 'older', op: 'im.message_page', args: { gid: GID, before_ms: result.before_ms } });
+  const calls = base.fakeFetch.calls.filter(call => call.url.includes('getMessageList'));
+  assert.equal((calls[1]?.bodyJson as { endTime: number }).endTime, result.before_ms);
+});
+
+test('rpc: incomplete history without cursor progress fails retryably before publication', async () => {
+  for (const messages of [
+    [],
+    [{ msgId: 'invalid-time', createTime: 'invalid', msgtype: 0, messageBody: 'body' }],
+    [{ msgId: 'same-boundary', createTime: 1700000000100, msgtype: 0, messageBody: 'body' }],
+    [{ msgId: 'newer-boundary', createTime: 1700000000200, msgtype: 0, messageBody: 'body' }],
+  ]) {
+    const { rpc, facts, displays, sdk } = setup(call => !call.url.includes('getMessageList')
+      ? jsonResponse({ ResponseStatus: OK_STATUS, members: [] })
+      : jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: { isDone: false, messages } }));
+    const reply = await rpc.handle({ req_id: 'stalled-page', op: 'im.message_page', args: { gid: GID, before_ms: 1700000000100 } });
+    assert.equal(err(reply), 'adapter.failed');
+    assert.ok(reply && !reply.ok && reply.error.retryable);
+    assert.deepEqual(facts, []);
+    assert.deepEqual(displays, []);
+    assert.equal(sdk.sent.length, 0);
+  }
+});
+
+test('rpc: a server-confirmed empty terminal page is successful completion', async () => {
+  const { rpc } = setup(call => !call.url.includes('getMessageList')
+    ? jsonResponse({ ResponseStatus: OK_STATUS, members: [] })
+    : jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: { isDone: true, messages: [] } }));
+  assert.deepEqual(ok(await rpc.handle({ req_id: 'terminal', op: 'im.message_page', args: { gid: GID } })), {
+    items: [], has_more: false, before_ms: null,
+  });
+});
+
 test('rpc: notice.categories flattens sub-categories; notice.mark_read uses lastMsgId', async () => {
   const { base, rpc } = setup((call) =>
     call.url.includes('getIQConversations')

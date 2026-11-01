@@ -241,8 +241,17 @@ const imMessagePage: Handler<'im.message_page'> = async (ctx, args): Promise<UiM
   checkHistoryContext();
   if (res.kind === 'invalid_cursor') fail(ErrorCodes.ADAPTER_FAILED, 'invalid history cursor');
   if (res.kind === 'failed') throw new RpcError(outcomeError(res.outcome, 'history'));
+  // Only server completion proves the end of a thread. An empty/repeated page
+  // without completion must remain retryable instead of hiding older history.
+  const times = res.page.rows.map((row) => normalizeTimeMs(row.createTime)).filter(is13DigitMs);
+  const oldest = times.length > 0 ? Math.min(...times) : null;
+  const hasMore = !res.page.isDone;
+  if (hasMore && (oldest === null || (typeof before === 'number' && oldest >= before))) {
+    fail(ErrorCodes.ADAPTER_FAILED, 'history page did not provide an earlier boundary; retry loading history', true);
+  }
   for (const fact of res.page.facts) ctx.pushFact({ kind: 'message', fact });
   const items: UiMessage[] = [];
+  const authoritativeRoom = roomJidFromMessage(gid, ctx.store.view(gid)?.lastMessage ?? null);
   for (const row of res.page.rows) {
     const ui = httpMessageToUi(row, ctx.roles, gid);
     if (ui) items.push(ui);
@@ -250,7 +259,6 @@ const imMessagePage: Handler<'im.message_page'> = async (ctx, args): Promise<UiM
       const order = ui ? orderSummaryFromMessage(row) : null;
       if (order && ui) ctx.store.noteOrder(gid, order, ui.create_time_ms);
       const jid = roomJidFromMessage(gid, row);
-      const authoritativeRoom = roomJidFromMessage(gid, ctx.store.view(gid)?.lastMessage ?? null);
       if (jid && (!authoritativeRoom || authoritativeRoom === jid)) ctx.sdk.rememberPartnerJid(gid, jid);
     }
   }
@@ -263,9 +271,6 @@ const imMessagePage: Handler<'im.message_page'> = async (ctx, args): Promise<UiM
   }
   // A page is only part of a thread: preserve realtime arrivals and previously loaded pages.
   ctx.pushDisplay({ kind: 'messages', gid, replace: false, items });
-  const times = res.page.rows.map((row) => row && typeof row === 'object' ? normalizeTimeMs(row.createTime) : null).filter(is13DigitMs);
-  const oldest = times.length > 0 ? Math.min(...times) : null;
-  const hasMore = !res.page.isDone && oldest !== null && (typeof before !== 'number' || oldest < before);
   return { items, has_more: hasMore, before_ms: hasMore ? oldest : null };
 };
 
