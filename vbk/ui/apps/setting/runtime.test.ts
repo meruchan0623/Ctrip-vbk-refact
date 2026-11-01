@@ -14,13 +14,13 @@ const source = readFileSync(process.env['VBK_SETTING_MAIN_SOURCE'] ?? new URL('.
 interface Tree { tag: string; props: Record<string, any>; children: unknown[] }
 function nodes(tree: unknown): Tree[] { if (Array.isArray(tree)) return tree.flatMap(nodes); if (!tree || typeof tree !== 'object') return []; const node = tree as Tree; return [node, ...nodes(node.children ?? [])]; }
 function deferred() { let resolve!: (value: unknown) => void; return { promise: new Promise(r => { resolve = r; }), resolve: (v: unknown) => resolve(v) }; }
-async function fixture() {
+async function fixture(overrides: Record<string, any> = {}) {
   const mock = createMockIpc('default', { tick: false, latency: 0 }); const prefs = await mock.invoke(PrefsCommands.SNAPSHOT); mock.dispose();
   const store = createStore<Record<string, any>>({ prefs, section: 'assistant', tsimForm: { user: 'SYNTHETIC_USER', password: 'SYNTHETIC_PASSWORD' }, tsimBusy: false, tsimError: null, tsimStatus: null, tsimImportExpanded: false, tsimImportToken: '', loading: false, loadError: null, settingsRequest: 0, tsimRequest: 0, net: null, nick: null, version: null, toast: null });
   const calls: { command: string }[] = []; const results = new Map<string, unknown>([[PrefsCommands.SNAPSHOT, prefs], [UiCommands.ASSIST_TSIM_STATUS, { logged_in: false, user: null }], [UiCommands.ASSIST_TSIM_LOGIN, { logged_in: true, user: 'SYNTHETIC_USER' }], [UiCommands.ASSIST_TSIM_LOGOUT, { logged_in: false, user: null }]]);
   let importKeys: string[] = [];
   const invoke = async (command: string, payload?: object) => { calls.push({ command }); if (command === UiCommands.ASSIST_TSIM_IMPORT_SESSION) importKeys = Object.keys(payload ?? {}); const result = await results.get(command); if (result instanceof Error || (result && typeof result === 'object' && 'code' in result)) throw result; return result; };
-  const env: Record<string, any> = { ...vm, S: SETTING_STRINGS, fmt, store, ipc: { invoke }, PrefsCommands, UiCommands, isPrefsSnapshot, cx, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, msg: () => 'SYNTHETIC_UNTRUSTED_ERROR', toast: (value: string) => store.patch({ toast: value }), icon: () => null, IC: {}, sel: { mock: true }, platform: 'windows', closeWindow() {}, setPref() {}, setReminder() {} };
+  const env: Record<string, any> = { ...vm, S: SETTING_STRINGS, fmt, store, ipc: { invoke }, PrefsCommands, UiCommands, isPrefsSnapshot, cx, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, msg: () => 'SYNTHETIC_UNTRUSTED_ERROR', toast: (value: string) => store.patch({ toast: value }), icon: () => null, IC: {}, sel: { mock: true }, platform: 'windows', closeWindow() {}, setPref() {}, setReminder() {}, ...overrides };
   function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name); const tail = source.slice(a); const next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z]|subscribeBatched\()/.exec(tail); assert.ok(next, name); return new Function(...Object.keys(env), stripTypeScriptTypes(tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   for (const name of ['head', 'row', 'toggle', 'segment', 'text', 'loadSettings', 'refreshTsimStatus', 'tsimLogin', 'tsimLogout', 'tsimImportSession', 'generalSection', 'displaySection', 'notifySection', 'keysSection', 'assistantSection', 'networkSection', 'storageSection', 'privacySection', 'aboutSection', 'body', 'closeWindow', 'titleBar', 'render']) if (source.includes(`function ${name}(`)) env[name] = actual(name);
   function bootstrap() { if (env['loadSettings']) return env['loadSettings'](); const a = source.lastIndexOf('void (async () => {'), b = source.indexOf('\n})();', a) + '\n})();'.length; assert.ok(a >= 0 && b > a); return new Function(...Object.keys(env), 'return ' + stripTypeScriptTypes(source.slice(a, b).replace('void ', '')))(...Object.values(env)); }
@@ -132,4 +132,37 @@ test('actual close revokes an import request ticket even when the setting window
   importing.resolve({ logged_in: true, user: 'SYNTHETIC_LATE_IMPORT', session_epoch: 2 }); await request;
   assert.equal(f.store.get().tsimStatus, null); assert.equal(f.store.get().tsimImportToken, ''); assert.equal(f.store.get().tsimImportExpanded, false);
   closing.resolve(new Error('SYNTHETIC CLOSE FAILURE')); await Promise.resolve(); await Promise.resolve();
+});
+
+
+test('autofilled login fields submit without input events and clear before IPC settles', async () => {
+  let reset = false;
+  const f = await fixture({ FormData: class {
+    constructor(form: unknown) { assert.equal(form, domForm); }
+    get(name: string) { return name === 'username' ? ' AUTOFILLED_USER ' : 'AUTOFILLED_PASSWORD'; }
+  } });
+  const domForm = { reset() { reset = true; } };
+  f.store.patch({ tsimForm: { user: '', password: '' } });
+  const tree = f.tree();
+  assert.equal(nodes(tree).find(n => n.props.dataset?.action === 'tsim-login')!.props.disabled, false);
+  for (const name of ['username', 'password']) {
+    assert.ok(nodes(tree).some(n => n.tag === 'input' && n.props.name === name && n.props.required));
+  }
+  const pending = deferred(); f.setResult(UiCommands.ASSIST_TSIM_LOGIN, pending.promise);
+  const request = f.actual('tsimLogin')(domForm);
+  assert.equal(reset, true);
+  assert.equal(f.calls[0]?.command, UiCommands.ASSIST_TSIM_LOGIN);
+  assert.equal(f.store.get().tsimForm.user, ' AUTOFILLED_USER ');
+  assert.equal(f.store.get().tsimForm.password, '');
+  pending.resolve({ logged_in: true, user: 'AUTOFILLED_USER', session_epoch: 1 }); await request;
+  assert.equal(f.store.get().tsimStatus.user, 'AUTOFILLED_USER');
+});
+
+test('failed replacement login does not retain the previous logged-in UI identity', async () => {
+  const f = await fixture();
+  f.store.patch({ tsimStatus: { logged_in: true, user: 'OLD_USER', session_epoch: 1 } });
+  f.setResult(UiCommands.ASSIST_TSIM_LOGIN, { code: 'assistant.tsim_bad_credentials' });
+  await f.actual('tsimLogin')();
+  assert.equal(f.store.get().tsimStatus, null);
+  assert.ok(nodes(f.tree()).some(n => n.props.dataset?.action === 'tsim-login'));
 });

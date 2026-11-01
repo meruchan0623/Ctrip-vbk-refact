@@ -116,13 +116,18 @@ async function setPref(section: PrefsSection, key: string, value: boolean | stri
   }
 }
 
-async function tsimLogin(): Promise<void> {
+async function tsimLogin(form?: HTMLFormElement): Promise<void> {
   const s = store.get();
-  if (!tsimFormValid(s.tsimForm) || s.tsimBusy) return;
+  if (s.tsimBusy) return;
+  // Password managers can fill the DOM without dispatching input events.
+  const data = form ? new FormData(form) : null;
+  const credentials = data ? { user: String(data.get('username') ?? ''), password: String(data.get('password') ?? '') } : s.tsimForm;
+  if (!tsimFormValid(credentials)) return;
   const ticket = s.tsimRequest + 1;
-  store.patch({ tsimRequest: ticket, tsimBusy: true, tsimError: null, tsimForm: { user: s.tsimForm.user, password: '' } });
+  if (form) form.reset();
+  store.patch({ tsimRequest: ticket, tsimBusy: true, tsimError: null, tsimStatus: null, tsimForm: { user: credentials.user, password: '' } });
   try {
-    const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_LOGIN, { user: s.tsimForm.user.trim(), password: s.tsimForm.password });
+    const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_LOGIN, { user: credentials.user.trim(), password: credentials.password });
     if (store.get().tsimRequest !== ticket) return;
     if (!isTsimStatus(status)) throw { code: 'assistant.malformed_response' };
     store.patch({ tsimBusy: false, tsimStatus: status, tsimError: status.logged_in ? null : '登录未获确认，请检查用户名和密码后重新输入。' });
@@ -288,10 +293,10 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
         ? h('div', null, h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-logout' }, onclick: () => void tsimLogout() }, t('set.asst.tsimLogout')))
         : h(
             'form',
-            { class: 'tsim-form', onsubmit: (e: Event) => { e.preventDefault(); void tsimLogin(); } },
-            h('input', { class: 'inp', disabled: s.tsimBusy, placeholder: t('set.asst.tsimUser'), 'aria-label': t('set.asst.tsimUser'), value: s.tsimForm.user, autocomplete: 'username', dataset: { fid: 'tsim-user' }, oninput: (e: Event) => store.patch({ tsimForm: { ...store.get().tsimForm, user: (e.target as HTMLInputElement).value } }) }),
-            h('input', { class: 'inp', disabled: s.tsimBusy, type: 'password', placeholder: t('set.asst.tsimPass'), 'aria-label': t('set.asst.tsimPass'), value: s.tsimForm.password, autocomplete: 'current-password', dataset: { fid: 'tsim-pass' }, oninput: (e: Event) => store.patch({ tsimForm: { ...store.get().tsimForm, password: (e.target as HTMLInputElement).value } }) }),
-            h('button', { class: 'btn pri', type: 'submit', disabled: !tsimFormValid(s.tsimForm) || s.tsimBusy, dataset: { action: 'tsim-login' } }, s.tsimBusy ? h('span', { class: 'spin' }) : null, t('set.asst.tsimLogin')),
+            { class: 'tsim-form', onsubmit: (e: Event) => { e.preventDefault(); void tsimLogin(e.currentTarget as HTMLFormElement); } },
+            h('input', { class: 'inp', disabled: s.tsimBusy, name: 'username', required: true, placeholder: t('set.asst.tsimUser'), 'aria-label': t('set.asst.tsimUser'), value: s.tsimForm.user, autocomplete: 'username', dataset: { fid: 'tsim-user' }, oninput: (e: Event) => store.patch({ tsimForm: { ...store.get().tsimForm, user: (e.target as HTMLInputElement).value } }) }),
+            h('input', { class: 'inp', disabled: s.tsimBusy, type: 'password', name: 'password', required: true, placeholder: t('set.asst.tsimPass'), 'aria-label': t('set.asst.tsimPass'), value: s.tsimForm.password, autocomplete: 'current-password', dataset: { fid: 'tsim-pass' }, oninput: (e: Event) => store.patch({ tsimForm: { ...store.get().tsimForm, password: (e.target as HTMLInputElement).value } }) }),
+            h('button', { class: 'btn pri', type: 'submit', disabled: s.tsimBusy, dataset: { action: 'tsim-login' } }, s.tsimBusy ? h('span', { class: 'spin' }) : null, t('set.asst.tsimLogin')),
           ),
       s.tsimError ? h('div', { class: 'notice-box err', role: 'alert' }, s.tsimError) : null,
       h('details', { open: s.tsimImportExpanded, dataset: { tsimImport: '1' }, ontoggle: (e: Event) => { const expanded = (e.currentTarget as HTMLDetailsElement).open; if (expanded !== store.get().tsimImportExpanded) store.patch({ tsimImportExpanded: expanded, ...(!expanded ? { tsimImportToken: '' } : {}) }); } },
