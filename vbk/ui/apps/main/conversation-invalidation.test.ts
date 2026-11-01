@@ -47,7 +47,7 @@ test('actual full removal payload refreshes main from the current cache and an e
   const f = fixture(); let phase = 0;
   // Exercise the real adapter producer. Cache application/emission is a host
   // seam fixture, not execution of the Rust/Tauri dispatcher.
-  const deps = makeDeps(call => call.url.includes('getConversationList') ? jsonResponse({ ResponseStatus: OK_STATUS, conversationList: phase === 0 ? [sampleRow('100001'), sampleRow('100002', { status: 4 })] : [sampleRow('100001', { groupTitle: 'SYNTHETIC UPDATED' })], lastUpdateTime: 1700000000600 + phase * 1000, haveRest: false }) : call.url.includes('getRecentMessages') ? jsonResponse({ ResponseStatus: OK_STATUS, messages: [], lastMessageTimestamp: 1700000000000 }) : jsonResponse({ ResponseStatus: OK_STATUS, bizResponseStatus: { resultCode: 'SUCCESS' }, members: [], remarkList: [], conversationInfoList: [] }));
+  const deps = makeDeps(call => call.url.includes('getConversationList') ? jsonResponse({ ResponseStatus: OK_STATUS, conversationList: phase === 0 ? [sampleRow('100001'), sampleRow('100002', { status: 4 })] : [sampleRow('100001', { uid: 'customer-updated', groupTitle: 'SYNTHETIC PRODUCT' })], lastUpdateTime: 1700000000600 + phase * 1000, haveRest: false }) : call.url.includes('getRecentMessages') ? jsonResponse({ ResponseStatus: OK_STATUS, messages: [], lastMessageTimestamp: 1700000000000 }) : jsonResponse({ ResponseStatus: OK_STATUS, bizResponseStatus: { resultCode: 'SUCCESS' }, members: [], remarkList: [], conversationInfoList: [] }));
   const cache = new Map<string, UiConversation>(); let removed = 0;
   const sdk = new FakePageSdk();
   const session = createPageSession({ ...deps, sdk }, { account: owner, selfUid: 'me', beginMsgTime: 1700000000000, initialEpoch: 1, sdk, pushDisplay: async payload => {
@@ -59,7 +59,7 @@ test('actual full removal payload refreshes main from the current cache and an e
     return null;
   } });
   session.start(); await deps.clock.advance(50); session.stop(); phase = 1; session.start();
-  try { await deps.clock.advance(50); await f.flush(); assert.equal(removed, 1); assert.deepEqual(f.store.get().conversations.map((c: UiConversation) => c.gid), ['100001']); assert.equal(f.store.get().conversations[0].title, 'SYNTHETIC UPDATED'); }
+  try { await deps.clock.advance(50); await f.flush(); assert.equal(removed, 1); assert.deepEqual(f.store.get().conversations.map((c: UiConversation) => c.gid), ['100001']); assert.equal(f.store.get().conversations[0].title, 'customer-updated'); }
   finally { session.stop(); }
   f.setCache([]); f.send(owner); await f.flush(); assert.deepEqual(f.store.get().conversations, []);
   assert.equal((Events as Record<string, string>)['IM_CONVERSATIONS_INVALIDATED'], EVENT);
