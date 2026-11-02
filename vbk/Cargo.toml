@@ -7,6 +7,7 @@ members = [
   "crates/core-net",
   "crates/core-im",
   "crates/core-notify",
+  "crates/core-diag",
   "crates/core-assistant",
   "tests/scenarios",
 ]
