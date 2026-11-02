@@ -4,6 +4,7 @@
 - 起点 main@6f7ae82。按改进计划 8 个模块并行落盘可在云环境完成的 A/B 类部分，随后 6 路对抗性审查发现即修：P0 1/1、P1 15/18、P2 14/26 已修并附红→绿回归。合并后 cargo test 516、clippy -D warnings 0 错、fmt 干净、npm test 932、门禁夹具 178/178 且源码树 0 违规、release-scan 对实跑 bundle 为 clean。
 - 新增 std-only crate core-transport / core-diag / core-update；DOM sink 门禁已进入「允许清单空、严格零命中」；四条 I-30a–d 宿主命令五方注册；发布包不再含 mock。
 - 同日第二轮修复 3 个跨模块 P1：发送屏障接入 persist_failed（新错误码 store.persist_failed、快照字段、UI 告警条）、登录成功后入队 Unlock 解除 logout 锁、草稿宿主命令 im_draft_load/save 五方注册；合并后 cargo test 528、npm test 943。
+- 第三轮打通 feature://fact：适配器经 adapter_push_fact 推 `{kind:"feature"}` 事实，宿主纯函数校验（gid/from ≤64、message_id 1–32 位数字、until_ms 夹紧 30 s）与每秒 4 条限速后 to_main 转发，不进核心、不持久化，主窗 onFact 校验账号 scope；cargo test 534、npm test 953。
 - 宿主 src-tauri 在本环境不可编译，全部宿主改动只经逐行自查与 rustfmt，不计为落盘；C 类验收与 X 决策项一律未做。细目与未修 P1、待拍板 8 项见 [docs/reviews/2026-11-02-implementation-adversarial-review.md](docs/reviews/2026-11-02-implementation-adversarial-review.md)。
 
 
