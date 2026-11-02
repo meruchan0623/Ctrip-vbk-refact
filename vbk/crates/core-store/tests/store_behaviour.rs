@@ -202,10 +202,10 @@ fn durable_namespace_barrier_covers_new_parent_chain_and_replacement_after_reope
     reopened
         .sync_namespace(&namespace)
         .expect("strict replacement barrier");
-    assert!(PinnedRepo::is_pinned(&reopened, &namespace, "g1").unwrap());
-    assert!(PinnedRepo::is_pinned(&reopened, &namespace, "g2").unwrap());
+    assert!(PinnedRepo::is_pinned(&reopened, &namespace, "g1").expect("read g1"));
+    assert!(PinnedRepo::is_pinned(&reopened, &namespace, "g2").expect("read g2"));
     assert_eq!(
-        reopened.last_commit(&namespace).unwrap().unwrap().revision,
+        reopened.last_commit(&namespace).expect("read fact").expect("committed fact").revision,
         2
     );
 }

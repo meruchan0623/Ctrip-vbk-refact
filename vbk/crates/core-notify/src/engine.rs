@@ -852,9 +852,9 @@ impl NotifyCore {
                     .get(account)
                     .is_some_and(|lease| lease.allowed && now.monotonic_ms < lease.until_monotonic)
             };
-            self.flash_sources.retain(&allowed);
-            self.sound_sources.retain(&allowed);
-            self.banners.retain_accounts(&allowed);
+            self.flash_sources.retain(allowed);
+            self.sound_sources.retain(allowed);
+            self.banners.retain_accounts(allowed);
             if self.tray_flashing && self.flash_sources.is_empty() {
                 self.tray_flashing = false;
                 out.push(Effect::TrayFlash(false));
