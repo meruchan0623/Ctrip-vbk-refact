@@ -18,6 +18,7 @@ pub mod media_outbound;
 pub mod assistant;
 pub mod commands;
 pub mod diagnostics;
+pub mod startup_args;
 pub mod dto;
 pub mod events;
 pub mod login;
@@ -38,6 +39,9 @@ use state::HostState;
 
 /// Builds and runs the application.
 pub fn run() {
+    if !startup_args::allows(std::env::args().skip(1)) {
+        return;
+    }
     let boot_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -47,8 +51,10 @@ pub fn run() {
         // Second instance: forward args (deep links are a later SHL-04
         // task) and bring the main window up.
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            windows::show_main(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if startup_args::allows(args.into_iter().skip(1)) {
+                windows::show_main(app);
+            }
         }))
         .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
