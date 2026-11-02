@@ -872,10 +872,12 @@ pub async fn im_send_media(
                 code: "media.upload_rejected".into(),
                 reason: "media upload was rejected or failed local validation".into(),
             };
-            if lock(journal)
+            if let Err(error) = lock(journal)
                 .finish_media(&ctx, &local_id, &payload, disposition.clone())
-                .is_err()
             {
+                if error.code == "im.journal_durability_barrier" {
+                    return Err(e2dto(error));
+                }
                 return Ok(MediaSendResult::blocked(
                     "upload",
                     true,
@@ -921,10 +923,12 @@ pub async fn im_send_media(
             ))
         }
     };
-    if lock(journal)
+    if let Err(error) = lock(journal)
         .advance_media(&ctx, &local_id, &payload, &body, false)
-        .is_err()
     {
+        if error.code == "im.journal_durability_barrier" {
+            return Err(e2dto(error));
+        }
         return Ok(MediaSendResult::blocked(
             "upload",
             true,
@@ -941,10 +945,12 @@ pub async fn im_send_media(
             "target changed after upload; no SDK submission was admitted",
         ));
     }
-    if lock(journal)
+    if let Err(error) = lock(journal)
         .advance_media(&ctx, &local_id, &payload, &body, true)
-        .is_err()
     {
+        if error.code == "im.journal_durability_barrier" {
+            return Err(e2dto(error));
+        }
         return Ok(MediaSendResult::blocked(
             "upload",
             true,
@@ -973,9 +979,11 @@ pub async fn im_send_media(
         .as_ref()
         .map(|r| r.disposition.clone())
         .unwrap_or(SendDispositionDto::Unknown);
-    let disposition = lock(journal)
-        .finish_media(&ctx, &local_id, &payload, observed)
-        .unwrap_or(SendDispositionDto::Unknown);
+    let disposition = match lock(journal).finish_media(&ctx, &local_id, &payload, observed) {
+        Ok(disposition) => disposition,
+        Err(error) if error.code == "im.journal_durability_barrier" => return Err(e2dto(error)),
+        Err(_) => SendDispositionDto::Unknown,
+    };
     let mut result = MediaSendResult::replay("send".into(), true, disposition.clone());
     if let Some(mut reply) = reply {
         reply.message.disposition = Some(disposition);

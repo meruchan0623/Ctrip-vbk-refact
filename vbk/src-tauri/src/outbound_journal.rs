@@ -18,6 +18,10 @@ use sha2::{Digest, Sha256};
 use crate::dto::SendDispositionDto;
 
 const COLLECTION: &str = "outbound_attempts";
+const TOMBSTONES: &str = "outbound_completed_fences";
+/// Full completed history is bounded; compact local-id fences are never pruned.
+const COMPLETED_RETENTION: usize = 256;
+pub const DURABILITY_BARRIER_ERROR: &str = "im.journal_durability_barrier";
 const GENERIC_REJECTION_REASON: &str = "upstream rejected the send (details not persisted)";
 
 #[derive(Clone, Serialize)]
@@ -73,8 +77,19 @@ pub struct UnknownAttemptMetadata {
     pub phase: String,
 }
 
+#[derive(Serialize, Deserialize)]
+struct CompletedFence {
+    payload_sha256: String,
+    gid: String,
+    media_kind: Option<String>,
+    send_started: bool,
+    disposition: SendDispositionDto,
+}
+
 pub struct OutboundJournal {
     store: FileStore,
+    #[cfg(test)]
+    fail_next_barrier: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for OutboundJournal {
@@ -125,6 +140,8 @@ impl OutboundJournal {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, AppError> {
         Ok(Self {
             store: FileStore::open(root)?,
+            #[cfg(test)]
+            fail_next_barrier: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -146,7 +163,104 @@ impl OutboundJournal {
     /// FileStore durably creates each missing ancestor before the next child.
     /// Recheck its strict file/directory barrier; unsupported sync fails closed.
     fn durability_barrier(&self, ns: &Namespace) -> Result<(), AppError> {
-        self.store.sync_namespace(ns).map_err(|_| io_error())
+        #[cfg(test)]
+        if self
+            .fail_next_barrier
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(Self::barrier_error());
+        }
+        self.store
+            .sync_namespace(ns)
+            .map_err(|_| Self::barrier_error())
+    }
+
+    fn barrier_error() -> AppError {
+        AppError::new(
+            DURABILITY_BARRIER_ERROR,
+            "outbound record committed but durability verification failed; no replay is permitted",
+        )
+    }
+
+    /// Compact terminal records still fence the original local_id forever.
+    /// Dropping these fences would turn retention into an accidental resend queue.
+    fn read_attempt(
+        &self,
+        account: &AccountContext,
+        local_id: &str,
+    ) -> Result<Option<Attempt>, AppError> {
+        let ns = Namespace::from_context(account);
+        let current = self.store.get(&ns, COLLECTION, local_id)?;
+        let fence = self.store.get(&ns, TOMBSTONES, local_id)?;
+        match (current, fence) {
+            (Some(value), None) => Self::decode(&value, account, local_id).map(Some),
+            (None, Some(value)) => {
+                let fence: CompletedFence =
+                    serde_json::from_str(&value.to_json()).map_err(|_| corrupt())?;
+                let row = Attempt {
+                    schema: 1,
+                    environment: account.environment.as_str().into(),
+                    account_id: account.account_id.as_str().into(),
+                    local_id: local_id.into(),
+                    gid: fence.gid,
+                    creation_generation: 0,
+                    payload_sha256: fence.payload_sha256,
+                    created_at_ms: 0,
+                    completed_at_ms: Some(0),
+                    phase: Phase::Completed,
+                    // A terminal fence needs no message-body hash; decode still requires one
+                    // for media that crossed send admission. It never authorizes a transition.
+                    message_sha256: if fence.media_kind.is_some() && fence.send_started {
+                        Some("0".repeat(64))
+                    } else {
+                        None
+                    },
+                    media_kind: fence.media_kind,
+                    send_started: fence.send_started,
+                    disposition: fence.disposition,
+                };
+                Self::decode(&Self::value(&row)?, account, local_id).map(Some)
+            }
+            (None, None) => Ok(None),
+            _ => Err(corrupt()),
+        }
+    }
+
+    fn prune_completed(&self, account: &AccountContext, keep: usize) -> Result<(), AppError> {
+        let ns = Namespace::from_context(account);
+        let mut completed = Vec::new();
+        for (key, value) in self.store.list(&ns, COLLECTION)? {
+            let row = Self::decode(&value, account, &key)?;
+            if row.phase == Phase::Completed {
+                completed.push((key, value, row));
+            }
+        }
+        completed.sort_by(|a, b| {
+            b.2.completed_at_ms
+                .cmp(&a.2.completed_at_ms)
+                .then_with(|| b.0.cmp(&a.0))
+        });
+        let mut tx = self.store.begin(&ns)?;
+        for (key, value, row) in completed.into_iter().skip(keep) {
+            let fence = CompletedFence {
+                payload_sha256: row.payload_sha256,
+                gid: row.gid,
+                media_kind: row.media_kind,
+                send_started: row.send_started,
+                disposition: row.disposition,
+            };
+            let fence = JsonValue::parse(&serde_json::to_string(&fence).map_err(|_| corrupt())?)
+                .map_err(|_| corrupt())?;
+            tx.expect_unchanged(COLLECTION, &key, Some(value));
+            tx.expect_unchanged(TOMBSTONES, &key, None);
+            tx.put(TOMBSTONES, &key, fence);
+            tx.delete(COLLECTION, &key);
+        }
+        if !tx.is_empty() {
+            self.store.commit(tx)?;
+            self.durability_barrier(&ns)?;
+        }
+        Ok(())
     }
 
     fn decode(
@@ -176,7 +290,8 @@ impl OutboundJournal {
                 || (row.phase == Phase::Uploaded
                     && (row.send_started || row.message_sha256.is_none()))
                 || (matches!(row.phase, Phase::WriteStarted | Phase::Unknown) && !row.send_started)
-                || (matches!(row.disposition, SendDispositionDto::Confirmed { .. }) && !row.send_started)
+                || (matches!(row.disposition, SendDispositionDto::Confirmed { .. })
+                    && !row.send_started)
             {
                 return Err(corrupt());
             }
@@ -236,8 +351,7 @@ impl OutboundJournal {
         let _writer = self.writer_lock()?;
         let ns = Namespace::from_context(account);
         let digest = payload_hash(payload)?;
-        if let Some(current) = self.store.get(&ns, COLLECTION, local_id)? {
-            let existing = Self::decode(&current, account, local_id)?;
+        if let Some(existing) = self.read_attempt(account, local_id)? {
             if existing.payload_sha256 != digest || existing.media_kind != media_kind {
                 return Err(AppError::new(
                     "im.intent_conflict",
@@ -246,9 +360,7 @@ impl OutboundJournal {
             }
             // No record, including write_started left by a crash, authorizes a
             // second dispatch. A terminal read is durable before it is exposed.
-            if self.durability_barrier(&ns).is_err() {
-                return Ok(Reservation::Existing(SendDispositionDto::Unknown));
-            }
+            self.durability_barrier(&ns)?;
             return Ok(Reservation::Existing(existing.disposition));
         }
         let row = Attempt {
@@ -304,11 +416,7 @@ impl OutboundJournal {
     ) -> Result<(String, bool, SendDispositionDto), AppError> {
         let _writer = self.writer_lock()?;
         let ns = Namespace::from_context(account);
-        let value = self
-            .store
-            .get(&ns, COLLECTION, local_id)?
-            .ok_or_else(corrupt)?;
-        let row = Self::decode(&value, account, local_id)?;
+        let row = self.read_attempt(account, local_id)?.ok_or_else(corrupt)?;
         self.durability_barrier(&ns)?;
         let started = row.media_kind.is_none() || row.send_started;
         Ok((
@@ -330,10 +438,9 @@ impl OutboundJournal {
     ) -> Result<Option<(String, bool, SendDispositionDto, bool)>, AppError> {
         let _writer = self.writer_lock()?;
         let ns = Namespace::from_context(account);
-        let Some(value) = self.store.get(&ns, COLLECTION, local_id)? else {
+        let Some(row) = self.read_attempt(account, local_id)? else {
             return Ok(None);
         };
-        let row = Self::decode(&value, account, local_id)?;
         if row.gid != gid
             || row.media_kind.is_none()
             || payload
@@ -428,7 +535,12 @@ impl OutboundJournal {
             self.durability_barrier(&ns)?;
             return Ok(row.disposition);
         }
-        if row.media_kind.is_some() && !row.send_started && !matches!(disposition, SendDispositionDto::Rejected { .. }) { return Err(corrupt()); }
+        if row.media_kind.is_some()
+            && !row.send_started
+            && !matches!(disposition, SendDispositionDto::Rejected { .. })
+        {
+            return Err(corrupt());
+        }
         let observed = match disposition {
             SendDispositionDto::Confirmed {
                 ref server_message_id,
@@ -459,6 +571,7 @@ impl OutboundJournal {
         tx.put(COLLECTION, local_id, Self::value(&row)?);
         self.store.commit(tx)?;
         self.durability_barrier(&ns)?;
+        self.prune_completed(account, COMPLETED_RETENTION)?;
         Ok(observed)
     }
 
@@ -516,11 +629,14 @@ where
     }
     let observed = dispatch().await.unwrap_or(SendDispositionDto::Unknown);
     // A failed completion cannot erase the durable write_started safety fence.
-    Ok(journal
+    match journal
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .finish(account, local_id, payload, observed)
-        .unwrap_or(SendDispositionDto::Unknown))
+    {
+        Err(error) if error.is(DURABILITY_BARRIER_ERROR) => Err(error),
+        other => Ok(other.unwrap_or(SendDispositionDto::Unknown)),
+    }
 }
 
 #[cfg(test)]
@@ -579,6 +695,199 @@ mod tests {
         SendPayload { gid: "synthetic-media-room".into(), text: r#"{"kind":"file","name":"PRIVATE_SYNTHETIC_NAME.pdf","size":22,"content_sha256":"synthetic-digest","target_sha256":"synthetic-target"}"#.into(), original: None, quote_id: None }
     }
     const MEDIA_BODY: &str = r#"{"btype":5,"file":{"filename":"PRIVATE_SYNTHETIC_NAME.pdf","url":"https://static.tripcdn.com/PRIVATE_SYNTHETIC_URL.pdf","size":22}}"#;
+
+    #[test]
+    fn completed_retention_compacts_history_but_preserves_unknown_and_every_local_id_fence() {
+        let root = TempDir::new();
+        let first = journal(&root);
+        let confirmed = SendDispositionDto::Confirmed {
+            server_message_id: "synthetic-server".into(),
+            server_time_ms: 1700000000000,
+        };
+        for n in 0..6 {
+            run(send_once(
+                &first,
+                &account(1),
+                &format!("done-{n}"),
+                &payload(),
+                || async { Ok(confirmed.clone()) },
+            ))
+            .unwrap();
+        }
+        {
+            let journal = first.lock().unwrap();
+            journal
+                .reserve(&account(1), "unknown-text", &payload())
+                .unwrap();
+            for (id, stage) in [
+                ("unknown-upload", 0),
+                ("unknown-uploaded", 1),
+                ("unknown-send", 2),
+            ] {
+                journal
+                    .reserve_media(&account(1), id, &media_payload(), "file")
+                    .unwrap();
+                if stage >= 1 {
+                    journal
+                        .advance_media(&account(1), id, &media_payload(), MEDIA_BODY, false)
+                        .unwrap();
+                }
+                if stage >= 2 {
+                    journal
+                        .advance_media(&account(1), id, &media_payload(), MEDIA_BODY, true)
+                        .unwrap();
+                }
+            }
+            journal.prune_completed(&account(1), 2).unwrap();
+            let ns = Namespace::from_context(&account(1));
+            assert_eq!(journal.store.list(&ns, COLLECTION).unwrap().len(), 6);
+            assert_eq!(journal.store.list(&ns, TOMBSTONES).unwrap().len(), 4);
+            assert_eq!(journal.unknown_metadata(&account(2)).unwrap().len(), 4);
+        }
+        drop(first);
+        let reopened = journal(&root);
+        let calls = AtomicUsize::new(0);
+        for n in 0..6 {
+            assert_eq!(
+                run(send_once(
+                    &reopened,
+                    &account(9),
+                    &format!("done-{n}"),
+                    &payload(),
+                    || async {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(SendDispositionDto::Unknown)
+                    }
+                ))
+                .unwrap(),
+                confirmed
+            );
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let mut conflicting = payload();
+        conflicting.text.push_str(" changed");
+        assert!(run(send_once(
+            &reopened,
+            &account(9),
+            "done-0",
+            &conflicting,
+            || async { panic!("never dispatch a conflicting compacted local_id") }
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn compacted_media_terminal_results_remain_read_only_and_corrupt_fences_fail_closed() {
+        let root = TempDir::new();
+        let journal = OutboundJournal::open(root.0.clone()).unwrap();
+        journal
+            .reserve_media(&account(1), "media-done", &media_payload(), "file")
+            .unwrap();
+        let rejected = SendDispositionDto::Rejected {
+            code: "synthetic".into(),
+            reason: "ignored".into(),
+        };
+        journal
+            .finish_media(&account(1), "media-done", &media_payload(), rejected)
+            .unwrap();
+        journal.prune_completed(&account(1), 0).unwrap();
+        let replay = journal
+            .replay_media(
+                &account(2),
+                "media-done",
+                &media_payload().gid,
+                Some(&media_payload()),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(replay.0, "upload");
+        assert!(!replay.1);
+        assert!(matches!(replay.2, SendDispositionDto::Rejected { .. }));
+        assert!(!journal
+            .reserve_media(&account(2), "media-done", &media_payload(), "file")
+            .unwrap());
+        let ns = Namespace::from_context(&account(1));
+        let mut tx = journal.store.begin(&ns).unwrap();
+        tx.put(TOMBSTONES, "media-done", JsonValue::parse("{}").unwrap());
+        journal.store.commit(tx).unwrap();
+        assert!(journal
+            .reserve_media(&account(3), "media-done", &media_payload(), "file")
+            .is_err());
+    }
+
+    #[test]
+    fn committed_record_barrier_failure_has_distinct_error_and_never_admits_replay() {
+        let root = TempDir::new();
+        let journal = journal(&root);
+        let calls = AtomicUsize::new(0);
+        let result = run(send_once(
+            &journal,
+            &account(1),
+            "barrier-local",
+            &payload(),
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                journal
+                    .lock()
+                    .unwrap()
+                    .fail_next_barrier
+                    .store(true, Ordering::SeqCst);
+                Ok(SendDispositionDto::Confirmed {
+                    server_message_id: "synthetic-server".into(),
+                    server_time_ms: 1,
+                })
+            },
+        ));
+        assert!(result.unwrap_err().is(DURABILITY_BARRIER_ERROR));
+        // The commit succeeded before the injected barrier failure. A subsequent
+        // verified read may expose it but must never call dispatch again.
+        assert!(matches!(
+            run(send_once(
+                &journal,
+                &account(2),
+                "barrier-local",
+                &payload(),
+                || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(SendDispositionDto::Unknown)
+                }
+            ))
+            .unwrap(),
+            SendDispositionDto::Confirmed { .. }
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        journal
+            .lock()
+            .unwrap()
+            .fail_next_barrier
+            .store(true, Ordering::SeqCst);
+        assert!(run(send_once(
+            &journal,
+            &account(3),
+            "barrier-before-send",
+            &payload(),
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(SendDispositionDto::Unknown)
+            }
+        ))
+        .unwrap_err()
+        .is(DURABILITY_BARRIER_ERROR));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            run(send_once(
+                &journal,
+                &account(4),
+                "barrier-before-send",
+                &payload(),
+                || async {
+                    panic!("a failed reservation barrier still fences the committed local_id")
+                }
+            ))
+            .unwrap(),
+            SendDispositionDto::Unknown
+        );
+    }
 
     #[test]
     fn media_upload_and_send_have_separate_durable_recovery_barriers_in_the_same_local_id_namespace(
@@ -772,18 +1081,51 @@ mod tests {
 
     #[test]
     fn legacy_text_without_new_send_started_field_remains_a_started_unknown_not_a_media_upload() {
-        let root = TempDir::new(); let journal = OutboundJournal::open(root.0.clone()).unwrap();
-        journal.reserve(&account(1), "legacy-local", &payload()).unwrap();
+        let root = TempDir::new();
+        let journal = OutboundJournal::open(root.0.clone()).unwrap();
+        journal
+            .reserve(&account(1), "legacy-local", &payload())
+            .unwrap();
         let ns = Namespace::from_context(&account(1));
-        let value = journal.store.get(&ns, COLLECTION, "legacy-local").unwrap().unwrap();
+        let value = journal
+            .store
+            .get(&ns, COLLECTION, "legacy-local")
+            .unwrap()
+            .unwrap();
         let mut old: serde_json::Value = serde_json::from_str(&value.to_json()).unwrap();
         old.as_object_mut().unwrap().remove("send_started");
-        let mut tx = journal.store.begin(&ns).unwrap(); tx.put(COLLECTION, "legacy-local", JsonValue::parse(&old.to_string()).unwrap()); journal.store.commit(tx).unwrap();
+        let mut tx = journal.store.begin(&ns).unwrap();
+        tx.put(
+            COLLECTION,
+            "legacy-local",
+            JsonValue::parse(&old.to_string()).unwrap(),
+        );
+        journal.store.commit(tx).unwrap();
         drop(journal);
-        let reopened = Mutex::new(OutboundJournal::open(root.0.clone()).unwrap()); let calls = AtomicUsize::new(0);
-        assert_eq!(run(send_once(&reopened, &account(99), "legacy-local", &payload(), || async { calls.fetch_add(1, Ordering::SeqCst); Ok(SendDispositionDto::Unknown) })).unwrap(), SendDispositionDto::Unknown);
+        let reopened = Mutex::new(OutboundJournal::open(root.0.clone()).unwrap());
+        let calls = AtomicUsize::new(0);
+        assert_eq!(
+            run(send_once(
+                &reopened,
+                &account(99),
+                "legacy-local",
+                &payload(),
+                || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(SendDispositionDto::Unknown)
+                }
+            ))
+            .unwrap(),
+            SendDispositionDto::Unknown
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
-        let rows = reopened.lock().unwrap().unknown_metadata(&account(99)).unwrap(); assert_eq!(rows[0].phase, "write_started"); assert!(rows[0].write_started);
+        let rows = reopened
+            .lock()
+            .unwrap()
+            .unknown_metadata(&account(99))
+            .unwrap();
+        assert_eq!(rows[0].phase, "write_started");
+        assert!(rows[0].write_started);
     }
 
     #[test]
