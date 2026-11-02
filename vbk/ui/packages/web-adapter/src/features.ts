@@ -38,7 +38,9 @@ export interface FeatureSdk {
 /** Facts a feature pushes towards the host/UI feature runtime (not `AdapterFact`). */
 export type FeatureFact =
   | { readonly kind: 'typing'; readonly gid: string; readonly from: string; readonly until_ms: number }
-  | { readonly kind: 'recalled'; readonly gid: string; readonly message_id: string };
+  | { readonly kind: 'recalled'; readonly gid: string; readonly message_id: string }
+  /** A realtime queue system message (`action` NBZ11) arrived for `gid`. */
+  | { readonly kind: 'queue_notice'; readonly gid: string };
 
 export interface FeatureOpContext {
   readonly deps: AdapterDeps;

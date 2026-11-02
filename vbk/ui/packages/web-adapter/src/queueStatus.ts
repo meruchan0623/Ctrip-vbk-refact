@@ -23,6 +23,7 @@
 
 import { M } from './endpoints.ts';
 import { argRecord, argString, FeatureOpError, validGid, type AdapterFeature, type FeatureOpContext } from './features.ts';
+import { resolveSdkAddress } from './facts.ts';
 import { businessHead } from './heads.ts';
 import { bizResultCode, endpoint, recordOrNull, type EndpointSpec, type SoaClient } from './soa.ts';
 import type { AdapterDeps } from './deps.ts';
@@ -82,6 +83,12 @@ export async function queueStatusOp(ctx: FeatureOpContext, gid: string, explicit
 
 export const queueFeature: AdapterFeature = {
   id: 'queue',
+  onSdkMessage(evt, ctx) {
+    // Realtime frames only: history-loaded queue notices are not seen here (integration request).
+    if (evt.type !== 'groupchat' || !isQueueNotice(evt.body)) return;
+    const address = resolveSdkAddress(evt, { selfUid: ctx.selfUid() ?? '', roleOf: () => 'unknown' as const });
+    if (address && address.gid !== '') ctx.emit({ kind: 'queue_notice', gid: address.gid });
+  },
   ops: {
     'queue.status': async (args, ctx) => {
       const a = argRecord(args);
