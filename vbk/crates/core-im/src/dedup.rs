@@ -237,9 +237,30 @@ impl MergeOutcome {
     }
 }
 
+/// Upper bounds that keep one account's index from growing without limit
+/// (I-25). Eviction removes the **oldest** messages (by server time) of a
+/// conversation, and the conversation with the oldest newest-message when
+/// the conversation count is exceeded. An evicted message that arrives again
+/// is simply treated as new; the limits are far above any observed account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IndexLimits {
+    pub max_per_gid: usize,
+    pub max_gids: usize,
+}
+
+impl Default for IndexLimits {
+    fn default() -> Self {
+        Self {
+            max_per_gid: 2_000,
+            max_gids: 5_000,
+        }
+    }
+}
+
 /// Dedup index for one account.
 #[derive(Debug, Clone, Default)]
 pub struct MessageIndex {
+    limits: IndexLimits,
     records: BTreeMap<String, MessageRecord>,
     /// `#l:` key → `#m:` key after correlation.
     aliases: BTreeMap<String, String>,
@@ -250,6 +271,25 @@ pub struct MessageIndex {
 impl MessageIndex {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_limits(limits: IndexLimits) -> Self {
+        Self {
+            limits: IndexLimits {
+                max_per_gid: limits.max_per_gid.max(1),
+                max_gids: limits.max_gids.max(1),
+            },
+            ..Self::default()
+        }
+    }
+
+    pub fn limits(&self) -> IndexLimits {
+        self.limits
+    }
+
+    /// Number of conversations currently indexed.
+    pub fn gid_count(&self) -> usize {
+        self.by_gid.len()
     }
 
     pub fn len(&self) -> usize {
@@ -357,10 +397,64 @@ impl MessageIndex {
     }
 
     fn insert_new(&mut self, key: String, fact: &MessageFact) {
+        if !self.by_gid.contains_key(&fact.gid) && self.by_gid.len() >= self.limits.max_gids {
+            self.evict_oldest_gid();
+        }
         self.records
             .insert(key.clone(), MessageRecord::from_fact(fact));
         self.by_gid.entry(fact.gid.clone()).or_default().push(key);
         self.resort(&fact.gid);
+        self.enforce_gid_limit(&fact.gid);
+    }
+
+    /// Drops the oldest messages of `gid` beyond the per-conversation cap.
+    /// Evicts in chunks (down to 90 %) so the work is amortised.
+    fn enforce_gid_limit(&mut self, gid: &str) {
+        let cap = self.limits.max_per_gid;
+        let Some(keys) = self.by_gid.get_mut(gid) else {
+            return;
+        };
+        if keys.len() <= cap {
+            return;
+        }
+        let keep = cap - cap / 10;
+        let drop_n = keys.len() - keep;
+        let evicted: Vec<String> = keys.drain(..drop_n).collect();
+        for k in &evicted {
+            self.records.remove(k);
+        }
+        self.prune_aliases();
+    }
+
+    fn evict_oldest_gid(&mut self) {
+        let records = &self.records;
+        let victim = self
+            .by_gid
+            .iter()
+            .map(|(gid, keys)| {
+                let newest = keys
+                    .iter()
+                    .filter_map(|k| records.get(k))
+                    .map(|r| r.create_time_ms)
+                    .max()
+                    .unwrap_or(i64::MIN);
+                (newest, gid.clone())
+            })
+            .min();
+        if let Some((_, gid)) = victim {
+            if let Some(keys) = self.by_gid.remove(&gid) {
+                for k in keys {
+                    self.records.remove(&k);
+                }
+            }
+            self.prune_aliases();
+        }
+    }
+
+    fn prune_aliases(&mut self) {
+        let records = &self.records;
+        self.aliases
+            .retain(|_, target| records.contains_key(target));
     }
 
     fn replace_key(&mut self, gid: &str, old: &str, new: &str) {
@@ -403,6 +497,75 @@ mod tests {
             source: src,
             disposition: None,
         }
+    }
+
+    #[test]
+    fn per_conversation_cap_evicts_oldest_and_keeps_newest() {
+        let mut idx = MessageIndex::with_limits(IndexLimits {
+            max_per_gid: 10,
+            max_gids: 100,
+        });
+        for i in 0..50 {
+            let mid = format!("m{i}");
+            idx.merge(&fact(Some(&mid), None, i, MessageSource::Realtime))
+                .unwrap();
+            assert!(idx.len() <= 10, "cap holds after every insert");
+        }
+        assert!(idx.find_by_message_id("g", "m49").is_some());
+        assert!(idx.find_by_message_id("g", "m0").is_none());
+        let ordered = idx.ordered("g");
+        assert!(ordered
+            .windows(2)
+            .all(|w| w[0].create_time_ms <= w[1].create_time_ms));
+        // An evicted message that comes back is new, not an error.
+        assert_eq!(
+            idx.merge(&fact(Some("m0"), None, 0, MessageSource::History))
+                .unwrap(),
+            MergeOutcome::Inserted
+        );
+    }
+
+    #[test]
+    fn conversation_cap_evicts_the_stalest_conversation() {
+        let mut idx = MessageIndex::with_limits(IndexLimits {
+            max_per_gid: 10,
+            max_gids: 3,
+        });
+        let mut put = |gid: &str, mid: &str, t: i64| {
+            let mut x = fact(Some(mid), None, t, MessageSource::Realtime);
+            x.gid = gid.into();
+            idx.merge(&x).unwrap();
+        };
+        put("g1", "a", 100);
+        put("g2", "b", 300);
+        put("g3", "c", 200);
+        put("g4", "d", 400); // evicts g1 (its newest message is the oldest)
+        assert_eq!(idx.gid_count(), 3);
+        assert!(idx.find_by_message_id("g1", "a").is_none());
+        assert!(idx.find_by_message_id("g4", "d").is_some());
+        assert!(idx.gids().all(|g| g != "g1"));
+    }
+
+    #[test]
+    fn alias_table_is_pruned_with_evicted_records() {
+        let mut idx = MessageIndex::with_limits(IndexLimits {
+            max_per_gid: 10,
+            max_gids: 10,
+        });
+        for i in 0..40 {
+            let lid = format!("l{i}");
+            let mid = format!("m{i}");
+            idx.merge(&fact(None, Some(&lid), i, MessageSource::Init))
+                .unwrap();
+            idx.merge(&fact(Some(&mid), Some(&lid), i, MessageSource::Realtime))
+                .unwrap();
+        }
+        assert!(idx.len() <= 10);
+        assert!(
+            idx.aliases.len() <= 10,
+            "aliases follow records: {}",
+            idx.aliases.len()
+        );
     }
 
     #[test]
