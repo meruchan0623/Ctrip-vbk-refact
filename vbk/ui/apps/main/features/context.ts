@@ -25,13 +25,23 @@ import type { Child } from '../../../packages/ui-kit/src/h.ts';
 
 export const FEATURE_CONTEXT_VERSION = 1 as const;
 
-/** Host event that carries `FeatureFact`s (emitted by the host once the integration request is merged). */
+/**
+ * Host event that carries `FeatureFact`s: the page emits them through
+ * `adapter_push_fact` (`AdapterFact {kind: 'feature'}`), the host validates and
+ * rate-limits them (`core_im::feature_rules`) and emits this event to the main
+ * window only, with the account it bound to the calling webview
+ * (`src-tauri/src/events.rs::FEATURE_FACT`).
+ */
 export const FeatureEvents = { FACT: 'feature://fact' } as const;
 
 /** Where a feature may render. Additions are contract changes. */
 export type FeatureSlotName = 'conversation-banner' | 'composer-hint';
 
-/** Facts delivered to `FeatureModule.onFact`; mirrors the adapter's `FeatureFact` plus the account scope. */
+/**
+ * Facts delivered to `FeatureModule.onFact`; the adapter's `FeatureFact`
+ * (contracts.ts) plus the host-injected account scope. The runtime drops a
+ * fact whose account is not the active one before any module sees it.
+ */
 export type FeatureFact =
   | { readonly kind: 'typing'; readonly account: AccountContext; readonly gid: string; readonly from: string; readonly until_ms: number }
   | { readonly kind: 'recalled'; readonly account: AccountContext; readonly gid: string; readonly message_id: string }

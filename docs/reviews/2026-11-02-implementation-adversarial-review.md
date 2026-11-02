@@ -62,7 +62,7 @@
 | `state.rs` `persist_failed()` | 无调用方，发送屏障未关闭、UI 无提示 | **已修**：新增错误码 `store.persist_failed`；`im_send_text` 在 journal reserve 前、`im_send_media` 在任何暂存/上传前经 `HostState::persist_barrier()` 拒绝；`UiAccountSnapshot.persist_failed` 字段，调度 tick 边沿翻转时重发 `account://changed`，主窗显示「本地保存失败，发送已暂停」并禁用发送，回执成功自动恢复。TS 测试 6 项、core-store 4 项 |
 | `login.rs` `unlock_after_reauth` | 生产从未调用，logout 后命名空间跨重启只读 | **已修**：`JobPayload::Unlock`（Kind::Lock，保序、幂等、有回执）；`HostState::unlock_namespace` 在 `publish_identity` 接纳与 `resume_quick_login` 两处入队 |
 | 草稿宿主命令 | `DRAFT_LOAD/SAVE` 不存在 | **已修**：`core-store::drafts::DraftBook`（首存 version=1、CAS、删除、跨 namespace 不可见、重启读回）；宿主 `features/draft.rs` 的 `im_draft_load/save` 五方注册，不持 Cores 锁写盘。顺带修正 `main.ts` 从 `UiCommands` 探测 `DRAFT_*` 的错误（该键永不存在，端口此前恒为空） |
-| `feature://fact` | typing/排队/撤回广播的宿主→主窗事件无代码 | 未修：需宿主 adapter 事实 → 主窗事件通道设计，归集成负责人 |
+| `feature://fact` | typing/排队/撤回广播的宿主→主窗事件无代码 | **已修**（远程面不扩大）：复用 `adapter_push_fact`，`AdapterFact` 追加 `{kind:'feature', fact}` 变体（独立流 `im.feature`，不占核心流 seq）；宿主在账号校验后不进核心、不持久化，经 `core_im::feature_rules::validate_feature_fact`（gid/from 非空 ≤64 字符、`message_id` 1–32 位数字、typing `until_ms` 夹紧到 `[now, now+30s]`，非法 `adapter.invalid_payload` 仅计数）与 `FeatureFactRateLimiter`（同 (account,gid,kind) 每秒 ≤4，超出静默丢弃）后 `events::to_main("feature://fact", {…fact, account})`；主窗 runtime `onFact` 先做账号 scope 校验。页面 `rpc.ts` 的 `emit` 走既有 `pushFact`/bridge 队列。宿主侧 `forward_feature_fact` 未编译 |
 
 第二轮合并后门禁：cargo test 528、clippy 0 错、fmt 干净、npm test 943、门禁 0 违规、release-scan clean。合并后的首次 `cargo test --workspace` 出现过 1 次失败（364 通过后中止），随后 22 次全量/分 crate 重跑均未复现、无 panic 输出；按未定位的偶发记录，不视为已排除。宿主侧新增函数（`persist_barrier`、`unlock_namespace`、`features::draft::*`、`scheduler::run` 边沿段、`login::on_identity` 两处调用）仍**未编译**。
 

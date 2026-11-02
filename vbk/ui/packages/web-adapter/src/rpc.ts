@@ -117,8 +117,10 @@ export interface RpcContext {
  * host's anchored server clock (the host's `im_recall_message` adds it after
  * its own gate); the page has no anchor of its own and treats anything else
  * as "clock unknown", which every feature maps to a refusal, never a pass.
- * `emit` has no channel yet (`feature://fact` is a host integration request),
- * so facts are dropped here on purpose rather than smuggled into `AdapterFact`.
+ * `emit` wraps the fact as `AdapterFact {kind: 'feature'}` and hands it to the
+ * same `pushFact` every other fact uses (bridge envelope, stream `im.feature`,
+ * ordered queue, push-error accounting); the host validates and rate-limits it
+ * before forwarding it to the main window as `feature://fact`.
  */
 function featureOpContext(ctx: RpcContext, args: unknown): FeatureOpContext {
   const serverNow = recordOrNull(args)?.['server_now_ms'];
@@ -131,7 +133,7 @@ function featureOpContext(ctx: RpcContext, args: unknown): FeatureOpContext {
     serverNowMs: () => anchored,
     conversation: (gid) => ctx.store.view(gid),
     selfUid: () => (ctx.roles.selfUid === '' ? null : ctx.roles.selfUid),
-    emit: () => undefined,
+    emit: (fact) => ctx.pushFact({ kind: 'feature', fact }),
   };
 }
 

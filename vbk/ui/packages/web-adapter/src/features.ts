@@ -11,8 +11,10 @@
  * `adapter://request`: `rpc.ts` forwards an op that is not one of its own
  * `HANDLERS` to `FeatureDispatcher.call` with a per-request
  * `FeatureOpContext` (`serverNowMs` comes from the host's `server_now_ms`
- * argument, see `rpc.ts`). Facts (`emit`) still have no channel to the host
- * (`feature://fact` is a host integration request) and are dropped there.
+ * argument, see `rpc.ts`). Facts (`emit`) ride the existing fact push path as
+ * `AdapterFact {kind: 'feature'}` (`rpc.ts` → `pushFact` → `AdapterBridge`,
+ * stream `im.feature`); the host validates, rate-limits and forwards them to
+ * the main window as `feature://fact` without ingesting them.
  *
  * Rules every feature obeys:
  * - nothing runs at import time, no timers/polling of its own beyond what the
@@ -22,6 +24,7 @@
  *   (nothing is sent), never a guess.
  */
 
+import type { FeatureFact } from '../../ipc/src/contracts.ts';
 import type { AdapterDeps, SdkMessageEvent } from './deps.ts';
 import type { PeripheralConversation } from './peripheral.ts';
 import type { SoaClient } from './soa.ts';
@@ -37,12 +40,12 @@ export interface FeatureSdk {
   sendInputState?(req: { readonly gid: string; readonly partnerJid: string | null }): boolean | Promise<boolean>;
 }
 
-/** Facts a feature pushes towards the host/UI feature runtime (not `AdapterFact`). */
-export type FeatureFact =
-  | { readonly kind: 'typing'; readonly gid: string; readonly from: string; readonly until_ms: number }
-  | { readonly kind: 'recalled'; readonly gid: string; readonly message_id: string }
-  /** A realtime queue system message (`action` NBZ11) arrived for `gid`. */
-  | { readonly kind: 'queue_notice'; readonly gid: string };
+/**
+ * Facts a feature pushes towards the host/UI feature runtime. The frozen
+ * shape lives in `contracts.ts` (`FeatureFact`); the host wraps it with the
+ * account it bound to the calling webview, never one named by the page.
+ */
+export type { FeatureFact };
 
 export interface FeatureOpContext {
   readonly deps: AdapterDeps;

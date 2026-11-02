@@ -5,7 +5,9 @@
  *
  * - stream by fact kind: message/compensation_sync → `im.message`,
  *   conversation/conversation_list_sync → `im.conversation`,
- *   transport/auth_invalid → `im.transport`
+ *   transport/auth_invalid → `im.transport`, feature → `im.feature` (its own
+ *   cursor: the host forwards these without ingesting, so they must not
+ *   consume a seq on a core-tracked stream)
  * - `epoch`/`seq` come from the shared `CursorAllocator`; a reconnect or
  *   reload bumps the epoch so the host re-handshakes
  * - the envelope carries only the frozen fact shapes: no cookies, tokens,
@@ -32,6 +34,8 @@ export function streamFor(fact: AdapterFact): FactStream {
     case 'transport':
     case 'auth_invalid':
       return FactStreams.TRANSPORT;
+    case 'feature':
+      return FactStreams.FEATURE;
   }
 }
 
