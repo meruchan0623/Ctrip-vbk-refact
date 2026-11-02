@@ -16,6 +16,9 @@
  * poller sends nothing and consumes the official responses (`official`
  * option); otherwise it self-runs, `visibilityState`-gated (x6 interval while
  * hidden) with exponential backoff after failures (never below 5 s).
+ * "Active" is judged per URL variant and requires observed response bodies
+ * (`OfficialConversationFeed.active`), so an unreadable official loop can
+ * never leave the poller with zero requests and zero data.
  *
  * Status mapping is explicit and defaults to `unknown`; `transferred_out`
  * has no observed numeric code yet.
@@ -274,7 +277,8 @@ export function createConversationListPoller(deps: AdapterDeps, soa: SoaClient, 
   const tick = async (gen: number): Promise<void> => {
     if (!running || gen !== generation) return;
     let bootstrap = false;
-    if (opts.official?.active(deps.now())) {
+    // Per variant, and only while official response bodies actually reach us: a loop we cannot read is no feed.
+    if (opts.official?.active(deps.now(), opts.variant)) {
       if (cursor !== null) {
         // The official loop feeds us; asking again would double its request rate.
         source = 'official';

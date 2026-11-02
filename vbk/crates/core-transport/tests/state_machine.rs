@@ -466,3 +466,128 @@ fn invalid_config_is_rejected() {
     };
     assert!(c.validate().is_err());
 }
+
+// ------------------------------------------------------------------ adversarial review additions
+
+#[test]
+fn coarse_ticks_cannot_erase_the_streak_through_the_stable_window() {
+    // failure 1 at 40 s, one flapping pong at 41 s, then silence. A host that
+    // ticks once a minute lands exactly on the stable-online boundary: the
+    // streak must not be declared "over" by 60 s of silence.
+    let mut s = online(0);
+    s.handle(20_000, Event::Tick);
+    s.handle(40_000, Event::Tick);
+    assert_eq!(s.counters().failures, 1);
+    s.handle(41_000, Event::Alive);
+    assert_eq!(s.phase(), Phase::Online);
+    let acts = s.handle(101_000, Event::Tick);
+    assert_eq!(
+        s.counters().failures,
+        1,
+        "silence is not stability: {acts:?}"
+    );
+    for a in &acts {
+        if let Action::Attempt {
+            failures_before, ..
+        } = a
+        {
+            assert_eq!(*failures_before, 1, "{acts:?}");
+        }
+    }
+}
+
+#[test]
+fn resume_during_an_outstanding_attempt_re_arms_the_verify_window_instead_of_failing() {
+    let mut s = online(0);
+    s.handle(20_000, Event::Tick); // attempt outstanding, verify deadline 40 s
+    assert!(matches!(s.phase(), Phase::Awaiting { .. }));
+    let acts = s.handle(3_600_000, Event::Resumed);
+    assert!(plan_of(&acts).is_some(), "wake compensates");
+    assert!(s.handle(3_600_001, Event::Tick).is_empty());
+    assert_eq!(
+        s.counters().failures,
+        0,
+        "the sleep gap is not a failed attempt"
+    );
+    assert!(matches!(s.phase(), Phase::Awaiting { .. }));
+    // ... and the re-armed window still expires normally.
+    s.handle(3_600_000 + 20_000, Event::Tick);
+    assert_eq!(s.counters().failures, 1);
+
+    // Same for the post-rebuild compensation window.
+    let c = TransportConfig {
+        attempts_per_level: 1,
+        ..cfg()
+    };
+    let mut s = Supervisor::new(
+        c,
+        CircuitCounters {
+            failures: 1,
+            last_delay_ms: 0,
+            trips: 0,
+            tripped: false,
+        },
+        ZeroRng,
+        0,
+    )
+    .expect("config");
+    s.handle(0, Event::Tick);
+    s.handle(1, Event::JournalDrained);
+    s.handle(2, Event::PageReady);
+    assert!(matches!(s.phase(), Phase::Compensating { .. }));
+    s.handle(1_000_000, Event::Resumed);
+    assert!(s.handle(1_000_001, Event::Tick).is_empty());
+    assert_eq!(s.counters().failures, 1);
+}
+
+#[test]
+fn offline_state_survives_terminal_and_rebound() {
+    let mut s = online(0);
+    s.handle(1_000, Event::Network { online: false });
+    s.handle(2_000, Event::Terminal(TerminalReason::XmppAuthFailed));
+    // Still offline when the account is re-logged: no timers may run.
+    s.handle(3_000, Event::AccountRebound);
+    assert!(
+        s.frozen(),
+        "rebound must not forget that the network is down"
+    );
+    assert_eq!(s.next_wakeup_ms(), None);
+    assert!(s.handle(500_000, Event::Tick).is_empty());
+    assert_eq!(s.counters().failures, 0);
+    // Network events during the terminal state are tracked too.
+    let mut s = online(0);
+    s.handle(
+        1_000,
+        Event::Terminal(TerminalReason::CurrentTokenUnavailable),
+    );
+    s.handle(2_000, Event::Network { online: false });
+    s.handle(3_000, Event::AccountRebound);
+    assert!(s.frozen());
+    let mut s = online(0);
+    s.handle(1_000, Event::Network { online: false });
+    s.handle(
+        2_000,
+        Event::Terminal(TerminalReason::CurrentTokenUnavailable),
+    );
+    s.handle(2_500, Event::Network { online: true });
+    s.handle(3_000, Event::AccountRebound);
+    assert!(!s.frozen());
+}
+
+#[test]
+fn backoff_at_the_cap_has_no_jitter_left_which_is_a_known_design_limit() {
+    // Documented, not fixed: once the un-jittered delay reaches the cap the
+    // monotonic floor leaves no room for jitter, so every later wait is exactly `cap`.
+    let p = BackoffPolicy {
+        base_ms: 5_000,
+        cap_ms: 40_000,
+        jitter_permille: 1_000,
+    };
+    let mut r = core_transport::SplitMix64::new(7);
+    let mut last = 0;
+    for f in 1..12 {
+        last = p.next_delay(f, last, &mut r);
+    }
+    assert_eq!(last, 40_000);
+    assert_eq!(p.next_delay(12, last, &mut r), 40_000);
+}

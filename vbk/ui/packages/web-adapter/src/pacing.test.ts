@@ -452,6 +452,104 @@ test('official loop stops: the adapter self-runs at >= 5 s intervals from the of
   p.stop();
 });
 
+// ------------------------------------------------------------------ silent starvation (adversarial review)
+
+test('starvation: an official loop on the other URL variant must not silence this poller (zero requests, zero data)', async () => {
+  const h = harness((_c, i) => jsonResponse({ ResponseStatus: OK_STATUS, conversationList: [row('g1')], lastUpdateTime: U + 1000 + i }));
+  const jsonUrl = 'https://m.ctrip.com/restapi/soa2/16037/getConversationList.json?_fxpcqlniredt=T-1';
+  let cursor = U + 10;
+  const jsonRound = (): void => {
+    officialRound(h.feed, h.deps.now(), cursor, listText([], cursor + 1), 200, jsonUrl);
+    cursor += 1;
+  };
+  jsonRound();
+  await h.deps.clock.advance(1000);
+  jsonRound();
+  const p = startPoller(h); // variant 'plain'
+  await h.deps.clock.advance(0);
+  const stamps: number[] = [];
+  for (let i = 0; i < 120; i++) {
+    const before = h.deps.fakeFetch.calls.length;
+    await h.deps.clock.advance(1000);
+    jsonRound();
+    if (h.deps.fakeFetch.calls.length > before) stamps.push(h.deps.now());
+  }
+  assert.ok(h.deps.fakeFetch.calls.length >= 10, `the plain poller must self-run while only the .json loop is active (got ${h.deps.fakeFetch.calls.length} requests)`);
+  for (let i = 1; i < stamps.length; i++) assert.ok((stamps[i] ?? 0) - (stamps[i - 1] ?? 0) >= 5000, 'minimum interval still 5 s');
+  assert.equal(p.source, 'self');
+  assert.ok(h.facts.filter((f) => f.kind === 'conversation').length >= 10, 'data keeps flowing');
+  p.stop();
+});
+
+test('starvation: official requests whose bodies cannot be observed stop counting as a feed after 30 s; usable responses re-enable consumption', async () => {
+  const h = harness((_c, i) => jsonResponse({ ResponseStatus: OK_STATUS, conversationList: [row('g1')], lastUpdateTime: U + 1000 + i }));
+  const t0 = h.deps.now();
+  officialRound(h.feed, t0, undefined, listText([row('g1')], U + 100));
+  officialRound(h.feed, t0 + 5000, U + 100, listText([], U + 200));
+  await h.deps.clock.advance(5000);
+  const p = startPoller(h);
+  assert.equal(p.cursor, U + 200);
+  // From here on the page keeps requesting but the tap never gets a body (e.g. an opaque response type).
+  const blindSince = h.deps.now();
+  let official = U + 200;
+  const blindRound = (): void => {
+    officialRound(h.feed, h.deps.now(), official, null);
+    official += 1;
+  };
+  const windowStart = h.deps.now();
+  for (let i = 0; i < 6; i++) {
+    await h.deps.clock.advance(5000);
+    blindRound();
+    if (h.deps.now() - windowStart <= 25_000) assert.equal(h.deps.fakeFetch.calls.length, 0, `still trusting the official loop at +${h.deps.now() - windowStart} ms`);
+  }
+  for (let i = 0; i < 12; i++) {
+    await h.deps.clock.advance(5000);
+    blindRound();
+  }
+  assert.ok(h.deps.fakeFetch.calls.length >= 5, `fallback to self-run after ${h.deps.now() - blindSince} ms blind (got ${h.deps.fakeFetch.calls.length})`);
+  assert.equal(p.source, 'self');
+  const selfCursor = p.cursor;
+  assert.notEqual(selfCursor, null);
+  // Bodies become observable again: the poller goes back to consuming.
+  const resumed = h.deps.fakeFetch.calls.length;
+  let c = (selfCursor ?? 0) + 1;
+  for (let i = 0; i < 12; i++) {
+    officialRound(h.feed, h.deps.now(), c, listText([], c + 1));
+    c += 1;
+    await h.deps.clock.advance(5000);
+  }
+  assert.ok(h.deps.fakeFetch.calls.length - resumed <= 1, 'at most one request in flight before consumption takes over again');
+  assert.equal(p.source, 'official');
+  p.stop();
+});
+
+test('xhr hook: a responseType "json" conversation-list response is still fed (serialised), not dropped', () => {
+  const ledger = createTrafficLedger();
+  const feed = createOfficialConversationFeed();
+  const listeners: (() => void)[] = [];
+  class FakeXhr {
+    status = 200;
+    responseType = 'json';
+    response: unknown = JSON.parse(listText([row('g9')], U + 9000));
+    get responseText(): string {
+      throw new Error('InvalidStateError');
+    }
+    open(_method: string, _url: string): void {}
+    send(_body?: unknown): void {}
+    addEventListener(type: string, cb: () => void): void {
+      if (type === 'loadend') listeners.push(cb);
+    }
+  }
+  installContextHooks({ XMLHttpRequest: FakeXhr }, createContextSniffer(), createTrafficTap(ledger, feed, () => 7 * MIN));
+  const x = new FakeXhr();
+  x.open('POST', LIST_URL);
+  x.send(listBody());
+  const seen: boolean[] = [];
+  feed.attach('plain', { onRequest: () => undefined, onResponse: (e) => seen.push(e.full) });
+  listeners.forEach((l) => l());
+  assert.deepEqual(seen, [true]);
+});
+
 // ------------------------------------------------------------------ visibility and backoff
 
 function gate(initial: boolean): VisibilityGate & { set(v: boolean): void } {
