@@ -312,7 +312,7 @@ flowchart TB
 - **路径**：`vbk/src-tauri/src/{adapter,display,clock_anchor}.rs`、`ui/packages/web-adapter/`（U02）、`capabilities/adapter.json`
 - **职责**：在每账号的隐藏官方页 WebView 中运行 Web IM SDK；通过 adapter 协议把有界事实事件送进 Rust；host → page RPC（发送、已读、置顶、星标、成员、通知、订单、上传）；传输监督。
 - **对标官方**：IM utilityProcess 跑 `@ctrip/s-node-imclient-core`（XMPP/WSS），经 MessagePort（`get_im_channel_port`、`postImMessage`）与主进程通信；崩溃后无限重启（STA-01）；重连无退避（STA-02）。
-- **根除问题**：STA-01、STA-02（宿主层监督部分）、F-06（5 秒全量轮询、3 秒坐席状态轮询且不随可见性暂停：适配器**不得**在官方页节奏之外再加轮询）；04 的 D3（49 秒未到达）、V3、V9。
+- **根除问题**：STA-01、STA-02（宿主层监督部分）、F-06（5 秒增量会话轮询、3 秒共情话术轮询且不随可见性暂停：适配器**不得**在官方页节奏之外再加轮询）；04 的 D3（49 秒未到达）、V3、V9。
 - **当前**：C；文本收发有实机样本，自然实时与媒体未通过。
 - **依赖**：H01、M06、M04、U02。
 - **波次/优先级**：W1 / **P0**（整个计划的第一风险点）。

@@ -105,7 +105,7 @@
 
 | ID | 功能点 | 证据 |
 | --- | --- | --- |
-| FE-01 | 会话列表 5s 轮询全量刷新，同时检查回复超时 | `imWindow: startLoopConvList … setInterval(async()=>{await this.getConversationList(),this.checkConvTimeout()},5e3)` |
+| FE-01 | 会话列表 5s 轮询（**增量**：`startTime`=上次响应 `lastUpdateTime`，无变化返回空列表；刷新/重置时 `startTime` 置空才全量），同时检查回复超时 | `imWindow: startLoopConvList … setInterval(async()=>{await this.getConversationList(),this.checkConvTimeout()},5e3)` |
 | FE-02 | 连接状态心跳：向主进程发 `connectStatusChange`，连续失败后 `reconnectImPort` | `imWindow: postImMessage({event:Ca.connectStatusChange})`、`reconnectImPort` |
 | FE-03 | 置顶 / 取消置顶、标记会话、会话标注 | `置顶/取消置顶/标记会话`；settingWindow `会话标注` |
 | FE-04 | 草稿 | `草稿`、`draft` 10 处 |
@@ -319,7 +319,7 @@ IM 进程、IM 渲染页和主窗之间的事件枚举 `Ca`：`newMessage`、`ne
 | F-03 | P1 | IM 渲染使用 `dangerouslySetInnerHTML` 25 处（另有通知 2、alarm 2、toolTip 2）；在通配 CSP（SEC-03）和 webSecurity:false（SEC-01）下，只要转义有一处疏漏就会形成 XSS，并连到 F-01/F-02。是否全部经过净化，静态上未确认 | split 计数 `dangerouslySetInnerHTML=imWindow:25` | SEC-03 |
 | F-04 | P1 | 每个小窗口都 modulepreload 全量 vendor：alarm（8KB）、ai、notifier、toolTip 等都预取 react、antd、sdui-vendor（1.66MB）、BaseController、nfes，单窗冷启动约 3.3MB 以上的 JS。原因是桥接枚举被 Rollup 合进了依赖 sdui 的共享 chunk | `alarm/index.html` 的 modulepreload 列表含 `sdui-vendor`、`antd-vendor`、`BaseController` | STA-07 |
 | F-05 | P1 | 超大单 chunk：imWindow 2.78MB 没有按路由或功能拆分（SheetJS 表情导入导出、tiptap、翻译、群管理、反自动化等全部打在一起），只有翻译做了懒加载 | 文件大小；`sheetjs.com`、`tiptap` 都在 imWindow | — |
-| F-06 | P1 | 会话列表**每 5s 全量拉取**并在同一回调里做超时检查；人工坐席状态每 3s 轮询；两者都没有退避，也不随窗口可见性暂停（只有重连逻辑检查了 visibility）。多账号时请求量按账号数线性增长 | `startLoopConvList … 5e3`、`checkManualAgentStatus … 3e3` | STA-02、STA-03 |
+| F-06 | P1 | 会话列表**每 5s 增量拉取**（`POST 16037/getConversationList`，体 `{head,startTime,needTodoList:1}`，实测间隔 5.0s，`startTime` 恒等于上次响应 `lastUpdateTime`）并在同一回调里做超时检查；另有**每 3s 一次**的 `POST 15529/getSessionEmpathyPhraseInfo`（会话未结束且已选中时）。`checkManualAgentStatus … 3e3` 仅在「排队中」系统消息组件挂载期间存在，不是全局坐席轮询。轮询均无退避，也不随窗口可见性暂停（只有重连逻辑检查了 visibility）。多账号时请求量按账号数线性增长 （2026-11-02 实机抓包修正，见 [验证报告](../../reviews/2026-11-02-desktop-live-capture-verification.md)）。多账号时请求量按账号数线性增长 | `startLoopConvList … 5e3`、`checkManualAgentStatus … 3e3` | STA-02、STA-03 |
 | F-07 | P2 | 测试和预发域名打进生产包：`*.fat29/uat/fws.qa.nt.ctripcorp.com`、`*.qa.nt.tripqate.com` 分布在 sdui-vendor 12 处、imWindow 7 处、settingWindow、noticeWindow、BaseController、loginWindow（全量域名统计见 dist-grep：fat29 14 次、uat 13 次） | `facts/mac-dist-grep.txt` 域名一节 | PRI-04、SEC-06 |
 | F-08 | P2 | 生产设置页带「调试工具」：环境切换 PROD/UAT、堡垒开关、启动时开 DevTools，只有部分项受 `visible:e==="development"` 控制；切换到非 PROD 会联动 SEC-06（忽略证书错误） | `settingWindow: groupName:s[v.debugTools]…options:[{text:"PROD"…},{text:"UAT"…}]`；bridge `change_env/toggle_baolei` | SEC-06、SEC-12 |
 | F-09 | P2 | 硬编码 http 明文网关：xtaro 的 `DOMAIN_SERVER_MAP` 把 **PROD 映射到 `http://apigateway.ctripcorp.com`**，DEV/FAT/UAT 映射到 `http://gateway.m.*.qa…`；另有 `http://` 前缀拼接 2 处 | `sdui-vendor: DOMAIN_SERVER_MAP={…PROD:"http://apigateway.ctripcorp.com"…}` | SUP-01（同为明文问题） |
@@ -327,7 +327,7 @@ IM 进程、IM 渲染页和主窗之间的事件枚举 `Ca`：`newMessage`、`ne
 | F-11 | P2 | 反自动化输入检测完全在客户端做：可被绕过，也可能误伤合规的辅助输入（输入法、粘贴、无障碍工具、本项目的出站翻译回填） | `imWindow: X4e="系统检测到当前消息存在异常自动化输入风险…"`、评分规则 | PLG-01（插件开 CDP 会命中「CDP 运行时特征」） |
 | F-12 | P2 | `new Function` 与 `eval(`：settingWindow 4 处（jscolor 等）、imWindow 1 处、loginWindow 1 处、sdui-vendor 3 处，导致 CSP 必须放开 `unsafe-eval` | split 计数 | SEC-03 |
 | F-13 | P3 | 高频定时器：dataWindow 16ms（`setInterval(B,16)`，删除模块）、sdui-vendor 100ms `readyStateCheckInterval`、另有 1 处 10ms（未定位到业务代码）；alarm 两个 1s 计时器在窗口隐藏时是否停止未确认 | dist-grep 的 setInterval 周期一节；`dataWindow: window.setInterval(B,16)` | STA-03 |
-| F-14 | P3 | 无界数据：会话列表每次全量返回，未见分页参数；本地聊天缓存靠「缓存时长（天）」控制，没有条数上限；`get_cache_url_list` 等缓存 URL 列表没有上限 | FE-01、FE-38 | STA-05 |
+| F-14 | P3 | 无界数据：会话列表首次/重置时全量返回（稳态为增量），未见分页参数；本地聊天缓存靠「缓存时长（天）」控制，没有条数上限；`get_cache_url_list` 等缓存 URL 列表没有上限 | FE-01、FE-38 | STA-05 |
 | F-15 | P3 | 构建产物质量：chunk 命名错位（桥接代码在 `parseTranslateResponse`/`ubt`）、页面 `<title>` 写错（setting 为 Notifier，bi、order、bulletin、course 为 Event，comment 为 Product，imPlus 为 Home）、生产包没有 source map | 第 2 节表格 | MNT-01 |
 | F-16 | P3 | 静态资源偏大：提示音 wav 5.2MB、表情 4.5MB 未压缩（可改用 opus 或 webp），launch 页把 PNG 内联成 base64 | `static/voice` 5.2MB | STA-07 |
 
@@ -351,7 +351,7 @@ CSP 实测：24 个页面都有 `<meta http-equiv="Content-Security-Policy" cont
 
 1. **全部 UI**：产物经过 minify，没有 source map，并且与 antd 4、xtaro、nfes 私有包深度耦合，不能迁移。按本仓库原型（docs/design/prototype）重写，并合并成一个 SPA 加少量原生窗口（alarm、notifier、截图遮罩）。
 2. **桥接层**：不能再提供 `dbQuery`、`netFetch`、`getAllLoginCookies` 这类通用能力。改成按领域划分的窄口 Tauri command（例如 `conversation_list(account)`、`message_history(conv, cursor)`），SQL 只在 Rust 侧，cookie 不出后端（对应 F-01、F-02）。
-3. **会话同步**：用事件推送或增量拉取替代 5s 全量轮询，加入可见性暂停与指数退避（F-06）。
+3. **会话同步**：用事件推送替代 5s 增量轮询（官方已是增量，仍需 3s 共情话术轮询），加入可见性暂停与指数退避（F-06）。
 4. **消息渲染**：禁止拼 HTML，统一走结构化渲染加白名单 markdown 或链接识别（F-03）；配严格 CSP（Tauri 默认），不使用 `unsafe-eval`（F-12）。
 5. **环境与调试**：生产构建不带测试域名、环境切换和 DevTools 开关，环境在构建期注入（F-07、F-08）。
 6. **SDUI 卡片和地图**：属于订单或业务卡片，按范围决定只保留订单最小入口，不引入 xtaro 和地图 SDK；订单信息用本项目的套餐速览和订单查询面板展示。

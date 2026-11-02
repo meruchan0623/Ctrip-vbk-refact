@@ -277,6 +277,8 @@
 
 #### SUP-01 · 渲染层热更新：强制 HTTP、无校验、以特权身份加载（P0，官方，两端，新发现）
 
+> 2026-11-02 复核提示：实机当前版本的页面脚本加载自 `/Applications/…/app.asar.unpacked/dist/`（如 `BaseController-B_9ex1XX.js`），与用户目录热更新缓存里的文件名不同；热更新目录在该版本是否仍被加载未证实，本条结论需单独验证后再沿用。见 [验证报告](../../reviews/2026-11-02-desktop-live-capture-verification.md)。
+
 - 证据 [事实]，按 Mac `index.js` 的字节偏移排列，Win 偏移见锚点表：
   1. L51@157356 `initUpdateInfo`：从 `https://static.tripcdn.com/packages/{aresGroup}/{aresName}/*/packageVersion.json` 拉取远端版本信息，其中带有 `distUrl`。安装包自带的值是 `https://file.tripcdn.com/files/8/tour_vbkadminuser/vbk-electron-v27/1.2.13/dist/1.2.18/dist.zip`。
   2. L51@162280 `downloadBundleZip`：`e.startsWith("https://")&&(e=e.replace("https://","http://"))`，之后调用 `Bo.get(e,…)`，而 `Bo=require("http")`（L1@746）。**下载被强制降级为明文 HTTP**。
