@@ -25,6 +25,7 @@
 | [基于逆向结论的改进开发计划](docs/plan/2026-11-02-reverse-driven-improvement-plan.md) | 34 个工作项 I-00~I-30（I-28/I-30 已拆子项）、12 条改造决定、禁止事项、B0–B4 批次与退出条件、需用户拍板的 X1–X22；已按两份官方客户端实物验证、两轮 Codex 对抗性审查与六轮官方桌面实机接口截获共五次修订（持久化出主线程的锁内写路径清单、分阶段 DOM 门禁、文件级 owner 表、基线指标与硬门槛分离） |
 | [改进计划的实物验证](docs/reviews/2026-11-02-reverse-plan-verification.md) | 用官方 Mac 1.2.13（x86_64）与 Win 1.2.12 实物五路并行验证逆向结论、传输路线可行性、vbk 前后端稳固性；修正 7 条逆向结论，列出 P0/P1 缺陷与 14 项漏列功能 |
 | [官方桌面版实机接口截获验证](docs/reviews/2026-11-02-desktop-live-capture-verification.md) | 对运行中的官方 Mac 1.2.13 被动截获六轮（轮询、开会话、出站、已读、撤回、星标/转接/结束），只记字段结构；修正 rea 的全量轮询与 3 秒坐席轮询结论，确认文本走 XMPP、已读由 IM 子进程发、置顶不上行 |
+| [首轮落盘与对抗性审查记录](docs/reviews/2026-11-02-implementation-adversarial-review.md) | 2026-11-02 按改进计划并行落盘 A/B 类部分（cargo test 516、npm test 932、门禁 178 夹具 0 违规）与 6 路对抗性审查的发现/修复/未修清单；宿主未编译、C 类未做、8 项待拍板 |
 | 改进计划的 Codex 对抗性审查（[第一轮](docs/reviews/2026-11-02-codex-adversarial-review-01.md)、[第二轮](docs/reviews/2026-11-02-codex-adversarial-review-02.md)） | Codex 输出原文存档：第一轮 13 条、第二轮 17 条发现及 §9 闭环复核；两轮结论均为「须先修订再开工」，计划 §9 逐条回应 |
 | [独立强提醒窗口](docs/dev/03-strong-alert.md) | 消息来源、等待轮次、独立窗口、恢复和验收 |
 | [订单联系客人](docs/research/2026-10-30-web-order-conversation.md) | 已实测的订单详情与 IM 联系流程 |

@@ -1,5 +1,13 @@
 # 待验证项（2026-10-31）
 
+## 2026-11-02：首轮落盘后的阻塞
+- 宿主 src-tauri 未编译：state.rs（持久化出锁、握手并入 authorize、勿扰）、adapter.rs im_send_media、features/*.rs、diag_bridge/local_tz/integration.rs 均待目标机 cargo test；CI host job 已改为 cargo test，首跑即验证。
+- I-05b 状态机未接入 adapter.rs/WebView 重建：前置 X11 决策与 docs/decisions/2026-11-xx-sdk-resource-conflict.md 不存在。
+- 跨模块未修 P1：persist_failed() 无调用方（发送屏障未关闭）；unlock_after_reauth 无调用方；草稿宿主命令 DRAFT_LOAD/SAVE 不存在；feature://fact 宿主事件无代码。
+- 需用户拍板 8 项（display 开关、勿扰解除时刻、journal 保留与暂存上限、适配器 bootstrap 例外与补偿起点、补偿循环永不自停、已读超时不重发、19 位 gid、抖动上限）见审查记录 §3.2。
+- 签名/公证/release.yml 需 X6 证书且从未运行；rodio 提示音无依赖未做；分片上传未做。
+
+
 ## 当前：双账号对比、列表身份与已读保护
 - 用户已确认没有草稿/附件、可切包；16:25旧PID71540已不存在，新7b5d75a于16:25:40启动PID69660，准确路径/hash/Responding已核。双账号恢复及新业务分栏已见，校时提示消失。Nay新包客人0处理中/921完成，官方被动AX20/1959，当前差异仍未解释；不把恢复登录当自然实时或全量一致验收。见[本包记录](docs/research/2026-10-31-busy-account-package.md)。
 - 当前运行9731e00/PID71540（15:15:30）；15:16、15:19、15:25和15:26实际UI无服务器锚点失效提示。此前864c54f自动摘要名称/using/供应商/APN、绑定详情打开与刷新、TSim重启恢复已通过；分页两次样本也通过。

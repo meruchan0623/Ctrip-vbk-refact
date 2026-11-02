@@ -1,5 +1,11 @@
 # VBooking 消息面板对齐（2026-10-31）
 
+## 2026-11-02：改进计划首轮落盘（A/B 类）与对抗性审查
+- 起点 main@6f7ae82。按改进计划 8 个模块并行落盘可在云环境完成的 A/B 类部分，随后 6 路对抗性审查发现即修：P0 1/1、P1 15/18、P2 14/26 已修并附红→绿回归。合并后 cargo test 516、clippy -D warnings 0 错、fmt 干净、npm test 932、门禁夹具 178/178 且源码树 0 违规、release-scan 对实跑 bundle 为 clean。
+- 新增 std-only crate core-transport / core-diag / core-update；DOM sink 门禁已进入「允许清单空、严格零命中」；四条 I-30a–d 宿主命令五方注册；发布包不再含 mock。
+- 宿主 src-tauri 在本环境不可编译，全部宿主改动只经逐行自查与 rustfmt，不计为落盘；C 类验收与 X 决策项一律未做。细目与未修 P1、待拍板 8 项见 [docs/reviews/2026-11-02-implementation-adversarial-review.md](docs/reviews/2026-11-02-implementation-adversarial-review.md)。
+
+
 ## 当前接续：双账号自然接收对比（用户新增授权）
 - 16:25用户已确认可切包；旧进程已自行退出，核实无vbk-host后启动7b5d75a/PID69660，路径/hash匹配。双账号恢复、新分栏显示、校时提示消失。Nay客人0/921与官方后台AX20/1959仍有差异，未做任何忙客户会话或出站操作；此前等待草稿已解除。
 - 7b5d75a统一包已构建并复制到`vbk/release/windows-observation-7b5d75a/`：最终索引711UI、两个原样反例2/2、178host/312core及bundle通过；独立复审关闭新增两P2。707文件dirty空，源码/产物hash与验证适用范围见[本包记录](docs/research/2026-10-31-busy-account-package.md)。尚等当前草稿确认，未停止用户正在用的旧进程。
