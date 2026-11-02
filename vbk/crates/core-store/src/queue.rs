@@ -24,8 +24,10 @@
 //!   namespace (rounds and compensation cursor together: one `fsync` pair
 //!   instead of two). A snapshot identical to the last one written is not
 //!   written again.
-//! * Every commit is acknowledged on a receipt channel ([`Receipt`]). A
-//!   failed commit returns the unwritten jobs inside the receipt so the
+//! * Every job is acknowledged on a receipt channel ([`Receipt`]): written,
+//!   skipped (logout-locked), superseded (a newer snapshot already landed)
+//!   or failed. A failed commit, including one whose store code panicked,
+//!   returns the unwritten jobs inside the receipt so the
 //!   [`PersistTracker`] can retry them; the tracker also owns the
 //!   `persist_failed` state the UI and the send barrier read.
 //! * [`PersistQueue::flush`] is a barrier: when it returns `Ok`, every job
@@ -105,6 +107,10 @@ pub enum ReceiptOutcome {
     Written,
     /// The namespace is logout-locked: the write was intentionally dropped.
     Skipped,
+    /// A newer snapshot of the same `(namespace, kind)` was already written;
+    /// this older one was dropped. For the caller it is done (retrying it
+    /// can never land), so the tracker treats it like `Written`.
+    Superseded,
     /// Not written. `unwritten` are the jobs to retry.
     Failed {
         error: AppError,
@@ -153,7 +159,8 @@ pub struct QueueStats {
     pub stale_dropped: u64,
     /// Snapshots not written because they equal the last written one.
     pub unchanged: u64,
-    /// Batches whose processing panicked (the worker survives).
+    /// Namespace writes whose processing panicked (the worker survives and
+    /// reports the jobs as `Failed`).
     pub panics: u64,
 }
 
@@ -338,6 +345,9 @@ impl Worker {
                     Msg::Flush(ack) => flushes.push(ack),
                 }
             }
+            // Panics are caught per namespace inside `process` (so every job
+            // still gets a receipt); this outer guard only keeps the thread
+            // alive if the bookkeeping itself ever panics.
             let batch = catch_unwind(AssertUnwindSafe(|| self.process(jobs)));
             if batch.is_err() {
                 self.counters.panics.fetch_add(1, Ordering::Relaxed);
@@ -363,15 +373,39 @@ impl Worker {
         self.write_group(group);
     }
 
+    /// Runs one store operation, turning a panic inside the store into a
+    /// `Failed` outcome that hands the jobs back for a retry. Without this a
+    /// panicking `commit` would drop the batch with no receipt at all, and
+    /// the host would neither retry nor show "本地保存失败".
+    fn guarded<R>(
+        &self,
+        jobs: &[PersistJob],
+        f: impl FnOnce() -> Result<R, AppError>,
+    ) -> Result<R, ReceiptOutcome> {
+        match catch_unwind(AssertUnwindSafe(f)) {
+            Ok(Ok(r)) => Ok(r),
+            Ok(Err(e)) => Err(ReceiptOutcome::Failed {
+                error: e,
+                unwritten: jobs.to_vec(),
+            }),
+            Err(_) => {
+                self.counters.panics.fetch_add(1, Ordering::Relaxed);
+                Err(ReceiptOutcome::Failed {
+                    error: AppError::new(codes::STORE_IO, "persistence worker panicked"),
+                    unwritten: jobs.to_vec(),
+                })
+            }
+        }
+    }
+
     fn apply_lock(&mut self, job: PersistJob) {
-        let result = self.store.logout_lock(&job.ns);
+        let result = self.guarded(std::slice::from_ref(&job), || {
+            self.store.logout_lock(&job.ns)
+        });
         self.last_payload.retain(|(ns, _), _| *ns != job.ns);
         let outcome = match result {
             Ok(()) => ReceiptOutcome::Written,
-            Err(error) => ReceiptOutcome::Failed {
-                error,
-                unwritten: vec![job.clone()],
-            },
+            Err(failed) => failed,
         };
         self.counters.commits.fetch_add(1, Ordering::Relaxed);
         self.receive(Receipt {
@@ -388,6 +422,14 @@ impl Worker {
             let key = (job.ns.clone(), job.payload.kind());
             if self.last_seq.get(&key).is_some_and(|&done| job.seq <= done) {
                 self.counters.stale_dropped.fetch_add(1, Ordering::Relaxed);
+                // Acknowledged, not silently dropped: the caller may have
+                // parked this job after a failure and would otherwise keep
+                // `persist_failed` set for a retry that can never land.
+                self.receive(Receipt {
+                    ns: job.ns,
+                    seq: job.seq,
+                    outcome: ReceiptOutcome::Superseded,
+                });
                 continue;
             }
             let slot = best.entry(job.ns.clone()).or_default();
@@ -430,7 +472,7 @@ impl Worker {
             });
             return;
         }
-        let outcome = match self.commit(&ns, &jobs) {
+        let outcome = match self.guarded(&jobs, || self.commit(&ns, &jobs)) {
             Ok(()) => {
                 for j in &jobs {
                     let key = (ns.clone(), j.payload.kind());
@@ -439,11 +481,10 @@ impl Worker {
                 }
                 ReceiptOutcome::Written
             }
-            Err(e) if e.is(codes::STORE_LOCKED) => ReceiptOutcome::Skipped,
-            Err(error) => ReceiptOutcome::Failed {
-                error,
-                unwritten: jobs,
-            },
+            Err(ReceiptOutcome::Failed { error, .. }) if error.is(codes::STORE_LOCKED) => {
+                ReceiptOutcome::Skipped
+            }
+            Err(failed) => failed,
         };
         self.receive(Receipt {
             ns,
@@ -552,12 +593,13 @@ impl PersistTracker {
     }
 
     /// Consumes receipts: a failure marks the namespace `persist_failed` and
-    /// parks the unwritten jobs; a success clears the mark unless something
+    /// parks the unwritten jobs; a success (written, skipped because locked,
+    /// or superseded by a newer snapshot) clears the mark unless something
     /// for the namespace is still parked.
     pub fn apply_receipts(&mut self, receipts: Vec<Receipt>) {
         for r in receipts {
             match r.outcome {
-                ReceiptOutcome::Written | ReceiptOutcome::Skipped => {
+                ReceiptOutcome::Written | ReceiptOutcome::Skipped | ReceiptOutcome::Superseded => {
                     if !self.pending.keys().any(|(ns, _)| *ns == r.ns) {
                         self.failed.remove(&r.ns);
                         if self.failed.is_empty() {
@@ -631,6 +673,8 @@ mod tests {
         cv: Condvar,
         commits: AtomicU64,
         fail: AtomicBool,
+        /// `commit` panics once (a store bug), then behaves again.
+        panic_once: AtomicBool,
     }
 
     impl Gated {
@@ -641,6 +685,7 @@ mod tests {
                 cv: Condvar::new(),
                 commits: AtomicU64::new(0),
                 fail: AtomicBool::new(false),
+                panic_once: AtomicBool::new(false),
             })
         }
         fn open(&self) {
@@ -661,6 +706,9 @@ mod tests {
             drop(g);
             if self.fail.load(Ordering::SeqCst) {
                 return Err(AppError::new(codes::STORE_IO, "injected"));
+            }
+            if self.panic_once.swap(false, Ordering::SeqCst) {
+                panic!("injected store panic");
             }
             self.commits.fetch_add(1, Ordering::SeqCst);
             self.inner.commit(txn)
@@ -816,6 +864,134 @@ mod tests {
         assert_eq!(
             SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
             Some(7)
+        );
+    }
+
+    /// Counter-example for the retry path: a job fails, a newer snapshot of
+    /// the same kind is written before the host retries the parked one, and
+    /// the retry is stale-dropped. The data on disk is correct, so the
+    /// tracker must leave `persist_failed`; a dropped job therefore needs a
+    /// receipt, or the flag would stick until an unrelated later write.
+    #[test]
+    fn stale_retry_after_a_newer_write_still_clears_persist_failed() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let mut tracker = PersistTracker::new();
+
+        store.fail.store(true, Ordering::SeqCst);
+        q.try_enqueue(job(&q, &a, JobPayload::Rounds(vec![round("g", 1)])))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        store.fail.store(false, Ordering::SeqCst);
+        // Newer snapshot lands before the tick looks at the receipts.
+        q.try_enqueue(job(&q, &a, JobPayload::Rounds(vec![round("g", 2)])))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+
+        // Tick 1: sees [Failed(seq1), Written(seq2)], parks seq1, retries it.
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(tracker.persist_failed(), "the failure is reported");
+        let retry = tracker.take_pending();
+        assert_eq!(retry.len(), 1);
+        assert!(q.submit(retry).is_empty());
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert_eq!(q.stats().stale_dropped, 1, "the old snapshot is dropped");
+
+        // Tick 2: the drop must be acknowledged so the flag clears.
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(
+            !tracker.persist_failed(),
+            "disk holds the newer snapshot; persist_failed must not stick"
+        );
+        assert_eq!(tracker.pending_len(), 0);
+        let recs = ReminderStateRepo::load_all(&store.inner, &a)
+            .unwrap()
+            .reconcile(crate::ReconcileEvidence::complete())
+            .unwrap();
+        assert_eq!(
+            recs[0].version, 2,
+            "older snapshot never overwrote the newer one"
+        );
+    }
+
+    /// Counter-example for the panic path: a store bug that panics inside
+    /// `commit` must not lose the jobs silently. The worker survives, the
+    /// jobs come back as `Failed` so the tracker retries them, and the next
+    /// batch is processed normally.
+    #[test]
+    fn a_panicking_commit_yields_a_failed_receipt_and_the_worker_survives() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let (a, b) = (ns("a"), ns("b"));
+        let mut tracker = PersistTracker::new();
+        store.panic_once.store(true, Ordering::SeqCst);
+        // Both namespaces are in one batch; only the first commit panics.
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(1)))
+            .unwrap();
+        q.try_enqueue(job(&q, &b, JobPayload::Compensation(2)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert_eq!(q.stats().panics, 1);
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(tracker.persist_failed(), "a panicked write is a failure");
+        assert_eq!(tracker.pending_len(), 1, "the panicked job is parked");
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &b).unwrap(),
+            Some(2),
+            "the other namespace of the batch is still written"
+        );
+        assert!(q.submit(tracker.take_pending()).is_empty());
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(!tracker.persist_failed());
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            Some(1)
+        );
+    }
+
+    /// Rounds and compensation of one namespace share a commit: when it
+    /// fails, **both** are parked and both land on the retry.
+    #[test]
+    fn one_failed_commit_parks_both_kinds_and_the_retry_lands_both() {
+        let store = Gated::new(false);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let mut tracker = PersistTracker::new();
+        store.fail.store(true, Ordering::SeqCst);
+        q.try_enqueue(job(&q, &a, JobPayload::Rounds(vec![round("g", 3)])))
+            .unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(30)))
+            .unwrap();
+        store.open();
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(tracker.persist_failed());
+        assert_eq!(tracker.pending_len(), 2, "rounds and compensation parked");
+        store.fail.store(false, Ordering::SeqCst);
+        let retry = tracker.take_pending();
+        assert!(
+            retry.windows(2).all(|w| w[0].seq < w[1].seq),
+            "oldest first"
+        );
+        assert!(q.submit(retry).is_empty());
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(!tracker.persist_failed());
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            Some(30)
+        );
+        let recs = ReminderStateRepo::load_all(&store.inner, &a)
+            .unwrap()
+            .reconcile(crate::ReconcileEvidence::complete())
+            .unwrap();
+        assert_eq!(recs[0].version, 3);
+        assert_eq!(
+            store.commits.load(Ordering::SeqCst),
+            1,
+            "one commit for both"
         );
     }
 
