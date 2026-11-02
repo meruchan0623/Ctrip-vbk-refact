@@ -6,6 +6,7 @@ import { ConversationStore, RoleBook } from './stores.ts';
 import { SoaClient } from './soa.ts';
 import { FakePageSdk, OK_STATUS, flush, jsonResponse, makeDeps, sampleRow, type FetchScript } from './testing.ts';
 import { MEDIA_CHUNK_CAP, MEDIA_LOCAL_CAP } from './media.ts';
+import { FILE_MAX_BYTES, IMAGE_MAX_BYTES, MIB } from './media-limits.ts';
 const gid = 'synthetic-room', bytes = new TextEncoder().encode('%PDF- synthetic content'), url = 'https://static.tripcdn.com/synthetic.pdf';
 const hash = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 function fixture(script: FetchScript = () => jsonResponse({ file_name: 'server-file', url })) {
@@ -166,4 +167,16 @@ test('discarding a concurrent unsubmitted staging buffer leaves the first select
   await f.ok('media.discard', duplicate);
   assert.equal((await f.ok('media.upload', first)).kind, 'uploaded'); assert.equal(f.base.fakeFetch.calls.length, 1);
   assert.equal((await f.call('media.upload', duplicate))?.ok, false);
+});
+
+test('official per-kind caps gate staging: image 10 MiB, file up to 30 MiB, anything needing chunked upload is refused', async () => {
+  const f = fixture(); await f.ok('media.target', { gid, target_token: 'caps' });
+  let n = 0;
+  const begin = (kind: string, mime: string, size: number) => f.call('media.stage_begin', { gid, target_token: 'caps', transfer_id: `caps-${++n}`, kind, mime, name: 'synthetic.bin', size, sha256: hash(bytes) });
+  assert.equal((await begin('image', 'image/png', IMAGE_MAX_BYTES + 1))?.ok, false);
+  assert.equal((await begin('file', 'application/octet-stream', FILE_MAX_BYTES + 1))?.ok, false);
+  assert.equal((await begin('video', 'video/mp4', 30 * MIB + 1))?.ok, false);
+  assert.equal((await begin('file', 'application/octet-stream', 12 * MIB))?.ok, true);
+  assert.equal((await begin('image', 'image/png', IMAGE_MAX_BYTES))?.ok, true);
+  assert.equal(f.base.fakeFetch.calls.length, 0);
 });
