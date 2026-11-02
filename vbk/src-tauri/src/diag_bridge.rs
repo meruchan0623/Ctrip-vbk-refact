@@ -39,9 +39,27 @@ impl log::Log for Bridge {
 }
 
 /// Opens the file log and installs the bridge. Failure to open the file
-/// leaves logging disabled; it never blocks startup.
+/// leaves logging disabled; it never blocks startup. Calling it twice is
+/// harmless: the first logger and the first `log` sink stay in place.
+///
+/// The account-hash salt is a per-install random value stored next to (not
+/// inside) the log directory, so it is neither exported with nor scanned as
+/// part of the logs, and the hashes in a diagnostic bundle cannot be
+/// reversed with a table built from the public default salt.
 pub fn install(dir: PathBuf) {
-    if core_diag::init(&core_diag::Config::new(dir)).is_err() {
+    let mut cfg = core_diag::Config::new(dir.clone());
+    let salt_path = dir
+        .parent()
+        .map(|p| p.join("diag.salt"))
+        .unwrap_or_else(|| dir.join("diag.salt"));
+    if let Ok(salt) = core_diag::load_or_create_salt(&salt_path) {
+        cfg.salt = salt;
+    }
+    if let Err(e) = core_diag::init(&cfg) {
+        // No file log: nothing is written anywhere in release builds.
+        #[cfg(debug_assertions)]
+        eprintln!("diag: file log unavailable ({e})");
+        let _ = e;
         return;
     }
     if log::set_logger(&BRIDGE).is_ok() {

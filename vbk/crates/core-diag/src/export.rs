@@ -188,11 +188,22 @@ pub fn prepare_bundle(candidates: Vec<Candidate>, max_file_bytes: usize) -> Bund
             exclude(Exclusion::TooLarge, &mut bundle.manifest);
             continue;
         }
-        let Ok(text) = String::from_utf8(c.bytes) else {
+        let original_bytes = c.bytes.len() as u64;
+        // A UTF-16 BOM marks text the UTF-8 masker cannot read: excluded,
+        // never shipped on the strength of a lossy reading.
+        if c.bytes.starts_with(b"\xff\xfe") || c.bytes.starts_with(b"\xfe\xff") {
+            exclude(Exclusion::NotUtf8, &mut bundle.manifest);
+            continue;
+        }
+        let Ok(mut text) = String::from_utf8(c.bytes) else {
             exclude(Exclusion::NotUtf8, &mut bundle.manifest);
             continue;
         };
-        let original_bytes = text.len() as u64;
+        // NUL bytes (crash padding, or BOM-less UTF-16 ASCII) would hide a
+        // secret from the line masker: drop them before masking.
+        if text.contains('\0') {
+            text.retain(|ch| ch != '\0');
+        }
         let mut redactions = 0;
         let mut masked = String::with_capacity(text.len());
         for line in text.split_inclusive('\n') {

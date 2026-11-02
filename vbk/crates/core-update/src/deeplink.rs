@@ -319,9 +319,50 @@ mod tests {
             "vbkdesk://open\n",
             "vbkdesk://open with space",
             "vbkdesk://open\u{e9}",
+            // scheme / action case and slash variants
+            "vbkdesk://OPEN",
+            "vbkdesk://Conversation?session=abc",
+            "vbkdesk:///open",
+            "vbkdesk:////open",
+            "vbkdesk://open//",
+            "vbkdesk://./open",
+            "vbkdesk://../open",
+            "vbkdesk:\\\\open",
+            // double / nested percent-encoding that would decode to `../`
+            "vbkdesk://conversation?session=%2e%2e%2f",
+            "vbkdesk://conversation?session=%2E%2E%2Fetc",
+            "vbkdesk://conversation?session=%252e%252e",
+            "vbkdesk://conversation?session=a%25",
+            "vbkdesk://conversation?session=%",
+            "vbkdesk://conversation?session=%%41",
+            // repeated / empty / malformed pairs
+            "vbkdesk://conversation?session=a&session=a",
+            "vbkdesk://conversation?session=a&",
+            "vbkdesk://conversation?&session=a",
+            "vbkdesk://conversation?session",
+            "vbkdesk://conversation?session==a",
+            "vbkdesk://conversation?SESSION=a",
+            "vbkdesk://settings?section=Notify",
+            "vbkdesk://settings?section=notify#x",
+            // official scheme spelled differently
+            "vbookingchat://open",
+            "VbookingChat:open",
+            " vbkdesk://open",
+            "vbkdesk ://open",
         ] {
             assert!(parse(s).is_err(), "{s:?}");
         }
+        // non-UTF-8 argv bytes arrive lossily decoded: still rejected
+        let lossy = String::from_utf8_lossy(b"vbkdesk://open\xff").into_owned();
+        assert_eq!(parse(&lossy), Err(DeepLinkError::BadCharacter));
+        assert_eq!(
+            parse("VBOOKINGCHAT://open"),
+            Err(DeepLinkError::ForeignScheme)
+        );
+        assert_eq!(
+            parse("vbkdesk://conversation?session=%2e%2e%2f"),
+            Err(DeepLinkError::BadValue)
+        );
         let long = format!("vbkdesk://conversation?session={}", "a".repeat(65));
         assert_eq!(parse(&long), Err(DeepLinkError::BadValue));
         let huge = format!("vbkdesk://open?{}", "a".repeat(600));
@@ -354,9 +395,21 @@ mod tests {
         }
     }
 
-    const TOKENS: [&str; 30] = [
+    const TOKENS: &[&str] = &[
         "vbkdesk://",
         "vbookingChat://",
+        "VBKDESK://",
+        "Vbkdesk:",
+        "vbkdesk:///",
+        "vbookingchat:",
+        "VBOOKINGCHAT://",
+        "OPEN",
+        "Conversation",
+        "%2e%2e%2f",
+        "%252F",
+        "%2E",
+        "%25",
+        "../",
         "open",
         "conversation",
         "settings",
@@ -437,6 +490,23 @@ mod tests {
                 assert!(a.is_within_whitelist(), "{s:?} -> {a:?}");
                 assert_eq!(parse(&a.to_link()), Ok(a.clone()), "{s:?}");
                 assert!(!s.to_ascii_lowercase().starts_with("vbookingchat"));
+                // an accepted link has exactly one `//`, no `..`, no
+                // percent sign surviving into the action, and the action
+                // itself is one of the three lowercase words
+                let lower = s.to_ascii_lowercase();
+                assert!(lower.starts_with("vbkdesk://"), "{s:?}");
+                let after = &s["vbkdesk://".len()..];
+                let head = after.split('?').next().unwrap_or("");
+                assert!(
+                    matches!(
+                        head.trim_end_matches('/'),
+                        "open" | "conversation" | "settings"
+                    ) && head.matches('/').count() <= 1,
+                    "{s:?}"
+                );
+                if let DeepLinkAction::OpenConversation { session_id } = &a {
+                    assert!(!session_id.contains(['.', '/', '%', '\\']));
+                }
             }
         }
         // the mutation arm must actually hit valid links, otherwise the

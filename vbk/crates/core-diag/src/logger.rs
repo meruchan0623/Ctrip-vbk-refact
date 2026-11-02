@@ -12,8 +12,39 @@ use crate::rotate::{RotatingFile, DEFAULT_MAX_FILE_BYTES, DEFAULT_TOTAL_CAP_BYTE
 use crate::value::{Level, Value};
 
 /// Default account-hash salt. Hosts should pass a per-install random salt
-/// (stored beside the logs) so ids cannot be recovered by table lookup.
+/// (see [`load_or_create_salt`]) so ids cannot be recovered by table lookup:
+/// with a public constant, a numeric uid is a few GPU-minutes away.
 pub const DEFAULT_SALT: &str = "vbk-diag-v1";
+
+/// Reads the per-install salt from `path`, creating it (32 hex chars from
+/// std's OS-seeded hasher mixed with clock and pid) when missing or
+/// malformed. Keep the file outside the exported/scanned log directory.
+pub fn load_or_create_salt(path: &std::path::Path) -> io::Result<String> {
+    if let Ok(existing) = std::fs::read_to_string(path) {
+        let t = existing.trim();
+        if t.len() >= 16 && t.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Ok(t.to_string());
+        }
+    }
+    use std::hash::{BuildHasher, Hash, Hasher};
+    let mut salt = String::with_capacity(32);
+    for round in 0..2u8 {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+            .hash(&mut h);
+        std::process::id().hash(&mut h);
+        round.hash(&mut h);
+        salt.push_str(&format!("{:016x}", h.finish()));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, &salt)?;
+    Ok(salt)
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -265,6 +296,23 @@ mod tests {
         assert_eq!(format_utc(1_704_067_200_123), "2024-01-01T00:00:00.123Z");
         assert_eq!(format_utc(1_709_164_800_000), "2024-02-29T00:00:00.000Z");
         assert_eq!(format_utc(-1), "1969-12-31T23:59:59.999Z");
+    }
+
+    #[test]
+    fn salt_is_created_once_hex_and_reused() {
+        let dir = std::env::temp_dir().join(format!("core-diag-salt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let p = dir.join("diag.salt");
+        let a = load_or_create_salt(&p).expect("create");
+        assert_eq!(a.len(), 32);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(a, DEFAULT_SALT);
+        assert_eq!(load_or_create_salt(&p).expect("reuse"), a);
+        std::fs::write(&p, "not hex!").expect("corrupt");
+        let b = load_or_create_salt(&p).expect("recreate");
+        assert_ne!(b, a);
+        assert_eq!(std::fs::read_to_string(&p).expect("read"), b);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

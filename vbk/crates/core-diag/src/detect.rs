@@ -176,7 +176,9 @@ fn find_kv_secrets(bytes: &[u8], lb: &[u8], out: &mut Vec<Span>) {
     let n = bytes.len();
     let mut i = 0;
     while i < n {
-        if !(is_ident(bytes[i]) && !prev_is(bytes, i, is_name_byte)) {
+        // An identifier may start right after `-` / `.` (`--password=x`,
+        // `.token=y`): only another identifier byte prevents a start.
+        if !(is_ident(bytes[i]) && !prev_is(bytes, i, is_ident)) {
             i += 1;
             continue;
         }
@@ -189,14 +191,26 @@ fn find_kv_secrets(bytes: &[u8], lb: &[u8], out: &mut Vec<Span>) {
         let mut p = e;
         if kind.is_some() {
             // optional closing quote of a JSON key, then spaces, then = or :
+            // (also their percent-encoded forms `%3D` / `%3A`)
             if p < n && matches!(bytes[p], b'"' | b'\'') {
                 p += 1;
             }
             while p < n && matches!(bytes[p], b' ' | b'\t') {
                 p += 1;
             }
-            if p < n && matches!(bytes[p], b'=' | b':') {
-                p += 1;
+            let sep = if p < n && matches!(bytes[p], b'=' | b':') {
+                1
+            } else if p + 3 <= n
+                && lb[p] == b'%'
+                && lb[p + 1] == b'3'
+                && matches!(lb[p + 2], b'd' | b'a')
+            {
+                3
+            } else {
+                0
+            };
+            if sep > 0 {
+                p += sep;
                 while p < n && matches!(bytes[p], b' ' | b'\t') {
                     p += 1;
                 }
@@ -406,7 +420,9 @@ fn find_digit_runs(bytes: &[u8], out: &mut Vec<Span>) {
             });
             continue;
         }
-        if len == 13 && run.starts_with(b"86") && is_mobile(&run[2..]) {
+        if (len == 13 && run.starts_with(b"86") && is_mobile(&run[2..]))
+            || (len == 15 && run.starts_with(b"0086") && is_mobile(&run[4..]))
+        {
             out.push(Span {
                 start: s,
                 end: e,
@@ -472,12 +488,22 @@ fn find_orders(text: &str, lower: &str, out: &mut Vec<Span>) {
                 continue;
             }
             let mut q = p + wb.len();
-            // skip separators (ASCII ones and the full-width colon)
+            // skip separators (ASCII ones, the full-width colon / brackets
+            // and the copula "为" of "订单号为…")
             loop {
-                if q < n && matches!(bytes[q], b' ' | b':' | b'=' | b'"' | b'\'' | b'#') {
+                if q < n
+                    && matches!(
+                        bytes[q],
+                        b' ' | b':' | b'=' | b'"' | b'\'' | b'#' | b'(' | b'['
+                    )
+                {
                     q += 1;
-                } else if text[q..].starts_with('：') {
-                    q += '：'.len_utf8();
+                } else if let Some(c) = text[q..]
+                    .chars()
+                    .next()
+                    .filter(|c| matches!(c, '：' | '（' | '【' | '为' | '是'))
+                {
+                    q += c.len_utf8();
                 } else {
                     break;
                 }
@@ -513,6 +539,10 @@ fn find_home_paths(bytes: &[u8], out: &mut Vec<Span>) {
             || rest.starts_with(b"~/")
         {
             true
+        } else if rest.starts_with(b"\\\\") {
+            // UNC (`\\server\share\...`) and the `\\?\C:\...` prefix: host,
+            // share and user segments are all identifying.
+            rest.len() >= 3 && (is_ident(rest[2]) || matches!(rest[2], b'?' | b'.'))
         } else {
             rest.len() >= 3
                 && rest[0].is_ascii_alphabetic()
@@ -568,17 +598,31 @@ pub fn basename(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or("")
 }
 
+/// True when `path` is a user's home directory itself (`/home/alice`,
+/// `C:\Users\Bob\`, `\\srv\Users\carol`): its "file name" is the user name.
+fn is_home_root(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase().replace('\\', "/");
+    let segs: Vec<&str> = lower.split('/').filter(|s| !s.is_empty()).collect();
+    match segs.iter().position(|s| *s == "home" || *s == "users") {
+        Some(i) => segs.len() == i + 2,
+        None => false,
+    }
+}
+
 /// Replacement text for one span (URL query is stripped, paths keep only
 /// the file name, everything else becomes `<redacted:kind>`).
 pub fn replacement(text: &str, span: &Span) -> String {
     match span.kind {
         Kind::UrlQuery => String::new(),
         Kind::HomePath => {
-            let base = basename(&text[span.start..span.end]);
-            if base.is_empty() {
+            let path = &text[span.start..span.end];
+            let base = basename(path);
+            if base.is_empty() || is_home_root(path) {
                 "<dir>".to_string()
             } else {
-                format!("<dir>/{base}")
+                // The kept file name is masked on its own: it may carry a
+                // phone number, an e-mail or an id (`13812345678.txt`).
+                format!("<dir>/{}", mask(base).0)
             }
         }
         k => format!("<redacted:{}>", k.label()),

@@ -83,11 +83,61 @@ pub fn scan_text(text: &str) -> Vec<Finding> {
 
 const ARCHIVE_EXTS: &[&str] = &["gz", "zip", "7z", "bz2", "xz", "zst", "tar", "tgz", "rar"];
 
+/// Magic numbers of compressed containers; the name is not trusted.
+const ARCHIVE_MAGIC: &[(&[u8], &str)] = &[
+    (b"\x1f\x8b", "gzip"),
+    (b"PK\x03\x04", "zip"),
+    (b"PK\x05\x06", "zip"),
+    (b"PK\x07\x08", "zip"),
+    (b"7z\xbc\xaf\x27\x1c", "7z"),
+    (b"BZh", "bzip2"),
+    (b"\xfd7zXZ\x00", "xz"),
+    (b"\x28\xb5\x2f\xfd", "zstd"),
+    (b"Rar!\x1a\x07", "rar"),
+];
+
+/// Text views of `data` that the detector can see through: the (lossy)
+/// UTF-8 reading, and for UTF-16 content (BOM, or NUL-interleaved ASCII
+/// as Windows tools write it) the decoded text. Never fewer than one view.
+pub fn text_views(data: &[u8]) -> Vec<String> {
+    let mut views = Vec::new();
+    let utf16 = |le: bool, body: &[u8]| -> String {
+        let units = body.chunks_exact(2).map(|c| {
+            if le {
+                u16::from_le_bytes([c[0], c[1]])
+            } else {
+                u16::from_be_bytes([c[0], c[1]])
+            }
+        });
+        char::decode_utf16(units)
+            .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
+            .collect()
+    };
+    if let Some(body) = data.strip_prefix(b"\xff\xfe") {
+        views.push(utf16(true, body));
+    } else if let Some(body) = data.strip_prefix(b"\xfe\xff") {
+        views.push(utf16(false, body));
+    }
+    views.push(String::from_utf8_lossy(data).into_owned());
+    if data.contains(&0) {
+        let stripped: Vec<u8> = data.iter().copied().filter(|&b| b != 0).collect();
+        views.push(String::from_utf8_lossy(&stripped).into_owned());
+    }
+    views
+}
+
 /// Scans in-memory content of a file called `name`.
 pub fn scan_bytes(name: &str, data: &[u8]) -> FileReport {
     let base = detect::basename(name).to_string();
     let ext = base.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-    let unscannable = if ARCHIVE_EXTS.contains(&ext.as_str()) && base.contains('.') {
+    let unscannable = if let Some((_, what)) = ARCHIVE_MAGIC
+        .iter()
+        .find(|(magic, _)| data.starts_with(magic))
+    {
+        Some(format!(
+            "compressed archive ({what} content) cannot be inspected"
+        ))
+    } else if ARCHIVE_EXTS.contains(&ext.as_str()) && base.contains('.') {
         Some(format!("compressed archive (.{ext}) cannot be inspected"))
     } else {
         None
@@ -95,7 +145,15 @@ pub fn scan_bytes(name: &str, data: &[u8]) -> FileReport {
     let findings = if unscannable.is_some() {
         Vec::new()
     } else {
-        scan_text(&String::from_utf8_lossy(data))
+        let mut all = Vec::new();
+        for view in text_views(data) {
+            for f in scan_text(&view) {
+                if !all.contains(&f) {
+                    all.push(f);
+                }
+            }
+        }
+        all
     };
     FileReport {
         name: base,
