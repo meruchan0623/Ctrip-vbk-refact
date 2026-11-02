@@ -97,7 +97,8 @@ jobs:
           APPLE_PASSWORD: ${{ env.SIGN == 'true' && secrets.APPLE_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ env.SIGN == 'true' && secrets.APPLE_TEAM_ID || '' }}
           VBK_GIT_COMMIT: ${{ github.sha }}
-        run: cargo tauri build --runner "cargo auditable" --target ${{ matrix.target }} --bundles app,dmg
+        # `--runner` is spawned as ONE executable (no shell split): the cargo-auditable binary, not "cargo auditable".
+        run: cargo tauri build --runner cargo-auditable --target ${{ matrix.target }} --bundles app,dmg
 
       - name: Architecture check (lipo -archs)
         run: |
@@ -197,7 +198,7 @@ jobs:
         run: |
           $extra = @()
           if ($env:SIGN -eq 'true') { $extra = @("--config", (Join-Path $env:RUNNER_TEMP "sign.conf.json")) }
-          cargo tauri build --runner "cargo auditable" --target x86_64-pc-windows-msvc --bundles nsis @extra
+          cargo tauri build --runner cargo-auditable --target x86_64-pc-windows-msvc --bundles nsis @extra
 
       - name: Authenticode verification (exe, installer)
         if: env.SIGN == 'true'

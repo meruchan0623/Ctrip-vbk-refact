@@ -35,7 +35,7 @@ use core_store::{
 use tauri::AppHandle;
 
 use crate::dto::{AdapterFactDto, AdapterFactEnvelopeDto};
-use crate::views::ViewRegistry;
+use crate::views::{Role, ViewRegistry};
 
 /// Boot-scoped monotonic clock.
 #[derive(Debug)]
@@ -188,8 +188,20 @@ impl HostState {
 
     // ------------------------------------------------------------ views
 
+    /// Runtime ACL for every command of every module: the label's role must
+    /// grant `command`, and (I-03) a local window must have announced the
+    /// host's `CONTRACT_VERSION` through `contract_hello` first. The remote
+    /// `acct-*` adapter webviews run the host-injected boot script of the
+    /// same build and have no `contract_hello` permission, so only the local
+    /// window roles take the handshake.
     pub fn authorize(&self, label: &str, command: &str) -> Result<(), AppError> {
-        self.lock().views.authorize(label, command).map(|_| ())
+        // The `Cores` guard is a temporary: it is released before the (separate,
+        // process-wide) contract-gate mutex is taken, so the two never nest.
+        self.lock().views.authorize(label, command)?;
+        if command == "contract_hello" || Role::for_label(label) == Some(Role::Adapter) {
+            return Ok(());
+        }
+        crate::commands::contract_check(label)
     }
 
     // ------------------------------------------------------------ IM facts

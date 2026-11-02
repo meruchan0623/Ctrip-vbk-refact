@@ -46,6 +46,9 @@ fn invalid() -> AppError {
     )
 }
 fn capture(state: &HostState, window: &Window, command: &str) -> Result<ViewContext, AppError> {
+    // Role ACL plus the contract handshake (I-03) first, exactly like every
+    // other module's guard; then the generation-bound context for the reply.
+    state.authorize(window.label(), command)?;
     state.lock().views.authorize(window.label(), command)
 }
 fn current(app: &AppHandle, view: &ViewContext) -> Result<(), AppError> {

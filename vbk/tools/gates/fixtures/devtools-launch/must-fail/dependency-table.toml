@@ -1,0 +1,3 @@
+[dependencies.tauri]
+version = "2"
+features = ["devtools"]

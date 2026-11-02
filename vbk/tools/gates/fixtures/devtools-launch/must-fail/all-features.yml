@@ -1,0 +1,4 @@
+jobs:
+  r:
+    steps:
+      - run: cargo tauri build --all-features

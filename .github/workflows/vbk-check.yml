@@ -2,9 +2,10 @@ name: vbk check
 
 on:
   push:
-    paths: ["vbk/**", ".github/workflows/vbk-check.yml"]
+    # The devtools-launch gate scans every workflow, so a workflow change must also run the gates.
+    paths: ["vbk/**", ".github/workflows/*.yml"]
   pull_request:
-    paths: ["vbk/**"]
+    paths: ["vbk/**", ".github/workflows/*.yml"]
 
 jobs:
   cores:
