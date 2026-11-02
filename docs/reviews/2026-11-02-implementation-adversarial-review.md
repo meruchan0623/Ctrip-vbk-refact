@@ -55,14 +55,16 @@
 
 审查判定**不成立**的担忧：outbound journal 与持久化队列的 `cas_conflict`（目录不同、无共享文档）；`createTauriIpc` 并发首调用竞态；fetch 钩子 official/adapter 分类可被调用栈欺骗（分类依据是持有钩子前的原生 fetch）。
 
-### 3.1 未修的 P1（跨模块或需拍板）
+### 3.1 跨模块 P1 的处置（同日第二轮已修 3/4）
 
-| 位置 | 问题 | 归属 |
+| 位置 | 问题 | 处置 |
 | --- | --- | --- |
-| `state.rs` `persist_failed()` | 计划要求 UI 显示「本地保存失败」且发送屏障关闭，该方法全仓无调用方 | adapter.rs/UI owner（I-05b/I-28a） |
-| `login.rs` `unlock_after_reauth` | 生产从未调用；logout 写锁后该命名空间跨重启只读 | 账号状态机 owner（I-13） |
-| 草稿宿主命令 | `DRAFT_LOAD/SAVE` 不存在，D10「重启恢复」只在内存端口成立 | adapter.rs owner（I-05b 合入） |
-| `feature://fact` | typing/排队/撤回广播的宿主→主窗事件无代码 | 集成负责人 |
+| `state.rs` `persist_failed()` | 无调用方，发送屏障未关闭、UI 无提示 | **已修**：新增错误码 `store.persist_failed`；`im_send_text` 在 journal reserve 前、`im_send_media` 在任何暂存/上传前经 `HostState::persist_barrier()` 拒绝；`UiAccountSnapshot.persist_failed` 字段，调度 tick 边沿翻转时重发 `account://changed`，主窗显示「本地保存失败，发送已暂停」并禁用发送，回执成功自动恢复。TS 测试 6 项、core-store 4 项 |
+| `login.rs` `unlock_after_reauth` | 生产从未调用，logout 后命名空间跨重启只读 | **已修**：`JobPayload::Unlock`（Kind::Lock，保序、幂等、有回执）；`HostState::unlock_namespace` 在 `publish_identity` 接纳与 `resume_quick_login` 两处入队 |
+| 草稿宿主命令 | `DRAFT_LOAD/SAVE` 不存在 | **已修**：`core-store::drafts::DraftBook`（首存 version=1、CAS、删除、跨 namespace 不可见、重启读回）；宿主 `features/draft.rs` 的 `im_draft_load/save` 五方注册，不持 Cores 锁写盘。顺带修正 `main.ts` 从 `UiCommands` 探测 `DRAFT_*` 的错误（该键永不存在，端口此前恒为空） |
+| `feature://fact` | typing/排队/撤回广播的宿主→主窗事件无代码 | 未修：需宿主 adapter 事实 → 主窗事件通道设计，归集成负责人 |
+
+第二轮合并后门禁：cargo test 528、clippy 0 错、fmt 干净、npm test 943、门禁 0 违规、release-scan clean。合并后的首次 `cargo test --workspace` 出现过 1 次失败（364 通过后中止），随后 22 次全量/分 crate 重跑均未复现、无 panic 输出；按未定位的偶发记录，不视为已排除。宿主侧新增函数（`persist_barrier`、`unlock_namespace`、`features::draft::*`、`scheduler::run` 边沿段、`login::on_identity` 两处调用）仍**未编译**。
 
 ### 3.2 需用户拍板（本轮按默认值执行，未替用户决定）
 
