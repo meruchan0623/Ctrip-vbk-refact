@@ -494,6 +494,9 @@ function mergeMessageRecord(existing: UiMessage, incoming: UiMessage): UiMessage
 
 /** A local ID is only a sender-compatible alias, never authority to join known server IDs. */
 export function mergeHistory(earlier: readonly UiMessage[], current: readonly UiMessage[]): UiMessage[] {
+  return registerMergeOutput(mergeCore(earlier, current));
+}
+function mergeCore(earlier: readonly UiMessage[], current: readonly UiMessage[]): UiMessage[] {
   type Group = { message: UiMessage; locals: Set<string> };
   const groups = new Set<Group>();
   const servers = new Map<string, Group>();
@@ -539,6 +542,56 @@ export function mergeHistory(earlier: readonly UiMessage[], current: readonly Ui
     }
   }
   return [...groups].map(group => group.message).sort((a, b) => a.create_time_ms - b.create_time_ms);
+}
+
+// ---- incremental single-message path (I-28b)
+// If merging a list with nothing changes it (a fixpoint), a message that touches no existing identity
+// is just a stable-sort append: insert after every row with create_time_ms <= its own, and the result
+// is again a fixpoint. mergeHistory output is a fixpoint for coherent data but not for every adversarial
+// mix of conflicting senders/aliases, so each full-merge result is verified once (one extra merge) and
+// unverified or failing lists keep the full path. Exact server matches, local aliases and odd
+// timestamps always take the full path.
+interface MergeIndex { list: readonly UiMessage[]; servers: Set<string>; locals: Set<string> }
+const mergeOutputs = new WeakSet<readonly UiMessage[]>();
+const fixpoints = new WeakSet<readonly UiMessage[]>();
+const mergeIndexes = new WeakMap<readonly UiMessage[], MergeIndex>();
+const identityKey = (gid: string, id: string): string => `${gid}\u0000${id}`;
+function registerMergeOutput(list: UiMessage[]): UiMessage[] { mergeOutputs.add(list); return list; }
+function mergeIndexOf(list: readonly UiMessage[]): MergeIndex {
+  const cached = mergeIndexes.get(list);
+  if (cached?.list === list) return cached;
+  const index: MergeIndex = { list, servers: new Set(), locals: new Set() };
+  for (const row of list) {
+    if (row.message_id) index.servers.add(identityKey(row.gid, row.message_id));
+    if (row.local_id) index.locals.add(identityKey(row.gid, row.local_id));
+  }
+  mergeIndexes.set(list, index);
+  return index;
+}
+/** Same result as `mergeHistory(list, [message])`, in O(log n) lookup plus one array copy when `message` is new. */
+export function mergeHistoryIncremental(list: readonly UiMessage[], message: UiMessage): UiMessage[] {
+  if (!mergeOutputs.has(list) || !Number.isFinite(message.create_time_ms)) return mergeHistory(list, [message]);
+  if (!fixpoints.has(list)) {
+    const again = mergeCore(list, []);
+    if (again.length !== list.length || again.some((row, i) => row !== list[i])) { mergeOutputs.delete(list); return mergeHistory(list, [message]); }
+    fixpoints.add(list);
+  }
+  const index = mergeIndexOf(list);
+  if ((message.message_id && index.servers.has(identityKey(message.gid, message.message_id))) || (message.local_id && index.locals.has(identityKey(message.gid, message.local_id)))) return mergeHistory(list, [message]);
+  let lo = 0, hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid]!.create_time_ms <= message.create_time_ms) lo = mid + 1; else hi = mid;
+  }
+  const next = registerMergeOutput([...list.slice(0, lo), message, ...list.slice(lo)]);
+  fixpoints.add(next);
+  // Hand the index to the new list; the old list rebuilds lazily if anyone asks again.
+  if (message.message_id) index.servers.add(identityKey(message.gid, message.message_id));
+  if (message.local_id) index.locals.add(identityKey(message.gid, message.local_id));
+  index.list = next;
+  mergeIndexes.set(next, index);
+  mergeIndexes.delete(list);
+  return next;
 }
 
 /** DOM anchor identities carry both IDs so server confirmation can enrich a local row. */

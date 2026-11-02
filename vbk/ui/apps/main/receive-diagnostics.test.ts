@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { createReceiveCounters, createReceiveDiagnostics, safeReceiveDiagnostics, receiveDiagnosticsJson, type ReceiveDiagnosticsView } from './receive-diagnostics.ts';
-import { mergeHistory, selectedQuoteReference } from './viewmodel.ts';
+import { mergeHistoryIncremental, selectedQuoteReference } from './viewmodel.ts';
 import { guarded, isUiMessage, messageAccount } from '../_shared/guards.ts';
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 
@@ -23,7 +23,7 @@ test('actual main message entry counts received, malformed, account drop and app
   const upsertStart = source.indexOf('function upsertMessage(');
   const upsertEnd = source.indexOf('\nfunction upsertConversation(', upsertStart);
   assert.ok(upsertStart >= 0 && upsertEnd > upsertStart);
-  const upsertMessage = new Function('S', 'store', 'mergeHistory', 'selectedQuoteReference', stripTypeScriptTypes(source.slice(upsertStart, upsertEnd)) + '\nreturn upsertMessage;')(() => state, { patch: (patch: object) => Object.assign(state, patch) }, mergeHistory, selectedQuoteReference);
+  const upsertMessage = new Function('S', 'store', 'mergeHistoryIncremental', 'selectedQuoteReference', stripTypeScriptTypes(source.slice(upsertStart, upsertEnd)) + '\nreturn upsertMessage;')(() => state, { patch: (patch: object) => Object.assign(state, patch) }, mergeHistoryIncremental, selectedQuoteReference);
   const env = { receiveCounters: counters, activeAccount: () => ({ context: current }), guarded, isUiMessage, messageAccount, Events: { IM_MESSAGE_NEW: 'im://message-new' }, stillActive: (owner: AccountContext) => owner.account_id === current.account_id && owner.environment === current.environment && owner.session_generation === current.session_generation, upsertMessage };
   const receive = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)) + '\nreturn receiveMainMessage;')(...Object.values(env)) as (payload: unknown) => void;
   const message = { account, gid: 'synthetic-room', message_id: 'synthetic-message', local_id: null, sender_role: 'customer', kind: 'text', text: 'SYNTHETIC NEVER IN DIAGNOSTICS', create_time_ms: 100, translation: null, original: null, quote: null, order_id: null, disposition: null };

@@ -114,6 +114,7 @@ import {
   roleLabel,
   safeMediaUrl,
   mergeHistory,
+  mergeHistoryIncremental,
   historyScopeKey,
   rowId,
   messageHistoryKey,
@@ -736,7 +737,7 @@ function upsertMessage(m: UiMessage): boolean {
   const s = S();
   const list = s.messages[m.gid];
   if (!list) return false;
-  const next = mergeHistory(list, [m]);
+  const next = mergeHistoryIncremental(list, m);
   const quote = s.quote?.gid === m.gid && !selectedQuoteReference(s.quote, next, m.gid) ? null : s.quote;
   store.patch({ messages: { ...s.messages, [m.gid]: next }, quote });
   return true;
