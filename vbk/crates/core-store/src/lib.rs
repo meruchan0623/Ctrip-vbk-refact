@@ -29,6 +29,7 @@
 //! builds. Customer message bodies are not stored either (drafts are the
 //! agent's own unsent text).
 
+pub mod drafts;
 pub mod error;
 pub mod file;
 pub mod hooks;
@@ -39,6 +40,7 @@ pub mod repo;
 pub mod schema;
 pub mod store;
 
+pub use drafts::DraftBook;
 pub use error::codes;
 pub use file::{write_atomic, FileStore};
 pub use memory::MemoryStore;
