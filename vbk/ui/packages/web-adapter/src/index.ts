@@ -38,8 +38,29 @@ export * from './sdkGlue.ts';
 export * from './stores.ts';
 export * from './notice.ts';
 export * from './rpc.ts';
+export * from './features.ts';
+export { createTypingFeature, TypingThrottle, TypingTracker, parseInboundTyping, sendTypingState, TYPING_THROTTLE_MS, TYPING_VISIBLE_MS } from './typingState.ts';
+export { recallFeature, recallMessage, recallWithWindow, recallVerdict, recallBody, RECALL_WINDOW_MS, RECALL_MESSAGE } from './recall.ts';
+export { voiceFeature, parseVoiceBody, playableVoiceUrl, VOICE_MSGTYPE } from './voice.ts';
+export { queueFeature, isQueueNotice, checkManualAgentStatus, QUEUE_NOTICE_ACTION } from './queueStatus.ts';
+export { translateDraft, createDraftTranslator, outboundTranslateBody, GET_MESSAGE_TRANSLATE, OUTBOUND_TRANSLATE_DEBOUNCE_MS, OUTBOUND_TRANSLATE_DEFAULT_MODE } from './outboundTranslate.ts';
 
 import type { AccountContext, AdapterFact, TransportState } from '../../ipc/src/contracts.ts';
+import type { AdapterFeature } from './features.ts';
+import { createTypingFeature } from './typingState.ts';
+import { recallFeature } from './recall.ts';
+import { voiceFeature } from './voice.ts';
+import { queueFeature } from './queueStatus.ts';
+
+/**
+ * Single registration point for adapter features (plan I-30 access rule 2).
+ * A sub-item adds one import above and one element here; stateful features
+ * are built fresh per adapter instance so an account switch never shares
+ * throttles or trackers.
+ */
+export function createAdapterFeatures(): readonly AdapterFeature[] {
+  return [createTypingFeature(), recallFeature, voiceFeature, queueFeature];
+}
 import type { AdapterDeps, SdkSocketStatus } from './deps.ts';
 import { AdapterBridge } from './bridge.ts';
 import { SoaClient, type ServerTimeSample } from './soa.ts';

@@ -19,9 +19,9 @@
 
 import type { UiNotice, UiNoticeCategory } from '../../ipc/src/client.ts';
 import type { AdapterDeps } from './deps.ts';
-import { Endpoints } from './endpoints.ts';
+import { Endpoints, M } from './endpoints.ts';
 import { businessHead } from './heads.ts';
-import { recordOrNull, type SoaClient, type SoaOutcome } from './soa.ts';
+import { endpoint, recordOrNull, type SoaClient, type SoaOutcome } from './soa.ts';
 import { normalizeTimeMs } from './facts.ts';
 
 export const IQ_PAGE_SIZE = 100;
@@ -154,6 +154,22 @@ export async function fetchNoticeList(
     if (x) items.push(x);
   }
   return { ok: true, items, rows };
+}
+
+/**
+ * `11679/translateIQMessage` (notice translation). Only the PATH is known (static
+ * call-site list in docs/research/2026-10-30-web-im-observation.md); no
+ * request or response body was ever captured, so nothing is sent: the result
+ * is a stable `unsupported` until a live sample fixes the shape. Inbound chat
+ * translation (`batchTranslateByMsgIds`) is a different, verified endpoint
+ * and lives in translation.ts.
+ */
+export const TRANSLATE_IQ_MESSAGE = endpoint('translateIQMessage', M, '11679/translateIQMessage', 'read');
+
+export type NoticeTranslateResult = { readonly kind: 'unsupported'; readonly reason: 'request_shape_not_captured' };
+
+export function translateNoticeMessage(): Promise<NoticeTranslateResult> {
+  return Promise.resolve({ kind: 'unsupported', reason: 'request_shape_not_captured' });
 }
 
 /** Write; an unknown outcome is reported as such and never replayed. */
