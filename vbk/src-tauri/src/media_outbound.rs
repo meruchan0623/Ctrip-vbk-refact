@@ -8,7 +8,14 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
-pub const LOCAL_CAP: usize = 10 * 1024 * 1024;
+pub use core_im::media_contract::ATTACHMENT_CONTRACT_VERSION;
+use core_im::media_limits::{self, LimitViolation, MediaKind};
+
+/// Hard bound on bytes the host freezes in memory: the direct-upload ceiling.
+/// Per-kind caps (image 10 MiB, file 30 MiB, video 300 MiB) live in
+/// `core_im::media_limits`; anything above this bound would need the chunked
+/// upload, which is not implemented, and is refused locally.
+pub const LOCAL_CAP: usize = media_limits::DIRECT_UPLOAD_MAX_BYTES as usize;
 pub const CHUNK_CAP: usize = 256 * 1024;
 pub const TTL_MS: i64 = 5 * 60 * 1000;
 
@@ -17,6 +24,8 @@ pub struct AttachmentOwner {
     pub account: AccountContextDto,
     pub gid: String,
 }
+/// Contract name (docs/api/media-attachment-contract.md, v1) of [`AttachmentDto`].
+pub type MediaAttachmentDto = AttachmentDto;
 #[derive(Clone, Serialize)]
 pub struct AttachmentDto {
     pub attachment_id: String,
@@ -93,6 +102,20 @@ pub fn invalid() -> AppError {
         "media.invalid_attachment",
         "attachment format, size, scope or lifetime is invalid (nothing submitted)",
     )
+}
+/// Local limit rejection: the contract code, nothing submitted.
+pub fn limit_error(violation: LimitViolation) -> AppError {
+    AppError::new(
+        violation.code(),
+        "attachment exceeds an upload limit (nothing submitted)",
+    )
+}
+/// Size-only admission used when a file is frozen and again by `im_send_media`.
+pub fn check_size(kind: &str, size: u64) -> Result<(), AppError> {
+    let kind = MediaKind::parse(kind).ok_or_else(|| limit_error(LimitViolation::UnknownKind))?;
+    media_limits::check_size(kind, size)
+        .and_then(|_| media_limits::check_staging(size))
+        .map_err(limit_error)
 }
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -241,9 +264,10 @@ impl FrozenAttachment {
         }
         let file = options.open(path).map_err(|_| invalid())?;
         let before = file.metadata().map_err(|_| invalid())?;
-        if !before.is_file() || before.len() == 0 || before.len() > LOCAL_CAP as u64 {
+        if !before.is_file() {
             return Err(invalid());
         }
+        check_size(kind, before.len())?;
         let mut bytes = Vec::new();
         (&file)
             .take(LOCAL_CAP as u64 + 1)
@@ -404,6 +428,31 @@ mod tests {
                 FrozenAttachment::read(&file.0, "file", &account(1), "room", target()).is_err()
             );
         }
+        // Per-kind caps: 10 MiB image / 30 MiB file, each with its own code.
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.resize(media_limits::IMAGE_MAX_BYTES as usize + 1, 0);
+        let file = LocalFile::new(&png);
+        let denied = FrozenAttachment::read(&file.0, "image", &account(1), "room", target())
+            .err()
+            .expect("image over 10 MiB is refused");
+        assert_eq!(denied.code, "media.too_large");
+        png.truncate(media_limits::IMAGE_MAX_BYTES as usize);
+        let file = LocalFile::new(&png);
+        assert!(FrozenAttachment::read(&file.0, "image", &account(1), "room", target()).is_ok());
+        // A file between 10 and 30 MiB is accepted (the old flat cap was 10 MiB).
+        let file = LocalFile::new(&vec![7u8; media_limits::IMAGE_MAX_BYTES as usize + 1]);
+        assert!(FrozenAttachment::read(&file.0, "file", &account(1), "room", target()).is_ok());
+        assert_eq!(
+            check_size("audio", 1).err().unwrap().code,
+            "media.unknown_kind"
+        );
+        assert_eq!(
+            check_size("video", LOCAL_CAP as u64 + 1)
+                .err()
+                .unwrap()
+                .code,
+            "media.chunked_upload_unsupported"
+        );
         let file = LocalFile::new(b"arbitrary bytes named like an image");
         assert!(FrozenAttachment::read(&file.0, "image", &account(1), "room", target()).is_err());
         assert!(FrozenAttachment::read(&file.0, "video", &account(1), "room", target()).is_err());

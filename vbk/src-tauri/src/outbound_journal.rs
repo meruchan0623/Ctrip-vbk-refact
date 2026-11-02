@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use contracts::json::JsonValue;
 use contracts::{AccountContext, AppError};
+use core_im::retention::{prune_keys, RetentionEntry, RetentionPolicy};
 use core_store::{FileStore, Namespace, Store};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -75,6 +76,7 @@ pub struct UnknownAttemptMetadata {
 
 pub struct OutboundJournal {
     store: FileStore,
+    retention: RetentionPolicy,
 }
 
 impl std::fmt::Debug for OutboundJournal {
@@ -87,6 +89,16 @@ fn io_error() -> AppError {
     AppError::new(
         "im.journal_io",
         "durable outbound storage failed; nothing is automatically resent",
+    )
+}
+/// The record was committed but the durability barrier after it failed. This
+/// is its own code (media attachment contract v1): not `im.journal_io` (nothing
+/// written) and not an `unknown` send. No further step is admitted by the call
+/// that saw it; the committed row stays and later calls replay it.
+fn barrier_failed() -> AppError {
+    AppError::new(
+        core_im::media_contract::codes::IM_JOURNAL_BARRIER_FAILED,
+        "outbound record was committed but its durability barrier failed; nothing further is dispatched",
     )
 }
 fn corrupt() -> AppError {
@@ -114,6 +126,21 @@ enum Reservation {
     Existing(SendDispositionDto),
 }
 
+/// A confirmation without a server id or a rejection without a code is not
+/// evidence of either: it is `Unknown`.
+fn normalize(disposition: SendDispositionDto) -> SendDispositionDto {
+    match disposition {
+        SendDispositionDto::Confirmed {
+            ref server_message_id,
+            ..
+        } if server_message_id.trim().is_empty() => SendDispositionDto::Unknown,
+        SendDispositionDto::Rejected { ref code, .. } if code.is_empty() => {
+            SendDispositionDto::Unknown
+        }
+        valid => valid,
+    }
+}
+
 fn payload_hash(payload: &SendPayload) -> Result<String, AppError> {
     // Struct field order is fixed. The digest covers gid/text/original/quote_id,
     // including null-vs-empty, but never a transient authorization generation.
@@ -125,6 +152,7 @@ impl OutboundJournal {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, AppError> {
         Ok(Self {
             store: FileStore::open(root)?,
+            retention: RetentionPolicy::default(),
         })
     }
 
@@ -147,6 +175,47 @@ impl OutboundJournal {
     /// Recheck its strict file/directory barrier; unsupported sync fails closed.
     fn durability_barrier(&self, ns: &Namespace) -> Result<(), AppError> {
         self.store.sync_namespace(ns).map_err(|_| io_error())
+    }
+
+    /// Barrier for a row that is already committed (or already on disk): a
+    /// failure is `im.journal_barrier_failed`, never a fabricated `Unknown`.
+    fn committed_barrier(&self, ns: &Namespace) -> Result<(), AppError> {
+        self.store.sync_namespace(ns).map_err(|_| barrier_failed())
+    }
+
+    /// Drop old completed rows (best effort, after a completed row is durable).
+    /// `unknown`, in-flight and upload-stage rows are never selected, and a
+    /// failure here can never change the disposition the caller already holds.
+    fn prune_completed(&self, ns: &Namespace) {
+        let Ok(rows) = self.store.list(ns, COLLECTION) else {
+            return;
+        };
+        let entries: Vec<RetentionEntry> = rows
+            .iter()
+            .map(|(key, value)| RetentionEntry {
+                key: key.clone(),
+                completed_at_ms: serde_json::from_str::<Attempt>(&value.to_json())
+                    .ok()
+                    .filter(|row| row.phase == Phase::Completed)
+                    .and_then(|row| row.completed_at_ms),
+            })
+            .collect();
+        let doomed = prune_keys(&entries, now_ms(), self.retention);
+        if doomed.is_empty() {
+            return;
+        }
+        let Ok(mut tx) = self.store.begin(ns) else {
+            return;
+        };
+        for key in &doomed {
+            if let Some((_, value)) = rows.iter().find(|(k, _)| k == key) {
+                tx.expect_unchanged(COLLECTION, key, Some(value.clone()));
+                tx.delete(COLLECTION, key);
+            }
+        }
+        if self.store.commit(tx).is_ok() {
+            let _ = self.durability_barrier(ns);
+        }
     }
 
     fn decode(
@@ -176,7 +245,8 @@ impl OutboundJournal {
                 || (row.phase == Phase::Uploaded
                     && (row.send_started || row.message_sha256.is_none()))
                 || (matches!(row.phase, Phase::WriteStarted | Phase::Unknown) && !row.send_started)
-                || (matches!(row.disposition, SendDispositionDto::Confirmed { .. }) && !row.send_started)
+                || (matches!(row.disposition, SendDispositionDto::Confirmed { .. })
+                    && !row.send_started)
             {
                 return Err(corrupt());
             }
@@ -246,9 +316,7 @@ impl OutboundJournal {
             }
             // No record, including write_started left by a crash, authorizes a
             // second dispatch. A terminal read is durable before it is exposed.
-            if self.durability_barrier(&ns).is_err() {
-                return Ok(Reservation::Existing(SendDispositionDto::Unknown));
-            }
+            self.committed_barrier(&ns)?;
             return Ok(Reservation::Existing(existing.disposition));
         }
         let row = Attempt {
@@ -275,7 +343,10 @@ impl OutboundJournal {
         tx.expect_unchanged(COLLECTION, local_id, None);
         tx.put(COLLECTION, local_id, Self::value(&row)?);
         self.store.commit(tx)?;
-        self.durability_barrier(&ns)?;
+        // The row is committed here. A barrier failure must not be reported as
+        // a plain I/O failure (it would read as "nothing written") nor as an
+        // unknown send; it gets its own code and admits no dispatch.
+        self.committed_barrier(&ns)?;
         Ok(Reservation::New)
     }
 
@@ -394,7 +465,7 @@ impl OutboundJournal {
         tx.expect_unchanged(COLLECTION, local_id, Some(value));
         tx.put(COLLECTION, local_id, Self::value(&row)?);
         self.store.commit(tx)?;
-        self.durability_barrier(&ns)
+        self.committed_barrier(&ns)
     }
 
     pub fn finish_media(
@@ -428,17 +499,13 @@ impl OutboundJournal {
             self.durability_barrier(&ns)?;
             return Ok(row.disposition);
         }
-        if row.media_kind.is_some() && !row.send_started && !matches!(disposition, SendDispositionDto::Rejected { .. }) { return Err(corrupt()); }
-        let observed = match disposition {
-            SendDispositionDto::Confirmed {
-                ref server_message_id,
-                ..
-            } if server_message_id.trim().is_empty() => SendDispositionDto::Unknown,
-            SendDispositionDto::Rejected { ref code, .. } if code.is_empty() => {
-                SendDispositionDto::Unknown
-            }
-            valid => valid,
-        };
+        if row.media_kind.is_some()
+            && !row.send_started
+            && !matches!(disposition, SendDispositionDto::Rejected { .. })
+        {
+            return Err(corrupt());
+        }
+        let observed = normalize(disposition);
         // SDK failure reasons may echo text, originals or other request data.
         // Keep the live result for this caller, but persist only a generic reason.
         row.disposition = match &observed {
@@ -458,7 +525,10 @@ impl OutboundJournal {
         tx.expect_unchanged(COLLECTION, local_id, Some(current));
         tx.put(COLLECTION, local_id, Self::value(&row)?);
         self.store.commit(tx)?;
-        self.durability_barrier(&ns)?;
+        self.committed_barrier(&ns)?;
+        if row.phase == Phase::Completed {
+            self.prune_completed(&ns);
+        }
         Ok(observed)
     }
 
@@ -516,11 +586,21 @@ where
     }
     let observed = dispatch().await.unwrap_or(SendDispositionDto::Unknown);
     // A failed completion cannot erase the durable write_started safety fence.
-    Ok(journal
+    let held = normalize(observed.clone());
+    let finished = journal
         .lock()
         .unwrap_or_else(|p| p.into_inner())
-        .finish(account, local_id, payload, observed)
-        .unwrap_or(SendDispositionDto::Unknown))
+        .finish(account, local_id, payload, observed);
+    Ok(match finished {
+        Ok(saved) => saved,
+        // The outcome row was committed; only the follow-up sync failed. The
+        // caller holds the real outcome, so report it instead of degrading it
+        // to Unknown. Any other failure (nothing committed) stays Unknown.
+        Err(error) if error.code == core_im::media_contract::codes::IM_JOURNAL_BARRIER_FAILED => {
+            held
+        }
+        Err(_) => SendDispositionDto::Unknown,
+    })
 }
 
 #[cfg(test)]
@@ -772,18 +852,51 @@ mod tests {
 
     #[test]
     fn legacy_text_without_new_send_started_field_remains_a_started_unknown_not_a_media_upload() {
-        let root = TempDir::new(); let journal = OutboundJournal::open(root.0.clone()).unwrap();
-        journal.reserve(&account(1), "legacy-local", &payload()).unwrap();
+        let root = TempDir::new();
+        let journal = OutboundJournal::open(root.0.clone()).unwrap();
+        journal
+            .reserve(&account(1), "legacy-local", &payload())
+            .unwrap();
         let ns = Namespace::from_context(&account(1));
-        let value = journal.store.get(&ns, COLLECTION, "legacy-local").unwrap().unwrap();
+        let value = journal
+            .store
+            .get(&ns, COLLECTION, "legacy-local")
+            .unwrap()
+            .unwrap();
         let mut old: serde_json::Value = serde_json::from_str(&value.to_json()).unwrap();
         old.as_object_mut().unwrap().remove("send_started");
-        let mut tx = journal.store.begin(&ns).unwrap(); tx.put(COLLECTION, "legacy-local", JsonValue::parse(&old.to_string()).unwrap()); journal.store.commit(tx).unwrap();
+        let mut tx = journal.store.begin(&ns).unwrap();
+        tx.put(
+            COLLECTION,
+            "legacy-local",
+            JsonValue::parse(&old.to_string()).unwrap(),
+        );
+        journal.store.commit(tx).unwrap();
         drop(journal);
-        let reopened = Mutex::new(OutboundJournal::open(root.0.clone()).unwrap()); let calls = AtomicUsize::new(0);
-        assert_eq!(run(send_once(&reopened, &account(99), "legacy-local", &payload(), || async { calls.fetch_add(1, Ordering::SeqCst); Ok(SendDispositionDto::Unknown) })).unwrap(), SendDispositionDto::Unknown);
+        let reopened = Mutex::new(OutboundJournal::open(root.0.clone()).unwrap());
+        let calls = AtomicUsize::new(0);
+        assert_eq!(
+            run(send_once(
+                &reopened,
+                &account(99),
+                "legacy-local",
+                &payload(),
+                || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(SendDispositionDto::Unknown)
+                }
+            ))
+            .unwrap(),
+            SendDispositionDto::Unknown
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
-        let rows = reopened.lock().unwrap().unknown_metadata(&account(99)).unwrap(); assert_eq!(rows[0].phase, "write_started"); assert!(rows[0].write_started);
+        let rows = reopened
+            .lock()
+            .unwrap()
+            .unknown_metadata(&account(99))
+            .unwrap();
+        assert_eq!(rows[0].phase, "write_started");
+        assert!(rows[0].write_started);
     }
 
     #[test]
@@ -1577,5 +1690,93 @@ mod tests {
             );
             assert_eq!(calls.load(Ordering::SeqCst), 0);
         }
+    }
+
+    #[test]
+    fn completed_rows_are_capped_but_unknown_rows_are_never_pruned() {
+        use core_store::{Namespace, Store};
+        let root = TempDir::new();
+        let mut inner = OutboundJournal::open(root.0.clone()).unwrap();
+        inner.retention = RetentionPolicy {
+            window_ms: i64::MAX / 2,
+            max_completed: 2,
+        };
+        let journal = Mutex::new(inner);
+        let text = |n: usize| SendPayload {
+            gid: "synthetic-room".into(),
+            text: format!("synthetic text {n}"),
+            original: None,
+            quote_id: None,
+        };
+        let unknown = run(send_once(
+            &journal,
+            &account(1),
+            "unknown-1",
+            &text(0),
+            || async { Ok(SendDispositionDto::Unknown) },
+        ))
+        .unwrap();
+        assert_eq!(unknown, SendDispositionDto::Unknown);
+        for n in 1..=4usize {
+            let id = format!("done-{n}");
+            run(send_once(&journal, &account(1), &id, &text(n), || async {
+                Ok(SendDispositionDto::Confirmed {
+                    server_message_id: format!("{n}"),
+                    server_time_ms: 1,
+                })
+            }))
+            .unwrap();
+        }
+        let guard = journal.lock().unwrap();
+        let mut keys: Vec<String> = guard
+            .store
+            .list(&Namespace::from_context(&account(1)), COLLECTION)
+            .unwrap()
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        keys.sort();
+        assert_eq!(keys, ["done-3", "done-4", "unknown-1"]);
+        // The surviving unknown still blocks a replay.
+        drop(guard);
+        let calls = AtomicUsize::new(0);
+        let again = run(send_once(
+            &journal,
+            &account(1),
+            "unknown-1",
+            &text(0),
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(SendDispositionDto::Unknown)
+            },
+        ))
+        .unwrap();
+        assert_eq!(again, SendDispositionDto::Unknown);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn barrier_failure_after_commit_has_its_own_code() {
+        let error = barrier_failed();
+        assert_eq!(error.code, "im.journal_barrier_failed");
+        assert_ne!(error.code, io_error().code);
+    }
+
+    #[test]
+    fn disposition_without_evidence_normalizes_to_unknown() {
+        assert_eq!(
+            normalize(SendDispositionDto::Confirmed {
+                server_message_id: "  ".into(),
+                server_time_ms: 1
+            }),
+            SendDispositionDto::Unknown
+        );
+        assert_eq!(
+            normalize(SendDispositionDto::Rejected {
+                code: String::new(),
+                reason: "x".into()
+            }),
+            SendDispositionDto::Unknown
+        );
     }
 }

@@ -11,6 +11,8 @@
 //! * [`conversations`] — conversation registry (increment vs. full snapshot);
 //! * [`watermarks`] — list / compensation cursors and per-conversation
 //!   history windows with a proof-only complete watermark;
+//! * [`media_contract`] / [`media_limits`] / [`retention`] — media attachment
+//!   contract v1, official upload limits and completed-record retention (I-14);
 //! * [`outbox`] — immutable `SendIntent`s and `confirmed/rejected/unknown`
 //!   without any resend path;
 //! * [`rounds`] — waiting-round engine and first T1 deadline;
@@ -21,7 +23,10 @@ pub mod conversations;
 pub mod dedup;
 pub mod im_core;
 pub mod ingest;
+pub mod media_contract;
+pub mod media_limits;
 pub mod outbox;
+pub mod retention;
 pub mod rounds;
 pub mod watermarks;
 

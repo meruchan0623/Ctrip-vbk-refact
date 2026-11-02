@@ -784,6 +784,15 @@ pub async fn im_send_media(
             ))
         }
     };
+    // Official limits (contract v1) are re-checked here, before anything is
+    // staged, uploaded or journaled: a violation is always "nothing submitted".
+    if let Err(violation) = media_outbound::check_size(&frozen.dto.kind, frozen.dto.size as u64) {
+        return Ok(MediaSendResult::blocked(
+            "prepare",
+            false,
+            &format!("{}: {}", violation.code, violation.message),
+        ));
+    }
     if validate_media_target(&app, &ctx, &gid, &frozen.target)
         .await
         .is_err()
