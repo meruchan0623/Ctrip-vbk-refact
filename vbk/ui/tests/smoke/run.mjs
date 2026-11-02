@@ -209,7 +209,8 @@ async function testMain(browser, base) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   watch(page, errors);
   await page.goto(`${base}/apps/main/index.html?scenario=default&platform=windows`);
-  await page.waitForSelector('.conv', { timeout: 10000 });
+  await page.waitForSelector('.conv[data-gid="g-demo-1"]', { timeout: 10000 });
+  await page.click('.conv[data-gid="g-demo-1"]');
   await page.waitForSelector('.msg', { timeout: 10000 });
 
   // title bar / nav (prototype 02: 云游·小王 active, 夜班组 with unread, 畅行租车 expired)
@@ -233,7 +234,7 @@ async function testMain(browser, base) {
   const firstConv = await page.$('.conv');
   check((await firstConv?.getAttribute('class'))?.includes('top'), 'pinned conversation sorts first');
   await page.waitForFunction(() => document.querySelector('.conv[data-gid="g-demo-1"] .badge') === null, null, { timeout: 5000 });
-  check(true, 'auto-opened conversation was marked read (badge gone)');
+  check(true, 'explicitly selected conversation was marked read (badge gone)');
   check(/等待 \d+秒/.test((await text(page, '.conv[data-gid="g-demo-1"] .wait')) ?? ''), 'opening + marking read leaves the waiting chip untouched (host data only)');
   check((await text(page, '.conv[data-gid="g-demo-2"] .badge')) === '1', 'unread badge on another conversation');
   check((await text(page, '.conv[data-gid="g-demo-2"] .chip-lang')) === '日语', 'language chip on the row');
@@ -881,15 +882,18 @@ async function main() {
     });
   }
   try {
-    await testMain(browser, base);
-    await testMainChrome(browser, base);
-    await testMainWelcome(browser, base);
-    await testAlarm(browser, base);
-    await testSetting(browser, base);
-    await testLogin(browser, base);
-  } catch (e) {
-    failures += 1;
-    console.error(`  FAIL (exception): ${e?.stack ?? e}`);
+    // Isolate each window: one navigation/assertion failure must not skip the others.
+    for (const test of [testMain, testMainChrome, testMainWelcome, testAlarm, testSetting, testLogin]) {
+      const context = await browser.newContext();
+      try {
+        await test(context, base);
+      } catch (e) {
+        failures += 1;
+        console.error(`  FAIL (${test.name} exception): ${e?.stack ?? e}`);
+      } finally {
+        await context.close();
+      }
+    }
   } finally {
     clearTimeout(budget);
     await teardown();
