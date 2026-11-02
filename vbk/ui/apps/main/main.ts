@@ -5,6 +5,9 @@ import { readHistoryPage } from './history-read.ts';
 import { personDisplayName } from './person-name.ts';
 import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
 import { createComposerInput } from './composer-input.ts';
+import { createMainFeatureRuntime } from './features/registry.ts';
+import { ConfirmController, mountConfirmDialog } from './features/confirm-dialog.ts';
+import { FeatureEvents } from './features/context.ts';
 /**
  * Main window (prototype 02-main): title bar with account tabs, left nav
  * (消息 / 通知 / 订单联系, bottom 设置 / 账号), messages workspace,
@@ -43,9 +46,9 @@ import type {
 } from '../../packages/ipc/src/client.ts';
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
 import { MOCK_ORDER_SAMPLES } from '../../packages/ipc/src/mock.ts';
-import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
+import { appendChildren, h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched, subscribeFrame } from '../../packages/ui-kit/src/store.ts';
-import { t } from '../../packages/ui-kit/src/i18n.ts';
+import { hasKey, t } from '../../packages/ui-kit/src/i18n.ts';
 import { badgeText, formatClock, formatDate, formatDuration, formatRelativeTime } from '../../packages/ui-kit/src/format.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
@@ -1936,7 +1939,9 @@ function chatPane(s: MainState): HTMLElement {
       h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side' }, onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     ),
     netView(s.net).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
+    h('div', { dataset: { featureSlot: 'conversation-banner' } }),
     messagePane(s, conv, acc, pinned),
+    h('div', { dataset: { featureSlot: 'composer-hint' } }),
     composer(s, conv),
     emojiPicker(s),
   );
@@ -2318,6 +2323,42 @@ function fillHistoryViewport(): void {
   if (pane && conv && pane.clientHeight > 0 && pane.scrollHeight <= pane.clientHeight + 1 && !S().history[conv.gid]?.pageError) void loadEarlier(conv);
 }
 
+// Feature plug-ins (plan I-23/I-30): the only wiring main.ts owns is this block, the two slot calls in
+// chatPane and the fact listener below. Features reach the window solely through `FeatureContext`.
+let featureClock: { readonly serverMs: number; readonly perfMs: number } | null = null;
+const featureConfirm = new ConfirmController();
+mountConfirmDialog(featureConfirm, document.body);
+const featureRuntime = createMainFeatureRuntime({
+  t: (key, vars) => (hasKey(key) ? t(key, vars) : null),
+  nowMs: () => Date.now(),
+  serverNowMs: () => (featureClock ? featureClock.serverMs + (performance.now() - featureClock.perfMs) : null),
+  scope: () => {
+    const acc = activeAccount();
+    return acc?.state === 'online' ? { account: acc.context, gid: S().activeGid } : null;
+  },
+  isCurrent: (account) => stillActive(account),
+  messages: (gid) => S().messages[gid] ?? [],
+  draft: () => ({ gid: S().activeGid, text: S().draft, version: S().draftVersion }),
+  invoke: (command, payload) => ipc.invoke(command, payload),
+  confirm: (request) => featureConfirm.request(request),
+  toast,
+  requestRender: () => store.patch({}),
+  subscribe: (listener) => subscribeBatched(store, () => listener()),
+  visible: () => document.visibilityState === 'visible',
+  setTimeout: (callback, ms) => setTimeout(callback, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+});
+featureRuntime.start();
+/** Slots are empty placeholders in `render` (it is a full re-render); features paint into them right after each render. */
+const fillFeatureSlots = (): void => {
+  for (const el of root.querySelectorAll<HTMLElement>('[data-feature-slot]')) {
+    const name = el.dataset['featureSlot'];
+    if (name !== 'conversation-banner' && name !== 'composer-hint') continue;
+    el.replaceChildren();
+    appendChildren(el, featureRuntime.renderSlot(name));
+  }
+};
+
 subscribeFrame(store, (s) => {
   if (composerInput.deferRender()) return;
   withMessageAnchor(s, () => rerender(root, () => {
@@ -2338,6 +2379,9 @@ subscribeFrame(store, (s) => {
   syncConversationViewport();
 });
 rerender(root, () => render(S()));
+// Registered after the render subscriber (same frame, later callback), outside the render wiring itself.
+fillFeatureSlots();
+subscribeFrame(store, () => fillFeatureSlots());
 // Scrolling into view and returning focus must re-check the live scope and mounted rows.
 root.addEventListener('scroll', (event) => {
   visibleReads.afterRender();
@@ -2391,6 +2435,9 @@ subscribeBatched(store, () => autoQueryPackage());
 ipc.listen<unknown>(HostEvents.LOCATE, guarded(HostEvents.LOCATE, isLocatePayload, (p) => void locateConversation(p.account, p.gid)));
 ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, (p) => store.patch({ prefs: p })));
 ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => store.patch({ clockTrusted: c.quality.kind === 'anchored' })));
+// Anchored server time for feature windows (recall); anything but `anchored` clears it.
+ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => { featureClock = c.quality.kind === 'anchored' ? { serverMs: c.server_now_ms, perfMs: performance.now() } : null; }));
+ipc.listen<unknown>(FeatureEvents.FACT, (fact) => featureRuntime.onFact(fact));
 ipc.listen<unknown>(
   Events.ALARM_SNAPSHOT,
   guarded(Events.ALARM_SNAPSHOT, isAlarmSnapshot, (snap) => {

@@ -2,7 +2,8 @@
  * 24/26/29/47/51. No request runs at module load. The host owns identity guards
  * and read-back; writes are submitted once and never replayed here. */
 import type { AdapterDeps } from './deps.ts';
-import type { ConversationRowView } from './display.ts';
+import { previewOf, type ConversationRowView } from './display.ts';
+import type { HttpMessageObject } from './facts.ts';
 import { Endpoints, M } from './endpoints.ts';
 import { businessHead } from './heads.ts';
 import { endpoint, isBizSuccess, bizResultCode, recordOrNull, type EndpointSpec, type SoaClient, type SoaOutcome } from './soa.ts';
@@ -160,6 +161,99 @@ export async function getCurrentMembers(deps: AdapterDeps, soa: SoaClient, gid: 
     members.push({ uid: m['uid'], nickname: nonempty(m['nick']) ? m['nick'] : null, status: m['status'], roles: m['roles'] as number[], ...(nonempty(m['avatar']) ? { avatar: m['avatar'] } : {}), ...(Array.isArray(m['rolesv2']) && m['rolesv2'].every(v => typeof v === 'number' && Number.isSafeInteger(v)) ? { rolesv2: m['rolesv2'] as number[] } : {}) });
   }
   return { kind: 'success', value: members };
+}
+
+// ------------------------------------------------------------- server-side search
+
+/**
+ * `16037/searchConversation {head, searchType, searchValue, pageNo, startTime?, endTime?}`.
+ * Samples (49/19/27) all use `searchType: 3` and `pageNo: 1`; the full
+ * `searchType` enum is NOT known (plan I-23: "待实机取样"), so any non-negative
+ * integer is forwarded and the caller picks one it has seen. `startTime` /
+ * `endTime` (ms) come from the official search UI per the plan; they are
+ * optional and only sent when given. Response: bizResponseStatus SUCCESS and
+ * `customerSearchList[{conversation, message}]`. Only identity and a short
+ * preview survive the mapping; the raw message body is dropped.
+ */
+export const SEARCH_CONVERSATION = endpoint('searchConversation', M, '16037/searchConversation', 'read');
+export const SEARCH_VALUE_MAX_CHARS = 100;
+export const SEARCH_MAX_PAGE = 1000;
+
+export interface SearchConversationRequest {
+  readonly searchType: number;
+  readonly searchValue: string;
+  readonly pageNo: number;
+  readonly startTime?: number;
+  readonly endTime?: number;
+}
+
+export interface ConversationSearchHit {
+  readonly gid: string;
+  readonly sessionId: string | null;
+  readonly conversationKey: string | null;
+  readonly conversationType: string | null;
+  /** `conversation.id`, the worksheet id `setWorkSheetStar` / `finishConversation` need. */
+  readonly worksheetId: number | null;
+  readonly serviceType: string | null;
+  readonly status: number | null;
+  readonly title: string;
+  readonly lastMessageTime: number | null;
+  readonly messageId: string | null;
+  readonly preview: string;
+}
+
+export function searchConversationBody(deps: AdapterDeps, req: SearchConversationRequest): Record<string, unknown> {
+  return {
+    head: businessHead(deps.context),
+    searchType: req.searchType,
+    searchValue: req.searchValue,
+    pageNo: req.pageNo,
+    ...(req.startTime === undefined ? {} : { startTime: req.startTime }),
+    ...(req.endTime === undefined ? {} : { endTime: req.endTime }),
+  };
+}
+
+function searchHit(entry: unknown): ConversationSearchHit | null {
+  const r = recordOrNull(entry);
+  const c = recordOrNull(r?.['conversation']);
+  if (!r || !c || !nonempty(c['gid'])) return null;
+  const m = recordOrNull(r['message']);
+  const text = (k: string): string | null => (nonempty(c[k]) ? (c[k] as string) : null);
+  const time = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  return {
+    gid: c['gid'],
+    sessionId: text('sessionId'),
+    conversationKey: text('conversationKey'),
+    conversationType: text('conversationType'),
+    worksheetId: worksheet(c['id']) ? c['id'] : null,
+    serviceType: text('serviceType'),
+    status: typeof c['status'] === 'number' ? c['status'] : null,
+    title: text('groupTitle') ?? '',
+    lastMessageTime: time(c['lastMessageTime']),
+    messageId: m && nonempty(m['msgId']) ? m['msgId'] : null,
+    preview: m ? previewOf({ msgId: m['msgId'], messageBody: m['messageBody'], msgtype: m['msgtype'], createTime: m['createTime'] } as HttpMessageObject) : '',
+  };
+}
+
+export async function searchConversations(deps: AdapterDeps, soa: SoaClient, req: SearchConversationRequest): Promise<PeripheralReadResult<readonly ConversationSearchHit[]>> {
+  const intOk = (v: unknown, min: number, max: number): boolean => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v <= max;
+  if (!intOk(req.searchType, 0, 99)) return { kind: 'invalid', field: 'searchType' };
+  if (typeof req.searchValue !== 'string' || req.searchValue.trim() === '' || req.searchValue.length > SEARCH_VALUE_MAX_CHARS) return { kind: 'invalid', field: 'searchValue' };
+  if (!intOk(req.pageNo, 1, SEARCH_MAX_PAGE)) return { kind: 'invalid', field: 'pageNo' };
+  if (req.startTime !== undefined && !intOk(req.startTime, 0, Number.MAX_SAFE_INTEGER)) return { kind: 'invalid', field: 'startTime' };
+  if (req.endTime !== undefined && !intOk(req.endTime, 0, Number.MAX_SAFE_INTEGER)) return { kind: 'invalid', field: 'endTime' };
+  if (req.startTime !== undefined && req.endTime !== undefined && req.startTime > req.endTime) return { kind: 'invalid', field: 'endTime' };
+  const outcome = await soa.post<unknown>(SEARCH_CONVERSATION, searchConversationBody(deps, req));
+  if (outcome.kind !== 'success') return failed(outcome);
+  if (!isBizSuccess(outcome.body)) return { kind: 'biz_failure', outcome };
+  const list = recordOrNull(outcome.body)?.['customerSearchList'];
+  if (!Array.isArray(list)) return malformed('missing customerSearchList array');
+  const hits: ConversationSearchHit[] = [];
+  for (const entry of list) {
+    const hit = searchHit(entry);
+    if (hit) hits.push(hit);
+  }
+  return { kind: 'success', value: hits };
 }
 
 export interface LatestConversationState { readonly gid: string; readonly sessionId: string; readonly status: number; readonly inGroup: number }

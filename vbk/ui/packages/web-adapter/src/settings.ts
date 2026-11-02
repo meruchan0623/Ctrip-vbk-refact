@@ -10,10 +10,10 @@
  * - `16037/syncVenAgentInfo` `{head}` (write; read back with getVenAgentByUid afterwards)
  */
 
-import type { AdapterDeps } from './deps.ts';
-import { Endpoints } from './endpoints.ts';
+import type { AdapterDeps, TimerHandle } from './deps.ts';
+import { Endpoints, M } from './endpoints.ts';
 import { businessHead, platformHead } from './heads.ts';
-import { isBizSuccess, recordOrNull, type SoaClient, type SoaOutcome } from './soa.ts';
+import { endpoint, isBizSuccess, recordOrNull, type SoaClient, type SoaOutcome } from './soa.ts';
 
 export type ReadResult<T> = { readonly kind: 'ok'; readonly value: T; readonly raw: unknown } | { readonly kind: 'failed'; readonly outcome: SoaOutcome<unknown> } | { readonly kind: 'biz_failure'; readonly raw: unknown };
 
@@ -125,4 +125,147 @@ export async function getCustomerScripts(deps: AdapterDeps, soa: SoaClient, cont
   if (outcome.kind !== 'success') return { kind: 'failed', outcome };
   const list = Array.isArray(outcome.body.customerScripts) ? outcome.body.customerScripts : [];
   return { kind: 'ok', raw: outcome.body, value: list.map((x) => recordOrNull(x)).filter((x): x is Record<string, unknown> => x !== null) };
+}
+
+// ----------------------------------------------------------- quick replies (read)
+
+/**
+ * `16037/getCategories {head, typeList, categoryType:"CUSTOMSCRIPT", status:"ACTIVE"}`
+ * (evidence 65-quick-replies-read; the observed `typeList` is `["VAGENT"]`).
+ * Read only: create/edit/delete of quick replies belongs to I-26.
+ * Response `categories[]`: `{id:number, name, code, subCategories[], customerScripts[{id:number, shortCut, content, type, sortNo}]}`.
+ */
+export const GET_CATEGORIES = endpoint('getCategories', M, '16037/getCategories', 'read');
+export const QUICK_REPLY_CATEGORY_TYPE = 'CUSTOMSCRIPT';
+export const QUICK_REPLY_STATUS = 'ACTIVE';
+export const QUICK_REPLY_DEFAULT_TYPES: readonly string[] = ['VAGENT'];
+export const QUICK_REPLY_MAX_DEPTH = 3;
+export const QUICK_REPLY_MAX_SCRIPTS = 1000;
+/** Typing-suggestion debounce (plan I-23 B2): one request per pause, not per keystroke. */
+export const SCRIPT_SUGGEST_DEBOUNCE_MS = 200;
+
+export interface QuickReplyScript {
+  /** Numeric on the wire; kept as a decimal string. */
+  readonly id: string;
+  readonly content: string;
+  readonly shortCut: string;
+  readonly sortNo: number;
+}
+
+export interface QuickReplyCategory {
+  readonly id: string;
+  readonly name: string;
+  readonly code: string | null;
+  readonly scripts: readonly QuickReplyScript[];
+  readonly subCategories: readonly QuickReplyCategory[];
+}
+
+function idText(x: unknown): string | null {
+  if (typeof x === 'number' && Number.isSafeInteger(x) && x >= 0) return String(x);
+  if (typeof x === 'string' && /^\d{1,19}$/.test(x)) return x;
+  return null;
+}
+
+/** Row → script; rows without a numeric id or a non-empty string `content` are dropped (never repaired). */
+export function parseQuickReplyScript(row: unknown): QuickReplyScript | null {
+  const r = recordOrNull(row);
+  if (!r) return null;
+  const id = idText(r['id']);
+  const content = r['content'];
+  if (id === null || typeof content !== 'string' || content.trim() === '') return null;
+  return {
+    id,
+    content,
+    shortCut: typeof r['shortCut'] === 'string' ? (r['shortCut'] as string) : '',
+    sortNo: typeof r['sortNo'] === 'number' && Number.isFinite(r['sortNo']) ? (r['sortNo'] as number) : 0,
+  };
+}
+
+export function parseQuickReplyCategories(list: unknown, depth = 0, budget: { left: number } = { left: QUICK_REPLY_MAX_SCRIPTS }): QuickReplyCategory[] {
+  if (!Array.isArray(list) || depth >= QUICK_REPLY_MAX_DEPTH) return [];
+  const out: QuickReplyCategory[] = [];
+  for (const item of list) {
+    const r = recordOrNull(item);
+    const id = idText(r?.['id']);
+    if (!r || id === null || typeof r['name'] !== 'string') continue;
+    const scripts: QuickReplyScript[] = [];
+    if (Array.isArray(r['customerScripts'])) {
+      for (const s of r['customerScripts']) {
+        if (budget.left <= 0) break;
+        const parsed = parseQuickReplyScript(s);
+        if (parsed) {
+          scripts.push(parsed);
+          budget.left--;
+        }
+      }
+    }
+    scripts.sort((a, b) => a.sortNo - b.sortNo);
+    out.push({
+      id,
+      name: r['name'] as string,
+      code: typeof r['code'] === 'string' && r['code'] !== '' ? (r['code'] as string) : null,
+      scripts,
+      subCategories: parseQuickReplyCategories(r['subCategories'], depth + 1, budget),
+    });
+  }
+  return out;
+}
+
+export function quickReplyCategoriesBody(deps: AdapterDeps, typeList: readonly string[] = QUICK_REPLY_DEFAULT_TYPES): Record<string, unknown> {
+  return { head: businessHead(deps.context), typeList: [...typeList], categoryType: QUICK_REPLY_CATEGORY_TYPE, status: QUICK_REPLY_STATUS };
+}
+
+export async function getQuickReplyCategories(deps: AdapterDeps, soa: SoaClient, typeList: readonly string[] = QUICK_REPLY_DEFAULT_TYPES): Promise<ReadResult<readonly QuickReplyCategory[]>> {
+  if (typeList.length === 0 || !typeList.every((t) => /^[A-Z_]{1,32}$/.test(t))) return { kind: 'failed', outcome: { kind: 'malformed', detail: 'invalid typeList' } };
+  const outcome = await soa.post<{ categories?: unknown }>(GET_CATEGORIES, quickReplyCategoriesBody(deps, typeList));
+  if (outcome.kind !== 'success') return { kind: 'failed', outcome };
+  if (!Array.isArray(outcome.body.categories)) return { kind: 'failed', outcome: { kind: 'malformed', detail: 'missing categories array' } };
+  return { kind: 'ok', raw: outcome.body, value: parseQuickReplyCategories(outcome.body.categories) };
+}
+
+export interface ScriptSuggestion {
+  readonly query: string;
+  readonly result: ReadResult<readonly QuickReplyScript[]>;
+}
+
+export interface ScriptSuggester {
+  /** Latest query wins; a pause of 200 ms triggers exactly one `getCustomerScripts`. Empty query only cancels. */
+  query(content: string): void;
+  cancel(): void;
+}
+
+/**
+ * Typing-time suggestion over `getCustomerScripts {content}`. The official page
+ * sends one request per character (round 3); this debounces to one per pause
+ * and drops answers for superseded queries. Row shape beyond the
+ * `getCategories` sample is unproven, so rows failing `parseQuickReplyScript`
+ * are dropped, never repaired.
+ */
+export function createScriptSuggester(deps: AdapterDeps, soa: SoaClient, onSuggestion: (s: ScriptSuggestion) => void): ScriptSuggester {
+  let timer: TimerHandle | null = null;
+  let generation = 0;
+  const clear = (): void => {
+    if (timer !== null) deps.clearTimeout(timer);
+    timer = null;
+  };
+  return {
+    query(content) {
+      clear();
+      const mine = ++generation;
+      if (content.trim() === '') return;
+      timer = deps.setTimeout(() => {
+        timer = null;
+        void getCustomerScripts(deps, soa, content).then((r) => {
+          if (mine !== generation) return;
+          const result: ReadResult<readonly QuickReplyScript[]> =
+            r.kind === 'ok' ? { kind: 'ok', raw: r.raw, value: r.value.map(parseQuickReplyScript).filter((x): x is QuickReplyScript => x !== null) } : r;
+          onSuggestion({ query: content, result });
+        });
+      }, SCRIPT_SUGGEST_DEBOUNCE_MS);
+    },
+    cancel() {
+      clear();
+      generation++;
+    },
+  };
 }

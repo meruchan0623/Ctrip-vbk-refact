@@ -21,6 +21,7 @@
 
 pub mod conversations;
 pub mod dedup;
+pub mod feature_rules;
 pub mod im_core;
 pub mod ingest;
 pub mod media_contract;
