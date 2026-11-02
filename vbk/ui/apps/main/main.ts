@@ -50,7 +50,7 @@ import type {
   UiMediaSendProgress,
 } from '../../packages/ipc/src/client.ts';
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
-import { MOCK_ORDER_SAMPLES } from '../../packages/ipc/src/mock.ts';
+import { MOCK_ORDER_SAMPLES } from '../_shared/mock-loader.ts';
 import { appendChildren, h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched, subscribeFrame } from '../../packages/ui-kit/src/store.ts';
 import { hasKey, t } from '../../packages/ui-kit/src/i18n.ts';

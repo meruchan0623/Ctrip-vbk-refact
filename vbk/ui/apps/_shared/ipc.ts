@@ -2,8 +2,8 @@
 
 import type { IpcClient } from '../../packages/ipc/src/client.ts';
 import { createTauriIpc, hasTauri } from '../../packages/ipc/src/client.ts';
-import { createMockIpc, scenarioFromLocation } from '../../packages/ipc/src/mock.ts';
-import type { MockIpc } from '../../packages/ipc/src/mock.ts';
+import { createMockIpc, scenarioFromLocation } from './mock-loader.ts';
+import type { MockIpc } from './mock-loader.ts';
 
 export interface SelectedIpc {
   readonly ipc: IpcClient;
