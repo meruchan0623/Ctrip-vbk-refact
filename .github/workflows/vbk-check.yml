@@ -23,7 +23,7 @@ jobs:
         working-directory: vbk
 
   ui:
-    name: typescript (tsc + node:test + playwright smoke)
+    name: typescript (tsc + node:test + source gates + playwright smoke)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,17 +36,21 @@ jobs:
         working-directory: vbk
       - run: npx tsc -p tsconfig.json
         working-directory: vbk
-      - run: node --test "ui/**/*.test.ts"
+      - run: node --test "ui/**/*.test.ts" "tools/gates/*.test.mjs"
+        working-directory: vbk
+      # I-02 source gates: fixtures self-test first, then the real tree (TLS/debug, CSP snapshot,
+      # capability matrix, DOM sinks, DevTools/launch switches).
+      - run: node tools/gates/run.mjs
         working-directory: vbk
       - run: node ui/tests/smoke/run.mjs
         working-directory: vbk
 
   host:
     # The Tauri host needs the platform webview (WebView2 / WKWebView) and a
-    # crate registry, so it is checked on the real OS runners. `generate_context!`
+    # crate registry, so it is built and tested on the real OS runners. `generate_context!`
     # embeds `ui/bundle`, so the UI bundle is assembled first. Never published
     # from CI (REL tasks own signing, notarization and release).
-    name: tauri host (${{ matrix.os }}, cargo check)
+    name: tauri host (${{ matrix.os }}, cargo test)
     strategy:
       fail-fast: false
       matrix:
@@ -62,7 +66,8 @@ jobs:
         working-directory: vbk
       - run: node ui/tools/bundle.mjs
         working-directory: vbk
-      - run: cargo check
+      # Host unit tests (I-01/I-02): compiles every target, so it subsumes `cargo check`.
+      - run: cargo test
         working-directory: vbk/src-tauri
 
   macos-bundle:

@@ -1,0 +1,82 @@
+{
+  "capabilities": {
+    "main.json": {
+      "identifier": "main",
+      "windows": [
+        "main"
+      ],
+      "permissions": [
+        "core:default",
+        "allow-ping",
+        "allow-secret-free"
+      ]
+    },
+    "popups.json": {
+      "identifier": "popups",
+      "windows": [
+        "alarm"
+      ],
+      "permissions": [
+        "allow-ping"
+      ]
+    },
+    "package-detail.json": {
+      "identifier": "package-detail",
+      "windows": [
+        "package-detail-*"
+      ],
+      "permissions": [
+        "allow-ping"
+      ]
+    },
+    "adapter.json": {
+      "identifier": "adapter",
+      "webviews": [
+        "acct-*"
+      ],
+      "remote": {
+        "urls": [
+          "https://vbooking.ctrip.com/*",
+          "https://imvendor.ctrip.com/*"
+        ]
+      },
+      "permissions": [
+        "core:event:allow-listen",
+        "core:event:allow-unlisten",
+        "allow-adapter-ready",
+        "allow-adapter-identity",
+        "allow-adapter-push-fact",
+        "allow-adapter-push-display",
+        "allow-adapter-reply"
+      ]
+    }
+  },
+  "viewsRs": "pub const MAIN: &str = \"main\";\npub const ALARM: &str = \"alarm\";\npub const PACKAGE_DETAIL_PREFIX: &str = \"package-detail-\";\npub const ACCOUNT_WEBVIEW_PREFIX: &str = \"acct-\";\nconst MAIN_CMDS: &[&str] = &[\"ping\", \"secret_free\"];\nconst ALARM_CMDS: &[&str] = &[\"ping\"];\nconst DETAIL_CMDS: &[&str] = &[\"ping\"];\nconst ADAPTER_CMDS: &[&str] = &[\"adapter_ready\", \"adapter_identity\", \"adapter_push_fact\", \"adapter_push_display\", \"adapter_reply\"];\n",
+  "commandsTxt": "# one per line\nping\nsecret_free\nadapter_ready\nadapter_identity\nadapter_push_fact\nadapter_push_display\nadapter_reply\n",
+  "libRs": "tauri::generate_handler![\n    commands::ping,\n    commands::secret_free,\n    commands::adapter_ready,\n    commands::adapter_identity,\n    commands::adapter_push_fact,\n    commands::adapter_push_display,\n    commands::adapter_reply,\n]",
+  "tsCommands": [
+    "ping",
+    "secret_free",
+    "adapter_ready",
+    "adapter_identity",
+    "adapter_push_fact",
+    "adapter_push_display",
+    "adapter_reply"
+  ],
+  "rustCommands": [
+    {
+      "name": "ping",
+      "params": []
+    },
+    {
+      "name": "secret_free",
+      "params": [
+        {
+          "name": "account",
+          "type": "AccountContextDto"
+        }
+      ]
+    }
+  ],
+  "shapeAllowlist": []
+}

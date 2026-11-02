@@ -6,6 +6,7 @@
     "package-detail-*"
   ],
   "permissions": [
+    "allow-contract-hello",
     "core:default",
     "core:event:allow-listen",
     "core:window:allow-start-dragging",

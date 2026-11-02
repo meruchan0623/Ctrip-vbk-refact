@@ -112,6 +112,7 @@ pub fn parse_session_ref(status: u16, body: &str) -> Result<String, AppError> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
     #[test]
     fn import_accepts_only_server_active_state_and_never_infers_a_reference_from_jwt_claims() {

@@ -66,6 +66,8 @@ fn safe_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
+// Only the Windows discovery path calls this outside tests.
+#[cfg(any(windows, test))]
 fn profile_name(name: &str) -> bool {
     name == "Default"
         || name.strip_prefix("Profile ").is_some_and(|n| {
@@ -1004,11 +1006,17 @@ mod tests {
         };
         (out, metadata)
     }
+    /// The production check rejects symlinked ancestors, and on macOS `TMPDIR`
+    /// (`/var/folders/..`) itself lives under the `/var -> /private/var` symlink.
+    /// Fixtures therefore root at the canonical temp dir; the guard stays untouched.
+    fn temp_root() -> PathBuf {
+        fs::canonicalize(std::env::temp_dir()).unwrap()
+    }
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(0);
-            let path = std::env::temp_dir().join(format!(
+            let path = temp_root().join(format!(
                 "vbk-browser-reader-test-{}-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
@@ -1032,7 +1040,7 @@ mod tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             // Only the uniquely named fixture directory directly under TEMP.
-            if self.0.parent() == Some(std::env::temp_dir().as_path())
+            if self.0.parent() == Some(temp_root().as_path())
                 && self
                     .0
                     .file_name()

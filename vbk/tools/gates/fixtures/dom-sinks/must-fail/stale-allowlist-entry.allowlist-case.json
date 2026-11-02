@@ -1,0 +1,12 @@
+{
+  "file": "a.ts",
+  "text": "export const x = 1;\n",
+  "allowlist": [
+    {
+      "file": "a.ts",
+      "line": 2,
+      "sink": "innerHTML",
+      "expires": "B1/I-29"
+    }
+  ]
+}

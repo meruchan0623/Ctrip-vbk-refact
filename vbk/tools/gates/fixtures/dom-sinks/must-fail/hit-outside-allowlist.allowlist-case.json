@@ -1,0 +1,5 @@
+{
+  "file": "a.ts",
+  "text": "export function f(el: any, s: string) {\n  el.innerHTML = s;\n}\n",
+  "allowlist": []
+}

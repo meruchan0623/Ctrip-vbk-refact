@@ -1,0 +1,12 @@
+{
+  "file": "a.ts",
+  "text": "export const a = 1;\nexport function f(el: any, s: string) {\n  el.innerHTML = s;\n}\n",
+  "allowlist": [
+    {
+      "file": "a.ts",
+      "line": 3,
+      "sink": "innerHTML",
+      "expires": "B1/I-29"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+setTimeout('doIt()', 10);

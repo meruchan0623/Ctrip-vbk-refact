@@ -1,0 +1,10 @@
+{
+  "tsCommands": [
+    "ping",
+    "secret_free",
+    "adapter_ready",
+    "adapter_identity",
+    "adapter_push_fact",
+    "adapter_push_display"
+  ]
+}

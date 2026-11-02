@@ -1,4 +1,5 @@
 //! Store invariants through the public API (DAT-01 / DAT-02 / 05-store).
+#![allow(clippy::unwrap_used)]
 
 use std::fs;
 use std::path::PathBuf;

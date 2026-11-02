@@ -1,0 +1,4 @@
+jobs:
+  release:
+    steps:
+      - run: cargo tauri build --features devtools

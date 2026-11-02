@@ -1,0 +1,4 @@
+[features]
+default = []
+# Dev builds may open devtools; release builds never do.
+devtools = ["tauri/devtools"]

@@ -1,0 +1,7 @@
+{
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; frame-src https://*.ctrip.com; object-src 'none'"
+    }
+  }
+}
