@@ -13,6 +13,7 @@
 //! signatures of `adapter.rs`, `state.rs` and `dto.rs` and must be compiled
 //! on the target machine before merging.
 
+pub mod draft;
 pub mod queue;
 pub mod recall;
 pub mod typing;

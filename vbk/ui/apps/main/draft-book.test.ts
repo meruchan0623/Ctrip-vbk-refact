@@ -6,6 +6,7 @@ import { createDraftBook, createIpcDraftPort, draftOwnerKey } from './draft-book
 import type { DraftMap, DraftOwner, DraftPort } from './draft-book.ts';
 import { createStore } from '../../packages/ui-kit/src/store.ts';
 import { sameAccount } from './viewmodel.ts';
+import { ImCommands } from '../../packages/ipc/src/commands.ts';
 
 const A: DraftOwner = { environment: 'prod', account_id: 'agent-A' };
 const B: DraftOwner = { environment: 'prod', account_id: 'agent-B' };
@@ -126,14 +127,16 @@ test('IPC port speaks the core-store draft contract: versions, deletes, and one 
 
 test('real main wiring: store drafts are persisted per account, restored on switch back, and never leak across accounts', async () => {
   const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
-  const a = source.indexOf('const draftCommands'), b = source.indexOf("window.addEventListener('pagehide'", a);
+  const a = source.indexOf('const draftBook = createDraftBook('), b = source.indexOf("window.addEventListener('pagehide'", a);
   assert.ok(a >= 0 && b > a);
+  assert.match(source.slice(a, b), /ImCommands\.DRAFT_LOAD/);
+  assert.match(source.slice(a, b), /ImCommands\.DRAFT_SAVE/);
   const ctx = (id: string, generation = 1) => ({ account_id: id, environment: 'prod', session_generation: generation });
   const accounts = (id: string, generation = 1) => ({ active_account_id: id, accounts: [{ context: ctx(id, generation), state: 'online' }] });
   const store = createStore<any>({ accounts: accounts('agent-A'), drafts: {}, draft: '', draftVersion: 0, activeGid: 'room' });
   const port = memoryPort();
   const env: Record<string, unknown> = {
-    UiCommands: { DRAFT_LOAD: 'draft_load', DRAFT_SAVE: 'draft_save' }, ipc: { invoke: async () => ({}) }, store, S: () => store.get(), sameAccount,
+    ImCommands, ipc: { invoke: async () => ({}) }, store, S: () => store.get(), sameAccount,
     activeAccount: (s = store.get()) => s.accounts.accounts.find((x: any) => x.context.account_id === s.accounts.active_account_id) ?? null,
     stillActive: (account: any) => { const x = store.get().accounts.accounts.find((y: any) => y.context.account_id === store.get().accounts.active_account_id); return !!x && x.context.account_id === account.account_id && x.context.session_generation === account.session_generation; },
     createDraftBook: (p: DraftPort | null, o?: object) => createDraftBook(port, { ...o, delayMs: 0 }), createIpcDraftPort: () => port, window: { addEventListener() {} }, document: { addEventListener() {}, visibilityState: 'visible' },
@@ -158,4 +161,89 @@ test('real main wiring: store drafts are persisted per account, restored on swit
   await book.flush();
   assert.deepEqual([...(port.disk.get(draftOwnerKey(ctx('agent-A'))) ?? [])], []);
   assert.deepEqual([...(port.disk.get(draftOwnerKey(ctx('agent-B'))) ?? [])], [['room', 'for B']]);
+});
+
+/**
+ * A stand-in for the host's `im_draft_load` / `im_draft_save` (src-tauri/src/features/draft.rs over
+ * core-store `DraftBook`): per (environment, account_id, gid) versions, first save = 1, a stale
+ * `expected_version` rejects with `store.cas_conflict`, empty text deletes and resets to 0.
+ */
+function hostDraftStore() {
+  const rows = new Map<string, Map<string, { text: string; version: number }>>();
+  const calls: { command: string; payload: any }[] = [];
+  const nsKey = (account: any) => `${account.environment}/${account.account_id}`;
+  const invoke = async (command: string, rawPayload: unknown): Promise<unknown> => {
+    const payload = rawPayload as any;
+    calls.push({ command, payload });
+    const ns = rows.get(nsKey(payload.account)) ?? new Map<string, { text: string; version: number }>();
+    rows.set(nsKey(payload.account), ns);
+    if (command === ImCommands.DRAFT_LOAD) return { drafts: [...ns].map(([gid, r]) => ({ gid, text: r.text, version: r.version })) };
+    if (command !== ImCommands.DRAFT_SAVE) throw new Error(`unexpected command ${command}`);
+    const current = ns.get(payload.gid)?.version ?? 0;
+    if (current !== payload.expected_version) throw Object.assign(new Error(`draft version is ${current}, expected ${payload.expected_version}`), { code: 'store.cas_conflict', retryable: false });
+    if (payload.text === '') { ns.delete(payload.gid); return { version: 0 }; }
+    ns.set(payload.gid, { text: payload.text, version: current + 1 });
+    return { version: current + 1 };
+  };
+  return { rows, calls, invoke, texts: (account: DraftOwner) => Object.fromEntries([...(rows.get(nsKey(account)) ?? [])].map(([g, r]) => [g, r.text])) };
+}
+const realCommands = { load: ImCommands.DRAFT_LOAD, save: ImCommands.DRAFT_SAVE };
+const withGeneration = (owner: DraftOwner) => ({ ...owner, session_generation: 1 });
+
+test('host contract end to end: the book over the IPC port persists, versions, deletes and restores across a restart', async () => {
+  const host = hostDraftStore();
+  const first = createDraftBook(createIpcDraftPort(host.invoke, realCommands, withGeneration));
+  first.write(A, '1001', 'hello');
+  first.write(A, '1002', 'short lived');
+  await first.flush();
+  first.write(A, '1001', 'hello again');
+  first.write(A, '1002', '');
+  await first.flush();
+  assert.deepEqual(host.texts(A), { '1001': 'hello again' });
+  assert.equal(host.rows.get('prod/agent-A')!.get('1001')!.version, 2, 'two saves, versions 1 then 2');
+  const saves = host.calls.filter(c => c.command === ImCommands.DRAFT_SAVE);
+  assert.deepEqual(saves.map(c => c.payload.expected_version), [0, 0, 1, 1], 'each save presents the version it last learned');
+  assert.equal(saves[0]!.command, 'im_draft_save');
+  // Restart: a fresh port has no versions; it learns them from the load.
+  const second = createDraftBook(createIpcDraftPort(host.invoke, realCommands, withGeneration));
+  assert.deepEqual(await second.restore(A), { '1001': 'hello again' });
+  second.write(A, '1001', 'after restart');
+  await second.flush();
+  assert.deepEqual(host.calls.at(-1)!.payload, { account: withGeneration(A), gid: '1001', text: 'after restart', expected_version: 2 });
+  assert.equal(host.rows.get('prod/agent-A')!.get('1001')!.version, 3);
+});
+
+test('host contract end to end: a second window saving first yields store.cas_conflict, the port reloads and the last writer wins', async () => {
+  const host = hostDraftStore();
+  const errors: unknown[] = [];
+  const windowOne = createDraftBook(createIpcDraftPort(host.invoke, realCommands, withGeneration), { onError: e => errors.push(e) });
+  const windowTwo = createDraftBook(createIpcDraftPort(host.invoke, realCommands, withGeneration), { onError: e => errors.push(e) });
+  await windowOne.restore(A); await windowTwo.restore(A);
+  windowTwo.write(A, '1001', 'from window two'); await windowTwo.flush();
+  windowOne.write(A, '1001', 'from window one'); await windowOne.flush();
+  assert.equal(errors.length, 0, 'the conflict is absorbed by the port, not surfaced');
+  assert.deepEqual(host.texts(A), { '1001': 'from window one' });
+  const saves = host.calls.filter(c => c.command === ImCommands.DRAFT_SAVE).map(c => c.payload.expected_version);
+  assert.deepEqual(saves, [0, 0, 1], 'window one: stale 0 → conflict → reload → 1');
+  assert.equal(host.calls.filter(c => c.command === ImCommands.DRAFT_LOAD).length, 3, 'two restores plus the reload after the conflict');
+  // A conflict that persists after the reload is a real error and stays dirty.
+  let poison = true;
+  const flaky = createDraftBook(createIpcDraftPort(async (c, p) => { if (c === ImCommands.DRAFT_SAVE && poison) throw Object.assign(new Error('cas'), { code: 'store.cas_conflict' }); return host.invoke(c, p); }, realCommands, withGeneration), { onError: e => errors.push(e) });
+  flaky.write(A, '1001', 'never lands'); await flaky.flush();
+  assert.equal(errors.length, 1); assert.equal((errors[0] as any).code, 'store.cas_conflict'); assert.equal(flaky.pending, 1);
+  poison = false; await flaky.flush();
+  assert.equal(flaky.pending, 0); assert.deepEqual(host.texts(A), { '1001': 'never lands' });
+});
+
+test('host contract end to end: accounts and environments never see each other\'s drafts', async () => {
+  const host = hostDraftStore();
+  const book = createDraftBook(createIpcDraftPort(host.invoke, realCommands, withGeneration));
+  const uatA: DraftOwner = { environment: 'uat', account_id: 'agent-A' };
+  book.write(A, '1001', 'prod A'); book.write(B, '1001', 'prod B'); book.write(uatA, '1001', 'uat A');
+  await book.flush();
+  const again = createDraftBook(createIpcDraftPort(host.invoke, realCommands, withGeneration));
+  assert.deepEqual(await again.restore(A), { '1001': 'prod A' });
+  assert.deepEqual(await again.restore(B), { '1001': 'prod B' });
+  assert.deepEqual(await again.restore(uatA), { '1001': 'uat A' });
+  for (const c of host.calls) assert.deepEqual(Object.keys(c.payload.account).sort(), ['account_id', 'environment', 'session_generation']);
 });

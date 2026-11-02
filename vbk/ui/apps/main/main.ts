@@ -29,7 +29,7 @@ const platform = applyPlatform();
 
 import type { AccountContext, SendDisposition } from '../../packages/ipc/src/contracts.ts';
 import { RED_AFTER_SECONDS, isAppError } from '../../packages/ipc/src/contracts.ts';
-import { AccountCommands, Events, PrefsCommands, WindowLabels } from '../../packages/ipc/src/commands.ts';
+import { AccountCommands, Events, ImCommands, PrefsCommands, WindowLabels } from '../../packages/ipc/src/commands.ts';
 import type {
   AgentStatus,
   OrderSearchResult,
@@ -2348,12 +2348,12 @@ const visibleReads = createVisibleRead({
 
 // ---- drafts per (account, conversation) (I-09)
 // The state map is per account generation and is reset on every account switch; the book remembers each
-// persistent account's drafts (and, once the host registers draft commands, stores them via core-store).
-const draftCommands: Readonly<Record<string, string | undefined>> = UiCommands;
-const draftLoad = draftCommands['DRAFT_LOAD'], draftSave = draftCommands['DRAFT_SAVE'];
-const draftBook = createDraftBook(draftLoad && draftSave
-  ? createIpcDraftPort((command, payload) => ipc.invoke(command, payload), { load: draftLoad, save: draftSave }, owner => S().accounts?.accounts.find(a => a.context.account_id === owner.account_id && a.context.environment === owner.environment)?.context ?? null)
-  : null);
+// persistent account's drafts and stores them through the host's `im_draft_load/save` (core-store DraftBook).
+const draftBook = createDraftBook(createIpcDraftPort(
+  (command, payload) => ipc.invoke(command, payload),
+  { load: ImCommands.DRAFT_LOAD, save: ImCommands.DRAFT_SAVE },
+  owner => S().accounts?.accounts.find(a => a.context.account_id === owner.account_id && a.context.environment === owner.environment)?.context ?? null,
+));
 async function restoreDrafts(context: AccountContext): Promise<void> {
   const stored = await draftBook.restore(context);
   if (!stillActive(context)) return;

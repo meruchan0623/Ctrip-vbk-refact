@@ -113,6 +113,8 @@ pub fn run() {
             features::recall::im_recall_message,
             features::queue::im_queue_status,
             features::queue::im_queue_drop_out,
+            features::draft::im_draft_load,
+            features::draft::im_draft_save,
             commands::notify_snapshot,
             commands::notify_open_conversation,
             commands::notify_hide_round,
