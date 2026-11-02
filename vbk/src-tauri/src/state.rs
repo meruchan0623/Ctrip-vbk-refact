@@ -295,7 +295,11 @@ impl HostState {
         account: &AccountContext,
     ) -> Option<PersistJob> {
         let queue = self.persist.as_ref()?;
-        let ms = cores.im.get(account)?.watermarks().compensation_cursor_ms()?;
+        let ms = cores
+            .im
+            .get(account)?
+            .watermarks()
+            .compensation_cursor_ms()?;
         Some(PersistJob {
             ns: Namespace::from_context(account),
             seq: queue.next_seq(),
@@ -333,19 +337,28 @@ impl HostState {
     }
 
     /// Exit barrier: resubmits parked jobs, then waits (at most `timeout`)
-    /// until everything queued so far is committed. Returns `true` when no
-    /// write is outstanding or failed.
+    /// until everything queued so far is committed. Parked jobs that do not
+    /// fit into a full queue are resubmitted once it has drained, until the
+    /// deadline. Returns `true` when no write is outstanding or failed.
     pub fn flush_persist(&self, timeout: Duration) -> bool {
         let Some(queue) = self.persist.as_ref() else {
             return true;
         };
-        let pending = self.lock().persist.take_pending();
-        let rejected = queue.submit(pending);
-        let flushed = queue.flush(timeout).is_ok();
+        let deadline = Instant::now() + timeout;
+        let mut pending = self.lock().persist.take_pending();
+        let flushed = loop {
+            pending = queue.submit(pending);
+            let ok = queue
+                .flush(deadline.saturating_duration_since(Instant::now()))
+                .is_ok();
+            if pending.is_empty() || !ok || Instant::now() >= deadline {
+                break ok;
+            }
+        };
         let receipts = queue.drain_receipts();
         let mut cores = self.lock();
         cores.persist.apply_receipts(receipts);
-        cores.persist.stash_all(rejected);
+        cores.persist.stash_all(pending);
         flushed && !cores.persist.persist_failed() && cores.persist.pending_len() == 0
     }
 
