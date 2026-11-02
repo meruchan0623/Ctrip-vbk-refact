@@ -1031,15 +1031,9 @@ impl PinnedTable {
 }
 
 fn write_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), AppError> {
-    let io = |e: std::io::Error| AppError::new(codes::STORE_IO, format!("pinned table: {e}"));
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(io)?;
-    }
     let bytes = serde_json::to_vec(value)
         .map_err(|e| AppError::new(codes::STORE_IO, format!("pinned table: {e}")))?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, bytes).map_err(io)?;
-    std::fs::rename(&tmp, path).map_err(io)
+    core_store::file::write_atomic(path, &bytes)
 }
 
 // ------------------------------------------------------------------ tests

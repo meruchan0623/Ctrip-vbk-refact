@@ -133,14 +133,14 @@ impl Txn {
     pub(crate) fn into_parts(
         self,
         store_tag: u64,
-    ) -> Result<(Namespace, Vec<Write>, Vec<Expectation>), AppError> {
+    ) -> Result<(Namespace, u64, Vec<Write>, Vec<Expectation>), AppError> {
         if self.store_tag != store_tag {
             return Err(err(
                 codes::STORE_TXN_MISMATCH,
                 "transaction was begun on a different store",
             ));
         }
-        Ok((self.ns, self.writes, self.expectations))
+        Ok((self.ns, self.base_revision, self.writes, self.expectations))
     }
 }
 
@@ -250,6 +250,7 @@ impl NsState {
     pub fn to_json(&self, ns: &Namespace) -> JsonValue {
         let mut meta = JsonValue::object();
         meta.insert("format", JsonValue::number_from_i64(1));
+        meta.insert("schema_version", JsonValue::number_from_i64(1));
         meta.insert("environment", JsonValue::string(ns.environment.as_str()));
         meta.insert("account_id", JsonValue::string(ns.account_id.as_str()));
         meta.insert("revision", JsonValue::number_from_i64(self.revision as i64));

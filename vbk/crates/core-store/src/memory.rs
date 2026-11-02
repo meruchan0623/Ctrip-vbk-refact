@@ -61,11 +61,14 @@ impl Store for MemoryStore {
     }
 
     fn commit(&self, txn: Txn) -> Result<CommitFact, AppError> {
-        let (ns, writes, expectations) = txn.into_parts(self.tag)?;
+        let (ns, base_revision, writes, expectations) = txn.into_parts(self.tag)?;
         self.with(|m| {
             let slot = m.entry(ns).or_default();
             if slot.locked {
                 return Err(err(codes::STORE_LOCKED, "namespace is logout-locked"));
+            }
+            if slot.state.revision != base_revision {
+                return Err(err(codes::STORE_CAS_CONFLICT, "namespace revision changed"));
             }
             let (next, fact) = slot.state.apply(&writes, &expectations, now_ms())?;
             slot.state = next;

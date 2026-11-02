@@ -16,11 +16,12 @@
 //! Path segments are sanitized (only `[A-Za-z0-9._-]`; anything else is
 //! percent-encoded) so an environment name can never escape the root.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use contracts::json::JsonValue;
 use contracts::AppError;
@@ -37,10 +38,11 @@ const LOCK_FILE: &str = "logout.lock";
 static TAG: AtomicU64 = AtomicU64::new(1 << 32);
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileStore {
     tag: u64,
     root: PathBuf,
+    writer: Arc<Mutex<()>>,
 }
 
 impl FileStore {
@@ -48,7 +50,18 @@ impl FileStore {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, AppError> {
         let root = root.into();
         create_durable_dir_all(&root).map_err(|e| io_err("create root", &e))?;
+        let canonical_root = fs::canonicalize(&root).map_err(|e| io_err("canonicalize root", &e))?;
+        // Separate handles opened on the same root share the CAS critical section.
+        static WRITERS: OnceLock<Mutex<BTreeMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
+        let mut writers = WRITERS.get_or_init(Mutex::default).lock().unwrap_or_else(|p| p.into_inner());
+        writers.retain(|_, writer| writer.strong_count() > 0);
+        let writer = writers.get(&canonical_root).and_then(Weak::upgrade).unwrap_or_else(|| {
+            let writer = Arc::new(Mutex::new(()));
+            writers.insert(canonical_root, Arc::downgrade(&writer));
+            writer
+        });
         Ok(Self {
+            writer,
             tag: TAG.fetch_add(1, Ordering::Relaxed),
             root,
         })
@@ -107,7 +120,7 @@ impl FileStore {
             }
         }
         let doc = JsonValue::Array(acked.iter().map(JsonValue::string).collect());
-        write_atomic(&dir, ACK_FILE, doc.to_json().as_bytes())?;
+        write_atomic(&dir.join(ACK_FILE), doc.to_json().as_bytes())?;
         Ok(files)
     }
 
@@ -152,6 +165,18 @@ impl FileStore {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(NsState::default()),
             Err(e) => return Err(io_err("read state", &e)),
         };
+        if let Ok(doc) = JsonValue::parse(&text) {
+            if let Some(version) = doc.get("meta").and_then(|m| m.get("schema_version")) {
+                match version.as_i64() {
+                    Some(v) if v > 1 => return Err(err(codes::STORE_SCHEMA_NEWER,
+                        "state document requires a newer application; original preserved")),
+                    Some(0 | 1) => {},
+                    _ => return Err(err(codes::STORE_CORRUPT, "invalid schema version; original preserved")),
+                }
+            }
+        }
+        // Missing schema_version is the embedded v0 -> v1 migration: records
+        // have identical representation; the next commit writes the v1 header.
         let decoded = JsonValue::parse(&text)
             .map_err(|e| e.to_string())
             .and_then(|doc| NsState::from_json(&doc, ns));
@@ -177,7 +202,7 @@ impl FileStore {
 
     fn save(&self, ns: &Namespace, state: &NsState) -> Result<(), AppError> {
         let dir = self.namespace_dir(ns);
-        write_atomic(&dir, STATE_FILE, state.to_json(ns).to_json().as_bytes())?;
+        write_atomic(&dir.join(STATE_FILE), state.to_json(ns).to_json().as_bytes())?;
         // Best effort: drop temp files left by an interrupted earlier write.
         for stale in list_prefixed(&dir, TMP_PREFIX)? {
             let _ = fs::remove_file(dir.join(stale));
@@ -200,11 +225,15 @@ impl Store for FileStore {
     }
 
     fn commit(&self, txn: Txn) -> Result<CommitFact, AppError> {
-        let (ns, writes, expectations) = txn.into_parts(self.tag)?;
+        let (ns, base_revision, writes, expectations) = txn.into_parts(self.tag)?;
+        let _writer = self.writer.lock().unwrap_or_else(|p| p.into_inner());
         if self.is_locked(&ns)? {
             return Err(err(codes::STORE_LOCKED, "namespace is logout-locked"));
         }
         let current = self.load(&ns)?;
+        if current.revision != base_revision {
+            return Err(err(codes::STORE_CAS_CONFLICT, "namespace revision changed"));
+        }
         let (next, fact) = current.apply(&writes, &expectations, now_ms())?;
         self.save(&ns, &next)?;
         Ok(fact)
@@ -228,8 +257,9 @@ impl Store for FileStore {
     }
 
     fn logout_lock(&self, ns: &Namespace) -> Result<(), AppError> {
+        let _writer = self.writer.lock().unwrap_or_else(|p| p.into_inner());
         let dir = self.namespace_dir(ns);
-        write_atomic(&dir, LOCK_FILE, b"logout-locked\n")
+        write_atomic(&dir.join(LOCK_FILE), b"logout-locked\n")
     }
 
     fn unlock_after_reauth(&self, ns: &Namespace) -> Result<(), AppError> {
@@ -246,7 +276,20 @@ impl Store for FileStore {
 }
 
 /// Writes `bytes` to `dir/name` through a temp file, fsync and rename.
-fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), AppError> {
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
+    write_atomic_observed(path, bytes, &mut |_| Ok(()))
+}
+
+/// Observable boundaries for deterministic filesystem-error / termination tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtomicWriteStage { BeforeFileSync, BeforeRename, BeforeDirectorySync }
+
+/// The observer runs on the writing thread. Returning an error injects an IO
+/// failure; a process-termination harness can terminate at the same boundary.
+pub fn write_atomic_observed(
+    path: &Path, bytes: &[u8], observer: &mut dyn FnMut(AtomicWriteStage) -> io::Result<()>,
+) -> Result<(), AppError> {
+    let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     create_durable_dir_all(dir).map_err(|e| io_err("create namespace dir", &e))?;
     let tmp = dir.join(format!(
         "{TMP_PREFIX}{:x}-{:x}",
@@ -256,11 +299,14 @@ fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), AppError> {
     let result = (|| -> io::Result<()> {
         let mut f = fs::File::create(&tmp)?;
         f.write_all(bytes)?;
+        observer(AtomicWriteStage::BeforeFileSync)?;
         f.sync_all()?;
         drop(f);
-        fs::rename(&tmp, dir.join(name))?;
+        observer(AtomicWriteStage::BeforeRename)?;
+        fs::rename(&tmp, path)?;
         // Replacing the directory entry is part of the durable commit. If the
         // filesystem cannot flush it, no caller may infer durable success.
+        observer(AtomicWriteStage::BeforeDirectorySync)?;
         sync_directory(dir)?;
         Ok(())
     })();

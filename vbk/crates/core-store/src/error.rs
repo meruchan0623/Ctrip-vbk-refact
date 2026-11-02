@@ -6,6 +6,7 @@ pub mod codes {
     pub use contracts::codes::{STORE_CORRUPT, STORE_IO};
 
     /// The namespace is logout-locked: reads work, writes are refused.
+    pub const STORE_SCHEMA_NEWER: &str = "store.schema_newer";
     pub const STORE_LOCKED: &str = "store.locked";
     /// Compare-and-set failed: the record changed since it was read.
     pub const STORE_CAS_CONFLICT: &str = "store.cas_conflict";
