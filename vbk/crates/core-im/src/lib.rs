@@ -26,7 +26,7 @@ pub mod rounds;
 pub mod watermarks;
 
 pub use conversations::{ConversationChange, ConversationEntry, ConversationRegistry, Presence};
-pub use dedup::{MergeOutcome, MessageIndex, MessageRecord};
+pub use dedup::{IndexLimits, MergeOutcome, MessageIndex, MessageRecord};
 pub use im_core::{ImCore, ImCores, PersistedImState};
 pub use ingest::{DropReason, Fact, FactEnvelope, IngestReport, StreamId, TransportState};
 pub use outbox::{Outbox, OutboxEntry, ReconcileOutcome, SendIntent, SendState};
