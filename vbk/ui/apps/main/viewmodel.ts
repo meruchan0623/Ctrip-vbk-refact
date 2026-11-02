@@ -561,6 +561,41 @@ export function messageHistoryMatches(before: string, after: string): boolean {
   } catch { return false; }
 }
 
+/** Parse once per row set; indexing IDs keeps anchor work linear in the mounted rows.
+ * Compatibility is deliberately identical to messageHistoryMatches, including refusal
+ * to choose between explicit sender/server conflicts and ambiguous sparse aliases. */
+export function historyIdentityIndex(keys: readonly string[]): { matches(key: string): number[] } {
+  type Identity = { key: string; scope: string; server: string | null; local: string | null; role: string; sender: string | null };
+  const parsed = new Map<string, Identity | null>();
+  const parse = (key: string): Identity | null => {
+    if (parsed.has(key)) return parsed.get(key)!;
+    let result: Identity | null = null;
+    try {
+      const value: unknown = JSON.parse(key);
+      if (Array.isArray(value) && value.length === 5 && typeof value[0] === 'string' && value[0] && typeof value[3] === 'string' && [value[1], value[2], value[4]].every(item => item === null || typeof item === 'string'))
+        result = { key, scope: value[0], server: value[1], local: value[2], role: value[3], sender: value[4] };
+    } catch { /* System presentation fingerprints are exact matches only. */ }
+    parsed.set(key, result); return result;
+  };
+  const buckets = new Map<string, number[]>();
+  const bucket = (identity: Identity, kind: string, id: string): string => JSON.stringify([identity.scope, identity.role, kind, id]);
+  keys.forEach((key, index) => {
+    const identity = parse(key);
+    const aliases = identity ? [identity.server ? bucket(identity, 'server', identity.server) : '', identity.local ? bucket(identity, 'local', identity.local) : ''].filter(Boolean) : key.startsWith('scroll-system:') ? [key] : [];
+    for (const alias of aliases) { const rows = buckets.get(alias) ?? []; rows.push(index); buckets.set(alias, rows); }
+  });
+  return { matches(key) {
+    const identity = parse(key);
+    if (!identity) return key.startsWith('scroll-system:') ? buckets.get(key) ?? [] : [];
+    const candidates = new Set([...(identity.server ? buckets.get(bucket(identity, 'server', identity.server)) ?? [] : []), ...(identity.local ? buckets.get(bucket(identity, 'local', identity.local)) ?? [] : [])]);
+    return [...candidates].filter(index => {
+      const other = parse(keys[index]!)!;
+      return !(identity.sender && other.sender && identity.sender !== other.sender)
+        && (identity.server && other.server ? identity.server === other.server : !!identity.local && identity.local === other.local);
+    });
+  } };
+}
+
 /** Recall notices remain visible while their original content stays hidden across pages. */
 export function visibleMessages(messages: readonly UiMessage[]): UiMessage[] {
   const recalled = new Set(messages.map(m => (m as QuotedUiMessage).recalled_message_id).filter(Boolean));

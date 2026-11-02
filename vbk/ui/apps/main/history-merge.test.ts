@@ -1,3 +1,4 @@
+import { historyReadingStore } from './history-viewport.ts';
 import { historyDiagnostics } from './history-diagnostics.ts';
 import { readHistoryPage } from './history-read.ts';
 import { test } from 'node:test';
@@ -127,6 +128,7 @@ import { messageAlignment } from './message-alignment.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
 import { observeHistoryLayout } from './history-layout.ts';
 function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolean; realScroll?: boolean; extra?: UiMessage[]; topPadding?: number; rowHeight?: (message: UiMessage) => number } = {}) {
+  historyReadingStore.set(null);
   const scope = { account_id: 'synthetic-account', environment: 'synthetic', session_generation: 1 };
   let owner = scope;
   let lateGrowth = 0, resize = () => {}, stopLayout = () => {};
@@ -153,7 +155,7 @@ function anchorFixture(options: { base?: Partial<UiMessage>; omitSender?: boolea
   }
   let scroll = new Scroll();
   class Root { constructor(readonlyScroll: Scroll) { this.scroll = readonlyScroll; } scroll: Scroll; querySelectorAll(selector: string) { return selector === '[data-keep-scroll]' ? [this.scroll] : []; } querySelector() { return null; } replaceChildren(next: Root) { this.scroll = next.scroll; scroll = next.scroll; } }
-  const env: Record<string, unknown> = { visibleReads: { retry() {}, afterRender() {} }, ...viewmodel, historyDiagnostics, readHistoryPage, messageAlignment, cx, createStore, subscribeFrame: subscribeBatched, fillHistoryViewport() {}, syncConversationViewport() {}, store, S: () => store.get(), activeAccount: () => ({ context: owner }), activeConv: () => ({ gid: store.get().activeGid, account: owner, waiting_since_ms: null, status: 'active', service_type: 'chat', lang: 'en' }), stillActive: (account: typeof scope) => account.account_id === owner.account_id && account.environment === owner.environment && account.session_generation === owner.session_generation, isUiMessage, invokeSafe: () => new Promise(resolve => { complete = resolve; }), UiCommands: { IM_MESSAGE_PAGE: 'page' }, document: { querySelector: () => scroll }, queueMicrotask, Element: Root, CSS: { escape: encodeURIComponent }, root: { querySelector: () => null }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (key: string) => key, icon: () => null, IC: {}, richText: (text: string) => [text], h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }) };
+  const env: Record<string, unknown> = { historyReadingStore, visibleReads: { retry() {}, afterRender() {} }, ...viewmodel, historyDiagnostics, readHistoryPage, messageAlignment, cx, createStore, subscribeFrame: subscribeBatched, fillHistoryViewport() {}, syncConversationViewport() {}, store, S: () => store.get(), activeAccount: () => ({ context: owner }), activeConv: () => ({ gid: store.get().activeGid, account: owner, waiting_since_ms: null, status: 'active', service_type: 'chat', lang: 'en' }), stillActive: (account: typeof scope) => account.account_id === owner.account_id && account.environment === owner.environment && account.session_generation === owner.session_generation, isUiMessage, invokeSafe: () => new Promise(resolve => { complete = resolve; }), UiCommands: { IM_MESSAGE_PAGE: 'page' }, document: { querySelector: () => scroll }, queueMicrotask, Element: Root, CSS: { escape: encodeURIComponent }, root: { querySelector: () => null }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (key: string) => key, icon: () => null, IC: {}, richText: (text: string) => [text], h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }) };
   env['composerInput'] = { deferRender: () => false }; // This fixture has no composing editor.
   function actual(name: string, next: string, async = false) { const a = source.indexOf(`${async ? 'async ' : ''}function ${name}(`), b = source.indexOf(`\n${next}`, a); assert.ok(a >= 0 && b > a, name); return new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   env['stopHistoryLayout'] = () => stopLayout();

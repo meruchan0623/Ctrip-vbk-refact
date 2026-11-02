@@ -4,6 +4,7 @@ import { createVisibleRead } from './visible-read.ts';
 import { readHistoryPage } from './history-read.ts';
 import { personDisplayName } from './person-name.ts';
 import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
+import { createHistoryViewport, historyReadingStore } from './history-viewport.ts';
 import { createComposerInput } from './composer-input.ts';
 /**
  * Main window (prototype 02-main): title bar with account tabs, left nav
@@ -114,6 +115,7 @@ import {
   historyScopeKey,
   messageHistoryKey,
   messageHistoryMatches,
+  historyIdentityIndex,
   visibleMessages,
   selectedQuoteReference,
   messageQuotePreview,
@@ -1553,6 +1555,7 @@ function captureMessageAnchor(s: MainState): MessageAnchor | null {
   if (!scope || !scroll || scroll.dataset['historyScope'] !== scope) { historyDiagnostics.record('capture_skip', {}, 'wrong_scope'); return null; }
   if (scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 48) { historyDiagnostics.record('capture_skip', { scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'pinned'); return null; }
   const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
+  const identities = historyIdentityIndex(rows.map(row => row.dataset['historyKey'] ?? ''));
   const top = scroll.getBoundingClientRect().top;
   const diagnosticId = historyDiagnostics.record('capture', { rows: rows.length, scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight });
   const candidates: { key: string; offset: number; row: number }[] = [];
@@ -1561,7 +1564,7 @@ function captureMessageAnchor(s: MainState): MessageAnchor | null {
     const key = row.dataset['historyKey'], rect = row.getBoundingClientRect();
     if (rect.bottom > top && rect.top < top + scroll.clientHeight) {
       visible++;
-      const matches = key ? rows.filter(candidate => historyAnchorMatches(key, candidate.dataset['historyKey'] ?? '')).length : 0;
+      const matches = key ? identities.matches(key).length : 0;
       historyDiagnostics.record('candidate', { capture: diagnosticId, row: index, keyType: !key ? 0 : key.startsWith('scroll-system:') ? 1 : 2, top: rect.top - top, bottom: rect.bottom - top, matches }, !key ? 'missing' : matches === 1 ? 'observed' : 'ambiguous');
       if (key && matches === 1) candidates.push({ key, offset: rect.top - top, row: index });
     }
@@ -1569,14 +1572,18 @@ function captureMessageAnchor(s: MainState): MessageAnchor | null {
   // A page arrives through several message broadcasts. A newly inserted clipped row
   // must not replace the row we just restored while that reading row is still visible.
   // Re-read its current offset on every capture so actual user scrolling still wins.
-  const preferred = scroll.dataset['historyAnchorKey'];
-  const preferredCandidates = preferred ? candidates.filter(candidate => historyAnchorMatches(preferred, candidate.key)) : [];
+  const saved = historyReadingStore.get();
+  const preferred = saved?.scope === scope && saved.top === scroll.scrollTop ? saved.key : '';
+  const preferredRows = preferred ? new Set(identities.matches(preferred)) : new Set<number>();
+  const preferredCandidates = candidates.filter(candidate => preferredRows.has(candidate.row));
   if (preferredCandidates.length === 1) {
     const index = candidates.indexOf(preferredCandidates[0]!);
     candidates.unshift(...candidates.splice(index, 1));
   }
   historyDiagnostics.record('capture_done', { capture: diagnosticId, visible, candidates: candidates.length }, candidates.length ? 'observed' : 'no_candidates');
-  return candidates.length ? { scope, diagnosticId, identities: rows.map(row => row.dataset['historyKey'] ?? '').filter(Boolean), candidates } : null;
+  const first = candidates[0];
+  if (first) historyReadingStore.set({ scope, key: first.key, offset: first.offset, top: scroll.scrollTop });
+  return first ? { scope, diagnosticId, identities: rows.map(row => row.dataset['historyKey'] ?? '').filter(Boolean), candidates } : null;
 }
 function restoreMessageAnchor(anchor: MessageAnchor | null): void {
   if (!anchor) { historyDiagnostics.record('restore_skip', {}, 'no_anchor'); return; }
@@ -1585,15 +1592,17 @@ function restoreMessageAnchor(anchor: MessageAnchor | null): void {
   const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
   if (!scroll || scroll.dataset['historyScope'] !== anchor.scope) { historyDiagnostics.record('restore_skip', { capture: anchor.diagnosticId }, 'wrong_scope'); return; }
   const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
+  const index = historyIdentityIndex(rows.map(row => row.dataset['historyKey'] ?? ''));
+  const previousIndex = historyIdentityIndex(anchor.identities);
   for (const candidate of anchor.candidates) {
-    const matches = rows.filter(row => historyAnchorMatches(candidate.key, row.dataset['historyKey'] ?? ''));
+    const matches = index.matches(candidate.key).map(row => rows[row]!);
     if (matches.length !== 1) { historyDiagnostics.record('match', { capture: anchor.diagnosticId, row: candidate.row, matches: matches.length }, matches.length ? 'ambiguous' : 'missing'); continue; }
     // A newly sparse row must not arbitrarily select one of several former identities.
-    const reverseMatches = anchor.identities.filter(key => historyAnchorMatches(key, matches[0]!.dataset['historyKey'] ?? '')).length;
+    const reverseMatches = previousIndex.matches(matches[0]!.dataset['historyKey'] ?? '').length;
     if (reverseMatches !== 1) { historyDiagnostics.record('match', { capture: anchor.diagnosticId, row: candidate.row, matches: 1, reverseMatches }, 'reverse_ambiguous'); continue; }
     const before = scroll.scrollTop, delta = matches[0]!.getBoundingClientRect().top - scroll.getBoundingClientRect().top - candidate.offset;
     scroll.scrollTop += delta;
-    scroll.dataset['historyAnchorKey'] = matches[0]!.dataset['historyKey']!;
+    historyReadingStore.set({ scope: anchor.scope, key: matches[0]!.dataset['historyKey']!, offset: candidate.offset, top: scroll.scrollTop });
     historyDiagnostics.record('restore', { capture: anchor.diagnosticId, row: candidate.row, newRow: rows.indexOf(matches[0]!), matches: 1, reverseMatches, offset: candidate.offset, before, after: scroll.scrollTop, delta, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'applied');
     return;
   }
@@ -1896,7 +1905,7 @@ function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
 
 // Retain the expensive message subtree across draft, sidebar and unrelated updates.
 // Only one active pane is retained, so old accounts/rooms do not accumulate DOM caches.
-let messagePaneCache: { deps: readonly unknown[]; node: HTMLElement } | undefined;
+let messagePaneCache: { deps: readonly unknown[]; node: HTMLElement; scope: string; measured: Map<string, number>; viewport?: ReturnType<typeof createHistoryViewport> | undefined } | undefined;
 function messagePane(s: MainState, conv: UiConversation, acc: UiAccount | null, pinned: boolean): HTMLElement {
   const deps = [s.messages[conv.gid], s.history[conv.gid], conv, acc, s.prefs, s.hideInboundTr, s.tsimStatus];
   if (messagePaneCache && deps.every((value, i) => value === messagePaneCache!.deps[i])) {
@@ -1904,11 +1913,39 @@ function messagePane(s: MainState, conv: UiConversation, acc: UiAccount | null, 
     return messagePaneCache.node;
   }
   const msgs = visibleMessages(s.messages[conv.gid] ?? []);
-  const node = h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: historyScopeKey(acc?.context ?? null, conv.gid), readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
+  const scope = historyScopeKey(acc?.context ?? null, conv.gid);
+  const previous = messagePaneCache;
+  previous?.viewport?.dispose();
+  const measured = previous?.scope === scope ? previous.measured : new Map<string, number>();
+  const old = previous?.scope === scope ? previous.node : null;
+  const node = h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: scope, readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
       s.history[conv.gid]?.firstPage === 'loading' ? h('div', { class: 'history-more', role: 'status' }, '正在读取聊天记录…') : null,
-      s.history[conv.gid]?.firstPage === 'error' ? h('button', { class: 'history-more', onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
-      s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null, msgs.map((m) => messageRow(s, m, conv, acc)));
-  messagePaneCache = { deps, node };
+      s.history[conv.gid]?.firstPage === 'error' ? h('button', { class: 'history-more', dataset: { fid: 'history-retry' }, onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
+      s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', dataset: { fid: 'history-earlier' }, disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null,
+      msgs.length <= 80 ? msgs.map(message => messageRow(s, message, conv, acc)) : null);
+  // Small threads retain the simple path. Long threads mount a measured window;
+  // no global render or store update is needed when only that window scrolls.
+  let viewport: ReturnType<typeof createHistoryViewport> | undefined;
+  if (msgs.length > 80) {
+    const content = h('div', { dataset: { historyViewport: '1' }, style: { 'flex-shrink': '0', 'min-width': '0' } });
+    node.appendChild(content);
+    const keys = msgs.map(message => messageHistoryKey(acc?.context ?? null, conv, message));
+    const saved = historyReadingStore.get(), matches = saved?.scope === scope ? historyIdentityIndex(keys).matches(saved.key) : [];
+    // A bare estimate is only the initial layout; measured heights replace it as
+    // rows enter the viewport. Never use ambiguous IDs as measurement cache keys.
+    const initialTop = pinned ? Number.MAX_SAFE_INTEGER : old?.scrollTop ?? 0;
+    viewport = createHistoryViewport({ scroll: node, content, keys, measured,
+      render: index => messageRow(s, msgs[index]!, conv, acc), initialTop,
+      initialHeight: old?.clientHeight || 600,
+      initialAnchor: !pinned && saved && matches.length === 1 ? { index: matches[0]!, offset: saved.offset } : undefined,
+      changed: () => { captureMessageAnchor(S()); visibleReads.afterRender(); },
+      current: () => node.isConnected && messagePaneCache?.node === node,
+    });
+    queueMicrotask(() => viewport?.mount());
+  }
+  // Retain measured keys only while the source row still exists.
+  if (measured.size > msgs.length * 2 + 80) measured.clear();
+  messagePaneCache = { deps, node, scope, measured, viewport };
   return node;
 }
 
