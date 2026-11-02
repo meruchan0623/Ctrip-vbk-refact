@@ -55,6 +55,8 @@ impl Role {
             "im_recall_message",
             "im_queue_status",
             "im_queue_drop_out",
+            "im_draft_load",
+            "im_draft_save",
             "account_snapshot",
             "account_start_login",
             "account_cancel_login",

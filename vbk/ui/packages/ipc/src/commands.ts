@@ -46,6 +46,9 @@ export const ImCommands = {
   RECALL_MESSAGE: 'im_recall_message',
   QUEUE_STATUS: 'im_queue_status',
   QUEUE_DROP_OUT: 'im_queue_drop_out',
+  // I-09 / D10 drafts (src-tauri/src/features/draft.rs, core-store DraftBook)
+  DRAFT_LOAD: 'im_draft_load', // {account} → {drafts: [{gid, text, version}]}
+  DRAFT_SAVE: 'im_draft_save', // {account, gid, text, expected_version} → {version}; stale → store.cas_conflict
   /** Web adapter → core: a bounded fact envelope. */
   PUSH_FACT: 'im_push_fact',
   CONVERSATION_SNAPSHOT: 'im_conversation_snapshot',
