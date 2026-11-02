@@ -191,6 +191,7 @@ flowchart LR
 ### 5.3 IM SDK 内置（15 个）[已验证，来源 s-node-imclient-core/main.js]
 - 生产（5 个）：`im.ctrip.com`、`im.trip.com`（`/ws-xmpp/`）、`im3.ctrip.com`、`m.trip.com`、`webresource.c-ctrip.com`（✓）。
 - 测试或内网（10 个）：`im.fws/uat.qa.nt.ctripcorp.com`、`im3.fws/uat.qa.nt.ctripcorp.com`、`muc.im.fws.qa.nt.ctripcorp.com`、`ctriperim.ctripcorp.com`、`muc.ctriperim.ctripcorp.com`、`im3.ctripcorp.com`、`conf.ctripcorp.com`、`apigateway.ctripcorp.com`。
+> 2026-11-02 实机验证：IM 长连接主机为 `im3.ctrip.com:443`，每账号一条，位于 4 个 NodeService 中的 2 个；发送/输入状态/送达确认/心跳走 XMPP，撤回/星标/转接/结束走渲染进程 HTTP，已读回执由 IM 子进程 Node HTTPS 发出。完整清单见 [改进计划附录 A](../../plan/2026-11-02-reverse-driven-improvement-plan.md#10-附录-a官方桌面版实机验证清单接口与应用结构)；WebSocket 的 path/子协议仍未验证。
 - 除 webresource 外，其余 14 个都不在 inventory 中，**WebSocket 地址 `wss://im*.…/ws-xmpp/` 也没有收录**，这是重构 IM 通道时必须补上的一项。
 
 ### 5.4 第三方与本地（2 个）
