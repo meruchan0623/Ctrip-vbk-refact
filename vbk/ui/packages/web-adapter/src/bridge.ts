@@ -14,7 +14,7 @@
  *   claim is never trusted on its own
  */
 
-import { FactStreams, type AccountContext, type AdapterFact, type AdapterFactEnvelope } from '../../ipc/src/contracts.ts';
+import { withContractVersion, FactStreams, type AccountContext, type AdapterFact, type AdapterFactEnvelope } from '../../ipc/src/contracts.ts';
 import { ImCommands } from '../../ipc/src/commands.ts';
 import type { InvokeLike } from './deps.ts';
 import { CursorAllocator } from './facts.ts';
@@ -79,7 +79,7 @@ export class AdapterBridge {
   /** Allocates the cursor synchronously (order is fixed at call time) and pushes in order. */
   push(fact: AdapterFact): AdapterFactEnvelope {
     const env = this.envelope(fact);
-    this.#queue = this.#queue.then(() => this.#invoke(ImCommands.PUSH_FACT, env)).then(
+    this.#queue = this.#queue.then(() => this.#invoke(ImCommands.PUSH_FACT, withContractVersion(env))).then(
       () => undefined,
       (error: unknown) => {
         this.#onPushError?.(env, error);

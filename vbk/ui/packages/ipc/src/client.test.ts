@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HOST_UNAVAILABLE, createTauriIpc, hasTauri } from './client.ts';
-import { isAppError } from './contracts.ts';
+import { CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH, isAppError } from './contracts.ts';
 
 const g = globalThis as unknown as Record<string, unknown>;
 
@@ -60,7 +60,7 @@ test('createTauriIpc resolves the host globals lazily and unsubscribes correctly
     };
     assert.equal(hasTauri(), true);
     assert.deepEqual(await ipc.invoke('prefs_snapshot'), { ok: 'prefs_snapshot' });
-    assert.deepEqual(calls, [['prefs_snapshot', {}]], 'a missing payload is sent as an empty object');
+    assert.deepEqual(calls, [['prefs_snapshot', { _contract_version: CONTRACT_VERSION }]], 'a missing payload still proves contract compatibility');
     const got: unknown[] = [];
     const off = ipc.listen<unknown>('prefs://changed', (p) => got.push(p));
     await Promise.resolve();
@@ -71,4 +71,35 @@ test('createTauriIpc resolves the host globals lazily and unsubscribes correctly
     h({ payload: 2 });
     assert.deepEqual(got, [1], 'events after unsubscribe are not delivered');
     assert.equal(unlistened, 1);
+  }));
+
+
+test('native invokes carry the current contract version and cannot override it through payloads', () =>
+  withWindow(async () => {
+    const calls: unknown[] = [];
+    g['window'] = { __TAURI__: {
+      core: { invoke: async (cmd: string, args: unknown) => { calls.push([cmd, args]); return null; } },
+      event: { listen: async () => () => undefined },
+    } };
+    const payload = Object.freeze({ gid: 'g', _contract_version: 999 });
+    await createTauriIpc().invoke('im_messages', payload);
+    assert.deepEqual(calls, [['im_messages', { gid: 'g', _contract_version: CONTRACT_VERSION }]]);
+    assert.equal(payload._contract_version, 999, 'caller data is untouched');
+  }));
+
+test('native contract rejection propagates without running a retry or poisoning later calls', () =>
+  withWindow(async () => {
+    let attempts = 0;
+    g['window'] = { __TAURI__: {
+      core: { invoke: async () => {
+        attempts += 1;
+        if (attempts === 1) throw { code: CONTRACT_VERSION_MISMATCH, message: 'incompatible', retryable: false };
+        return 'current';
+      } },
+      event: { listen: async () => () => undefined },
+    } };
+    const ipc = createTauriIpc();
+    await assert.rejects(ipc.invoke('prefs_snapshot'), (e: unknown) => isAppError(e) && e.code === CONTRACT_VERSION_MISMATCH);
+    assert.equal(attempts, 1);
+    assert.equal(await ipc.invoke('prefs_snapshot'), 'current');
   }));

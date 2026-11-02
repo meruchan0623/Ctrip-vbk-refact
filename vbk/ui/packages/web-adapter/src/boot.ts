@@ -25,7 +25,7 @@
  * listener, enforced by `capabilities/adapter.json`).
  */
 
-import type { AccountContext } from '../../ipc/src/contracts.ts';
+import { withContractVersion, type AccountContext } from '../../ipc/src/contracts.ts';
 import { AdapterCommands, AdapterEvents, type AdapterDisplayPayload, type AdapterReadyAck, type AdapterReadyPayload, type AdapterReplyPayload } from '../../ipc/src/adapterProtocol.ts';
 import { ImCommands } from '../../ipc/src/commands.ts';
 import type { AdapterDeps, FetchLike, ImSdkHandle } from './deps.ts';
@@ -96,7 +96,7 @@ export function resolveHostBridge(win: unknown): HostBridge | null {
   return {
     invoke: (cmd, args) => {
       try {
-        return Promise.resolve(invoke(cmd, args));
+        return Promise.resolve(invoke(cmd, withContractVersion(args)));
       } catch (e: unknown) {
         return Promise.reject(e);
       }

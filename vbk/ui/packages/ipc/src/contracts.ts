@@ -7,6 +7,16 @@
  * Nothing here may carry cookies, tickets, tokens or customer message text.
  */
 
+/** Mirror of contracts::CONTRACT_VERSION. Every native app command carries this. */
+export const CONTRACT_VERSION = 1;
+export const CONTRACT_VERSION_MISMATCH = 'contract.version_mismatch';
+
+/** Never trust a caller-supplied version and never mutate the caller's DTO. */
+export function withContractVersion(payload?: unknown): Record<string, unknown> {
+  const args = typeof payload === 'object' && payload !== null && !Array.isArray(payload) ? payload : {};
+  return { ...args, _contract_version: CONTRACT_VERSION };
+}
+
 // ---------------------------------------------------------------- identity
 
 export type AccountId = string;

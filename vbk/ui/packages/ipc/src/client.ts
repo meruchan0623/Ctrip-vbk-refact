@@ -7,6 +7,8 @@
  * `createMockIpc()` from `./mock.ts`.
  */
 
+import { withContractVersion } from './contracts.ts';
+
 import type {
   AccountContext,
   ConversationFact,
@@ -58,7 +60,7 @@ export function createTauriIpc(): IpcClient {
       const invoke = tauriGlobal()?.core?.invoke;
       if (!invoke) return Promise.reject({ code: HOST_UNAVAILABLE, message: 'window.__TAURI__ is not available', retryable: true });
       try {
-        return Promise.resolve(invoke(cmd, payload ?? {})) as Promise<T>;
+        return Promise.resolve(invoke(cmd, withContractVersion(payload))) as Promise<T>;
       } catch (e) {
         return Promise.reject(e);
       }
@@ -162,6 +164,10 @@ export const UiEvents = {
   AGENT_STATUS: 'account://agent-status', // UiAgentStatus
   TOAST: 'shell://toast', // {text}
 } as const;
+
+/** Attachment DTO version, mirrored by the host's media contract. */
+export const ATTACHMENT_CONTRACT_VERSION = 1;
+export type MediaAttachmentDto = UiAttachment;
 
 export interface UiAttachment {
   readonly attachment_id: string; readonly name: string;

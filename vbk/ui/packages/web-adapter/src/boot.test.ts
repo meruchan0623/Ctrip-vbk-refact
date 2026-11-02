@@ -147,9 +147,9 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
   if (r.kind !== 'started') throw new Error('session must start');
   assert.deepEqual(r.session.roles.profileOf('me-1'), { name: 'n', avatar: 'https://example.invalid/agent-self.png' });
   const identity = invoked.find((i) => i.cmd === 'adapter_identity');
-  assert.deepEqual(identity?.args, { payload: { buid: 'B-1', uid: 'me-1', agent_id: '77', nick: '昵称', party: '供应商', environment: 'production', self_profile: { uid: 'me-1', name: 'n', avatar: 'https://example.invalid/agent-self.png' } } });
+  assert.deepEqual(identity?.args, { _contract_version: 1, payload: { buid: 'B-1', uid: 'me-1', agent_id: '77', nick: '昵称', party: '供应商', environment: 'production', self_profile: { uid: 'me-1', name: 'n', avatar: 'https://example.invalid/agent-self.png' } } });
   const ready = invoked.find((i) => i.cmd === 'adapter_ready');
-  assert.deepEqual(ready?.args, { payload: { url: 'https://vbooking.ctrip.com/vbk/im/main', sdk_version: null } });
+  assert.deepEqual(ready?.args, { _contract_version: 1, payload: { url: 'https://vbooking.ctrip.com/vbk/im/main', sdk_version: null } });
   assert.ok(fetchCalls.some((u) => u.includes('_fxpcqlniredt=T-1') && u.includes('getConversationList')));
   await new Promise((res) => setTimeout(res, 60));
   const facts = invoked.filter((i) => i.cmd === 'adapter_push_fact');
@@ -162,10 +162,10 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
   assert.ok(displays.some((d) => d.kind === 'transport'));
   // host → page request
   assert.ok(requestCb);
-  (requestCb as unknown as (ev: unknown) => void)({ payload: { req_id: 'q1', op: 'agent.status', args: {} } });
+  (requestCb as unknown as (ev: unknown) => void)({ _contract_version: 1, payload: { req_id: 'q1', op: 'agent.status', args: {} } });
   await new Promise((res) => setTimeout(res, 30));
   const reply = invoked.find((i) => i.cmd === 'adapter_reply');
-  assert.deepEqual(reply?.args, { payload: { req_id: 'q1', ok: true, data: { status: 'online', confirmed: true } } });
+  assert.deepEqual(reply?.args, { _contract_version: 1, payload: { req_id: 'q1', ok: true, data: { status: 'online', confirmed: true } } });
   // second injection on the same document is a no-op
   assert.deepEqual(await boot(win), { kind: 'skipped', reason: 'already_booted' });
   for (const cb of pagehide) cb();
