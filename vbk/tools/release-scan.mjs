@@ -54,7 +54,12 @@ export function scanBuffer(buf, name, opts = {}) {
     }
   }
   for (const marker of MOCK_MARKERS) {
-    if (buf.includes(Buffer.from(marker, 'utf8')) && !allow.some((a) => marker.includes(a))) {
+    if (allow.some((a) => marker.includes(a))) continue;
+    // UTF-8, UTF-16LE and UTF-16BE encodings of the marker (Windows
+    // resources and .NET-style string tables store UTF-16; CJK markers are
+    // not exposed by the NUL-stripped Latin-1 view).
+    const encodings = [Buffer.from(marker, 'utf8'), Buffer.from(marker, 'utf16le'), Buffer.from(marker, 'utf16le').swap16()];
+    if (encodings.some((e) => buf.includes(e))) {
       out.push({ file: name, rule: 'mock-data', evidence: marker });
     }
   }

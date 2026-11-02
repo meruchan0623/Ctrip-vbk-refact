@@ -26,6 +26,16 @@ test('flags test hosts in ASCII', () => {
 
 test('flags test hosts in UTF-16LE (Windows binaries)', () => {
   assert.ok(rules(Buffer.from('imvendor.uat.qa.nt.ctripcorp.com', 'utf16le')).length > 0);
+  // UTF-16BE and a host split across an odd offset (one leading byte)
+  assert.ok(rules(Buffer.from('imvendor.uat.qa.nt.ctripcorp.com', 'utf16le').swap16()).length > 0);
+  assert.ok(rules(Buffer.concat([Buffer.from([0x41]), Buffer.from('a.fws.qa.nt.ctripcorp.com', 'utf16le')])).length > 0);
+});
+
+test('flags mock demo data stored as UTF-16 (ASCII and CJK markers)', () => {
+  for (const marker of ['Emma Wilson', '3051228766', '云游·小王']) {
+    assert.deepEqual(rules(Buffer.from(marker, 'utf16le')), ['mock-data'], `${marker} LE`);
+    assert.deepEqual(rules(Buffer.from(marker, 'utf16le').swap16()), ['mock-data'], `${marker} BE`);
+  }
 });
 
 test('flags mock demo data and mock files; allow-match works', () => {

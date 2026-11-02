@@ -21,7 +21,10 @@ mod sha256;
 mod value;
 
 pub use detect::{basename, detect as detect_spans, mask as mask_text, Kind, Span};
-pub use logger::{emit, format_record, format_utc, global, init, Config, Logger, DEFAULT_SALT};
+pub use logger::{
+    emit, format_record, format_utc, global, init, load_or_create_salt, Config, Logger,
+    DEFAULT_SALT,
+};
 pub use policy::{
     account_tag, mask_gid, policy_of, render_field, sanitize_text, truncate_chars, Policy,
     ALLOW_LIST, MAX_TEXT_CHARS,
