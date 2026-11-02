@@ -5,8 +5,9 @@
 //! Everything time-related is computed from `core-net`'s `ClockService`;
 //! the host only supplies wall/monotonic readings.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use contracts::{
@@ -20,7 +21,7 @@ use core_notify::{
     mask_label, CommandAck, CommandSource, DndMode, Effect, NotifyCore, Now, RestoredRound,
     SystemState,
 };
-use core_store::{FileStore, Namespace, ReminderStateRepo, RoundRecord, Store, SyncWatermarkRepo};
+use core_store::{FileStore, Namespace, PersistJob, PersistQueue, ReminderStateRepo, RoundRecord, SyncWatermarkRepo};
 use tauri::AppHandle;
 
 use crate::dto::{AdapterFactDto, AdapterFactEnvelopeDto};
@@ -76,6 +77,11 @@ pub struct Cores {
     /// Pending effects produced by inputs between scheduler ticks.
     pending_effects: Vec<Effect>,
     quit_requested: bool,
+    pending_persist: HashMap<Namespace, PersistJob>,
+    pub persist_failed: HashMap<Namespace, AppError>,
+    persist_receipt_seq: HashMap<Namespace, u64>,
+    persist_locked: HashSet<Namespace>,
+    persist_unlock_pending: HashMap<Namespace, u64>,
 }
 
 impl Cores {
@@ -108,6 +114,9 @@ impl std::fmt::Debug for Cores {
 pub struct HostState {
     pub clock: HostClock,
     cores: Mutex<Cores>,
+    persistence: Option<PersistQueue>,
+    persistence_start_error: Option<AppError>,
+    persist_seq: AtomicU64,
 }
 
 impl std::fmt::Debug for HostState {
@@ -118,7 +127,15 @@ impl std::fmt::Debug for HostState {
 
 impl HostState {
     pub fn new(store: Option<FileStore>, boot_epoch: u64) -> Self {
+        let (persistence, persistence_start_error) = match store.clone().map(PersistQueue::new) {
+            Some(Ok(queue)) => (Some(queue), None),
+            Some(Err(error)) => (None, Some(error)),
+            None => (None, None),
+        };
         Self {
+            persistence,
+            persistence_start_error,
+            persist_seq: AtomicU64::new(1),
             clock: HostClock::new(),
             cores: Mutex::new(Cores {
                 accounts: AccountRegistry::new(boot_epoch),
@@ -130,6 +147,11 @@ impl HostState {
                 glue: HashMap::new(),
                 pending_effects: Vec::new(),
                 quit_requested: false,
+                pending_persist: HashMap::new(),
+                persist_failed: HashMap::new(),
+                persist_receipt_seq: HashMap::new(),
+                persist_locked: HashSet::new(),
+                persist_unlock_pending: HashMap::new(),
             }),
         }
     }
@@ -183,7 +205,6 @@ impl HostState {
             )
         })?;
         let fact = convert_fact(dto.fact)?;
-        let is_compensation = matches!(fact, Fact::CompensationSync { .. });
         if cores.im.get(&account).is_none() {
             cores.im.insert(ImCore::new(account.clone()));
             // First facts after (re-)login: rounds persisted under this
@@ -199,9 +220,6 @@ impl HostState {
             fact,
         };
         let report = cores.im.ingest(env)?;
-        if is_compensation && report.applied {
-            Self::persist_compensation(&cores, &account);
-        }
         if report.auth_invalid {
             // core-account decides the generation change; the host just
             // records the signal and revokes.
@@ -238,30 +256,10 @@ impl HostState {
             log::warn!("stream {:?} needs resync (reconcile gen {gen})", stream);
         }
         self.pump_rounds(&mut cores);
+        let jobs = self.collect_round_snapshots(&cores);
+        drop(cores);
+        self.enqueue_snapshots(jobs);
         Ok(report)
-    }
-
-    /// Writes the account's compensation watermark (`beginMsgTime` for the
-    /// next page boot). Only a timestamp; no message content.
-    fn persist_compensation(cores: &Cores, account: &AccountContext) {
-        let (Some(store), Some(core)) = (cores.store.as_ref(), cores.im.get(account)) else {
-            return;
-        };
-        let Some(ms) = core.watermarks().compensation_cursor_ms() else {
-            return;
-        };
-        let ns = Namespace::from_context(account);
-        let mut txn = match store.begin(&ns) {
-            Ok(t) => t,
-            Err(e) => {
-                log::warn!("compensation watermark skipped for {}: {e}", ns.key());
-                return;
-            }
-        };
-        SyncWatermarkRepo::set_compensation_cursor(&mut txn, ms);
-        if let Err(e) = store.commit(txn) {
-            log::warn!("compensation watermark failed for {}: {e}", ns.key());
-        }
     }
 
     /// Compensation watermark for `account` (Unix ms, 0 when unknown): the
@@ -306,46 +304,128 @@ impl HostState {
         };
         effects.extend(cores.notify.apply_reconcile_state(state, &now));
         cores.pending_effects.extend(effects);
-        self.persist_rounds(cores);
     }
 
-    /// Writes the minimal round state (strong-alert §5 / docs/dev/05) for
-    /// every account into its own namespace. Labels are not persisted; on
-    /// restore they fall back to the masked gid until facts re-confirm.
-    fn persist_rounds(&self, cores: &mut Cores) {
-        let Some(store) = cores.store.as_ref() else {
-            return;
-        };
+    /// Pure memory snapshot collection. All sequence allocation happens under
+    /// Cores; no producer holds that lock while enqueueing or writing files.
+    fn collect_round_snapshots(&self, cores: &Cores) -> Vec<PersistJob> {
+        if cores.store.is_none() { return Vec::new(); }
         let mut by_ns: HashMap<Namespace, Vec<RoundRecord>> = HashMap::new();
+        for core in cores.im.iter() {
+            let ns = Namespace::from_context(core.account());
+            if !cores.persist_locked.contains(&ns) { by_ns.entry(ns).or_default(); }
+        }
         for r in cores.notify.persistable() {
             let ns = Namespace::from_context(&r.round.account);
+            if cores.persist_locked.contains(&ns) { continue; }
             by_ns.entry(ns).or_default().push(RoundRecord {
-                gid: r.round.gid.clone(),
-                round_id: r.round.round_id.clone(),
-                version: r.round.version,
-                start_message_id: None,
-                start_time_ms: r.start_time_ms,
-                start_confirmed: r.start_confirmed,
+                gid: r.round.gid.clone(), round_id: r.round.round_id.clone(),
+                version: r.round.version, start_message_id: None,
+                start_time_ms: r.start_time_ms, start_confirmed: r.start_confirmed,
                 reminded_version: r.round.version,
                 hidden_version: r.hidden_version.unwrap_or(0),
                 snoozed_until_ms: r.snoozed_until_ms,
             });
         }
-        for (ns, records) in by_ns {
-            let mut txn = match store.begin(&ns) {
-                Ok(t) => t,
-                Err(e) => {
-                    log::warn!("round persistence skipped for {}: {e}", ns.key());
-                    continue;
-                }
-            };
-            for rec in &records {
-                ReminderStateRepo::put(&mut txn, rec);
-            }
-            if let Err(e) = store.commit(txn) {
-                log::warn!("round persistence failed for {}: {e}", ns.key());
+        by_ns.into_iter().map(|(ns, rounds)| {
+            let compensation_cursor_ms = cores.im.iter()
+                .find(|core| Namespace::from_context(core.account()) == ns)
+                .and_then(|core| core.watermarks().compensation_cursor_ms());
+            PersistJob { seq: self.persist_seq.fetch_add(1, Ordering::Relaxed),
+                unlock_before_write: cores.persist_unlock_pending.contains_key(&ns),
+                ns, rounds: Some(rounds), compensation_cursor_ms, logout_lock: false }
+        }).collect()
+    }
+
+    fn enqueue_snapshots(&self, jobs: Vec<PersistJob>) {
+        let Some(queue) = &self.persistence else { return; };
+        for job in jobs {
+            if let Err(job) = queue.try_enqueue(job) {
+                core_store::queue::coalesce(&mut self.lock().pending_persist, job);
             }
         }
+    }
+
+    /// Nonblocking scheduler hook; pending overflow jobs are retried outside
+    /// Cores, and successful newer receipts clear a previous save failure.
+    pub fn service_persistence(&self) {
+        let Some(queue) = &self.persistence else { return; };
+        let receipts = queue.drain_receipts();
+        let jobs = {
+            let mut cores = self.lock();
+            for receipt in receipts {
+                if cores.persist_receipt_seq.get(&receipt.ns).is_some_and(|seq| *seq > receipt.seq) { continue; }
+                cores.persist_receipt_seq.insert(receipt.ns.clone(), receipt.seq);
+                match receipt.result {
+                    Ok(()) => {
+                        cores.persist_failed.remove(&receipt.ns);
+                        if cores.persist_unlock_pending.get(&receipt.ns).is_some_and(|seq| receipt.seq >= *seq) {
+                            cores.persist_unlock_pending.remove(&receipt.ns);
+                        }
+                    }
+                    Err(error) => { cores.persist_failed.insert(receipt.ns, error); }
+                }
+            }
+            std::mem::take(&mut cores.pending_persist).into_values().collect()
+        };
+        self.enqueue_snapshots(jobs);
+    }
+
+    /// Invoke only after the official page's verified identity is published.
+    /// Unlock is ordered with the final logout snapshot and survives coalescing.
+    pub fn unlock_persistence_after_reauth(&self, account: &AccountContext) -> Result<(), AppError> {
+        let mut cores = self.lock();
+        cores.accounts.validate(account)?;
+        let ns = Namespace::from_context(account);
+        let seq = self.persist_seq.fetch_add(1, Ordering::Relaxed);
+        cores.persist_locked.remove(&ns);
+        cores.persist_unlock_pending.insert(ns.clone(), seq);
+        let job = PersistJob { ns, seq, rounds: None, compensation_cursor_ms: None,
+            logout_lock: false, unlock_before_write: true };
+        drop(cores);
+        self.enqueue_snapshots(vec![job]);
+        Ok(())
+    }
+
+    pub fn persistence_failures(&self) -> Vec<(Namespace, AppError)> {
+        self.service_persistence();
+        self.lock().persist_failed.iter().map(|(ns, error)| (ns.clone(), error.clone())).collect()
+    }
+
+    pub fn ensure_persistence_healthy(&self, account: &AccountContext) -> Result<(), AppError> {
+        self.service_persistence();
+        if let Some(error) = &self.persistence_start_error { return Err(error.clone()); }
+        if self.persistence.is_none() {
+            return Err(AppError::new("store.unavailable", "local persistence is unavailable"));
+        }
+        let cores = self.lock();
+        cores.accounts.validate(account)?;
+        let ns = Namespace::from_context(account);
+        if let Some(error) = cores.persist_failed.get(&ns) { return Err(error.clone()); }
+        if cores.persist_locked.contains(&ns) || cores.persist_unlock_pending.contains_key(&ns) {
+            return Err(AppError::new("store.locked", "local persistence awaits verified reauthentication"));
+        }
+        Ok(())
+    }
+
+    /// Shutdown hook: admission must already be stopped by the caller. A
+    /// timeout never claims durability and never waits while holding Cores.
+    pub fn flush_persistence(&self, timeout: Duration) -> Result<(), AppError> {
+        let deadline = Instant::now() + timeout;
+        let Some(queue) = &self.persistence else {
+            return self.persistence_start_error.clone().map_or(Ok(()), Err);
+        };
+        loop {
+            self.service_persistence();
+            if self.lock().pending_persist.is_empty() { break; }
+            if Instant::now() >= deadline {
+                return Err(AppError::new("store.flush_timeout", "pending local saves exceeded deadline"));
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let result = queue.flush(deadline.saturating_duration_since(Instant::now()));
+        self.service_persistence();
+        result
     }
 
     /// Loads persisted rounds for `account` into notify as pending
@@ -420,6 +500,9 @@ impl HostState {
             }
         }
         self.pump_rounds(&mut cores);
+        let jobs = self.collect_round_snapshots(&cores);
+        drop(cores);
+        self.enqueue_snapshots(jobs);
         Ok(())
     }
 
@@ -449,6 +532,7 @@ impl HostState {
 
     /// 1 Hz scheduler entry: returns the effects to execute.
     pub fn tick(&self) -> Vec<Effect> {
+        self.service_persistence();
         let mut cores = self.lock();
         let now = self.now(&mut cores);
         let mut effects = std::mem::take(&mut cores.pending_effects);
@@ -512,7 +596,7 @@ impl HostState {
         let id = AccountId::new(account_id);
         let old_ctx = cores.accounts.current_context(&id);
         let revoke = cores.accounts.logout(&id, mode)?;
-        if let Some(old) = old_ctx {
+        if let Some(old) = old_ctx.as_ref() {
             let now = self.now(&mut cores);
             let effects = cores.notify.set_account_notifications(&old, false, &now);
             cores.pending_effects.extend(effects);
@@ -521,12 +605,21 @@ impl HostState {
                 .current_context(&id)
                 .unwrap_or_else(|| old.next_generation());
             let _ = cores.im.invalidate_generation(new_ctx);
-            if let Some(store) = cores.store.as_ref() {
-                let ns = Namespace::from_context(&old);
-                let _ = store.logout_lock(&ns);
-            }
         }
         self.pump_rounds(&mut cores);
+        let mut jobs = self.collect_round_snapshots(&cores);
+        if let Some(old) = old_ctx.as_ref() {
+            let ns = Namespace::from_context(old);
+            if let Some(job) = jobs.iter_mut().find(|job| job.ns == ns) { job.logout_lock = true; }
+            else if cores.store.is_some() {
+                jobs.push(PersistJob { ns: ns.clone(), seq: self.persist_seq.fetch_add(1, Ordering::Relaxed),
+                    rounds: None, compensation_cursor_ms: None, logout_lock: true, unlock_before_write: false });
+            }
+            cores.persist_unlock_pending.remove(&ns);
+            cores.persist_locked.insert(ns);
+        }
+        drop(cores);
+        self.enqueue_snapshots(jobs);
         Ok(revoke)
     }
 

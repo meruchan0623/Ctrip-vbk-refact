@@ -38,6 +38,7 @@ pub fn start(app: AppHandle) {
 fn run(app: AppHandle) {
     let mut flashing = false;
     let mut phase = false;
+    let mut persist_failed = None;
     loop {
         let state = app.state::<HostState>();
         if state.quit_requested() {
@@ -45,6 +46,14 @@ fn run(app: AppHandle) {
         }
         crate::adapter::expire_agent_statuses(&app);
         let mut effects = state.tick();
+        let save_failed = !state.persistence_failures().is_empty();
+        if persist_failed != Some(save_failed) {
+            persist_failed = Some(save_failed);
+            events::to_main(&app, "store://health", serde_json::json!({"failed": save_failed}));
+            crate::diag_log!(log::Level::Info, "persistence_health", {
+                count = core_diag::Value::Count(u64::from(save_failed))
+            });
+        }
         // Effects from settings changed through `prefs_set`.
         effects.extend(prefs::take_pending_effects(&app));
         let mut snapshot_changed = false;

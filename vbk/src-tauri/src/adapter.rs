@@ -754,6 +754,7 @@ pub async fn im_send_media(
 ) -> CmdResult<MediaSendResult> {
     guard(&state, webview.label(), "im_send_media")?;
     let ctx = read_account(&state, account)?;
+    state.ensure_persistence_healthy(&ctx).map_err(e2dto)?;
     if gid.is_empty() || local_id.is_empty() {
         return Err(e2dto(media_outbound::invalid()));
     }
@@ -1368,6 +1369,7 @@ pub async fn im_send_text(
 ) -> CmdResult<SendDispositionDto> {
     guard(&state, webview.label(), "im_send_text")?;
     let ctx = ui_account(&app, &state, account)?;
+    state.ensure_persistence_healthy(&ctx).map_err(e2dto)?;
     if gid.is_empty() || local_id.is_empty() || text.trim().is_empty() {
         return Err(e2dto(AppError::new(
             "im.invalid_send",

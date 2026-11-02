@@ -193,6 +193,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building the VBooking host")
         .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<HostState>() {
+                    if state.flush_persistence(std::time::Duration::from_secs(5)).is_err() {
+                        crate::diag_log!(log::Level::Error, "persistence_flush_failed", {
+                            count = core_diag::Value::Count(1)
+                        });
+                    }
+                }
+                log::logger().flush();
+            }
             // macOS: closing main only hides it (tray behaviour), so a click
             // on the Dock icon must bring it back.
             #[cfg(target_os = "macos")]

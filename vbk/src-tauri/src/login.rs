@@ -1301,6 +1301,7 @@ pub fn on_identity(
                 commit_profile_marker(&mut cores.accounts, &outcome.ctx, &profile_id);
                 outcome
             };
+            host.unlock_persistence_after_reauth(&outcome.ctx)?;
             let id = outcome.ctx.account_id.as_str().to_string();
             let old_profile = {
                 let ls = login_state(app);
@@ -1386,6 +1387,7 @@ pub fn on_identity(
                         }
                     }
                 };
+            host.unlock_persistence_after_reauth(&ctx)?;
             {
                 let ls = login_state(app);
                 let mut inner = ls.lock();

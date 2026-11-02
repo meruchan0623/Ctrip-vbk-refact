@@ -32,12 +32,14 @@
 pub mod error;
 pub mod file;
 pub mod memory;
+pub mod queue;
 pub mod repo;
 pub mod store;
 
 pub use error::codes;
 pub use file::FileStore;
 pub use memory::MemoryStore;
+pub use queue::{PersistJob, PersistQueue, PersistReceipt};
 pub use repo::draft::{DraftRecord, DraftRepo};
 pub use repo::pinned::PinnedRepo;
 pub use repo::reminder::{PendingVerification, ReconcileEvidence, ReminderStateRepo, RoundRecord};
