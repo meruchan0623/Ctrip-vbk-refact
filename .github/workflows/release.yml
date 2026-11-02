@@ -1,0 +1,276 @@
+name: vbk release
+
+# Release pipeline (plan I-18). Separate from the development CI
+# (vbk-check.yml). Runs only on a version tag or when started by hand.
+#
+# STATUS: written without access to a runner, certificates or a registry; it
+# has never been executed. Secrets are referenced by NAME ONLY - no
+# certificate, key or password is stored in the repository. Without the
+# secrets (workflow_dispatch with sign=false) the jobs build unsigned
+# artifacts and still run the architecture / entitlement / string-scan
+# checks; the signature checks are skipped and the job says so.
+#
+# Secrets (X6, to be provided by the owner):
+#   APPLE_CERTIFICATE            base64 .p12 (Developer ID Application)
+#   APPLE_CERTIFICATE_PASSWORD
+#   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: NAME (TEAMID)"
+#   APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID   notarization (app-specific pw)
+#   WINDOWS_CERTIFICATE          base64 .pfx (Authenticode)
+#   WINDOWS_CERTIFICATE_PASSWORD
+#   MINISIGN_SECRET_KEY / MINISIGN_PASSWORD     update signing (I-19), unused here
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: "Sign (and notarize on macOS). Needs the secrets above."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Signing is requested on tags, or by hand with sign=true.
+  SIGN: ${{ (github.event_name == 'push' || inputs.sign) && 'true' || 'false' }}
+  TAURI_CLI_VERSION: "2.*"
+
+jobs:
+  build-macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-apple-darwin
+            runner: macos-14
+          - arch: x86_64
+            target: x86_64-apple-darwin
+            runner: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Tools (tauri-cli, cargo-auditable, cargo-cyclonedx)
+        run: cargo install tauri-cli@${{ env.TAURI_CLI_VERSION }} cargo-auditable cargo-cyclonedx --locked
+      - name: Frontend bundle
+        working-directory: vbk
+        run: |
+          npm ci
+          npm run bundle:ui
+
+      - name: Import signing certificate
+        if: env.SIGN == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          test -n "$APPLE_CERTIFICATE" || { echo "::error::APPLE_CERTIFICATE secret missing"; exit 1; }
+          kc="$RUNNER_TEMP/build.keychain"
+          pw="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$pw" "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc"
+          security list-keychains -d user -s "$kc" login.keychain
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Build (cargo auditable, hardened runtime, notarize when signing)
+        working-directory: vbk/src-tauri
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ env.SIGN == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ env.SIGN == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ env.SIGN == 'true' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ env.SIGN == 'true' && secrets.APPLE_TEAM_ID || '' }}
+          VBK_GIT_COMMIT: ${{ github.sha }}
+        run: cargo tauri build --runner "cargo auditable" --target ${{ matrix.target }} --bundles app,dmg
+
+      - name: Architecture check (lipo -archs)
+        run: |
+          app="$(ls -d vbk/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app | head -n1)"
+          bin="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+          archs="$(lipo -archs "$bin")"
+          echo "lipo -archs: $archs"
+          test "$archs" = "${{ matrix.arch }}" || { echo "::error::expected ${{ matrix.arch }}, got $archs"; exit 1; }
+
+      - name: Entitlements must be empty
+        run: |
+          app="$(ls -d vbk/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app | head -n1)"
+          ents="$(codesign -d --entitlements - --xml "$app" 2>/dev/null || true)"
+          if printf '%s' "$ents" | grep -q '<key>'; then
+            echo "::error::non-empty entitlements:"; printf '%s\n' "$ents"; exit 1
+          fi
+          echo "entitlements: empty"
+
+      - name: Signature, notarization, hardened runtime
+        if: env.SIGN == 'true'
+        run: |
+          app="$(ls -d vbk/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app | head -n1)"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | tee /dev/stderr | grep -q 'flags=.*runtime' \
+            || { echo "::error::hardened runtime flag missing"; exit 1; }
+          spctl -a -vv "$app"
+          xcrun stapler validate "$app"
+
+      - name: Unsigned build notice
+        if: env.SIGN != 'true'
+        run: echo "::warning::unsigned build - codesign/spctl/stapler checks SKIPPED"
+
+      - name: Release-artifact string scan + size record
+        run: |
+          mkdir -p reports
+          node vbk/tools/release-scan.mjs \
+            --report reports/size-macos-${{ matrix.arch }}.json \
+            vbk/ui/bundle \
+            vbk/src-tauri/target/${{ matrix.target }}/release/bundle
+
+      - name: SBOM
+        working-directory: vbk/src-tauri
+        run: |
+          cargo cyclonedx --format json
+          mkdir -p ../../reports
+          cp ./*.cdx.json ../../reports/sbom-macos-${{ matrix.arch }}.cdx.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            vbk/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            reports/*
+
+  build-windows:
+    name: Windows x86_64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Tools (tauri-cli, cargo-auditable, cargo-cyclonedx)
+        run: cargo install tauri-cli@${{ env.TAURI_CLI_VERSION }} cargo-auditable cargo-cyclonedx --locked
+      - name: Frontend bundle
+        working-directory: vbk
+        run: |
+          npm ci
+          npm run bundle:ui
+
+      - name: Prepare Authenticode config
+        if: env.SIGN == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) { Write-Error "WINDOWS_CERTIFICATE secret missing"; exit 1 }
+          $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pw = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx
+          # tauri.windows.conf.json already sets digestAlgorithm / timestampUrl / tsp.
+          $cfg = @{ bundle = @{ windows = @{ certificateThumbprint = $cert.Thumbprint } } } | ConvertTo-Json -Depth 5
+          Set-Content -Path (Join-Path $env:RUNNER_TEMP "sign.conf.json") -Value $cfg
+
+      - name: Build (cargo auditable, NSIS)
+        working-directory: vbk/src-tauri
+        shell: pwsh
+        env:
+          VBK_GIT_COMMIT: ${{ github.sha }}
+        run: |
+          $extra = @()
+          if ($env:SIGN -eq 'true') { $extra = @("--config", (Join-Path $env:RUNNER_TEMP "sign.conf.json")) }
+          cargo tauri build --runner "cargo auditable" --target x86_64-pc-windows-msvc --bundles nsis @extra
+
+      - name: Authenticode verification (exe, installer)
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          $rel = "vbk/src-tauri/target/x86_64-pc-windows-msvc/release"
+          $files = @(Get-ChildItem "$rel/*.exe") + @(Get-ChildItem "$rel/bundle/nsis/*.exe")
+          if ($files.Count -lt 2) { Write-Error "expected app exe and NSIS installer"; exit 1 }
+          foreach ($f in $files) {
+            & $signtool verify /pa /v $f.FullName
+            if ($LASTEXITCODE -ne 0) { Write-Error "signtool verify failed: $($f.Name)"; exit 1 }
+          }
+
+      - name: Unsigned build notice
+        if: env.SIGN != 'true'
+        run: echo "::warning::unsigned build - signtool verify SKIPPED"
+
+      - name: Release-artifact string scan + size record
+        shell: bash
+        run: |
+          mkdir -p reports
+          node vbk/tools/release-scan.mjs \
+            --report reports/size-windows-x86_64.json \
+            vbk/ui/bundle \
+            vbk/src-tauri/target/x86_64-pc-windows-msvc/release/bundle
+
+      - name: SBOM
+        shell: bash
+        working-directory: vbk/src-tauri
+        run: |
+          cargo cyclonedx --format json
+          mkdir -p ../../reports
+          cp ./*.cdx.json ../../reports/sbom-windows-x86_64.cdx.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          if-no-files-found: error
+          path: |
+            vbk/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            reports/*
+
+  # Tag builds only: a DRAFT release for a human to review and publish.
+  # Never auto-publishes, never attaches update manifests (I-19 is separate).
+  draft-release:
+    name: Draft GitHub release
+    if: github.event_name == 'push'
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Size comparison with the previous release (informational)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prev
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern 'size-*.json' --dir prev 2>/dev/null \
+            || echo "no previous size reports"
+          for f in dist/*/size-*.json; do
+            name="$(basename "$f")"
+            if [ -f "prev/$name" ]; then
+              echo "== $name vs previous"; diff <(jq -S .sizes "prev/$name") <(jq -S .sizes "$f") || true
+            fi
+          done
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes \
+            dist/*/*.dmg dist/*/*.exe dist/*/size-*.json dist/*/sbom-*.cdx.json

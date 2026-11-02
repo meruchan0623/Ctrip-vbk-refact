@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Intentionally empty (plan I-18, C9). The WKWebView JIT runs in the system
+  WebContent process, so the host needs none of:
+    com.apple.security.cs.allow-jit
+    com.apple.security.cs.disable-library-validation
+    com.apple.security.cs.allow-dyld-environment-variables
+  Add an entry only with a measured need, and record why in the PR.
+  The release workflow asserts `codesign -d --entitlements` stays empty.
+-->
+<plist version="1.0">
+<dict/>
+</plist>

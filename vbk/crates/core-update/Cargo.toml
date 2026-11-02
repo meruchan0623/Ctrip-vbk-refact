@@ -1,0 +1,13 @@
+[package]
+name = "core-update"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Signed-updater trust logic (key-status.json rules, manifest policy, verify-before-install state machine) and deep-link / second-instance parsing (std-only; crypto is injected)."
+
+[lints]
+workspace = true
+
+[dependencies]

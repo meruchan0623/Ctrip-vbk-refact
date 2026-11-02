@@ -251,10 +251,8 @@ function generalSection(p: PrefsSnapshot): Child[] {
     head(t('set.general.startup')),
     toggle(t('set.general.autostart'), null, p.general.autostart, (v) => void setPref('general', 'autostart', v), 'general.autostart'),
     segment(t('set.general.closeAction'), null, [{ value: 'tray', label: t('set.general.closeTray') }, { value: 'quit', label: t('set.general.closeQuit') }], p.general.close_action, (v) => void setPref('general', 'close_action', v), 'general.close_action'),
-    toggle(t('set.general.startHidden'), null, p.general.start_hidden, (v) => void setPref('general', 'start_hidden', v), 'general.start_hidden'),
     head(t('set.general.chat')),
     toggle(t('set.general.msgTime'), null, p.general.show_msg_time, (v) => void setPref('general', 'show_msg_time', v), 'general.show_msg_time'),
-    toggle(t('set.general.spell'), t('set.general.spellDesc'), p.general.spell_check, (v) => void setPref('general', 'spell_check', v), 'general.spell_check'),
     h('div', { class: 'notice-box info', style: { 'margin-top': '14px' } }, t('set.webHint')),
   ];
 }
