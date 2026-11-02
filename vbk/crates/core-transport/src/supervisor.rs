@@ -416,17 +416,29 @@ impl<R: Rng> Supervisor<R> {
 
         if let Phase::Terminal(_) = self.phase {
             // Terminal: zero reconnect actions, counters untouched, until the account is rebound.
-            if event == Event::AccountRebound {
-                self.phase = if self.counters.tripped {
-                    Phase::Tripped
-                } else {
-                    Phase::Online
-                };
-                self.last_alive_ms = now;
-                self.online_since_ms = now;
-                self.sdk = SdkStatus::Connecting;
-                self.sdk_since_ms = now;
-                self.frozen_since_ms = None;
+            // The network flag is still tracked so a rebound while offline stays frozen.
+            match event {
+                Event::AccountRebound => {
+                    self.phase = if self.counters.tripped {
+                        Phase::Tripped
+                    } else {
+                        Phase::Online
+                    };
+                    self.last_alive_ms = now;
+                    self.online_since_ms = now;
+                    self.sdk = SdkStatus::Connecting;
+                    self.sdk_since_ms = now;
+                    if self.frozen_since_ms.is_some() {
+                        self.frozen_since_ms = Some(now);
+                    }
+                }
+                Event::Network { online: false } => {
+                    if self.frozen_since_ms.is_none() {
+                        self.frozen_since_ms = Some(now);
+                    }
+                }
+                Event::Network { online: true } => self.frozen_since_ms = None,
+                _ => {}
             }
             return Vec::new();
         }
@@ -515,21 +527,23 @@ impl<R: Rng> Supervisor<R> {
     fn on_tick(&mut self, now: u64) -> Vec<Action> {
         match self.phase {
             Phase::Online => {
-                if self.counters.failures > 0
-                    && now.saturating_sub(self.online_since_ms) >= self.cfg.stable_online_ms
-                {
-                    // Stable long enough: the streak is over (anti-flap).
-                    self.counters.failures = 0;
-                    self.counters.last_delay_ms = 0;
-                    self.last_fail_ms = None;
-                    self.last_attempt_ms = None;
-                }
                 let timed_out = if self.sdk == SdkStatus::Connected {
                     now.saturating_sub(self.last_alive_ms) >= self.cfg.heartbeat_timeout_ms
                 } else {
                     now.saturating_sub(self.sdk_since_ms) >= self.cfg.unconnected_timeout_ms
                 };
                 if !timed_out {
+                    if self.counters.failures > 0
+                        && now.saturating_sub(self.online_since_ms) >= self.cfg.stable_online_ms
+                    {
+                        // Stable long enough *with* proof of life: the streak is over (anti-flap).
+                        // Evaluated only when not timed out, so a coarse tick landing on both
+                        // boundaries at once cannot erase the streak with a period of silence.
+                        self.counters.failures = 0;
+                        self.counters.last_delay_ms = 0;
+                        self.last_fail_ms = None;
+                        self.last_attempt_ms = None;
+                    }
                     return Vec::new();
                 }
                 if self.counters.failures == 0 {
@@ -609,14 +623,37 @@ impl<R: Rng> Supervisor<R> {
     }
 
     fn on_resumed(&mut self, now: u64) -> Vec<Action> {
+        // Wall-clock jumped across the sleep: neither the heartbeat nor an
+        // outstanding verify/rebuild window may read the gap as a failure.
         match self.phase {
-            Phase::Online | Phase::Awaiting { .. } | Phase::Backoff { .. } => {
-                // Wall-clock jumped across the sleep: do not read the gap as a heartbeat timeout.
+            Phase::Online | Phase::Backoff { .. } => {
                 self.last_alive_ms = now;
                 self.sdk_since_ms = now;
                 vec![Action::Compensate(self.plan(now))]
             }
-            _ => Vec::new(),
+            Phase::Awaiting { .. } => {
+                self.last_alive_ms = now;
+                self.sdk_since_ms = now;
+                self.phase = Phase::Awaiting {
+                    deadline_ms: now.saturating_add(self.cfg.attempt_verify_ms),
+                };
+                vec![Action::Compensate(self.plan(now))]
+            }
+            Phase::Compensating { .. } => {
+                self.phase = Phase::Compensating {
+                    deadline_ms: now.saturating_add(self.cfg.attempt_verify_ms),
+                };
+                vec![Action::Compensate(self.plan(now))]
+            }
+            Phase::Rebuilding { level, .. } => {
+                self.phase = Phase::Rebuilding {
+                    level,
+                    deadline_ms: now.saturating_add(self.cfg.rebuild_timeout_ms),
+                };
+                Vec::new()
+            }
+            // Draining keeps its hard 10 s bound; tripped/terminal do nothing.
+            Phase::Draining { .. } | Phase::Tripped | Phase::Terminal(_) => Vec::new(),
         }
     }
 

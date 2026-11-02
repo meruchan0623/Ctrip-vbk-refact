@@ -194,8 +194,17 @@ export interface OfficialFeedAttachment {
 }
 
 export interface OfficialConversationFeed {
-  /** The official loop is considered active: >= `minCalls` requests in `windowMs`, the latest not older than `staleMs`. */
-  active(nowMs: number): boolean;
+  /**
+   * The official loop is considered a usable feed for `variant`: >= `minCalls`
+   * requests of that variant in `windowMs`, the latest not older than
+   * `staleMs`, **and** its responses are actually reaching the tap (a body was
+   * observed within `responseStaleMs`, or the first request is younger than
+   * that). Requests alone never count: a loop whose bodies cannot be read
+   * (opaque response type, clone failure, the other URL variant) would
+   * otherwise silence the poller with zero requests *and* zero data.
+   * Without `variant`, any variant counts (request liveness only).
+   */
+  active(nowMs: number, variant?: OfficialListVariant): boolean;
   attach(variant: OfficialListVariant, handler: OfficialFeedHandler): OfficialFeedAttachment;
 }
 
@@ -215,6 +224,8 @@ export interface OfficialFeedOptions {
   readonly staleMs?: number;
   readonly windowMs?: number;
   readonly minCalls?: number;
+  /** Longest time a variant may go without an observed response body before its loop stops counting as a feed (default `windowMs`). */
+  readonly responseStaleMs?: number;
   /** Replay buffer bounds (entries/characters since the last full snapshot, per variant). */
   readonly maxEntries?: number;
   readonly maxChars?: number;
@@ -238,7 +249,11 @@ export function createOfficialConversationFeed(opts: OfficialFeedOptions = {}): 
   const minCalls = opts.minCalls ?? 2;
   const maxEntries = opts.maxEntries ?? 32;
   const maxChars = opts.maxChars ?? 4_000_000;
-  const times: number[] = [];
+  const responseStaleMs = opts.responseStaleMs ?? windowMs;
+  const times: Record<OfficialListVariant, number[]> = { plain: [], json: [] };
+  /** First observed request / last observed response body per variant (response liveness). */
+  const firstRequestAt: Record<OfficialListVariant, number | undefined> = { plain: undefined, json: undefined };
+  const lastBodyAt: Record<OfficialListVariant, number | undefined> = { plain: undefined, json: undefined };
   const handlers = new Map<OfficialFeedHandler, OfficialListVariant>();
   const chains: Record<OfficialListVariant, { entries: OfficialConversationEntry[]; chars: number; anchored: boolean }> = {
     plain: { entries: [], chars: 0, anchored: false },
@@ -264,11 +279,21 @@ export function createOfficialConversationFeed(opts: OfficialFeedOptions = {}): 
     }
   };
 
+  const requestsAlive = (nowMs: number, variant: OfficialListVariant): boolean => {
+    const list = times[variant];
+    const last = list[list.length - 1];
+    if (last === undefined || nowMs - last > staleMs) return false;
+    return list.filter((t) => nowMs - t <= windowMs).length >= minCalls;
+  };
+  const responsesAlive = (nowMs: number, variant: OfficialListVariant): boolean => {
+    const seen = lastBodyAt[variant] ?? firstRequestAt[variant];
+    return seen !== undefined && nowMs - seen <= responseStaleMs;
+  };
+
   return {
-    active(nowMs) {
-      const last = times[times.length - 1];
-      if (last === undefined || nowMs - last > staleMs) return false;
-      return times.filter((t) => nowMs - t <= windowMs).length >= minCalls;
+    active(nowMs, variant) {
+      if (variant === undefined) return requestsAlive(nowMs, 'plain') || requestsAlive(nowMs, 'json');
+      return requestsAlive(nowMs, variant) && responsesAlive(nowMs, variant);
     },
     attach(variant, handler) {
       handlers.set(handler, variant);
@@ -285,14 +310,17 @@ export function createOfficialConversationFeed(opts: OfficialFeedOptions = {}): 
     noteRequest(url, body, nowMs) {
       const variant = conversationListVariantOf(url);
       if (variant === null) return null;
-      times.push(nowMs);
-      if (times.length > 16) times.splice(0, times.length - 16);
+      const list = times[variant];
+      list.push(nowMs);
+      if (list.length > 16) list.splice(0, list.length - 16);
+      firstRequestAt[variant] ??= nowMs;
       const tickets = new Map<OfficialFeedHandler, unknown>();
       for (const [h, v] of handlers) if (v === variant) tickets.set(h, h.onRequest());
       return { variant, startTime: startTimeOf(body), tickets };
     },
     noteResponse(token, status, text, nowMs) {
       if (text === null) return;
+      lastBodyAt[token.variant] = nowMs;
       const entry: OfficialConversationEntry = { variant: token.variant, startTime: token.startTime, full: token.startTime === null, status, text, at: nowMs };
       store(entry);
       for (const [h, v] of [...handlers]) if (v === token.variant) h.onResponse(entry, token.tickets.get(h));
@@ -544,16 +572,29 @@ function tapFetchResult(tap: TrafficTap, ticket: PageTicket, result: unknown): v
 }
 
 function tapXhr(tap: TrafficTap, ticket: PageTicket, xhr: object): void {
-  const target = xhr as { addEventListener?: (type: string, cb: () => void) => void; status?: unknown; responseType?: unknown; responseText?: unknown };
+  const target = xhr as { addEventListener?: (type: string, cb: () => void) => void; status?: unknown; responseType?: unknown; responseText?: unknown; response?: unknown };
   target.addEventListener?.('loadend', () => {
     try {
       const status = typeof target.status === 'number' ? target.status : 0;
-      const text = ticket.wantsBody && (target.responseType === '' || target.responseType === 'text') && typeof target.responseText === 'string' ? target.responseText : null;
-      tap.onResponse(ticket, status, text);
+      tap.onResponse(ticket, status, ticket.wantsBody ? xhrBodyText(target) : null);
     } catch {
       // ignore
     }
   });
+}
+
+/** Body of a finished XHR as text: `responseText` for text responses, the parsed object re-serialised for `responseType: 'json'`; `null` otherwise. */
+function xhrBodyText(target: { responseType?: unknown; responseText?: unknown; response?: unknown }): string | null {
+  try {
+    if (target.responseType === '' || target.responseType === 'text') return typeof target.responseText === 'string' ? target.responseText : null;
+    if (target.responseType === 'json') {
+      const r = target.response;
+      return typeof r === 'object' && r !== null ? JSON.stringify(r) : null;
+    }
+  } catch {
+    // `responseText` throws for non-text response types; treated as unobservable
+  }
+  return null;
 }
 
 // ------------------------------------------------------------- context
