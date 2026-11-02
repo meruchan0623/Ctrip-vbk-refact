@@ -17,6 +17,7 @@ pub mod peripheral_journal;
 pub mod media_outbound;
 pub mod assistant;
 pub mod commands;
+pub mod diagnostics;
 pub mod dto;
 pub mod events;
 pub mod login;
@@ -51,10 +52,18 @@ pub fn run() {
         }))
         .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
+            diagnostics::init(data_dir.join("logs"))?;
+            crate::diag_log!(log::Level::Info, "host_started", {
+                timestamp = core_diag::Value::Count(boot_epoch)
+            });
             let store = match FileStore::open(data_dir.join("state")) {
                 Ok(s) => Some(s),
                 Err(e) => {
                     log::error!("store unavailable: {e}; running without persistence");
+                    crate::diag_log!(log::Level::Error, "store_unavailable", {
+                        error_code = core_diag::Value::Text("store_open_failed"),
+                        count = core_diag::Value::Count(1)
+                    });
                     None
                 }
             };

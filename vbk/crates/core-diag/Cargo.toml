@@ -1,0 +1,11 @@
+[package]
+name = "core-diag"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Local-only privacy-first structured diagnostics and bounded file rotation (std-only)."
+
+[lints]
+workspace = true

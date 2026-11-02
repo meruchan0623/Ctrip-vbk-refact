@@ -8,6 +8,7 @@ members = [
   "crates/core-im",
   "crates/core-notify",
   "crates/core-assistant",
+  "crates/core-diag",
   "tests/scenarios",
 ]
 # `src-tauri` is a standalone package (its own Cargo.toml / lockfile) that

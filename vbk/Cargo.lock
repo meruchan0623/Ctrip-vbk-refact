@@ -21,6 +21,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-diag"
+version = "0.1.0"
+
+[[package]]
 name = "core-im"
 version = "0.1.0"
 dependencies = [
