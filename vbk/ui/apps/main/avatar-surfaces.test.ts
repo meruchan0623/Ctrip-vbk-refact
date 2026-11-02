@@ -29,7 +29,7 @@ function render(name: 'conversationList' | 'chatPane' | 'peripheralDialog', next
     createTextNode: (text: string) => ({ tag: '#text', text }),
     querySelector: () => null,
   };
-  const env = { personDisplayName, virtualConversationRange, messagePane: () => null,
+  const env = { personDisplayName, virtualConversationRange, PIN_THRESHOLD: 48, messagePane: () => null,
     document: doc, renderMessageAvatar, initialOf, cx, historyScopeKey,
     h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
     icon: () => ({ tag: 'icon' }), IC: {}, t: (key: string) => key,

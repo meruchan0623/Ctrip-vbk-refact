@@ -9,6 +9,8 @@ import { ErrorCodes, isAppError } from '../../packages/ipc/src/contracts.ts';
 import type { AgentStatus, MarkAction, OrderSearchResult, UiAccount, UiAgentStatus, UiConversation, UiMessage, UiNetStatus, UiOrderSummary } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { mergeMessageProfile } from './message-profile.ts';
+export { rowId } from './message-window.ts';
+import { historyKeyOf, historyKeyString, historyKeysMatch, parseHistoryKey } from './history-key.ts';
 import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { I18nKey } from '../../packages/ui-kit/src/i18n.ts';
@@ -546,19 +548,12 @@ export function historyScopeKey(account: AccountContext | null, gid: string): st
 export function messageHistoryKey(account: AccountContext | null, conv: Pick<UiConversation, 'gid' | 'account'>, message: UiMessage): string {
   const id = message.message_id ?? message.local_id;
   if (!account || !id || message.gid !== conv.gid || !sameAccount(account, conv.account) || account.session_generation !== conv.account.session_generation) return '';
-  return JSON.stringify([historyScopeKey(account, conv.gid), message.message_id || null, message.local_id || null, message.sender_role, message.sender_id?.trim().toLowerCase() || null]);
+  return historyKeyString(historyKeyOf(historyScopeKey(account, conv.gid), message));
 }
 
 /** Sparse enrichment is compatible; explicit sender or server conflicts are never aliases. */
 export function messageHistoryMatches(before: string, after: string): boolean {
-  if (!before || !after) return false;
-  try {
-    const a: unknown = JSON.parse(before), b: unknown = JSON.parse(after);
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== 5 || b.length !== 5 || !a[0] || a[0] !== b[0] || a[3] !== b[3]) return false;
-    if (a[4] && b[4] && a[4] !== b[4]) return false;
-    if (a[1] && b[1]) return a[1] === b[1];
-    return !!a[2] && a[2] === b[2];
-  } catch { return false; }
+  return historyKeysMatch(parseHistoryKey(before), parseHistoryKey(after));
 }
 
 /** Recall notices remain visible while their original content stays hidden across pages. */

@@ -4,6 +4,9 @@ import { createVisibleRead } from './visible-read.ts';
 import { readHistoryPage } from './history-read.ts';
 import { personDisplayName } from './person-name.ts';
 import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
+import { createMessagePane, PIN_THRESHOLD } from './message-pane.ts';
+import type { MeasuredPane, PaneGeometry } from './message-pane.ts';
+import type { MessageAnchor } from './message-window.ts';
 import { createComposerInput } from './composer-input.ts';
 /**
  * Main window (prototype 02-main): title bar with account tabs, left nav
@@ -112,8 +115,8 @@ import {
   safeMediaUrl,
   mergeHistory,
   historyScopeKey,
+  rowId,
   messageHistoryKey,
-  messageHistoryMatches,
   visibleMessages,
   selectedQuoteReference,
   messageQuotePreview,
@@ -169,6 +172,8 @@ interface MainState {
   readonly prefs: PrefsSnapshot | null;
   readonly now: number;
   readonly listWindow?: { scope: string; top: number; height: number };
+  /** Message pane window + reading anchor `{scope,key,offset}`; survives pane rebuilds (I-08). */
+  readonly messageView?: { readonly scope: string; readonly top: number; readonly height: number; readonly anchor: MessageAnchor | null; readonly rev: number };
   // messages
   readonly conversations: readonly UiConversation[];
   readonly business: BusinessTab;
@@ -1519,6 +1524,11 @@ function richText(text: string): HTMLElement[] {
   );
 }
 
+// Window model of the message pane (I-28a): which rows are mounted, measured heights, the reading anchor.
+const messagePaneModel = createMessagePane();
+// Anchor captured just before a redraw; consumed by messagePane() while that redraw runs.
+let liveAnchor: MessageAnchor | null = null;
+let messageViewPatches = 0;
 /** A card may reveal only its own current order in its original account/session scope. */
 function openMessageOrder(m: UiMessage, rendered: UiConversation, account: UiAccount | null): void {
   if (!account || !sameAccount(rendered.account, account.context) || rendered.account.session_generation !== account.context.session_generation || !stillActive(account.context)) return;
@@ -1538,70 +1548,81 @@ function mediaNodeKey(account: AccountContext | null, conv: UiConversation, mess
   return JSON.stringify([account.environment, account.account_id, account.session_generation, conv.gid, message.message_id ? 'server' : 'local', id]);
 }
 
-/** Scroll-only system fingerprints are exact, scoped matches; never message or receipt IDs. */
-function historyAnchorMatches(before: string, after: string): boolean {
-  if (before.startsWith('scroll-system:') || after.startsWith('scroll-system:')) return !!before && before === after;
-  return messageHistoryMatches(before, after);
+function paneGeometry(scroll: HTMLElement): PaneGeometry {
+  return { scrollTop: scroll.scrollTop, clientHeight: scroll.clientHeight, scrollHeight: scroll.scrollHeight };
+}
+/** Measure the mounted rows: height includes the row's bottom margin, header is whatever precedes row 0. */
+function measureMessagePane(scroll: HTMLElement): MeasuredPane {
+  const rows = [...scroll.querySelectorAll<HTMLElement>('[data-row-id]')];
+  const origin = scroll.querySelector<HTMLElement>('[data-msg-spacer="top"]') ?? rows[0];
+  const header = origin ? origin.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop : 0;
+  return { header, rows: rows.filter(row => row.dataset['rowId']).map(row => ({ id: row.dataset['rowId']!, height: row.getBoundingClientRect().height + (Number.parseFloat(getComputedStyle(row).marginBottom) || 0) })) };
 }
 
-interface MessageAnchor { readonly scope: string; readonly diagnosticId: number; readonly identities: readonly string[]; readonly candidates: readonly { readonly key: string; readonly offset: number; readonly row: number }[] }
+/** Model-based reading anchor `{scope, key, offset}`: no per-row DOM reads or JSON.parse. */
 function captureMessageAnchor(s: MainState): MessageAnchor | null {
   const conv = activeConv(s), account = activeAccount(s)?.context ?? null;
   if (!conv) { historyDiagnostics.record('capture_skip', {}, 'no_conversation'); return null; }
   const scope = historyScopeKey(account, conv.gid);
   const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
-  if (!scope || !scroll || scroll.dataset['historyScope'] !== scope) { historyDiagnostics.record('capture_skip', {}, 'wrong_scope'); return null; }
-  if (scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 48) { historyDiagnostics.record('capture_skip', { scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'pinned'); return null; }
-  const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
-  const top = scroll.getBoundingClientRect().top;
-  const diagnosticId = historyDiagnostics.record('capture', { rows: rows.length, scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight });
-  const candidates: { key: string; offset: number; row: number }[] = [];
-  let visible = 0;
-  for (const [index, row] of rows.entries()) {
-    const key = row.dataset['historyKey'], rect = row.getBoundingClientRect();
-    if (rect.bottom > top && rect.top < top + scroll.clientHeight) {
-      visible++;
-      const matches = key ? rows.filter(candidate => historyAnchorMatches(key, candidate.dataset['historyKey'] ?? '')).length : 0;
-      historyDiagnostics.record('candidate', { capture: diagnosticId, row: index, keyType: !key ? 0 : key.startsWith('scroll-system:') ? 1 : 2, top: rect.top - top, bottom: rect.bottom - top, matches }, !key ? 'missing' : matches === 1 ? 'observed' : 'ambiguous');
-      if (key && matches === 1) candidates.push({ key, offset: rect.top - top, row: index });
-    }
+  const geometry = scroll ? paneGeometry(scroll) : null;
+  const result = messagePaneModel.capture(scope && scroll?.dataset['historyScope'] === scope ? scope : null, geometry);
+  if ('skip' in result) {
+    historyDiagnostics.record('capture_skip', geometry ?? {}, result.skip === 'pinned' ? 'pinned' : result.skip === 'no_anchor' ? 'no_candidates' : 'wrong_scope');
+    return null;
   }
-  // A page arrives through several message broadcasts. A newly inserted clipped row
-  // must not replace the row we just restored while that reading row is still visible.
-  // Re-read its current offset on every capture so actual user scrolling still wins.
-  const preferred = scroll.dataset['historyAnchorKey'];
-  const preferredCandidates = preferred ? candidates.filter(candidate => historyAnchorMatches(preferred, candidate.key)) : [];
-  if (preferredCandidates.length === 1) {
-    const index = candidates.indexOf(preferredCandidates[0]!);
-    candidates.unshift(...candidates.splice(index, 1));
-  }
-  historyDiagnostics.record('capture_done', { capture: diagnosticId, visible, candidates: candidates.length }, candidates.length ? 'observed' : 'no_candidates');
-  return candidates.length ? { scope, diagnosticId, identities: rows.map(row => row.dataset['historyKey'] ?? '').filter(Boolean), candidates } : null;
+  const diagnosticId = historyDiagnostics.record('capture', { ...(geometry ?? {}), offset: result.anchor.offset });
+  historyDiagnostics.record('capture_done', { capture: diagnosticId, candidates: 1 }, 'observed');
+  return result.anchor;
 }
+/** Put the anchor row back after a redraw or after media changed a row's height. */
 function restoreMessageAnchor(anchor: MessageAnchor | null): void {
-  if (!anchor) { historyDiagnostics.record('restore_skip', {}, 'no_anchor'); return; }
   const current = S(), conv = activeConv(current), account = activeAccount(current)?.context ?? null;
-  if (!conv || historyScopeKey(account, conv.gid) !== anchor.scope) { historyDiagnostics.record('restore_skip', { capture: anchor.diagnosticId }, 'wrong_scope'); return; }
   const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
-  if (!scroll || scroll.dataset['historyScope'] !== anchor.scope) { historyDiagnostics.record('restore_skip', { capture: anchor.diagnosticId }, 'wrong_scope'); return; }
-  const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
-  for (const candidate of anchor.candidates) {
-    const matches = rows.filter(row => historyAnchorMatches(candidate.key, row.dataset['historyKey'] ?? ''));
-    if (matches.length !== 1) { historyDiagnostics.record('match', { capture: anchor.diagnosticId, row: candidate.row, matches: matches.length }, matches.length ? 'ambiguous' : 'missing'); continue; }
-    // A newly sparse row must not arbitrarily select one of several former identities.
-    const reverseMatches = anchor.identities.filter(key => historyAnchorMatches(key, matches[0]!.dataset['historyKey'] ?? '')).length;
-    if (reverseMatches !== 1) { historyDiagnostics.record('match', { capture: anchor.diagnosticId, row: candidate.row, matches: 1, reverseMatches }, 'reverse_ambiguous'); continue; }
-    const before = scroll.scrollTop, delta = matches[0]!.getBoundingClientRect().top - scroll.getBoundingClientRect().top - candidate.offset;
-    scroll.scrollTop += delta;
-    scroll.dataset['historyAnchorKey'] = matches[0]!.dataset['historyKey']!;
-    historyDiagnostics.record('restore', { capture: anchor.diagnosticId, row: candidate.row, newRow: rows.indexOf(matches[0]!), matches: 1, reverseMatches, offset: candidate.offset, before, after: scroll.scrollTop, delta, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'applied');
-    return;
-  }
+  const scope = conv ? historyScopeKey(account, conv.gid) : '';
+  if (!conv || !scope || !scroll || scroll.dataset['historyScope'] !== scope) { historyDiagnostics.record('restore_skip', {}, 'wrong_scope'); return; }
+  const pinned = scroll.dataset['scrollBottom'] === '1';
+  const view = current.messageView?.scope === scope ? current.messageView : undefined;
+  const target = pinned ? null : anchor ?? view?.anchor ?? null;
+  const result = messagePaneModel.sync(scope, paneGeometry(scroll), measureMessagePane(scroll), target, pinned);
+  if (!result) { historyDiagnostics.record('restore_skip', {}, 'wrong_scope'); return; }
+  if (result.scrollTo !== null) {
+    const before = scroll.scrollTop;
+    scroll.scrollTop = result.scrollTo;
+    historyDiagnostics.record('restore', { offset: target?.offset ?? 0, before, after: scroll.scrollTop, delta: scroll.scrollTop - before, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'applied');
+  } else if (!target) historyDiagnostics.record('restore_skip', {}, 'no_anchor');
+  // The window moves only when the model says so; a bounded retry keeps measure and render from chasing each other.
+  const stale = !view || view.height !== scroll.clientHeight;
+  if ((result.rerender || stale) && scroll.clientHeight > 0 && messageViewPatches < 4) {
+    messageViewPatches++;
+    persistMessageView(scroll, scope, pinned);
+  } else if (!result.rerender) messageViewPatches = 0;
+}
+/** Persist `{scope, top, height, anchor}` in the store so a rebuilt pane resumes at the same row. */
+function persistMessageView(scroll: HTMLElement, scope: string, pinned: boolean): void {
+  const captured = pinned ? null : messagePaneModel.capture(scope, paneGeometry(scroll));
+  const top = Math.max(0, scroll.scrollTop - messagePaneModel.header());
+  store.patch({ messageView: { scope, top, height: scroll.clientHeight, anchor: captured && 'anchor' in captured ? captured.anchor : null, rev: (S().messageView?.rev ?? 0) + 1 } });
+}
+/** Scrolling needs a new window, or (debounced) a fresh stored anchor. */
+let messageViewTimer: ReturnType<typeof setTimeout> | undefined;
+function onMessageScroll(scroll: HTMLElement): void {
+  messageViewPatches = 0;
+  const conv = activeConv(S()), scope = conv ? historyScopeKey(activeAccount(S())?.context ?? null, conv.gid) : '';
+  if (!scope || scroll.dataset['historyScope'] !== scope) return;
+  const need = messagePaneModel.rangeFor(paneGeometry(scroll));
+  const pinned = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < PIN_THRESHOLD;
+  if (need?.changed) { persistMessageView(scroll, scope, pinned); return; }
+  clearTimeout(messageViewTimer);
+  messageViewTimer = setTimeout(() => {
+    if (scroll.isConnected && scroll.dataset['historyScope'] === scope) persistMessageView(scroll, scope, scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < PIN_THRESHOLD);
+  }, 250);
 }
 function withMessageAnchor(s: MainState, redraw: () => void): void {
   const anchor = captureMessageAnchor(s);
+  liveAnchor = anchor;
   stopHistoryLayout();
-  redraw();
+  try { redraw(); } finally { liveAnchor = null; }
   restoreMessageAnchor(anchor);
   const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
   const scope = scroll?.dataset['historyScope'];
@@ -1615,12 +1636,8 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
   const alignment = messageAlignment(m);
   if (alignment.side === 'system') {
     const account = acc?.context ?? null;
-    let key = messageHistoryKey(account, conv, m);
-    if (!key && !m.message_id && !m.local_id && account && m.gid === conv.gid && sameAccount(account, conv.account) && account.session_generation === conv.account.session_generation && Number.isFinite(m.create_time_ms)) {
-      // Presentation fallback only. Duplicate fingerprints are refused in both old and new rows.
-      key = 'scroll-system:' + JSON.stringify([historyScopeKey(account, conv.gid), m.kind, m.sender_role, m.sender_id?.trim().toLowerCase() || null, m.create_time_ms, m.text, (m as QuotedUiMessage).recalled_message_id ?? null]);
-    }
-    return h('div', { class: 'msg-sys', dataset: { historyKey: key } }, h('span', null, `${formatDate(m.create_time_ms)} ${formatClock(m.create_time_ms, true)} ${m.text}`));
+    const key = messageHistoryKey(account, conv, m);
+    return h('div', { class: 'msg-sys', dataset: { historyKey: key, rowId: rowId(m) } }, h('span', null, `${formatDate(m.create_time_ms)} ${formatClock(m.create_time_ms, true)} ${m.text}`));
   }
   const alignRight = alignment.side === 'right';
   const isSelf = alignment.self;
@@ -1660,7 +1677,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
   const who = m.sender_name?.trim() || m.sender_id?.trim() || (isSelf ? (acc ? accountLabel(acc) : roleLabel('merchant_self')) : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role));
   return h(
     'div',
-    { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '', historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } },
+    { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '', rowId: rowId(m), historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } },
     h('div', { class: 'ava sm', style: { background: isSelf ? (acc?.color ?? '#5B6676') : conv.color } }, renderMessageAvatar(document, who, m.sender_avatar)),
     h(
       'div',
@@ -1898,16 +1915,23 @@ function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
 // Only one active pane is retained, so old accounts/rooms do not accumulate DOM caches.
 let messagePaneCache: { deps: readonly unknown[]; node: HTMLElement } | undefined;
 function messagePane(s: MainState, conv: UiConversation, acc: UiAccount | null, pinned: boolean): HTMLElement {
-  const deps = [s.messages[conv.gid], s.history[conv.gid], conv, acc, s.prefs, s.hideInboundTr, s.tsimStatus];
+  const deps = [s.messages[conv.gid], s.history[conv.gid], conv, acc, s.prefs, s.hideInboundTr, s.tsimStatus, s.messageView];
   if (messagePaneCache && deps.every((value, i) => value === messagePaneCache!.deps[i])) {
     messagePaneCache.node.dataset['scrollBottom'] = pinned ? '1' : '0';
     return messagePaneCache.node;
   }
+  const scope = historyScopeKey(acc?.context ?? null, conv.gid);
   const msgs = visibleMessages(s.messages[conv.gid] ?? []);
-  const node = h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: historyScopeKey(acc?.context ?? null, conv.gid), readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
+  const view = s.messageView?.scope === scope ? s.messageView : undefined;
+  const win = messagePaneModel.plan({ scope, list: msgs, view, pinned, anchor: liveAnchor ?? view?.anchor ?? null });
+  const spacer = (kind: 'top' | 'bottom', height: number): HTMLElement => h('div', { class: 'msgs-spacer', 'aria-hidden': 'true', dataset: { msgSpacer: kind }, style: { height: `${height}px`, flex: 'none' } });
+  const node = h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: scope, readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
       s.history[conv.gid]?.firstPage === 'loading' ? h('div', { class: 'history-more', role: 'status' }, '正在读取聊天记录…') : null,
       s.history[conv.gid]?.firstPage === 'error' ? h('button', { class: 'history-more', onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
-      s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null, msgs.map((m) => messageRow(s, m, conv, acc)));
+      s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null,
+      win.range.start > 0 ? spacer('top', win.topSpacer) : null,
+      msgs.slice(win.range.start, win.range.end).map((m) => messageRow(s, m, conv, acc)),
+      win.range.end < msgs.length ? spacer('bottom', win.bottomSpacer) : null);
   messagePaneCache = { deps, node };
   return node;
 }
@@ -1917,7 +1941,9 @@ function chatPane(s: MainState): HTMLElement {
   const acc = activeAccount(s);
   if (!conv) return h('div', { class: 'chat-empty' }, icon(IC.chat, 40), h('div', null, t('chat.empty')));
   const previousScroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
-  const pinned = previousScroll?.dataset['historyScope'] !== historyScopeKey(acc?.context ?? null, conv.gid) || previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < 48;
+  const scope = historyScopeKey(acc?.context ?? null, conv.gid);
+  // A pane rebuilt for a scope with a stored reading anchor resumes there instead of jumping to the bottom.
+  const pinned = previousScroll?.dataset['historyScope'] === scope ? previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < PIN_THRESHOLD : !(s.messageView?.scope === scope && s.messageView.anchor);
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
   const sub = [conv.vendor_name, isDone(conv) ? t('chat.finished') : waiting ? t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) }) : ''].filter(Boolean).join(' · ');
   const type = /^[A-Za-z][A-Za-z0-9]{0,5}$/.test(conv.service_type) ? `${conv.service_type} · ${conv.biz}` : conv.biz;
@@ -2342,6 +2368,7 @@ rerender(root, () => render(S()));
 root.addEventListener('scroll', (event) => {
   visibleReads.afterRender();
   const pane = event.target as HTMLElement;
+  if (pane.isConnected && pane.dataset?.['keepScroll'] === 'msgs') onMessageScroll(pane);
   if (!pane.isConnected || pane.dataset?.['keepScroll'] !== 'msgs' || pane.scrollTop > 120) return;
   const s = S(), conv = activeConv(s);
   if (conv && pane.dataset['historyScope'] === historyScopeKey(activeAccount(s)?.context ?? null, conv.gid) && !s.history[conv.gid]?.pageError) void loadEarlier(conv);
