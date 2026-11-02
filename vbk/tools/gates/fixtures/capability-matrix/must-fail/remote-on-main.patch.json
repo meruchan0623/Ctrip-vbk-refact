@@ -1,0 +1,11 @@
+{
+  "capabilities": {
+    "main.json": {
+      "remote": {
+        "urls": [
+          "https://vbooking.ctrip.com/*"
+        ]
+      }
+    }
+  }
+}

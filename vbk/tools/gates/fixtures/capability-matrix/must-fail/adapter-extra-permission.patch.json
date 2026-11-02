@@ -1,0 +1,16 @@
+{
+  "capabilities": {
+    "adapter.json": {
+      "permissions": [
+        "core:event:allow-listen",
+        "core:event:allow-unlisten",
+        "allow-adapter-ready",
+        "allow-adapter-identity",
+        "allow-adapter-push-fact",
+        "allow-adapter-push-display",
+        "allow-adapter-reply",
+        "core:window:allow-close"
+      ]
+    }
+  }
+}

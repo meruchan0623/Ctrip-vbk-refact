@@ -1,0 +1,13 @@
+{
+  "capabilities": {
+    "adapter.json": {
+      "remote": {
+        "urls": [
+          "https://vbooking.ctrip.com/*",
+          "https://imvendor.ctrip.com/*",
+          "https://evil.example.com/*"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "file": "a.ts",
+  "text": "export const x = 1;\n",
+  "allowlist": []
+}

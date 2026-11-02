@@ -1,0 +1,7 @@
+{
+  "app": {
+    "security": {
+      "csp": "object-src 'none'; frame-src 'none'; script-src 'self'; default-src 'self'; img-src 'self' https://*.tripcdn.com"
+    }
+  }
+}

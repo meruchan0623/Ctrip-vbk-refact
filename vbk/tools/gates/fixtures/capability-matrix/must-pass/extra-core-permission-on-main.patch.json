@@ -1,0 +1,12 @@
+{
+  "capabilities": {
+    "main.json": {
+      "permissions": [
+        "core:default",
+        "core:window:allow-start-dragging",
+        "allow-ping",
+        "allow-secret-free"
+      ]
+    }
+  }
+}

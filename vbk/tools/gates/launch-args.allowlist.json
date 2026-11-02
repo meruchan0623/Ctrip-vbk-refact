@@ -1,0 +1,3 @@
+[
+  { "name": "--vbk-crash-monitor", "reason": "the host's own re-exec flag for its crash monitor (src-tauri/src/main.rs); not a browser switch" }
+]

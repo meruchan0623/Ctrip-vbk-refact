@@ -1,0 +1,2 @@
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "devtools"] }
