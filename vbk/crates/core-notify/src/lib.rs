@@ -24,6 +24,7 @@
 //! round id locally and never pretends it was answered.
 
 mod banner;
+mod cadence;
 mod commands;
 mod dnd;
 mod effects;
@@ -37,10 +38,15 @@ mod unread;
 pub use banner::{
     BANNER_MAX_STACKED, BANNER_STAY_MS, BANNER_WIDTH_PX, NEW_MESSAGE_SOUND_MIN_GAP_MS,
 };
+pub use cadence::Pacer;
 pub use commands::{CommandAck, CommandSource};
-pub use dnd::{DndMode, DND_ONE_HOUR_MS};
+pub use dnd::{
+    dnd_until_tomorrow_ms, next_local_hour_ms, DndMode, DND_ONE_HOUR_MS, DND_TOMORROW_HOUR,
+};
 pub use effects::{Effect, Sound};
-pub use engine::{codes, LocalOptions, NotifyCore, RestoredRound, SystemState, ACCOUNT_STATUS_TTL_MS};
+pub use engine::{
+    codes, LocalOptions, NotifyCore, RestoredRound, SystemState, ACCOUNT_STATUS_TTL_MS,
+};
 pub use escalation::{L4_CAP_MS, L4_PERIOD_MS};
 pub use now::Now;
 pub use rounds::{RoundState, T2_MS};
