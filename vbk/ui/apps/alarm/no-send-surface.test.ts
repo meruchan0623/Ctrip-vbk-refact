@@ -75,7 +75,7 @@ test('alarm window capability grants no send/finish/URL permission', () => {
   assert.deepEqual(cap.windows, ['alarm']);
   const custom = cap.permissions.filter((p) => p.startsWith('allow-'));
   assert.deepEqual([...custom].sort(), [
-    'allow-notify-hide-all', 'allow-notify-hide-round', 'allow-notify-open-conversation', 'allow-notify-snapshot', 'allow-notify-snooze', 'allow-prefs-snapshot',
+    'allow-contract-hello', 'allow-notify-hide-all', 'allow-notify-hide-round', 'allow-notify-open-conversation', 'allow-notify-snapshot', 'allow-notify-snooze', 'allow-prefs-snapshot',
   ]);
   for (const p of cap.permissions) assert.equal(/send|finish|opener|shell|http|fs:/i.test(p), false, p);
 });

@@ -78,7 +78,7 @@ mod tests {
                 last_tick = now;
                 now += work_ms;
             }
-            now += i64::try_from(p.sleep_ms(now, flashing)).unwrap();
+            now += i64::try_from(p.sleep_ms(now, flashing)).expect("sleep fits i64");
         }
         (ticks, wakes, max_gap)
     }
