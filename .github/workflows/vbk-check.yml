@@ -4,7 +4,7 @@ on:
   push:
     paths: ["vbk/**", ".github/workflows/vbk-check.yml"]
   pull_request:
-    paths: ["vbk/**"]
+    paths: ["vbk/**", ".github/workflows/vbk-check.yml"]
 
 jobs:
   cores:
@@ -34,6 +34,12 @@ jobs:
         working-directory: vbk
       - run: npx playwright install --with-deps chromium
         working-directory: vbk
+      - run: node --test tools/gates/*.test.mjs
+        working-directory: vbk
+      - run: node tools/gates/check.mjs
+        working-directory: vbk
+      - run: node tools/gates/capability-matrix.mjs
+        working-directory: vbk
       - run: npx tsc -p tsconfig.json
         working-directory: vbk
       - run: node --test "ui/**/*.test.ts"
@@ -46,7 +52,7 @@ jobs:
     # crate registry, so it is checked on the real OS runners. `generate_context!`
     # embeds `ui/bundle`, so the UI bundle is assembled first. Never published
     # from CI (REL tasks own signing, notarization and release).
-    name: tauri host (${{ matrix.os }}, cargo check)
+    name: tauri host (${{ matrix.os }}, cargo test)
     strategy:
       fail-fast: false
       matrix:
@@ -60,9 +66,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: npm install --no-save typescript@6 @types/node@22
         working-directory: vbk
+      - run: node --test tools/gates/*.test.mjs
+        working-directory: vbk
+      - run: node tools/gates/check.mjs
+        working-directory: vbk
+      - run: node tools/gates/capability-matrix.mjs
+        working-directory: vbk
       - run: node ui/tools/bundle.mjs
         working-directory: vbk
-      - run: cargo check
+      - run: cargo test
         working-directory: vbk/src-tauri
 
   macos-bundle:

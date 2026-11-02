@@ -1,0 +1,1 @@
+{"csp": "default-src 'self'; script-src 'self'; frame-src https:; object-src 'none'"}

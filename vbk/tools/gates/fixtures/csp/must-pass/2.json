@@ -1,0 +1,1 @@
+{"csp": "default-src 'self'; script-src 'self'; frame-src 'none'; object-src 'none'; img-src https://*.ctrip.com"}

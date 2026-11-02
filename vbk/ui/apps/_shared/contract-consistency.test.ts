@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { AccountCommands, ImCommands, NotifyCommands, OrderCommands, PrefsCommands } from '../../packages/ipc/src/commands.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { AdapterCommands } from '../../packages/ipc/src/adapterProtocol.ts';
@@ -44,5 +45,24 @@ test('capability files grant exactly their role list', () => {
     const cap = JSON.parse(read(`src-tauri/capabilities/${f}`)) as { permissions: string[] };
     const granted = sorted(cap.permissions.filter((p) => p.startsWith('allow-')).map((p) => p.slice(6).replaceAll('-', '_')));
     assert.deepEqual(granted, roleLists[capToRole[f]!], f);
+  }
+});
+
+test('capability matrix covers registered labels in both directions and restricts remote grants', () => {
+  const output = execFileSync(process.execPath, [join(vbk, 'tools/gates/capability-matrix.mjs'), '--check', '--json'], { encoding: 'utf8' });
+  const matrix = JSON.parse(output) as { labels: string[]; rows: { capability: string; command: string; remote_urls: string[] }[] };
+  assert.equal(matrix.labels.length, 7);
+  assert.equal(matrix.rows.filter((row) => row.capability === 'adapter').length, 7);
+  assert.ok(matrix.rows.filter((row) => row.remote_urls.length).every((row) => row.capability === 'adapter'));
+});
+
+test('command registrations and role lists cannot hide duplicate entries', () => {
+  const declared = read('src-tauri/commands.txt').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  assert.equal(declared.length, new Set(declared).size, 'duplicate command registration');
+  const handlers = [...handler.matchAll(/\w+::(\w+),/g)].map((m) => m[1]!);
+  assert.equal(handlers.length, new Set(handlers).size, 'duplicate generate_handler registration');
+  for (const role of views.matchAll(/const (\w+)_CMDS: &\[&str\] = &\[([\s\S]*?)\];/g)) {
+    const commands = [...role[2]!.matchAll(/"(\w+)"/g)].map((m) => m[1]!);
+    assert.equal(commands.length, new Set(commands).size, `duplicate role command in ${role[1]}`);
   }
 });

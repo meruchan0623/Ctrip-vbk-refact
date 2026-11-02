@@ -1,0 +1,56 @@
+{
+  "capabilities": [
+    {
+      "identifier": "adapter",
+      "webviews": [
+        "acct-*"
+      ],
+      "remote": {
+        "urls": [
+          "https://vbooking.ctrip.com/*",
+          "https://imvendor.ctrip.com/*"
+        ]
+      },
+      "permissions": [
+        "allow-adapter-ready",
+        "allow-adapter-identity",
+        "allow-adapter-push-fact",
+        "allow-adapter-push-display",
+        "allow-adapter-reply",
+        "core:event:allow-listen",
+        "core:event:allow-unlisten"
+      ]
+    },
+    {
+      "identifier": "main",
+      "windows": [
+        "main"
+      ],
+      "permissions": [
+        "allow-safe-command"
+      ]
+    },
+    {
+      "identifier": "detail",
+      "windows": [
+        "package-detail-*"
+      ],
+      "permissions": [
+        "allow-safe-command"
+      ]
+    }
+  ],
+  "labels": [
+    "acct-*",
+    "main",
+    "package-detail-*"
+  ],
+  "commands": [
+    "adapter_ready",
+    "adapter_identity",
+    "adapter_push_fact",
+    "adapter_push_display",
+    "adapter_reply",
+    "safe_command"
+  ]
+}
