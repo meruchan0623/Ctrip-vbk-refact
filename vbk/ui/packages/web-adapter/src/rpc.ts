@@ -30,7 +30,7 @@ import { conversationListBody, type ConversationListResponse } from './conversat
 import { fetchHistoryPage } from './history.ts';
 import { is13DigitMs, normalizeTimeMs, jidLocal } from './facts.ts';
 import { createSendIntent, submitIntent, type SendIntent } from './send.ts';
-import { markRead } from './markRead.ts';
+import { markRead, latestPeerReadTarget } from './markRead.ts';
 import { createMediaRpc } from './media.ts';
 import { numericGid, setWorkSheetStar } from './worksheetStar.ts';
 import { createImChat, isValidOrderId, validateImUrl } from './order.ts';
@@ -356,14 +356,14 @@ const imMarkRead: Handler<'im.mark_read'> = async (ctx, args) => {
   const expectedRevision = requireString(args, 'expected_context_revision');
   requireConversation(ctx, gid);
   const partnerJid = partnerJidOf(ctx, gid);
-  const latest = ctx.store.latestMessage(gid);
+  const latest = latestPeerReadTarget(ctx.store, gid);
   if (!partnerJid || !latest) fail(ErrorCodes.ADAPTER_NOT_READY, 'no message / target jid known for this conversation yet', true);
   const authoritativeRoom = roomJidFromMessage(gid, ctx.store.view(gid)?.lastMessage ?? null);
   if (!authoritativeRoom || authoritativeRoom !== partnerJid) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation read target has not been verified');
   const revision = ctx.store.assistantContextRevision(gid, ctx.roles.selfUid, partnerJid);
   if (!revision || revision !== expectedRevision) fail(ErrorCodes.ADAPTER_FAILED, 'read conversation context changed since visibility was observed');
   if (latest.msgId !== expectedMessageId) fail(ErrorCodes.ADAPTER_FAILED, 'read target changed since visibility was observed');
-  const r = await markRead(ctx.sdk, { partnerJid, msgId: expectedMessageId });
+  const r = await markRead(ctx.sdk, { partnerJid, msgId: expectedMessageId, contextRevision: revision });
   ensureCurrent(current);
   if (ctx.store.assistantContextRevision(gid, ctx.roles.selfUid, partnerJidOf(ctx, gid)) !== revision) fail(ErrorCodes.ADAPTER_FAILED, 'conversation changed while read receipt was in flight');
   if (r.kind === 'acked') return null;

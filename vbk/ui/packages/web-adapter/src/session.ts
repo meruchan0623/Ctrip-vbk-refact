@@ -27,6 +27,7 @@ import type { IdentityProfile } from './identity.ts';
 import type { PageSdk } from './sdkGlue.ts';
 import { createReceiveCounters, receiveCount } from './diagnostics.ts';
 import { createPresence, type StatusRead } from './presence.ts';
+import { latestPeerReadTarget } from './markRead.ts';
 
 export interface PageSessionOptions {
   readonly account: AccountContext;
@@ -121,7 +122,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
             // The row's customer uid is the only association for this surface.
             // RoleBook preserves known profile fields on incomplete refreshes.
             customer_avatar: uid ? roles.profileOf(uid).avatar : null,
-            read_target_message_id: store.latestMessage(item.gid)?.msgId ?? null,
+            read_target_message_id: latestPeerReadTarget(store, item.gid)?.msgId ?? null,
             assistant_context_revision: store.assistantContextRevision(item.gid, roles.selfUid, opts.sdk.partnerJidOf(item.gid) ?? roomJidFromMessage(item.gid, store.view(item.gid)?.lastMessage ?? null)) ?? '',
             ...(previous && (previous.last_message_time_ms ?? 0) > (item.last_message_time_ms ?? 0)
               ? { preview: previous.preview, last_message_time_ms: previous.last_message_time_ms }
@@ -164,6 +165,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   const unreadContexts = new Map<string, number | null>();
   store.watch(gids => {
     for (const gid of gids) {
+      latestPeerReadTarget(store, gid);
       const current = store.messageContext(gid);
       const room = roomJidFromMessage(gid, store.view(gid)?.lastMessage ?? null);
       if (room) opts.sdk.rememberPartnerJid(gid, room);
