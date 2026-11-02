@@ -1,6 +1,6 @@
 # 基于 rea 逆向结论的 vbk 改进开发计划
 
-2026-11-02。状态：计划，未开始实施（第五次修订版）。输入：[rea 逆向总览](../reverse/2026-11-01-rea/00-README.md) 及其 01–06 分报告、[PROGRESS](../../PROGRESS.md)、[BLOCKED](../../BLOCKED.md)、[实物验证报告](../reviews/2026-11-02-reverse-plan-verification.md)、[Codex 第一轮对抗性审查](../reviews/2026-11-02-codex-adversarial-review-01.md)、[Codex 第二轮对抗性审查](../reviews/2026-11-02-codex-adversarial-review-02.md)、[官方桌面版实机接口截获（六轮）](../reviews/2026-11-02-desktop-live-capture-verification.md)，以及对 `vbk/` 工作树（`main@d578872`）的只读核对（第四轮 file:line 均为本轮 grep/sed 复核结果）。范围仍以[网页版范围决定](../decisions/2026-10-30-web-only-scope.md)为准。
+2026-11-02。状态：计划，未开始实施（第六次修订版）。输入：[rea 逆向总览](../reverse/2026-11-01-rea/00-README.md) 及其 01–06 分报告、[PROGRESS](../../PROGRESS.md)、[BLOCKED](../../BLOCKED.md)、[实物验证报告](../reviews/2026-11-02-reverse-plan-verification.md)、[Codex 第一轮对抗性审查](../reviews/2026-11-02-codex-adversarial-review-01.md)、[Codex 第二轮对抗性审查](../reviews/2026-11-02-codex-adversarial-review-02.md)、[官方桌面版实机接口截获（六轮）](../reviews/2026-11-02-desktop-live-capture-verification.md)，以及对 `vbk/` 工作树（`main@d578872`）的只读核对（第四轮 file:line 均为本轮 grep/sed 复核结果）。范围仍以[网页版范围决定](../decisions/2026-10-30-web-only-scope.md)为准。
 
 本文与既有文档的关系：
 
@@ -595,6 +595,14 @@
 
 ---
 
+### 8.6 2026-11-02 第六次修订：实机验证清单集中入附录 A
+
+| 改动 | 为什么 |
+| --- | --- |
+| 新增 §10 附录 A：官方桌面版实机验证清单（应用结构、公共请求形态、HTTP 接口表、IM 子进程 Node HTTPS、XMPP 通道、未验证项、方法留痕） | 8.5 把单点改动散入各工作项，缺一份集中、可查证的权威清单；附录 A 只收实测事实并标注轮次，推断与未验证单列 |
+| 状态行改为第六次修订版 | — |
+
+
 ## 9. 审查闭环表
 
 ### 9.1 Codex 第一轮 13 条（状态按第二轮复核结论改写，第四轮补充后的落点）
@@ -642,3 +650,88 @@
 第三轮备注仍成立：`adapter.rs:517-535,550-566` 为持锁调用 `emit_agent_status_event`（`emit_to` 在 `:594`）；`store.rs` `Txn::into_parts`（`:136-147`）；`display.rs` `write_atomic`（`:1033-1043`）；`prefs.rs` 保存（`:352-360`，函数 `save` 为 `:346-362`）；`state.rs` `set_dnd_until_tomorrow`（`:483-495`）；`conversationList.ts` poller（`:132-198`），`pagehide`（`boot.ts:371`）；smoke 断言（`run.mjs:213,235-241`）；`main.ts` `list.empty` 渲染点 `:1457`，加载路径 `:464-511`。
 
 第四轮新增/修正：`adapter_ready` 为 `adapter.rs:1023-1024`（`#[tauri::command]` + `pub fn`，同步），`adapter_push_fact` 为 `:1069-1070`（同），`account_set_remark` 为 `login.rs:1102-1103`（同，第三轮未给行号）；`state.rs`：`lock` `:140-145`，`push_fact` `:172-241`（持锁自 `:176`），`persist_compensation` 调用 `:203`、定义 `:246-268`，`compensation_watermark` `:270-283`，`pump_rounds` `:285-310`（`:309` 调 `persist_rounds`），`persist_rounds` `:315-343`，`restore_rounds_for` `:354`，`resync_complete` `:401-424`（`:422` 调 `pump_rounds`），`logout` `:506-531`（`:529`）；`core-store/src/file.rs`：`sync_namespace` `:66-78`，`save` `:178-186`，`commit` `:202-211`（第三轮写 `:204-213`，以本轮为准），`write_atomic` `:249-272`（`sync_all` `:259`、`sync_directory` 调用 `:264`），`sync_directory` `:274-286`，`create_durable_dir_all` 的目录 fsync `:318-330`；`login.rs`：`persist` `:167-194`，`write_atomic` `:196-204`（无 fsync），`persist_and_emit` `:321`，其调用点 `:819,998,1059,1116,1350,1397,1449`；`prefs.rs`：`sync_reminder` `:446-458`，另两处保存 `:488-497`、`:540-548`，`scheduler.rs:131` 每 tick 调用；`outbound_journal.rs` `durability_barrier` `:148-150`；`adapter.rs` 异步命令 `im_send_media` `:746`、`im_send_text` `:1358`、`im_invite_candidates` `:1534`、`im_invite` `:1608`；`assistant.rs:168` 已用 `tauri::async_runtime::spawn_blocking`；`src-tauri/Cargo.toml:40` tokio 只开 `time`/`sync`，未引入 `tauri-plugin-updater`；`companion-card.ts:70` 仍是 `ui/apps`、`ui/packages` 非测试源码中唯一 `innerHTML|outerHTML|insertAdjacentHTML|document.write|srcdoc` 命中；`ui-kit/src/h.ts` `mount` `:116-118`、`rerender` `:125-163`（`:143` 调 `mount`）；`vbk/package.json:21` `typescript` `6.0.3`；`src-tauri/capabilities/` 共 7 个文件（`adapter,login,main,package-detail,popups,setting,update`），`adapter.json` 远程源 2 个、`allow-adapter-*` 5 条；`src-tauri/commands.txt` 73 条非空行；`ui/apps/main/` 非测试 `.ts` 共 19 个文件（`main.ts` 2454 行）。
+
+---
+
+## 10. 附录 A：官方桌面版实机验证清单（接口与应用结构）
+
+本附录是 [实机接口截获验证](../reviews/2026-11-02-desktop-live-capture-verification.md) 的**权威摘要**：只收实测确认的事实，每行标注轮次（R1–R6）；推断与未验证项单列。原始（脱敏、仅字段结构）数据在 [docs/observations/](../observations/) 的 `desktop-live-capture-2026-11-02*.json`；抓取工具是 [tools/desktop-capture/capture.mjs](../../tools/desktop-capture/capture.mjs)。对象：官方 Mac 1.2.13（Electron 27.3.11，IM 子进程 Node v18.17.1），双账号，PROD。这些是**官方桌面**的行为；vbk 在官方**网页**内注入，网页行为以 `docs/api` 为准，两者不一致处在表内标注。
+
+### A.1 应用结构（实测）
+
+| 项 | 实测 | 轮次 |
+| --- | --- | --- |
+| 进程树 | 1 个主进程；其直接子进程含 4 个 `NodeService` utility 进程。其中 2 个持有到 `im3.ctrip.com:443` 的长连接，**每账号一个**（`[im sdk]: inited` 每账号一条）；另 2 个没有 TLS 连接，职责未证实（推断为 OCR/拼写检查 worker，与 rea 02 §4.3 吻合） | R1、R3 |
+| 窗口 | 约 19–20 个 `webContents`（`window` 与 4 个 `browserView`）；每账号一个承载 IM 的本地页，发出业务请求的是渲染进程 | R1、R2 |
+| 页面加载 | 本地页脚本加载自 `/Applications/…/app.asar.unpacked/dist/js/`（`BaseController-B_9ex1XX.js`、`imWindow-*.js`、`notifierWindow-*.js` 等）；用户目录热更新缓存里的文件名与之不同。**SUP-01「热更新目录特权加载」在当前版本是否仍生效未证实** | R2 |
+| 远程页 | 会话旁的“客户/订单扩展区”是远程页 `vbooking.ctrip.com/tour/im/ex-area/b`（`/imExtraInfo`），其脚本来自 `bd-s.tripcdn.cn` | R2 |
+| 业务 HTTP 发起方 | 大部分业务 HTTP 由**渲染进程**发起（CDP 可见）；**已读回执**由 IM 子进程用 Node HTTPS 发出（CDP 不可见） | R5、R6 |
+| 传输协议 | 业务 HTTP 全部 `http/1.1`（与 `--disable-http2` 一致）；埋点 `bee/collect` 部分请求为 `h3` | R1、R3 |
+| 日志 | 主进程日志 `~/Library/Logs/vbk-electron/main.log`，含 `[im sdk]: inited`；用户数据目录 `~/Library/Application Support/vbk-electron` | R1 |
+
+### A.2 公共请求形态
+
+- 网关 `POST https://m.ctrip.com/restapi/soa2/<服务号>/<接口>`，`Content-Type: application/json`，query 含 `_fxpcqlniredt`、`x-traceID`。
+- 体 `head`：`{cid, ctok, cver, lang, sid, syscode, auth, xsid, extension:[{name:"cpc",value:"pc"}], appId}`（桌面带 `appId`；`docs/api` 的网页样本 `appId` 为 `900004`）。
+- 渲染进程请求头名：`Content-Type, Referer, User-Agent, sec-ch-ua*, w-payload-source, x-ctx-locale, x-ctx-ubt-{pageid,pvid,sid,vid}, x-ctx-wclient-req, x-tour-auth-from`。
+- IM 子进程请求头名（已读回执）：`Accept, Content-Type, Accept-Encoding, User-Agent, Content-Length`，**无** `x-ctx-*`、`w-payload-source`，query 为空，服务端照常接受。vbk 仍沿用网页行为，不据此裁剪。
+- **成功判定不统一**：读接口看 `ResponseStatus.Ack = "Success"`；`setWorkSheetStar / transferVenMaster / finishConversation / getConversationInfoByGidList / getRemarkList / checkSessionStatus` 另有 `bizResponseStatus.resultCode`（`SUCCESS`）。写接口以后者为准。
+
+### A.3 HTTP 接口清单（均 `POST …/soa2/…`，200，实测）
+
+| 接口 | 请求体（除 `head`） | 响应要点 | 节奏/触发 | 与 docs/api |
+| --- | --- | --- | --- | --- |
+| `16037/getConversationList` | `{startTime:number, needTodoList:1}` | `{currentStatus, lastUpdateTime, haveRest, conversationList[]}`；**`startTime` 恒等于上次响应的 `lastUpdateTime`，无变化返回空列表** | 每账号 **5.0 s**，不随可见性暂停 | 一致（增量） |
+| `15529/getSessionEmpathyPhraseInfo` | `{sessionId, bizType}` | `{hasAuth, empathyPhrases}` | 选中且未结束的会话，每 **3.0 s** | rea 遗漏，已补 |
+| `16037/getMessageList` | `{showTargetIsRead, groupId, conversationType:"B2C"\|"C2B", pageSize:20\|50}`；翻页加 `direction:"prev"`、`endTime` | `rangeMessage{isDone, lastMessageTime, messages[{msgId, messageBody, fromJid, toJid, threadId, subject, createTime, bizType, status, msgtype, isread, source, receiptRange}]}` | 开会话两次（20 / 50）；上滚翻页 | 一致 |
+| `16037/getRemarkList` | `{uidList[]}` 或 `{gid}` | `remarkList[{avatar, nickName, username, userJid, status, …}]` | 开会话 | 响应字段多于文档 |
+| `16037/getConversationInfoByGidList` | `{gidList[]}` | `conversationInfoList[{gid, unreadCount, message{…}}]` | 开会话 | 一致 |
+| `16037/checkSessionStatus` | `{gid, customerUid}` | `bizResponseStatus.resultCode` | 开会话 | 一致 |
+| `13500/checkMemberStatus` | `{groupId}` | `members[{uid, nick, avatar, status, visible, roles[], rolesv2[]}]` | 开会话 | 一致 |
+| `14735/getOrderDetailsForVbk` | `{OrderDetailsRequestDTO{orderId, requestType:"orderboard", queryType, decryptType}}` | `{resultCode, resultMsg}` | 开会话 | 一致 |
+| `15529/queryToken` | `{groupId, needTokenExt}` | `tokenMap{…}`，多出 `saleCityId/extendJson/departureCityId` | 开会话 | 响应字段多于文档 |
+| `11679/batchTranslateByMsgIds` | `{source:"AUTO", target, chatType?, sessionId, groupId, bizType(数字，实测 1513), appId, messageIdList[]}` | `translateMessageList[]`, `supplier:"google"`, `idWithTranslatedMap` | 开会话即自动触发 | 需补 `chatType` |
+| `16037/getLatestConversationByGid` | `{gid}` | `conversation{…}` | 按需 | 一致 |
+| `16037/getCustomerScripts` | `{content}` | `customerScripts[]` | **输入每个字符一次** | 一致 |
+| `16037/uploadTokenCreate` | `{channel:"im_business", type:"img"}` | `{token}` | 仅**图片**发送前 | 一致 |
+| `nephele.ctrip.com/image/v2/api/upload` | 二进制，`?channel&scene&rand`，头含 `Authorization`、`Content-MD5` | — | 图片 | 一致 |
+| `nephele.ctrip.com/file/v1/api/upload` | 二进制，`?channel&public`，**无** `Authorization` | — | 文件；**无** `uploadTokenCreate` | 图片/文件鉴权不同，文档需分别建模 |
+| `11679/recallMessage` | `{messageId, partnerId}` | `status{code,msg}`；随后入站 `groupchat`（带 `ext`）为撤回广播 | 撤回；**HTTP，不走 XMPP** | 一致 |
+| `16037/setWorkSheetStar` | `{sessionId:str, groupId:**number**, worksheetId:number, action:number}` | `bizResponseStatus.resultCode` | 星标 | 一致 |
+| `16037/transferVenMaster` | `{sessionId:str, groupId:**str**, targetVenAgentUid:str}` | 同上 | 转接 | 一致；`groupId` 类型与星标相反 |
+| `16037/finishConversation` | `{conversationKey, conversationType:"B2C", sessionId, workSheetId:number}` | `{bizResponseStatus, workSheetId:[number]}` | 结束会话 | 一致 |
+| `12405/getCurrentUserInfo` | `{applicationCode:"vbk_online_new", needUserInfo, needPermission, needToolBar, needHeadBar, needMenu, businessLineList}` | `user{userId, account, uid, buid, partyId, partyType:"vbk", …}` | 启动/换账号 | **docs/api 未收录** |
+| `11419/getLoginAdvisorOpenInfo` | `{sourceFrom}` | `advisor{basic, advisorRoleInfo, advisorProfileLanList[]}` | 周期性 | 一致 |
+| `18088/getAppConfig.json` | — | 配置 | 频繁 | 一致 |
+| `vbooking …/ivbk/accountV2/restapi/ab`、`…/tour/im/ex-area/qconfig/json` | `{expCode,uid}`；`{contentType,fileName,property}` | `{result}`；`{data}` | 开会话 | rea/docs 未收录 |
+| 设备/风控/埋点 | `36709/uploadDeviceInfo`、`36709/createTUid`、`10290/createclientid`、`23196/json/getDiscardUbts`、`s.c-ctrip.com/bee/collect`（约 1–2 s 一次）、`cdid.c-ctrip.com/*`、`16163/saveLogInfo` | — | 持续 | 非业务 |
+| **`28967/reportInjectFnInfo`** | `{buildVersion, fnInfo}` | `data{code, injectSwitch, message}` | 周期性 | **rea 与 docs/api 均未收录**；疑为“页面被注入函数”上报，调用方不在本机缓存脚本中，见 I-15 |
+
+**IM 子进程 Node HTTPS（CDP 不可见）**
+
+| 接口 | 请求体 | 实测行为 |
+| --- | --- | --- |
+| `11679/PutAdviceOfReadByMsgId.json` | `{partnerJid, msgId, type:"groupchat", head}` | 打开未读会话时发出；**游标式**：3 条未读只发 2 次（间隔 0.4 s），且只带最后一条对方消息的 `msgId`；前端只取最后一条非本人、非系统、有 `messageId` 的消息，`isRead` 已为真则不发 |
+| `PutAdviceOfReadByMsgId` 的触发条件 | 前端 `receiptCurrentMessage()` → `postImMessage({event:"sendMessageReceipt"})`：会话切换、可见性变化（`visibilitychange`）、滚动到底 | 静态确认 |
+
+### A.4 IM 通道（XMPP over WSS）
+
+- 主机 `im3.ctrip.com:443`，每账号一条；**发送、输入状态、送达确认、心跳都走此通道**；撤回、星标、转接、结束、已读不走。
+- 出站：`message type=send`（`to,type,id,xmlns` + `body`）→ 约 **0.15–0.21 s** 后入站同 id 的 `send_result`；`message type=input_state`（`from,to,type,id,isGroup,xmlns`）；`message type=notify_ack`（每条入站 `chat` 一条，134 字节）；`iq get` + `urn:xmpp:ping`（约 5 s，往返约 0.08 s）。
+- 入站：`message type=chat`（含 `localid, ts, msgtype, bizType, threadid, create_time, transmit`）、`groupchat`、`sys_muc`、`input_state`、`send_result`、`iq result`、`iq set`。
+- **官方缺陷（新）**：每条入站 `chat` 之后服务端还推一条携带整条消息体的 `iq set`，官方 IM 进程不处理，回一个携带整条消息体的 `iq error service-unavailable`（约 1 KB/次）。网页 SDK 是否同样回传未确认（I-06 确认项）。
+- 图片发送顺序：`uploadTokenCreate` → `nephele image upload` → XMPP `send`；文件发送：`nephele file upload` → XMPP `send`。
+
+### A.5 未验证与不可据此下结论
+
+- IM WebSocket 的 URL path、子协议、握手头（连接早于挂钩）。
+- 图片/文件在 XMPP `send` 中的 `msgtype` 与 body 结构（脱敏后只剩长度）。
+- 置顶：窗口内**没有任何上行请求**，倾向“本地状态”，但未确认测试时按钮确已生效。
+- 2 个无 TLS 的 NodeService 的职责。
+- 桌面端 `reportInjectFnInfo` 的调用来源与 `fnInfo` 内容；官方**网页**是否也上报。
+- 以上所有数据都是**官方桌面**的行为；网页端行为（vbk 实际依附的对象）需用同一方法在网页上复测，不能由桌面结论外推。
+
+### A.6 方法留痕与已知缺陷
+
+- 抓取方式：向主进程发 `SIGUSR1` 开 Node inspector，在主进程内挂 CDP `Network`；IM 子进程内钩 `tls.connect`、`http(s).request`、`fetch` 与 WebSocket 升级并解析帧头；装完立即关闭端口，卸载时还原。只写字段结构与协议枚举，不写正文、JID、Cookie、token、请求体字符串值。
+- 已知缺陷（均已在工具中修复或在此登记）：①早期版本卸载时误删应用自己的 `web-contents-created` 监听（现仅拆自己的监听，见 I-11）；②按名字全局匹配 `NodeService` 会误给其他 Electron 应用发信号（现严格限定为商家版主进程的直接子进程）；③出站脱敏曾保留任意短字符串（现改为协议枚举键白名单）。
