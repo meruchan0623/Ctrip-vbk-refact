@@ -11,6 +11,12 @@
  * - an empty increment emits only `conversation_list_sync`
  * - `auth_invalid` stops the loop and emits `auth_invalid`
  *
+ * Pacing (I-06, docs/api/transports.md): the official page runs its own
+ * 5 s `startLoopConvList`. While the fetch hook sees that loop active, this
+ * poller sends nothing and consumes the official responses (`official`
+ * option); otherwise it self-runs, `visibilityState`-gated (x6 interval while
+ * hidden) with exponential backoff after failures (never below 5 s).
+ *
  * Status mapping is explicit and defaults to `unknown`; `transferred_out`
  * has no observed numeric code yet.
  */
@@ -19,8 +25,9 @@ import type { AdapterFact, ConversationFact, ConversationStatus } from '../../ip
 import type { AdapterDeps } from './deps.ts';
 import { Endpoints } from './endpoints.ts';
 import { businessHead } from './heads.ts';
-import type { EndpointSpec, SoaClient, SoaOutcome } from './soa.ts';
+import { classifySoaBody, type EndpointSpec, type SoaClient, type SoaOutcome } from './soa.ts';
 import { normalizeTimeMs } from './facts.ts';
+import type { OfficialConversationEntry, OfficialConversationFeed, OfficialFeedAttachment, OfficialListVariant } from './pageContext.ts';
 
 /** Official desktop ACTIVE.values=[1,2]: autoActive=1/manualActive=2; FINISH=[4]. */
 export const CONVERSATION_STATUS_TABLE: Readonly<Record<number, ConversationStatus>> = {
@@ -85,7 +92,17 @@ export function toConversationFact(item: ConversationListItem, isFullSnapshot: b
   };
 }
 
-export type ConversationListVariant = 'plain' | 'json';
+export type ConversationListVariant = OfficialListVariant;
+
+/**
+ * Page visibility as the poller needs it. Injected (never reads `document`);
+ * the boot code adapts `document.visibilityState` / `visibilitychange`.
+ */
+export interface VisibilityGate {
+  isVisible(): boolean;
+  /** Called on every visibility change; returns an unsubscribe. */
+  subscribe(cb: () => void): () => void;
+}
 
 export interface ConversationListPollerOptions {
   readonly variant: ConversationListVariant;
@@ -98,6 +115,23 @@ export interface ConversationListPollerOptions {
   readonly onRows?: (rows: readonly ConversationListItem[], full: boolean) => void;
   readonly onRequest?: () => unknown;
   readonly onOutcome?: (outcome: SoaOutcome<ConversationListResponse>, ticket?: unknown) => void;
+  /**
+   * The official page's own `startLoopConvList` as observed by the fetch hook.
+   * While that loop is active the poller sends **no** request of its own and
+   * only consumes the official responses (I-06). Without it, or while the
+   * official loop is not running, the poller self-runs.
+   */
+  readonly official?: OfficialConversationFeed;
+  /** Self-run requests slow down by `hiddenIntervalMultiplier` while hidden. Default: always visible. */
+  readonly visibility?: VisibilityGate;
+  /** Hidden interval = `intervalMs x` this (6 => 30 s, ~17% of the foreground request count; the acceptance bound is 20%). */
+  readonly hiddenIntervalMultiplier?: number;
+  /** Cap of the exponential backoff after failed self-run requests. */
+  readonly maxBackoffMs?: number;
+  /** With the official loop active but no official full snapshot seen, wait this long before the one bootstrap pull. */
+  readonly bootstrapGraceMs?: number;
+  /** Fired once per bootstrap full snapshot the poller itself requested while the official loop was active. */
+  readonly onBootstrap?: () => void;
 }
 
 export interface ConversationListRequestBody {
@@ -127,48 +161,157 @@ export interface ConversationListPoller {
   readonly running: boolean;
   /** Last `lastUpdateTime` the server returned (next `startTime`). */
   readonly cursor: number | null;
+  /** How the latest facts were obtained; `official` = consumed, no request of ours. */
+  readonly source: 'idle' | 'official' | 'self';
+}
+
+export const DEFAULT_LIST_INTERVAL_MS = 5000;
+export const DEFAULT_HIDDEN_MULTIPLIER = 6;
+export const DEFAULT_MAX_BACKOFF_MS = 60_000;
+export const DEFAULT_BOOTSTRAP_GRACE_MS = 7000;
+
+/** Delay after `failures` consecutive failed self-run requests: `base x 2^(failures-1)`, capped; the first retry keeps the base. */
+export function listBackoffMs(baseMs: number, failures: number, capMs: number): number {
+  if (failures <= 1) return baseMs;
+  return Math.min(Math.max(capMs, baseMs), baseMs * 2 ** Math.min(failures - 1, 20));
 }
 
 export function createConversationListPoller(deps: AdapterDeps, soa: SoaClient, opts: ConversationListPollerOptions): ConversationListPoller {
-  const intervalMs = opts.intervalMs ?? 5000;
+  const intervalMs = opts.intervalMs ?? DEFAULT_LIST_INTERVAL_MS;
+  const hiddenMultiplier = Math.max(1, opts.hiddenIntervalMultiplier ?? DEFAULT_HIDDEN_MULTIPLIER);
+  const maxBackoffMs = opts.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
+  const graceMs = opts.bootstrapGraceMs ?? DEFAULT_BOOTSTRAP_GRACE_MS;
   const spec = specFor(opts.variant);
   let running = false;
   let generation = 0;
   let cursor: number | null = null;
   let timer: unknown = null;
+  let failures = 0;
+  let source: 'idle' | 'official' | 'self' = 'idle';
+  let startedAt = 0;
+  let lastScheduledFrom = 0;
+  let attachment: OfficialFeedAttachment | null = null;
+  let unsubscribeVisibility: (() => void) | null = null;
+
+  const hidden = (): boolean => opts.visibility !== undefined && !opts.visibility.isVisible();
+
+  const delayMs = (): number => {
+    const base = hidden() ? intervalMs * hiddenMultiplier : intervalMs;
+    const raw = listBackoffMs(base, failures, maxBackoffMs);
+    // Jitter only on real backoff steps, only lengthens (<= +10%, below the doubling), and stays inside the cap,
+    // so the sequence of waits during a failure streak is non-decreasing.
+    return failures >= 2 ? Math.min(Math.max(maxBackoffMs, base), Math.round(raw * (1 + 0.1 * deps.random()))) : raw;
+  };
 
   const schedule = (gen: number): void => {
+    if (timer !== null) deps.clearTimeout(timer);
+    lastScheduledFrom = deps.now();
     timer = deps.setTimeout(() => {
       timer = null;
       void tick(gen);
-    }, intervalMs);
+    }, delayMs());
   };
 
-  const tick = async (gen: number): Promise<void> => {
-    if (!running || gen !== generation) return;
-    const startTime = cursor;
-    const ticket = opts.onRequest?.();
-    const outcome = await soa.post<ConversationListResponse>(spec, conversationListBody(deps, startTime, opts.includeLocale ?? false));
-    if (!running || gen !== generation) return;
+  /** Common tail of a self-run response and an official response. Returns `false` when the poller stopped. */
+  const apply = (outcome: SoaOutcome<ConversationListResponse>, startTime: number | null, ticket: unknown, fromOfficial: boolean): boolean => {
     opts.onOutcome?.(outcome, ticket);
     if (outcome.kind === 'auth_invalid') {
       running = false;
       opts.emit({ kind: 'auth_invalid' });
+      return false;
+    }
+    if (outcome.kind !== 'success') return true;
+    const full = startTime === null;
+    const rows = Array.isArray(outcome.body.conversationList) ? (outcome.body.conversationList as ConversationListItem[]) : [];
+    const serverCursor = normalizeTimeMs(outcome.body.lastUpdateTime);
+    for (const row of rows) {
+      const fact = toConversationFact(row, full, opts.unread);
+      if (fact) opts.emit({ kind: 'conversation', fact });
+    }
+    if (rows.length > 0) opts.onRows?.(rows, full);
+    if (serverCursor !== null && (!fromOfficial || cursor === null || serverCursor >= cursor)) cursor = serverCursor;
+    opts.emit({ kind: 'conversation_list_sync', full, last_update_time_ms: serverCursor });
+    return true;
+  };
+
+  const consume = (entry: OfficialConversationEntry, ticket: unknown): void => {
+    if (!running) return;
+    // An increment can only be applied on top of a snapshot we already hold.
+    if (!entry.full && cursor === null) return;
+    let outcome: SoaOutcome<ConversationListResponse>;
+    if (entry.status !== 200) {
+      outcome = { kind: 'http_error', httpStatus: entry.status };
+    } else {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(entry.text);
+      } catch {
+        parsed = null;
+      }
+      outcome = classifySoaBody<ConversationListResponse>(parsed, entry.status);
+    }
+    // The session reads `cursor === null` as "this response is a full snapshot".
+    if (entry.full && outcome.kind === 'success') cursor = null;
+    source = 'official';
+    if (!apply(outcome, entry.full && outcome.kind === 'success' ? null : cursor, ticket, true)) {
+      source = 'idle';
+      stopInternal();
+    }
+  };
+
+  const stopInternal = (): void => {
+    generation += 1;
+    if (timer !== null) {
+      deps.clearTimeout(timer);
+      timer = null;
+    }
+    attachment?.detach();
+    attachment = null;
+    unsubscribeVisibility?.();
+    unsubscribeVisibility = null;
+  };
+
+  const tick = async (gen: number): Promise<void> => {
+    if (!running || gen !== generation) return;
+    let bootstrap = false;
+    if (opts.official?.active(deps.now())) {
+      if (cursor !== null) {
+        // The official loop feeds us; asking again would double its request rate.
+        source = 'official';
+        schedule(gen);
+        return;
+      }
+      if (deps.now() - startedAt < graceMs) {
+        schedule(gen);
+        return;
+      }
+      bootstrap = true; // official loop is running but no full snapshot was observed: one pull, reported
+    }
+    source = 'self';
+    const startTime = cursor;
+    const ticket = opts.onRequest?.();
+    if (bootstrap) opts.onBootstrap?.();
+    const outcome = await soa.post<ConversationListResponse>(spec, conversationListBody(deps, startTime, opts.includeLocale ?? false));
+    if (!running || gen !== generation) return;
+    failures = outcome.kind === 'success' ? 0 : failures + 1;
+    if (!apply(outcome, startTime, ticket, false)) {
+      source = 'idle';
+      stopInternal();
       return;
     }
-    if (outcome.kind === 'success') {
-      const full = startTime === null;
-      const rows = Array.isArray(outcome.body.conversationList) ? (outcome.body.conversationList as ConversationListItem[]) : [];
-      const serverCursor = normalizeTimeMs(outcome.body.lastUpdateTime);
-      for (const row of rows) {
-        const fact = toConversationFact(row, full, opts.unread);
-        if (fact) opts.emit({ kind: 'conversation', fact });
-      }
-      if (rows.length > 0) opts.onRows?.(rows, full);
-      if (serverCursor !== null) cursor = serverCursor;
-      opts.emit({ kind: 'conversation_list_sync', full, last_update_time_ms: serverCursor });
-    }
     schedule(gen);
+  };
+
+  const onVisibility = (): void => {
+    if (!running || timer === null) return;
+    // Becoming visible must not skip the minimum interval; becoming hidden stretches the pending one.
+    const gen = generation;
+    deps.clearTimeout(timer);
+    const wait = Math.max(0, lastScheduledFrom + delayMs() - deps.now());
+    timer = deps.setTimeout(() => {
+      timer = null;
+      void tick(gen);
+    }, wait);
   };
 
   return {
@@ -176,23 +319,35 @@ export function createConversationListPoller(deps: AdapterDeps, soa: SoaClient, 
       if (running) return;
       running = true;
       generation += 1;
+      failures = 0;
+      startedAt = deps.now();
       // U02: every run (= every adapter epoch) begins with a full snapshot so the host can rebuild after epoch_changed
       cursor = null;
+      if (opts.official) {
+        attachment = opts.official.attach(opts.variant, { onRequest: () => opts.onRequest?.(), onResponse: consume });
+      }
+      if (!running) {
+        // the replay hit auth_invalid before the attachment handle existed
+        attachment?.detach();
+        attachment = null;
+        return;
+      }
+      unsubscribeVisibility = opts.visibility?.subscribe(onVisibility) ?? null;
       void tick(generation);
     },
     stop(): void {
       running = false;
-      generation += 1;
-      if (timer !== null) {
-        deps.clearTimeout(timer);
-        timer = null;
-      }
+      source = 'idle';
+      stopInternal();
     },
     get running(): boolean {
       return running;
     },
     get cursor(): number | null {
       return cursor;
+    },
+    get source(): 'idle' | 'official' | 'self' {
+      return source;
     },
   };
 }
