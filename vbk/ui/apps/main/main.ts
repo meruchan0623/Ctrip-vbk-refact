@@ -410,11 +410,17 @@ const ACCOUNT_SCOPED_RESET = {
   agentOperation: null,
 } as const satisfies Partial<MainState>;
 
+/** One persistent polite live region outside the re-rendered tree; the rebuilt root stays aria-live=off. */
+function announce(text: string): void {
+  const region = document.getElementById('live');
+  if (region) region.textContent = text;
+}
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function toast(text: string): void {
+  announce(text);
   store.patch({ toast: text });
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => store.patch({ toast: null }), 2600);
+  toastTimer = setTimeout(() => { announce(''); store.patch({ toast: null }); }, 2600);
 }
 
 /** User-initiated command: a failure is shown. */
@@ -1200,7 +1206,7 @@ function titleBar(s: MainState): HTMLElement {
         role: 'tab',
         'aria-selected': String(on),
         title: t('tab.editRemark'),
-        dataset: { account: a.context.account_id, state: a.state },
+        dataset: { account: a.context.account_id, state: a.state, fid: `acct-tab:${a.context.account_id}` },
         onclick: () => void switchAccount(a),
         ondblclick: (e: Event) => {
           e.preventDefault();
@@ -1279,7 +1285,7 @@ function navBar(s: MainState): HTMLElement {
   const item = (view: View, label: string, d: string, badge: number, extra: HTMLElement | null = null) =>
     h(
       'button',
-      { class: cx('nav-i', { on: s.view === view }), 'aria-label': label, 'aria-current': s.view === view ? 'page' : undefined, dataset: { nav: view }, onclick: () => store.patch({ view, ctxMenu: null, meMenu: false }) },
+      { class: cx('nav-i', { on: s.view === view }), 'aria-label': label, 'aria-current': s.view === view ? 'page' : undefined, dataset: { nav: view, fid: `nav:${view}` }, onclick: () => store.patch({ view, ctxMenu: null, meMenu: false }) },
       icon(d, 20),
       h('span', null, label),
       badge > 0 ? h('span', { class: 'nav-badge' }, badgeText(badge)) : null,
@@ -1293,7 +1299,7 @@ function navBar(s: MainState): HTMLElement {
     item('notifications', t('nav.notifications'), IC.bell, unreadNotice),
     item('order', t('nav.orderContact'), IC.order, 0),
     h('div', { class: 'nav-sp' }),
-    h('button', { class: 'nav-i', 'aria-label': t('nav.settings'), dataset: { nav: 'settings' }, onclick: () => void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }) }, icon(IC.gear, 20), h('span', null, t('nav.settings'))),
+    h('button', { class: 'nav-i', 'aria-label': t('nav.settings'), dataset: { nav: 'settings', fid: 'nav:settings' } , onclick: () => void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }) }, icon(IC.gear, 20), h('span', null, t('nav.settings'))),
     h(
       'button',
       {
@@ -1302,7 +1308,7 @@ function navBar(s: MainState): HTMLElement {
         'aria-label': `${t('nav.account')}：${av.label}`,
         'aria-expanded': String(s.meMenu),
         disabled: !acc,
-        dataset: { nav: 'me' },
+        dataset: { nav: 'me', fid: 'nav:me' } ,
         onclick: (e: Event) => {
           e.stopPropagation();
           store.patch({ meMenu: !s.meMenu, ctxMenu: null });
@@ -1328,7 +1334,7 @@ function meMenu(s: MainState): HTMLElement | null {
     AGENT_STATUS_ORDER.map((st) =>
       h(
         'button',
-        { class: 'mi', role: 'menuitem', dataset: { agentStatus: st }, disabled: s.agentBusy, onclick: () => void setAgentStatus(st) },
+        { class: 'mi', role: 'menuitem', dataset: { agentStatus: st, fid: `agent-status:${st}` }, disabled: s.agentBusy, onclick: () => void setAgentStatus(st) },
         h('span', { class: 'dot', style: { background: `var(${agentStatusColorVar(st)})` } }),
         h('span', { style: { flex: '1' } }, agentStatusLabel(st)),
         h('span', { class: 'muted', style: { 'font-size': '11.5px' } }, agentStatusDesc(st)),
@@ -1340,8 +1346,8 @@ function meMenu(s: MainState): HTMLElement | null {
     h('button', { class: 'mi', role: 'menuitem', onclick: () => { close(); void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); } }, t('me.desktopSettings')),
     h('button', { class: 'mi', role: 'menuitem', onclick: () => { close(); void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.UPDATE }); } }, t('me.checkUpdate')),
     h('div', { class: 'msep' }),
-    h('button', { class: 'mi', role: 'menuitem', dataset: { me: 'suspend' }, onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'suspend' } }) }, t('me.logoutSuspend')),
-    h('button', { class: 'mi dan', role: 'menuitem', dataset: { me: 'logout' }, onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'logout' } }) }, t('me.logoutFull')),
+    h('button', { class: 'mi', role: 'menuitem', dataset: { me: 'suspend', fid: 'me-menu:suspend' } , onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'suspend' } }) }, t('me.logoutSuspend')),
+    h('button', { class: 'mi dan', role: 'menuitem', dataset: { me: 'logout', fid: 'me-menu:logout' } , onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'logout' } }) }, t('me.logoutFull')),
   );
 }
 
@@ -1399,7 +1405,7 @@ function conversationList(s: MainState): HTMLElement {
         class: cx('conv', { on, top: c.is_top }),
         role: 'button',
         tabindex: '0',
-        dataset: { gid: c.gid },
+        dataset: { gid: c.gid, fid: `conv:${c.gid}` },
         onclick: () => void openConversation(c.gid),
         onkeydown: (e: KeyboardEvent) => {
           if (e.key === 'Enter') void openConversation(c.gid);
@@ -1451,8 +1457,8 @@ function conversationList(s: MainState): HTMLElement {
       h(
         'div',
         { class: 'ftabs', role: 'tablist' },
-        h('button', { class: cx('ftab', { on: s.tab === 'doing' }), role: 'tab', 'aria-selected': String(s.tab === 'doing'), dataset: { tab: 'doing' }, onclick: () => store.patch({ tab: 'doing' }) }, `${t('list.doing')} ${counts.doing}`),
-        h('button', { class: cx('ftab', { on: s.tab === 'done' }), role: 'tab', 'aria-selected': String(s.tab === 'done'), dataset: { tab: 'done' }, onclick: () => store.patch({ tab: 'done' }) }, `${t('list.done')} ${counts.done}`),
+        h('button', { class: cx('ftab', { on: s.tab === 'doing' }), role: 'tab', 'aria-selected': String(s.tab === 'doing'), dataset: { tab: 'doing', fid: 'list-tab:doing' } , onclick: () => store.patch({ tab: 'doing' }) }, `${t('list.doing')} ${counts.doing}`),
+        h('button', { class: cx('ftab', { on: s.tab === 'done' }), role: 'tab', 'aria-selected': String(s.tab === 'done'), dataset: { tab: 'done', fid: 'list-tab:done' } , onclick: () => store.patch({ tab: 'done' }) }, `${t('list.done')} ${counts.done}`),
       ),
     ),
     nv.offline ? h('div', { class: 'netbar' }, h('span', { class: 'spin', style: { 'border-top-color': '#87500A' } }), h('span', { style: { flex: '1' } }, t('list.offline')), h('button', { class: 'link', onclick: () => void loadForActiveAccount() }, t('list.retryNow'))) : null,
@@ -1476,7 +1482,7 @@ function contextMenu(s: MainState): HTMLElement | null {
   return h(
     'div',
     { class: 'menu ctx-menu', role: 'menu', style: { left: `${Math.min(m.x, maxX)}px`, top: `${Math.min(m.y, maxY)}px` }, onmousedown: (e: Event) => e.stopPropagation() },
-    h('button', { class: 'mi', role: 'menuitem', dataset: { ctx: 'top' }, onclick: () => void toggleTop(c) }, icon(IC.pin, 13), items.topLabel),
+    h('button', { class: 'mi', role: 'menuitem', dataset: { ctx: 'top', fid: 'ctx-menu:top' } , onclick: () => void toggleTop(c) }, icon(IC.pin, 13), items.topLabel),
     h('div', { class: 'msep' }),
     h('div', { class: 'mhead' }, t('ctx.markColor')),
     h(
@@ -1488,12 +1494,12 @@ function contextMenu(s: MainState): HTMLElement | null {
           style: { background: `var(${mc.cssVar})` },
           title: t(mc.nameKey),
           'aria-label': t('ctx.markAs', { color: t(mc.nameKey) }),
-          dataset: { mark: String(mc.action) },
+          dataset: { mark: String(mc.action), fid: `mark:${mc.action}` },
           onclick: () => void setMark(c, mc.action),
         }),
       ),
     ),
-    items.showClear ? h('button', { class: 'mi', role: 'menuitem', dataset: { ctx: 'clear' }, onclick: () => void setMark(c, 0) }, t('ctx.clearMark')) : null,
+    items.showClear ? h('button', { class: 'mi', role: 'menuitem', dataset: { ctx: 'clear', fid: 'ctx-menu:clear' } , onclick: () => void setMark(c, 0) }, t('ctx.clearMark')) : null,
   );
 }
 
@@ -1725,8 +1731,8 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
       icon(IC.alert, 14, { style: 'color: var(--c-alert)' }),
       h('span', { style: { color: 'var(--c-alert-text)' } }, `${t('tr.failed')}：${tr.error ?? ''}`),
       h('span', { class: 'sp' }),
-      h('button', { class: 'btn sm', dataset: { tr: 'send-original' }, onclick: () => { if (applies()) void sendText(S().draft.trim(), null); } }, t('tr.sendOriginal')),
-      h('button', { class: 'btn sm pri', dataset: { tr: 'retry' }, onclick: () => { if (applies()) { if (direct) void translateAndSend(S().draft.trim()); else void runPreviewTranslation(); } } }, t('tr.retry')),
+      h('button', { class: 'btn sm', dataset: { tr: 'send-original', fid: 'tr:send-original' } , onclick: () => { if (applies()) void sendText(S().draft.trim(), null); } }, t('tr.sendOriginal')),
+      h('button', { class: 'btn sm pri', dataset: { tr: 'retry', fid: 'tr:retry' } , onclick: () => { if (applies()) { if (direct) void translateAndSend(S().draft.trim()); else void runPreviewTranslation(); } } }, t('tr.retry')),
     );
   } else if (direct) {
     bodyEl = h('div', { class: 'trprev wait', dataset: { trState: tr.status } }, tr.status === 'busy' ? h('span', { class: 'spin' }) : null, tr.status === 'busy' ? t('tr.busy') : t('composer.directMode'));
@@ -1742,8 +1748,8 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
         { class: 'trrow' },
         h('span', { class: 'sp' }),
         h('button', { class: 'btn sm', onclick: () => copyText(tr.text) }, t('tr.copy')),
-        h('button', { class: 'btn sm', dataset: { tr: 'replace' }, onclick: () => { if (applies()) store.patch({ draft: tr.text, drafts: { ...S().drafts, [conv.gid]: tr.text }, draftVersion: S().draftVersion + 1, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target } }); } }, t('tr.replace')),
-        h('button', { class: 'btn sm pri', dataset: { tr: 'send' }, onclick: () => { if (applies()) void sendText(tr.text, S().draft.trim()); } }, t('tr.sendTranslated')),
+        h('button', { class: 'btn sm', dataset: { tr: 'replace', fid: 'tr:replace' } , onclick: () => { if (applies()) store.patch({ draft: tr.text, drafts: { ...S().drafts, [conv.gid]: tr.text }, draftVersion: S().draftVersion + 1, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target } }); } }, t('tr.replace')),
+        h('button', { class: 'btn sm pri', dataset: { tr: 'send', fid: 'tr:send' } , onclick: () => { if (applies()) void sendText(tr.text, S().draft.trim()); } }, t('tr.sendTranslated')),
       ),
     );
   } else {
@@ -1799,21 +1805,21 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
     h(
       'div',
       { class: 'chips' },
-      h('button', { class: 'chipbtn', dataset: { chip: 'phrases' }, onclick: () => openPeripheral('scripts') }, icon(IC.chat, 13), t('composer.phrases')),
+      h('button', { class: 'chipbtn', dataset: { chip: 'phrases', fid: 'chip:phrases' } , onclick: () => openPeripheral('scripts') }, icon(IC.chat, 13), t('composer.phrases')),
       chip(t('composer.recommend'), IC.box, 'recommend'),
-      h('button', { class: cx('chipbtn', { on: s.hideInboundTr }), dataset: { chip: 'hide-tr' }, title: s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr'), onclick: () => store.patch({ hideInboundTr: !S().hideInboundTr }) }, icon(IC.translate, 13), s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr')),
+      h('button', { class: cx('chipbtn', { on: s.hideInboundTr }), dataset: { chip: 'hide-tr', fid: 'chip:hide-tr' } , title: s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr'), onclick: () => store.patch({ hideInboundTr: !S().hideInboundTr }) }, icon(IC.translate, 13), s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr')),
     ),
     h(
       'div',
       { class: 'ctools' },
-      h('button', { class: cx('ibtn', { on: s.emoOpen }), 'aria-label': t('composer.emoji'), title: t('composer.emoji'), disabled: finished, dataset: { tool: 'emoji' }, onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen }); } }, icon(IC.smile, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.screenshot'), title: shotKey ? `${t('composer.screenshot')} ${shotKey}` : t('composer.screenshot'), disabled: finished || mediaLocked, dataset: { tool: 'screenshot' }, onclick: () => void attach('screenshot') }, icon(IC.scissors, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.image'), title: t('composer.image'), disabled: finished || mediaLocked, dataset: { tool: 'image' }, onclick: () => void attach('image') }, icon(IC.image, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.file'), title: t('composer.file'), disabled: finished || mediaLocked, dataset: { tool: 'file' }, onclick: () => void attach('file') }, icon(IC.file, 18)),
-      h('button', { class: 'ibtn', 'aria-label': '视频', title: '视频', disabled: finished || mediaLocked, dataset: { tool: 'video' }, onclick: () => void attach('video') }, icon(IC.file, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.phrases'), dataset: { tool: 'phrases' }, onclick: () => openPeripheral('scripts') }, icon(IC.chat, 18)),
+      h('button', { class: cx('ibtn', { on: s.emoOpen }), 'aria-label': t('composer.emoji'), title: t('composer.emoji'), disabled: finished, dataset: { tool: 'emoji', fid: 'tool:emoji' } , onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen }); } }, icon(IC.smile, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.screenshot'), title: shotKey ? `${t('composer.screenshot')} ${shotKey}` : t('composer.screenshot'), disabled: finished || mediaLocked, dataset: { tool: 'screenshot', fid: 'tool:screenshot' } , onclick: () => void attach('screenshot') }, icon(IC.scissors, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.image'), title: t('composer.image'), disabled: finished || mediaLocked, dataset: { tool: 'image', fid: 'tool:image' } , onclick: () => void attach('image') }, icon(IC.image, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.file'), title: t('composer.file'), disabled: finished || mediaLocked, dataset: { tool: 'file', fid: 'tool:file' } , onclick: () => void attach('file') }, icon(IC.file, 18)),
+      h('button', { class: 'ibtn', 'aria-label': '视频', title: '视频', disabled: finished || mediaLocked, dataset: { tool: 'video', fid: 'tool:video' } , onclick: () => void attach('video') }, icon(IC.file, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.phrases'), dataset: { tool: 'phrases', fid: 'tool:phrases' } , onclick: () => openPeripheral('scripts') }, icon(IC.chat, 18)),
       conv.lang !== 'zh' && s.prefs?.assistant.enabled && s.prefs.assistant.outbound_translation
-        ? h('button', { class: cx('ibtn', { on: !s.trBarOff }), 'aria-label': t('composer.trToggle'), title: t('composer.trToggleTitle'), dataset: { tool: 'translate' }, onclick: () => store.patch({ trBarOff: !S().trBarOff }) }, icon(IC.translate, 18))
+        ? h('button', { class: cx('ibtn', { on: !s.trBarOff }), 'aria-label': t('composer.trToggle'), title: t('composer.trToggleTitle'), dataset: { tool: 'translate', fid: 'tool:translate' } , onclick: () => store.patch({ trBarOff: !S().trBarOff }) }, icon(IC.translate, 18))
         : null,
       h('span', { class: 'hint', style: { 'margin-left': 'auto', 'padding-right': '6px' } }, '本客户端：单附件≤10MiB，视频≤3分钟。'),
     ),
@@ -1957,11 +1963,11 @@ function chatPane(s: MainState): HTMLElement {
       { class: 'chat-h' },
       h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)),
       h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, conv.title, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null, h('span', { class: 'chip chip-biz' }, type)), sub ? h('div', { class: 'chat-sub', dataset: { chatWaitingGid: conv.gid } }, sub) : null),
-      h('button', { class: 'ibtn', 'aria-label': t('chat.transfer'), disabled: isDone(conv), dataset: { chatAct: 'transfer' }, onclick: () => openPeripheral('transfer') }, icon(IC.swap, 17)),
-      h('button', { class: 'ibtn', 'aria-label': t('chat.invite'), disabled: isDone(conv), dataset: { chatAct: 'invite' }, onclick: () => openPeripheral('invite') }, icon(IC.userPlus, 17)),
-      h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end' }, onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),
-      h('button', { class: 'ibtn', 'aria-label': '会话成员', title: '会话成员', dataset: { chatAct: 'members' }, onclick: () => openPeripheral('members') }, icon(IC.userPlus, 17)),
-      h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side' }, onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
+      h('button', { class: 'ibtn', 'aria-label': t('chat.transfer'), disabled: isDone(conv), dataset: { chatAct: 'transfer', fid: 'chat-act:transfer' } , onclick: () => openPeripheral('transfer') }, icon(IC.swap, 17)),
+      h('button', { class: 'ibtn', 'aria-label': t('chat.invite'), disabled: isDone(conv), dataset: { chatAct: 'invite', fid: 'chat-act:invite' } , onclick: () => openPeripheral('invite') }, icon(IC.userPlus, 17)),
+      h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end', fid: 'chat-act:end' } , onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),
+      h('button', { class: 'ibtn', 'aria-label': '会话成员', title: '会话成员', dataset: { chatAct: 'members', fid: 'chat-act:members' } , onclick: () => openPeripheral('members') }, icon(IC.userPlus, 17)),
+      h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side', fid: 'chat-act:side' } , onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     ),
     netView(s.net).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
     messagePane(s, conv, acc, pinned),
