@@ -1,0 +1,4 @@
+jobs:
+  r:
+    steps:
+      - run: npx tauri build -- --features devtools

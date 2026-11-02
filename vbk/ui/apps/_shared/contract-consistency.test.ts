@@ -46,3 +46,21 @@ test('capability files grant exactly their role list', () => {
     assert.deepEqual(granted, roleLists[capToRole[f]!], f);
   }
 });
+
+// I-03: the contract handshake must cover EVERY module's commands, not only commands.rs.
+// `HostState::authorize` is the single gated path; a direct `views.authorize` elsewhere would
+// let a window skip `contract_hello` for that command.
+test('contract handshake is enforced in HostState::authorize and no module bypasses it', () => {
+  const state = read('src-tauri/src/state.rs');
+  const body = state.slice(state.indexOf('pub fn authorize('));
+  assert.ok(/contract_check\(label\)/.test(body.slice(0, body.indexOf('\n    }\n'))), 'HostState::authorize calls commands::contract_check');
+  const walk = (dir: string): string[] => readdirSync(join(vbk, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}/${e.name}`) : [`${dir}/${e.name}`]));
+  const direct = walk('src-tauri/src')
+    .filter((f) => f.endsWith('.rs') && !/(?:_tests|tests)\.rs$/.test(f))
+    .filter((f) => /\.views\s*\.authorize\(/.test(read(f).split('#[cfg(test)]')[0]!));
+  assert.deepEqual(direct.sort(), ['src-tauri/src/assistant/order_commands.rs', 'src-tauri/src/state.rs']);
+  // order_commands captures the ViewContext only after the gated check
+  const cap = read('src-tauri/src/assistant/order_commands.rs');
+  const fnCapture = cap.slice(cap.indexOf('fn capture('), cap.indexOf('fn current('));
+  assert.ok(fnCapture.indexOf('state.authorize(') < fnCapture.indexOf('.views.authorize('), 'capture() runs HostState::authorize first');
+});

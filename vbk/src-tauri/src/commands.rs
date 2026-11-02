@@ -25,31 +25,32 @@ use crate::windows;
 type CmdResult<T> = Result<T, AppErrorDto>;
 
 /// Per-window contract handshake (I-03). Process-wide because it only holds
-/// window labels and version numbers; kept here so `state.rs` stays untouched.
+/// window labels and version numbers; `HostState::authorize` consults it
+/// through `contract_check` for every command of every module.
 fn contract_gate() -> &'static Mutex<ContractGate> {
     static GATE: OnceLock<Mutex<ContractGate>> = OnceLock::new();
     GATE.get_or_init(|| Mutex::new(ContractGate::default()))
 }
 
-fn guard(state: &HostState, window: &Window, command: &str) -> CmdResult<()> {
-    state
-        .authorize(window.label(), command)
-        .map_err(AppErrorDto::from)?;
-    // A window that announced another contract version (or none) may not use
-    // any command of this module.
+/// Contract verdict for a local window. Called from `HostState::authorize`,
+/// so EVERY module's command guard (login, adapter, shell, prefs, assistant,
+/// features) rejects a window that announced another contract version or
+/// none at all; this module's `guard` is the same path.
+pub(crate) fn contract_check(label: &str) -> Result<(), AppError> {
     let verdict = contract_gate()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .check(window.label());
-    verdict.map_err(|e| {
-        log::warn!(
-            "contract: {} rejected for {}: {}",
-            command,
-            window.label(),
-            e.code
-        );
-        AppErrorDto::from(e)
-    })
+        .check(label);
+    if let Err(e) = &verdict {
+        log::warn!("contract: command rejected for {label}: {}", e.code);
+    }
+    verdict
+}
+
+fn guard(state: &HostState, window: &Window, command: &str) -> CmdResult<()> {
+    state
+        .authorize(window.label(), command)
+        .map_err(AppErrorDto::from)
 }
 
 /// First call of every local window: announces the contract version it was

@@ -48,7 +48,8 @@ test('alarm sources never name a send/finish/order command or the IM command gro
   for (const name of ['main.ts', 'viewmodel.ts']) {
     const src = SOURCES[name] ?? '';
     assert.equal(/ImCommands|OrderCommands|AccountCommands/.test(src), false, `${name} imports another command group`);
-    assert.equal(/\b(im_send|send_message|sendMessage|im_finish|finish)\b/i.test(src), false, `${name} mentions send/finish`);
+    // no `\b` around the snake_case names: `_` is a word character, so `\bim_send\b` would let `im_send_text` through
+    assert.equal(/im_send|send_message|sendMessage|im_finish|\bfinish\b/i.test(src), false, `${name} mentions send/finish`);
     // Every ipc.invoke / run() call site goes through NotifyCommands or the view-model.
     for (const m of src.matchAll(/ipc\.invoke(?:<[^>]*>)?\(\s*([^,)]+)/g)) {
       const arg = (m[1] ?? '').trim();

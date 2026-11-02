@@ -9,11 +9,33 @@ import { join } from 'node:path';
 
 export const GATE = 'tls-debug';
 
-/** Identifier-position names that switch TLS verification off. */
-const TLS_IDENTS = new Set(['rejectUnauthorized', 'NODE_TLS_REJECT_UNAUTHORIZED', 'danger_accept_invalid_certs', 'danger_accept_invalid_hostnames']);
+/**
+ * Identifier-position names that switch TLS verification off (Node, reqwest /
+ * native-tls, rustls `dangerous()`, openssl, the Tauri http plugin's
+ * `danger.acceptInvalidCerts`, wry). Also matched as an exact string value:
+ * `o['reject' + 'Unauthorized']` folds, and `const k = 'rejectUnauthorized'` is
+ * the same switch one hop away.
+ */
+const TLS_IDENTS = new Set([
+  'rejectUnauthorized',
+  'NODE_TLS_REJECT_UNAUTHORIZED',
+  'checkServerIdentity',
+  'acceptInvalidCerts',
+  'acceptInvalidHostnames',
+  'danger_accept_invalid_certs',
+  'danger_accept_invalid_hostnames',
+  'accept_invalid_certs',
+  'accept_invalid_hostnames',
+  'with_accept_invalid_certs',
+  'with_custom_certificate_verifier',
+  'set_certificate_verifier',
+  'SslVerifyMode',
+]);
+/** rustls: `ClientConfig::builder().dangerous()` is the only entry to a custom verifier. */
+const RUST_ONLY_IDENTS = new Set(['dangerous']);
 
 /** Browser switches that disable verification or open a debugging endpoint (string tokens in code). */
-const SWITCH = /^--?(?:ignore-certificate-errors|remote-debugging-port|remote-debugging-pipe|disable-web-security)(?:=.*)?$/;
+const SWITCH = /^--?(?:ignore-certificate-errors(?:-spki-list)?|ignore-ssl-errors|allow-insecure-localhost|unsafely-treat-insecure-origin-as-secure|remote-debugging-port|remote-debugging-pipe|remote-allow-origins|disable-web-security|auto-open-devtools-for-tabs)(?:=.*)?$/;
 
 /** Properties whose assignment/definition fakes human input or hides automation (R11). */
 const TAMPER_PROPS = new Set(['isTrusted', 'webdriver']);
@@ -25,10 +47,18 @@ function scanTs(file, text) {
   for (const f of facts) {
     if (f.type === 'ident' && TLS_IDENTS.has(f.name)) push(f.line, `TLS switch \`${f.name}\``);
     if (f.type === 'prop' && TLS_IDENTS.has(f.name)) push(f.line, `TLS switch \`${f.name}\``);
-    if (f.type === 'string' && SWITCH.test(f.value.trim())) push(f.line, `browser switch "${f.value}"`);
+    if (f.type === 'string') {
+      if (TLS_IDENTS.has(f.value ?? '')) push(f.line, `TLS switch "${f.value}" named as a string (indirect access)`);
+      // a constant prefix is enough: `--remote-debugging-port=${port}` is the switch with a hole
+      if (SWITCH.test((f.prefix ?? '').trim())) push(f.line, `browser switch "${f.prefix.trim()}"`);
+    }
     if (f.type === 'assign' && TAMPER_PROPS.has(f.name)) push(f.line, `assignment to \`${f.name}\` (R11: no tampering with input trust / automation flags)`);
+    if (f.type === 'delete' && TAMPER_PROPS.has(f.name)) push(f.line, `delete of \`${f.name}\` (R11: hiding automation flags)`);
     if (f.type === 'call' && /^(?:Object|Reflect)\.defineProperty$/.test(f.callee ?? '') && TAMPER_PROPS.has(f.args[1] ?? '')) {
       push(f.line, `${f.callee}(…, "${f.args[1]}", …) (R11)`);
+    }
+    if (f.type === 'call' && /(?:^|\.)__define(?:Getter|Setter)__$/.test(f.callee ?? '') && TAMPER_PROPS.has(f.args[0] ?? '')) {
+      push(f.line, `${f.callee}("${f.args[0]}", …) (R11)`);
     }
     if (f.type === 'call' && f.callee === 'Object.defineProperties') {
       for (const key of objectKeys(f.argNodes[1])) if (TAMPER_PROPS.has(key)) push(f.line, `Object.defineProperties with \`${key}\` (R11)`);
@@ -45,7 +75,8 @@ function scanTs(file, text) {
 function scanRust(file, text) {
   const out = [];
   for (const t of rustTokens(text)) {
-    if (t.t === 'id' && TLS_IDENTS.has(t.v)) out.push(violation(GATE, file, t.line, `TLS switch \`${t.v}\``));
+    if (t.t === 'id' && (TLS_IDENTS.has(t.v) || RUST_ONLY_IDENTS.has(t.v))) out.push(violation(GATE, file, t.line, `TLS switch \`${t.v}\``));
+    if (t.t === 'str' && TLS_IDENTS.has(t.v)) out.push(violation(GATE, file, t.line, `TLS switch "${t.v}" named as a string`));
     if (t.t === 'str' && SWITCH.test(t.v.trim())) out.push(violation(GATE, file, t.line, `browser switch "${t.v}"`));
   }
   return out;

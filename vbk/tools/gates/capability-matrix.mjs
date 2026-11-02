@@ -34,11 +34,15 @@ const ADAPTER_PERMISSIONS = [
 ];
 
 /** Parameter names that would make a command an arbitrary path / SQL / program primitive. */
-const FORBIDDEN_PARAMS = new Set(['path', 'file', 'file_path', 'filepath', 'filename', 'dir', 'directory', 'folder', 'sql', 'statement', 'stmt', 'exec', 'script', 'program']);
+const FORBIDDEN_PARAMS = new Set(['path', 'file', 'file_path', 'filepath', 'filename', 'dir', 'directory', 'folder', 'sql', 'statement', 'stmt', 'exec', 'script', 'program', 'cmd', 'command', 'shell', 'args', 'argv']);
+/** Parameter types that are a filesystem path whatever the parameter is called. */
+const FORBIDDEN_TYPES = /(?:^|[^A-Za-z])(?:PathBuf|Path|OsString|OsStr)(?:$|[^A-Za-z])/;
 /** URL-shaped parameters are legal only when reviewed (host-side origin policy) and listed in the allowlist. */
 const URL_PARAMS = new Set(['url', 'uri', 'href', 'endpoint']);
 
 const sorted = (xs) => [...new Set(xs)].sort();
+/** Capability permissions are strings or `{identifier, allow, deny}` objects; both name the permission. */
+const permissionIds = (cap) => (cap.permissions ?? []).map((p) => (typeof p === 'string' ? p : p?.identifier)).filter((p) => typeof p === 'string');
 const permissionToCommand = (p) => p.slice('allow-'.length).replaceAll('-', '_');
 const globToRegExp = (g) => new RegExp(`^${g.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
 
@@ -68,7 +72,7 @@ export function parseCommandsTxt(txt) {
 export function buildMatrix(capabilities) {
   const rows = [];
   for (const [file, cap] of Object.entries(capabilities)) {
-    const commands = (cap.permissions ?? []).filter((p) => typeof p === 'string' && p.startsWith('allow-')).map(permissionToCommand);
+    const commands = permissionIds(cap).filter((p) => p.startsWith('allow-')).map(permissionToCommand);
     for (const command of sorted(commands)) {
       rows.push({
         command,
@@ -117,7 +121,7 @@ export function check(world) {
   ];
   const covered = new Set();
   for (const [file, cap] of Object.entries(world.capabilities)) {
-    const granted = sorted((cap.permissions ?? []).filter((p) => p.startsWith('allow-')).map(permissionToCommand));
+    const granted = sorted(permissionIds(cap).filter((p) => p.startsWith('allow-')).map(permissionToCommand));
     for (const c of granted) if (!txt.includes(c)) v(`capabilities/${file}`, `permission allow-${c.replaceAll('_', '-')} names no command in commands.txt`);
     const role = CAP_ROLE[file];
     if (role === undefined) v(`capabilities/${file}`, 'capability file has no role mapping in tools/gates/capability-matrix.mjs');
@@ -143,7 +147,7 @@ export function check(world) {
   const adapter = world.capabilities['adapter.json'];
   if (adapter !== undefined) {
     if (JSON.stringify(sorted(adapter.remote?.urls ?? [])) !== JSON.stringify(ADAPTER_URLS)) v('capabilities/adapter.json', `remote.urls must be exactly ${ADAPTER_URLS.join(' , ')}`);
-    if (JSON.stringify(sorted(adapter.permissions ?? [])) !== JSON.stringify(ADAPTER_PERMISSIONS)) v('capabilities/adapter.json', `permissions must be exactly the 5 adapter bridge commands + 2 event permissions (remote surface <= 7), got ${(adapter.permissions ?? []).join(', ')}`);
+    if (JSON.stringify(sorted(permissionIds(adapter))) !== JSON.stringify(ADAPTER_PERMISSIONS) || permissionIds(adapter).length !== (adapter.permissions ?? []).length) v('capabilities/adapter.json', `permissions must be exactly the 5 adapter bridge commands + 2 event permissions (remote surface <= 7), got ${JSON.stringify(adapter.permissions ?? [])}`);
     if ((adapter.windows ?? []).length) v('capabilities/adapter.json', 'adapter capability must target webviews only');
   }
 
@@ -153,7 +157,7 @@ export function check(world) {
   for (const cmd of world.rustCommands ?? []) {
     for (const p of cmd.params) {
       const name = p.name.toLowerCase();
-      if (FORBIDDEN_PARAMS.has(name)) v(`command ${cmd.name}`, `parameter \`${p.name}: ${p.type}\` is an arbitrary path/SQL/program primitive`);
+      if (FORBIDDEN_PARAMS.has(name) || FORBIDDEN_TYPES.test(p.type)) v(`command ${cmd.name}`, `parameter \`${p.name}: ${p.type}\` is an arbitrary path/SQL/program primitive`);
       if (URL_PARAMS.has(name)) {
         const idx = allow.findIndex((a) => a.command === cmd.name && a.param === p.name);
         if (idx < 0) v(`command ${cmd.name}`, `URL parameter \`${p.name}\` is not in the reviewed allowlist (host origin policy must validate it)`);

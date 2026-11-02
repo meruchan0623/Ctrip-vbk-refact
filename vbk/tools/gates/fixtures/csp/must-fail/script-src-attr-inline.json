@@ -1,0 +1,7 @@
+{
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; script-src-attr 'unsafe-inline'; frame-src 'none'; object-src 'none'"
+    }
+  }
+}
