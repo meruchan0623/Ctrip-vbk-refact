@@ -17,8 +17,6 @@ for (const g of gates) {
   });
 }
 
-test('dom-sinks B0 state: the allowlist holds exactly companion-card.ts:70', () => {
-  const list = dom.loadAllowlist();
-  assert.equal(list.length, 1);
-  assert.deepEqual({ file: list[0].file, line: list[0].line, sink: list[0].sink }, { file: 'ui/apps/main/companion-card.ts', line: 70, sink: 'innerHTML' });
+test('dom-sinks B1 state (I-29 merged): allowlist is empty, strict zero hits', () => {
+  assert.deepEqual(dom.loadAllowlist(), []);
 });

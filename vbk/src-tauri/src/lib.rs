@@ -20,6 +20,7 @@ pub mod commands;
 pub mod diag_bridge;
 pub mod dto;
 pub mod events;
+pub mod features;
 pub mod local_tz;
 pub mod login;
 pub mod prefs;
@@ -108,6 +109,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::contract_hello,
+            features::typing::im_send_input_state,
+            features::recall::im_recall_message,
+            features::queue::im_queue_status,
+            features::queue::im_queue_drop_out,
             commands::notify_snapshot,
             commands::notify_open_conversation,
             commands::notify_hide_round,

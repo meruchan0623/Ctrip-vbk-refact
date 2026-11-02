@@ -51,6 +51,10 @@ impl Role {
     pub fn allows(&self, command: &str) -> bool {
         const MAIN_CMDS: &[&str] = &[
             "contract_hello",
+            "im_send_input_state",
+            "im_recall_message",
+            "im_queue_status",
+            "im_queue_drop_out",
             "account_snapshot",
             "account_start_login",
             "account_cancel_login",

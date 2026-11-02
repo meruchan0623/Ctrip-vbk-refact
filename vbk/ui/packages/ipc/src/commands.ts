@@ -41,6 +41,11 @@ export const AccountCommands = {
 } as const;
 
 export const ImCommands = {
+  // I-30a–d feature commands (src-tauri/src/features/*.rs)
+  SEND_INPUT_STATE: 'im_send_input_state',
+  RECALL_MESSAGE: 'im_recall_message',
+  QUEUE_STATUS: 'im_queue_status',
+  QUEUE_DROP_OUT: 'im_queue_drop_out',
   /** Web adapter → core: a bounded fact envelope. */
   PUSH_FACT: 'im_push_fact',
   CONVERSATION_SNAPSHOT: 'im_conversation_snapshot',
