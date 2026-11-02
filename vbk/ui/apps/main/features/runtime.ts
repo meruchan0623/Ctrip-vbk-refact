@@ -57,6 +57,15 @@ export interface FeatureRuntime {
 const ID_RE = /^[a-z][a-z0-9-]{0,40}$/;
 const COMMAND_RE = /^[a-z][a-z0-9_]{0,60}$/;
 
+/**
+ * The only host commands a feature module may declare (plan I-30a–d,
+ * `src-tauri/src/features/*.rs`). A module declaring anything else, e.g. an
+ * account or shell command the main window happens to be allowed to call,
+ * fails at runtime construction. Extending this list is an integration
+ * change request (new `features/<x>.rs` command), not a module decision.
+ */
+export const FEATURE_COMMANDS: ReadonlySet<string> = new Set(['im_send_input_state', 'im_recall_message', 'im_queue_status', 'im_queue_drop_out']);
+
 interface Registration {
   readonly slots: Map<FeatureSlotName, (scope: FeatureScope) => Child>;
   readonly actions: MessageAction[];
@@ -81,7 +90,10 @@ export function createFeatureRuntime(modules: readonly FeatureModule[], host: Ru
     if (!ID_RE.test(m.id)) throw new Error(`invalid feature id: ${m.id}`);
     if (seen.has(m.id)) throw new Error(`duplicate feature id: ${m.id}`);
     seen.add(m.id);
-    for (const c of m.commands) if (!COMMAND_RE.test(c)) throw new Error(`feature ${m.id}: invalid command name ${c}`);
+    for (const c of m.commands) {
+      if (!COMMAND_RE.test(c)) throw new Error(`feature ${m.id}: invalid command name ${c}`);
+      if (!FEATURE_COMMANDS.has(c)) throw new Error(`feature ${m.id}: command ${c} is not a feature command`);
+    }
   }
 
   const regs = new Map<string, Registration>();

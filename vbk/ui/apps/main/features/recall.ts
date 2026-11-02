@@ -56,6 +56,22 @@ export type RecallReply =
 
 const key = (scope: FeatureScope, gid: string, id: string): string => `${scope.account.environment}|${scope.account.account_id}|${scope.account.session_generation}|${gid}|${id}`;
 
+/**
+ * Classifies an IPC rejection. Only an error raised AFTER the page may have
+ * sent `recallMessage` is an unknown outcome (host `adapter.timeout`, lost
+ * reply, anything unclassified). Refusals the host or page raise before any
+ * request (window/argument gates, ACL, unknown op, contract mismatch) mean
+ * "nothing sent": the action stays available and no replay lock is set.
+ */
+export function classifyIpcFailure(error: unknown): 'not_sent' | 'expired' | 'clock_unknown' | 'unknown' {
+  const code = typeof error === 'object' && error !== null && typeof (error as { code?: unknown }).code === 'string' ? (error as { code: string }).code : null;
+  if (code === null) return 'unknown';
+  if (code === 'im.recall_expired') return 'expired';
+  if (code === 'im.recall_clock_unknown') return 'clock_unknown';
+  if (code.startsWith('im.recall_') || code.startsWith('im.feature_') || code === 'adapter.failed' || code.startsWith('host.') || code.startsWith('account.')) return 'not_sent';
+  return 'unknown';
+}
+
 export interface RecallModule extends FeatureModule {
   /** True once the server confirmed the recall of `messageId` in the active account's conversation `gid`. */
   recalled(gid: string, messageId: string): boolean;
@@ -119,10 +135,19 @@ export function createRecall(): RecallModule {
         default:
           c.toast(c.t('recall.failed'));
       }
-    } catch {
-      // an IPC failure is not a server answer: never replay, ask the user to check the conversation
-      settledUnknown.add(k);
-      if (c.isCurrent(scope.account)) c.toast(c.t('recall.unknown'));
+    } catch (e: unknown) {
+      // A rejection raised before any request was sent keeps the action; anything that
+      // may have reached the server is "unknown": never replayed, user re-checks the conversation.
+      const verdict = classifyIpcFailure(e);
+      if (verdict === 'unknown') settledUnknown.add(k);
+      if (c.isCurrent(scope.account)) {
+        c.toast(
+          verdict === 'unknown' ? c.t('recall.unknown')
+            : verdict === 'expired' ? c.t('recall.expired')
+              : verdict === 'clock_unknown' ? c.t('recall.clockUnknown')
+                : c.t('recall.failed'),
+        );
+      }
     } finally {
       inflight.delete(k);
       c.requestRender();

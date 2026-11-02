@@ -39,6 +39,8 @@ import type { PageSdk } from './sdkGlue.ts';
 import { roomJidFromMessage, type ConversationStore, RoleBook } from './stores.ts';
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
 import type { StatusRead } from './presence.ts';
+import { createFeatureDispatcher, FeatureOpError, type FeatureDispatcher, type FeatureOpContext } from './features.ts';
+import { createAdapterFeatures } from './adapterFeatures.ts';
 
 export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
   'clock.sample': 'host-requested fixed GetMyInfo.json authenticated SOA Timestamp; no display, facts or read receipts',
@@ -101,6 +103,36 @@ export interface RpcContext {
   /** Captures the current lifecycle generation; old awaited work must never write. */
   readonly captureWriteGuard?: () => (() => boolean);
   readonly receiveDiagnostics?: () => import('../../ipc/src/client.ts').UiPageReceiveDiagnostics;
+  /**
+   * Feature ops (`typing.*`, `recall.*`, `queue.*`; plan I-30). Defaults to
+   * `createAdapterFeatures()` built fresh for this rpc instance. Tests inject
+   * their own.
+   */
+  readonly features?: FeatureDispatcher;
+}
+
+/**
+ * Builds the narrow context a feature op sees for ONE request. The host is the
+ * only caller of `adapter://request`, so a `server_now_ms` argument is the
+ * host's anchored server clock (the host's `im_recall_message` adds it after
+ * its own gate); the page has no anchor of its own and treats anything else
+ * as "clock unknown", which every feature maps to a refusal, never a pass.
+ * `emit` has no channel yet (`feature://fact` is a host integration request),
+ * so facts are dropped here on purpose rather than smuggled into `AdapterFact`.
+ */
+function featureOpContext(ctx: RpcContext, args: unknown): FeatureOpContext {
+  const serverNow = recordOrNull(args)?.['server_now_ms'];
+  const anchored = typeof serverNow === 'number' && Number.isSafeInteger(serverNow) && serverNow > 0 ? serverNow : null;
+  return {
+    deps: ctx.deps,
+    soa: ctx.soa,
+    // PageSdk has no verified typing facade yet: typing.send reports `unsupported`.
+    sdk: {},
+    serverNowMs: () => anchored,
+    conversation: (gid) => ctx.store.view(gid),
+    selfUid: () => (ctx.roles.selfUid === '' ? null : ctx.roles.selfUid),
+    emit: () => undefined,
+  };
 }
 
 export class RpcError extends Error {
@@ -703,12 +735,24 @@ export interface Rpc {
 let rpcSequence = 0;
 export function createRpc(ctx: RpcContext): Rpc {
   const state: RpcState = { sends: new Map(), categories: new Map(), selectionNamespace: `${ctx.deps.now()}-${ctx.deps.random()}-${++rpcSequence}` };
+  const features = ctx.features ?? createFeatureDispatcher(createAdapterFeatures());
   return {
     async handle(request) {
       const r = recordOrNull(request);
       const reqId = r?.['req_id'];
       if (typeof reqId !== 'string' || reqId === '') return null;
       const op = r?.['op'];
+      if (typeof op === 'string' && !Object.prototype.hasOwnProperty.call(HANDLERS, op) && features.has(op)) {
+        const args = r?.['args'] ?? {};
+        try {
+          return { req_id: reqId, ok: true, data: await features.call(op, args, featureOpContext(ctx, args)) };
+        } catch (e: unknown) {
+          // FeatureOpError = argument/dispatch refusal before any request; anything else is an adapter bug.
+          const code = e instanceof FeatureOpError ? e.code : ErrorCodes.ADAPTER_FAILED;
+          const message = e instanceof FeatureOpError ? e.message : 'adapter error';
+          return { req_id: reqId, ok: false, error: { code, message, retryable: e instanceof FeatureOpError ? e.retryable : false } };
+        }
+      }
       if (typeof op !== 'string' || !Object.prototype.hasOwnProperty.call(HANDLERS, op)) {
         return { req_id: reqId, ok: false, error: { code: ErrorCodes.HOST_UNSUPPORTED, message: `unknown op`, retryable: false } };
       }
