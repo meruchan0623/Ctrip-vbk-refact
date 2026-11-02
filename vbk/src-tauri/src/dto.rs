@@ -401,6 +401,78 @@ pub enum AdapterFactDto {
         state: String,
     },
     AuthInvalid,
+    /// Page feature fact (typing / recalled / queue notice). Never enters the
+    /// IM core: `adapter_push_fact` validates it and forwards it to the main
+    /// window as `feature://fact` (`FeatureFactEventDto`).
+    Feature {
+        fact: FeatureFactDto,
+    },
+}
+
+/// Mirrors `FeatureFact` in contracts.ts (adapter side, no account).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FeatureFactDto {
+    Typing {
+        gid: String,
+        from: String,
+        until_ms: i64,
+    },
+    Recalled {
+        gid: String,
+        message_id: String,
+    },
+    QueueNotice {
+        gid: String,
+    },
+}
+
+impl From<FeatureFactDto> for core_im::feature_rules::FeatureFact {
+    fn from(d: FeatureFactDto) -> Self {
+        use core_im::feature_rules::FeatureFact as F;
+        match d {
+            FeatureFactDto::Typing {
+                gid,
+                from,
+                until_ms,
+            } => F::Typing {
+                gid,
+                from,
+                until_ms,
+            },
+            FeatureFactDto::Recalled { gid, message_id } => F::Recalled { gid, message_id },
+            FeatureFactDto::QueueNotice { gid } => F::QueueNotice { gid },
+        }
+    }
+}
+
+impl From<core_im::feature_rules::FeatureFact> for FeatureFactDto {
+    fn from(f: core_im::feature_rules::FeatureFact) -> Self {
+        use core_im::feature_rules::FeatureFact as F;
+        match f {
+            F::Typing {
+                gid,
+                from,
+                until_ms,
+            } => FeatureFactDto::Typing {
+                gid,
+                from,
+                until_ms,
+            },
+            F::Recalled { gid, message_id } => FeatureFactDto::Recalled { gid, message_id },
+            F::QueueNotice { gid } => FeatureFactDto::QueueNotice { gid },
+        }
+    }
+}
+
+/// `feature://fact` payload: the validated fact with the host-bound account
+/// flattened in (mirrors `FeatureFact` in `ui/apps/main/features/context.ts`,
+/// `{kind, account, gid, ...}`).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct FeatureFactEventDto {
+    #[serde(flatten)]
+    pub fact: FeatureFactDto,
+    pub account: AccountContextDto,
 }
 
 /// Mirrors `AdapterFactEnvelope` in contracts.ts.
@@ -432,6 +504,61 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    /// Same samples as `ui/packages/ipc/src/contracts.test.ts`
+    /// ("feature fact JSON shapes mirror dto.rs"): keep both in step.
+    #[test]
+    fn feature_fact_json_shape_matches_ts() {
+        let json = r#"{"account":{"account_id":"a","environment":"production","session_generation":2},
+            "stream":"im.feature","epoch":1,"seq":3,
+            "fact":{"kind":"feature","fact":{"kind":"typing","gid":"1234567890123456789","from":"cust-9","until_ms":1761800005000}}}"#;
+        let env: AdapterFactEnvelopeDto = serde_json::from_str(json).expect("parse");
+        let AdapterFactDto::Feature { fact } = env.fact else {
+            panic!("wrong variant");
+        };
+        assert_eq!(
+            fact,
+            FeatureFactDto::Typing {
+                gid: "1234567890123456789".into(),
+                from: "cust-9".into(),
+                until_ms: 1_761_800_005_000
+            }
+        );
+        let recalled: FeatureFactDto = serde_json::from_str(
+            r#"{"kind":"recalled","gid":"1234567890123456789","message_id":"9876543210987654321"}"#,
+        )
+        .expect("parse");
+        assert!(matches!(recalled, FeatureFactDto::Recalled { .. }));
+        let queue: FeatureFactDto =
+            serde_json::from_str(r#"{"kind":"queue_notice","gid":"1234567890123456789"}"#)
+                .expect("parse");
+        assert_eq!(
+            queue,
+            FeatureFactDto::QueueNotice {
+                gid: "1234567890123456789".into()
+            }
+        );
+        // round trip through the core type keeps every field
+        let core: core_im::feature_rules::FeatureFact = fact.clone().into();
+        assert_eq!(FeatureFactDto::from(core), fact);
+        // host → main window event: flat `{kind, ..., account}`
+        let event = FeatureFactEventDto {
+            fact,
+            account: AccountContextDto {
+                account_id: "a".into(),
+                environment: "production".into(),
+                session_generation: 2,
+            },
+        };
+        let v = serde_json::to_value(&event).expect("serialize");
+        assert_eq!(
+            v,
+            serde_json::json!({
+                "kind": "typing", "gid": "1234567890123456789", "from": "cust-9", "until_ms": 1761800005000_i64,
+                "account": {"account_id": "a", "environment": "production", "session_generation": 2}
+            })
+        );
     }
 
     #[test]

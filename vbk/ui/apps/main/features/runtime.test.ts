@@ -157,6 +157,23 @@ test('facts are validated before any module sees them', () => {
   assert.equal(isFeatureFact({ ...base, kind: 'typing', from: 'c', until_ms: Infinity }), false);
 });
 
+test('facts for another account or a stale generation are dropped by the runtime before any module sees them', () => {
+  const host = makeHost();
+  const m = probe('f', []);
+  const rt = createFeatureRuntime([m], host);
+  rt.start();
+  const base = { kind: 'queue_notice' as const, gid: GID };
+  rt.onFact({ ...base, account: { ...ACCOUNT, account_id: 'other' } });
+  rt.onFact({ ...base, account: { ...ACCOUNT, environment: 'staging' } });
+  rt.onFact({ ...base, account: { ...ACCOUNT, session_generation: ACCOUNT.session_generation + 1 } });
+  assert.equal(m.facts.length, 0);
+  rt.onFact({ ...base, account: ACCOUNT });
+  assert.equal(m.facts.length, 1);
+  host.active = null;
+  rt.onFact({ ...base, account: ACCOUNT });
+  assert.equal(m.facts.length, 1, 'no active account: nothing is current');
+});
+
 test('requestRender is a no-op before start and after stop', async () => {
   const host = makeHost();
   let ctx!: FeatureContext;

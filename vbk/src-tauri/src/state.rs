@@ -734,5 +734,13 @@ fn convert_fact(dto: AdapterFactDto) -> Result<Fact, AppError> {
             }
         }),
         AdapterFactDto::AuthInvalid => Fact::AuthInvalid,
+        // Forwarded by `adapter::adapter_push_fact` before it reaches here;
+        // the local `im_push_fact` path has no window to forward to.
+        AdapterFactDto::Feature { .. } => {
+            return Err(AppError::new(
+                "im.invalid_fact",
+                "feature facts never enter the IM core",
+            ))
+        }
     })
 }

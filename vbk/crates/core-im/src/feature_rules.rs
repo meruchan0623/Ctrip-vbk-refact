@@ -14,6 +14,14 @@
 //!   server time, never on the local wall clock alone;
 //! * typing state = XMPP `<message type="input_state">`, throttled to one per
 //!   3 s (rea FE-30).
+//!
+//! The second half ([`FeatureFact`], [`validate_feature_fact`],
+//! [`FeatureFactRateLimiter`]) guards the `feature://fact` channel: a page
+//! feature fact arrives through `adapter_push_fact` as the `feature` variant
+//! of `AdapterFact`, never enters the IM core, and is forwarded to the main
+//! window only after these checks. The checks exist because the official
+//! page could be made to emit arbitrary facts; the host must neither panic
+//! nor flood the window.
 
 use std::collections::BTreeMap;
 
@@ -31,12 +39,177 @@ pub const INPUT_STATE_THROTTLE_MS: i64 = 3_000;
 pub const INPUT_STATE_MAX_TRACKED: usize = 256;
 /// Wire form of recall identifiers (round 4: 19-digit strings).
 pub const RECALL_ID_LEN: usize = 19;
+/// Longest `gid` / `from` accepted in a feature fact (characters).
+pub const FEATURE_FACT_MAX_ID_CHARS: usize = 64;
+/// Longest `message_id` accepted in a `recalled` fact (ASCII digits).
+pub const FEATURE_FACT_MAX_MESSAGE_ID_LEN: usize = 32;
+/// A typing indicator may not be announced further ahead than this; a larger
+/// `until_ms` is clamped, never trusted (it would pin "对方正在输入" on screen).
+pub const TYPING_FACT_MAX_HORIZON_MS: i64 = 30_000;
+/// Feature facts admitted per `(account, gid, kind)` within one second.
+pub const FEATURE_FACT_RATE_PER_SECOND: u32 = 4;
+/// Upper bound of `(account, gid, kind)` buckets tracked by one limiter.
+pub const FEATURE_FACT_RATE_MAX_TRACKED: usize = 1024;
 
 pub mod codes {
     pub const IM_RECALL_INVALID_ID: &str = "im.recall_invalid_id";
     pub const IM_RECALL_EXPIRED: &str = "im.recall_expired";
     pub const IM_RECALL_CLOCK_UNKNOWN: &str = "im.recall_clock_unknown";
     pub const IM_FEATURE_INVALID_ARGUMENT: &str = "im.feature_invalid_argument";
+    /// A page-supplied feature fact failed validation (same code the host
+    /// uses for undecodable adapter payloads).
+    pub const ADAPTER_INVALID_PAYLOAD: &str = "adapter.invalid_payload";
+}
+
+/// One feature fact as the page emits it (mirrors `FeatureFact` in
+/// `contracts.ts`; the host adds the account before it reaches the window).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FeatureFact {
+    Typing {
+        gid: String,
+        from: String,
+        until_ms: i64,
+    },
+    Recalled {
+        gid: String,
+        message_id: String,
+    },
+    QueueNotice {
+        gid: String,
+    },
+}
+
+impl FeatureFact {
+    pub fn gid(&self) -> &str {
+        match self {
+            FeatureFact::Typing { gid, .. }
+            | FeatureFact::Recalled { gid, .. }
+            | FeatureFact::QueueNotice { gid } => gid,
+        }
+    }
+
+    /// Wire tag (`kind`), also the rate-limiter bucket.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            FeatureFact::Typing { .. } => "typing",
+            FeatureFact::Recalled { .. } => "recalled",
+            FeatureFact::QueueNotice { .. } => "queue_notice",
+        }
+    }
+}
+
+fn invalid_payload(what: &str) -> AppError {
+    // The message names the field only; no page-supplied value is echoed.
+    AppError::new(
+        codes::ADAPTER_INVALID_PAYLOAD,
+        format!("invalid feature fact: {what}"),
+    )
+}
+
+/// Opaque identifier from the page: non-empty, at most
+/// [`FEATURE_FACT_MAX_ID_CHARS`] characters, no control or whitespace
+/// characters.
+fn valid_opaque_id(s: &str) -> bool {
+    let mut chars = 0usize;
+    for c in s.chars() {
+        chars += 1;
+        if chars > FEATURE_FACT_MAX_ID_CHARS || c.is_control() || c.is_whitespace() {
+            return false;
+        }
+    }
+    chars > 0
+}
+
+/// Validates (and for `typing` clamps) a page feature fact. `now_ms` is the
+/// host clock the main window will compare `until_ms` against.
+///
+/// * `gid` and `from`: see [`valid_opaque_id`];
+/// * `message_id`: 1–[`FEATURE_FACT_MAX_MESSAGE_ID_LEN`] ASCII digits;
+/// * `until_ms`: clamped into `[now_ms, now_ms + TYPING_FACT_MAX_HORIZON_MS]`.
+///
+/// The error never contains the offending value.
+pub fn validate_feature_fact(fact: FeatureFact, now_ms: i64) -> Result<FeatureFact, AppError> {
+    if !valid_opaque_id(fact.gid()) {
+        return Err(invalid_payload("gid"));
+    }
+    Ok(match fact {
+        FeatureFact::Typing {
+            gid,
+            from,
+            until_ms,
+        } => {
+            if !valid_opaque_id(&from) {
+                return Err(invalid_payload("from"));
+            }
+            let horizon = now_ms.saturating_add(TYPING_FACT_MAX_HORIZON_MS);
+            FeatureFact::Typing {
+                gid,
+                from,
+                until_ms: until_ms.clamp(now_ms, horizon),
+            }
+        }
+        FeatureFact::Recalled { gid, message_id } => {
+            let ok = !message_id.is_empty()
+                && message_id.len() <= FEATURE_FACT_MAX_MESSAGE_ID_LEN
+                && message_id.bytes().all(|b| b.is_ascii_digit());
+            if !ok {
+                return Err(invalid_payload("message_id"));
+            }
+            FeatureFact::Recalled { gid, message_id }
+        }
+        FeatureFact::QueueNotice { gid } => FeatureFact::QueueNotice { gid },
+    })
+}
+
+/// Fixed one-second windows per `(account, gid, kind)`: at most
+/// [`FEATURE_FACT_RATE_PER_SECOND`] facts are admitted per window, the rest
+/// are reported as not admitted (the caller drops them silently). Bounded
+/// to [`FEATURE_FACT_RATE_MAX_TRACKED`] buckets; stale buckets are evicted
+/// first, then everything (a burst across many keys only loses history).
+#[derive(Debug, Default, Clone)]
+pub struct FeatureFactRateLimiter {
+    buckets: BTreeMap<(String, String, &'static str), (i64, u32)>,
+}
+
+impl FeatureFactRateLimiter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// `account_key` is any stable identity string (environment + account id
+    /// + generation); `kind` is [`FeatureFact::kind`].
+    pub fn admit(&mut self, account_key: &str, gid: &str, kind: &'static str, now_ms: i64) -> bool {
+        let window = now_ms.div_euclid(1000);
+        let key = (account_key.to_string(), gid.to_string(), kind);
+        if let Some((seen_window, count)) = self.buckets.get_mut(&key) {
+            if *seen_window == window {
+                if *count >= FEATURE_FACT_RATE_PER_SECOND {
+                    return false;
+                }
+                *count += 1;
+            } else {
+                *seen_window = window;
+                *count = 1;
+            }
+            return true;
+        }
+        if self.buckets.len() >= FEATURE_FACT_RATE_MAX_TRACKED {
+            self.buckets.retain(|_, (w, _)| *w == window);
+            if self.buckets.len() >= FEATURE_FACT_RATE_MAX_TRACKED {
+                self.buckets.clear();
+            }
+        }
+        self.buckets.insert(key, (window, 1));
+        true
+    }
+
+    pub fn tracked(&self) -> usize {
+        self.buckets.len()
+    }
+
+    pub fn clear(&mut self) {
+        self.buckets.clear();
+    }
 }
 
 /// Outcome of the client-side recall window check.
@@ -268,5 +441,159 @@ mod tests {
         t.forget("g300");
         t.clear();
         assert_eq!(t.tracked(), 0);
+    }
+
+    // ------------------------------------------------------ feature facts
+
+    const NOW: i64 = 1_761_800_000_000;
+
+    fn typing(gid: &str, from: &str, until_ms: i64) -> FeatureFact {
+        FeatureFact::Typing {
+            gid: gid.into(),
+            from: from.into(),
+            until_ms,
+        }
+    }
+
+    #[test]
+    fn feature_fact_gid_rules_apply_to_every_kind() {
+        let long = "g".repeat(FEATURE_FACT_MAX_ID_CHARS);
+        let ok = FeatureFact::QueueNotice { gid: long.clone() };
+        assert_eq!(validate_feature_fact(ok.clone(), NOW), Ok(ok));
+        // 64 multi-byte characters are still 64 characters
+        let wide = "字".repeat(FEATURE_FACT_MAX_ID_CHARS);
+        assert!(validate_feature_fact(FeatureFact::QueueNotice { gid: wide }, NOW).is_ok());
+        for bad in ["", " ", "a b", "a\n", "\u{7f}", &"g".repeat(65)] {
+            let e = validate_feature_fact(FeatureFact::QueueNotice { gid: bad.into() }, NOW)
+                .expect_err(bad);
+            assert!(e.is(codes::ADAPTER_INVALID_PAYLOAD), "{bad:?}");
+            assert_eq!(
+                e.message, "invalid feature fact: gid",
+                "no echo of the value"
+            );
+            assert!(
+                validate_feature_fact(typing(bad, "c", NOW), NOW).is_err(),
+                "{bad:?}"
+            );
+            assert!(validate_feature_fact(
+                FeatureFact::Recalled {
+                    gid: bad.into(),
+                    message_id: "1".into()
+                },
+                NOW
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn typing_fact_validates_from_and_clamps_until() {
+        let gid = "1234567890123456789";
+        assert_eq!(
+            validate_feature_fact(typing(gid, "cust-9", NOW + 5_000), NOW),
+            Ok(typing(gid, "cust-9", NOW + 5_000))
+        );
+        // too far ahead → horizon; in the past → now; exactly on the bounds kept
+        assert_eq!(
+            validate_feature_fact(typing(gid, "c", NOW + 86_400_000), NOW),
+            Ok(typing(gid, "c", NOW + TYPING_FACT_MAX_HORIZON_MS))
+        );
+        assert_eq!(
+            validate_feature_fact(typing(gid, "c", NOW - 1), NOW),
+            Ok(typing(gid, "c", NOW))
+        );
+        assert_eq!(
+            validate_feature_fact(typing(gid, "c", NOW + TYPING_FACT_MAX_HORIZON_MS), NOW),
+            Ok(typing(gid, "c", NOW + TYPING_FACT_MAX_HORIZON_MS))
+        );
+        assert_eq!(
+            validate_feature_fact(typing(gid, "c", i64::MAX), i64::MAX - 10),
+            Ok(typing(gid, "c", i64::MAX)),
+            "saturating horizon never panics"
+        );
+        for bad_from in ["", "a b", &"x".repeat(65), "\t"] {
+            let e = validate_feature_fact(typing(gid, bad_from, NOW), NOW).expect_err(bad_from);
+            assert!(e.is(codes::ADAPTER_INVALID_PAYLOAD));
+            assert!(e.message.contains("from"));
+        }
+    }
+
+    #[test]
+    fn recalled_fact_message_id_is_1_to_32_digits() {
+        let gid = "1234567890123456789";
+        for ok in ["1", "9876543210987654321", &"7".repeat(32)] {
+            let f = FeatureFact::Recalled {
+                gid: gid.into(),
+                message_id: ok.into(),
+            };
+            assert_eq!(validate_feature_fact(f.clone(), NOW), Ok(f));
+        }
+        for bad in ["", "abc", "12a", "-1", " 1", &"7".repeat(33), "１２３"] {
+            let e = validate_feature_fact(
+                FeatureFact::Recalled {
+                    gid: gid.into(),
+                    message_id: bad.into(),
+                },
+                NOW,
+            )
+            .expect_err(bad);
+            assert!(e.is(codes::ADAPTER_INVALID_PAYLOAD), "{bad:?}");
+            assert!(e.message.contains("message_id"));
+        }
+    }
+
+    #[test]
+    fn feature_fact_kind_and_gid_accessors() {
+        assert_eq!(typing("g", "c", 1).kind(), "typing");
+        assert_eq!(
+            FeatureFact::Recalled {
+                gid: "g".into(),
+                message_id: "1".into()
+            }
+            .kind(),
+            "recalled"
+        );
+        let q = FeatureFact::QueueNotice { gid: "g2".into() };
+        assert_eq!(q.kind(), "queue_notice");
+        assert_eq!(q.gid(), "g2");
+    }
+
+    #[test]
+    fn rate_limiter_admits_four_per_second_per_account_gid_kind() {
+        let mut l = FeatureFactRateLimiter::new();
+        for i in 0..4 {
+            assert!(l.admit("a", "g", "typing", NOW + i * 100), "{i}");
+        }
+        assert!(!l.admit("a", "g", "typing", NOW + 500));
+        assert!(!l.admit("a", "g", "typing", NOW + 999));
+        // other kind / gid / account are independent buckets
+        assert!(l.admit("a", "g", "recalled", NOW + 500));
+        assert!(l.admit("a", "g2", "typing", NOW + 500));
+        assert!(l.admit("b", "g", "typing", NOW + 500));
+        // next fixed window re-opens
+        assert!(l.admit("a", "g", "typing", NOW + 1_000));
+        assert!(l.admit("a", "g", "typing", NOW + 1_999));
+        assert!(l.admit("a", "g", "typing", NOW + 1_999));
+        assert!(l.admit("a", "g", "typing", NOW + 1_999));
+        assert!(!l.admit("a", "g", "typing", NOW + 1_999));
+    }
+
+    #[test]
+    fn rate_limiter_handles_negative_and_backwards_clocks_and_stays_bounded() {
+        let mut l = FeatureFactRateLimiter::new();
+        assert!(l.admit("a", "g", "typing", -1));
+        assert!(l.admit("a", "g", "typing", -1000));
+        assert!(l.admit("a", "g", "typing", NOW));
+        for i in 0..(FEATURE_FACT_RATE_MAX_TRACKED + 50) {
+            assert!(l.admit("a", &format!("g{i}"), "queue_notice", NOW + i as i64));
+        }
+        assert!(l.tracked() <= FEATURE_FACT_RATE_MAX_TRACKED);
+        // eviction of a full table in one window still admits and stays bounded
+        for i in 0..(FEATURE_FACT_RATE_MAX_TRACKED * 2) {
+            assert!(l.admit("b", &format!("h{i}"), "typing", NOW + 5_000));
+        }
+        assert!(l.tracked() <= FEATURE_FACT_RATE_MAX_TRACKED);
+        l.clear();
+        assert_eq!(l.tracked(), 0);
     }
 }

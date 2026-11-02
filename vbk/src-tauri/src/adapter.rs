@@ -25,6 +25,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use contracts::{codes, AccountContext, AppError};
+use core_im::feature_rules::{validate_feature_fact, FeatureFactRateLimiter};
 use core_im::RoundState;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -35,7 +36,8 @@ use tokio::sync::oneshot;
 
 use crate::commands::IngestReportDto;
 use crate::dto::{
-    AccountContextDto, AdapterFactDto, AdapterFactEnvelopeDto, AppErrorDto, SendDispositionDto,
+    AccountContextDto, AdapterFactDto, AdapterFactEnvelopeDto, AppErrorDto, FeatureFactDto,
+    FeatureFactEventDto, SendDispositionDto,
 };
 use crate::events;
 use crate::login;
@@ -294,6 +296,10 @@ pub struct AdapterState {
     /// Account the main shell last addressed (proxy for the active account).
     focus: Mutex<Option<AccountContext>>,
     receive: Mutex<HostReceiveBook>,
+    /// `feature://fact` admission per (account, gid, kind); see `forward_feature_fact`.
+    feature_rate: Mutex<FeatureFactRateLimiter>,
+    /// Feature facts refused by validation (count only; the payload is never logged).
+    feature_rejected: AtomicU64,
 }
 
 impl AdapterState {
@@ -307,8 +313,59 @@ impl AdapterState {
             epoch: AtomicU64::new(0),
             focus: Mutex::new(None),
             receive: Mutex::new(HostReceiveBook::default()),
+            feature_rate: Mutex::new(FeatureFactRateLimiter::new()),
+            feature_rejected: AtomicU64::new(0),
         }
     }
+}
+
+/// Validated page feature fact → main window (`feature://fact`). The fact
+/// never enters the IM core and is never persisted; `IngestReport` fields
+/// therefore read `applied: false` with `dropped` naming the outcome
+/// (`ForwardedToMain` or `FeatureRateLimited`). Validation failures are
+/// `adapter.invalid_payload`, counted on `feature_rejected`; the fact body
+/// is not logged.
+fn forward_feature_fact(
+    app: &AppHandle,
+    m: &AdapterState,
+    ctx: &AccountContext,
+    now_ms: i64,
+    fact: FeatureFactDto,
+) -> Result<IngestReportDto, AppError> {
+    let fact = validate_feature_fact(fact.into(), now_ms).map_err(|e| {
+        m.feature_rejected.fetch_add(1, Ordering::Relaxed);
+        log::warn!("feature fact rejected: {}", e.code);
+        e
+    })?;
+    let account_key = format!(
+        "{}|{}|{}",
+        ctx.environment.as_str(),
+        ctx.account_id.as_str(),
+        ctx.session_generation
+    );
+    let admitted = lock(&m.feature_rate).admit(&account_key, fact.gid(), fact.kind(), now_ms);
+    if !admitted {
+        return Ok(IngestReportDto {
+            applied: false,
+            dropped: Some("FeatureRateLimited".to_string()),
+            needs_resync: None,
+            auth_invalid: false,
+        });
+    }
+    events::to_main(
+        app,
+        events::FEATURE_FACT,
+        FeatureFactEventDto {
+            fact: fact.into(),
+            account: AccountContextDto::from(ctx),
+        },
+    );
+    Ok(IngestReportDto {
+        applied: false,
+        dropped: Some("ForwardedToMain".to_string()),
+        needs_resync: None,
+        auth_invalid: false,
+    })
 }
 
 #[derive(Default)]
@@ -1101,6 +1158,13 @@ pub fn adapter_push_fact(
         )));
     }
     envelope.account = (&ctx).into();
+    if let AdapterFactDto::Feature { fact } = &envelope.fact {
+        // Not a core fact: validated, rate-limited and forwarded to the main
+        // window only (no ingest, no persistence, no IngestReport count).
+        let m = module(&app).map_err(e2dto)?;
+        return forward_feature_fact(&app, &m, &ctx, state.clock.wall_ms(), fact.clone())
+            .map_err(e2dto);
+    }
     let gid = match &envelope.fact {
         AdapterFactDto::Message { fact } => Some(fact.gid.clone()),
         AdapterFactDto::Conversation { fact } => Some(fact.gid.clone()),

@@ -205,6 +205,9 @@ export function createFeatureRuntime(modules: readonly FeatureModule[], host: Ru
     },
     onFact(fact) {
       if (!running || !isFeatureFact(fact)) return;
+      // Scope gate: a fact for any other account (or a stale generation of
+      // this one) is dropped here, before any module can act on it.
+      if (!host.isCurrent(fact.account)) return;
       for (const m of modules) {
         if (!mounted.includes(m.id)) continue;
         try {
