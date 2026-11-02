@@ -39,6 +39,8 @@ export interface PageSessionOptions {
   /** Display push (`adapter_push_display`); errors are swallowed by the session. */
   readonly pushDisplay: (payload: AdapterDisplayPayload) => Promise<unknown>;
   readonly variants?: readonly ConversationListVariant[];
+  readonly conversationCadence?: import('./index.ts').AdapterOptions['conversationCadence'];
+  readonly compensationOptions?: import('./index.ts').AdapterOptions['compensationOptions'];
   readonly sendAckTimeoutMs?: number;
   readonly orderGidWaitMs?: number;
   readonly unreadDebounceMs?: number;
@@ -353,8 +355,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     initialBeginMsgTime: opts.beginMsgTime,
     initialEpoch: opts.initialEpoch,
     conversationListVariants: variants,
-    // A hidden account is long-lived; keep the read-only recovery path active.
-    stopNormalLoopAfterLimit: false,
+    ...(opts.conversationCadence ? { conversationCadence: opts.conversationCadence } : {}),
+    ...(opts.compensationOptions ? { compensationOptions: opts.compensationOptions } : {}),
     roles,
     unread,
     onConversationListOutcome: onListOutcome,

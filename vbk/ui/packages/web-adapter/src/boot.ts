@@ -33,7 +33,7 @@ import { Endpoints } from './endpoints.ts';
 import { sdkHead } from './heads.ts';
 import { SoaClient } from './soa.ts';
 import { readIdentity } from './identity.ts';
-import { buildPageContext, createContextSniffer, installContextHooks, type ContextSniffer } from './pageContext.ts';
+import { buildPageContext, createContextSniffer, installContextHooks, createPageRequestObserver, type RequestTiming, type ContextSniffer } from './pageContext.ts';
 import { createPageSdk, type PageSdk } from './sdkGlue.ts';
 import { createPageSession, type PageSession } from './session.ts';
 import { notReadyReply } from './rpc.ts';
@@ -133,7 +133,7 @@ export function hostArgs(cmd: string, payload: unknown): Record<string, unknown>
 
 export interface BootWindow {
   readonly location: LocationLike & { readonly href: string; readonly origin?: string; readonly search: string };
-  readonly document?: { readonly cookie?: string };
+  readonly document?: { readonly cookie?: string; readonly visibilityState?: string; addEventListener?(type: string, cb: () => void): void; removeEventListener?(type: string, cb: () => void): void };
   readonly top?: unknown;
   readonly self?: unknown;
   fetch?: unknown;
@@ -159,6 +159,8 @@ export interface BootOptions {
   readonly identityRetryDelayMs?: number;
   readonly bindAttempts?: number;
   readonly bindDelayMs?: number;
+  readonly onRequestTiming?: (record: RequestTiming) => void;
+  readonly compensationOptions?: import('./index.ts').AdapterOptions['compensationOptions'];
 }
 
 export type BootResult =
@@ -249,7 +251,8 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
   }
   const rawFetch = win.fetch;
   const sniffer: ContextSniffer = createContextSniffer();
-  installContextHooks(win, sniffer);
+  const requests = createPageRequestObserver(now, opts.onRequestTiming);
+  installContextHooks(win, sniffer, requests);
 
   // ---- 2. request listener
   const dispatcher = startRequestListener(host, logger);
@@ -273,7 +276,18 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     return { kind: 'failed', step: 'fetch' };
   }
   const fetchImpl = rawFetch as (url: string, init: unknown) => Promise<{ status: number; text(): Promise<string> }>;
-  const fetchLike: FetchLike = (url, init) => fetchImpl.call(win, url, init);
+  const fetchLike: FetchLike = async (url, init) => {
+    const request = requests.begin(url, init.body, 'adapter');
+    const response = await fetchImpl.call(win, url, init);
+    if (!request) return response;
+    return { status: response.status, text: async () => {
+      const text = await response.text();
+      let body: unknown;
+      try { body = JSON.parse(text); } catch { body = null; }
+      requests.complete(request, response.status, body);
+      return text;
+    } };
+  };
 
   // ---- 3. ready
   const readyPayload: AdapterReadyPayload = { url: pageUrl(win.location), sdk_version: null };
@@ -363,6 +377,17 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     beginMsgTime: ack.begin_msg_time,
     initialEpoch: ack.initial_epoch,
     sdk,
+    conversationCadence: {
+      officialRequests: requests,
+      visibility: {
+        visible: () => win.document?.visibilityState !== 'hidden',
+        subscribe: cb => {
+          win.document?.addEventListener?.('visibilitychange', cb);
+          return () => win.document?.removeEventListener?.('visibilitychange', cb);
+        },
+      },
+    },
+    ...(opts.compensationOptions ? { compensationOptions: opts.compensationOptions } : {}),
     pushDisplay: (payload: AdapterDisplayPayload) => call(AdapterCommands.PUSH_DISPLAY, payload),
     log: (m) => logger.info(m),
   });

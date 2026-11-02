@@ -7,8 +7,8 @@
  *
  * Cadence mirrors the static SDK policy (docs/research/2026-10-30-web-im-transport-and-polling.md §5):
  * - transport `connected`: normal loop, 10 000 ms, and the SDK stops that
- *   loop 300 000 ms after it started (`normalLoopStopAfterMs`, default on,
- *   NOT fault-injection verified — flag it off to keep polling forever)
+ *   loop 300 000 ms after it started (`normalLoopStopAfterMs`, configurable,
+ *   finite by default; target-machine recovery acceptance remains pending)
  * - any other transport state: frequent loop, 5 000 ms (half of normal)
  *
  * Every message becomes `MessageFact(source: 'compensation')`; each round
@@ -59,15 +59,20 @@ export function recentMessagesBody(deps: AdapterDeps, beginMsgTime: number, page
 }
 
 export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: CompensationOptions): CompensationLoop {
-  const normalMs = opts.normalIntervalMs ?? 10000;
-  const frequentMs = opts.frequentIntervalMs ?? 5000;
-  const stopAfterMs = opts.normalLoopStopAfterMs ?? 300000;
+  const finite = (value: number | undefined, fallback: number, minimum: number): number => typeof value === 'number' && Number.isFinite(value) && value >= minimum ? value : fallback;
+  const normalMs = finite(opts.normalIntervalMs, 10000, 5000);
+  const frequentMs = finite(opts.frequentIntervalMs, 5000, 5000);
+  const stopAfterMs = finite(opts.normalLoopStopAfterMs, 300000, 1);
   const stopNormal = opts.stopNormalLoopAfterLimit ?? true;
-  const pageSize = opts.pageSize ?? OBSERVED_PAGE_SIZE;
+  const pageSize = Number.isInteger(opts.pageSize) && opts.pageSize! > 0 && opts.pageSize! <= OBSERVED_PAGE_SIZE ? opts.pageSize! : OBSERVED_PAGE_SIZE;
 
   let running = false;
   let generation = 0;
-  let cursor = opts.initialBeginMsgTime;
+  let cursor = Number.isFinite(opts.initialBeginMsgTime) && opts.initialBeginMsgTime >= 0 ? opts.initialBeginMsgTime : 0;
+  let lastAttempt = -Infinity;
+  let inFlight = false;
+  let failures = 0;
+  const seen = new Set<string>();
   let transport: TransportState = 'disconnected';
   let mode: 'normal' | 'frequent' | 'stopped' = 'stopped';
   let timer: unknown = null;
@@ -85,13 +90,19 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
     timer = deps.setTimeout(() => {
       timer = null;
       void tick(gen);
-    }, mode === 'normal' ? normalMs : frequentMs);
+    }, Math.min(60000, (mode === 'normal' ? normalMs : frequentMs) * 2 ** Math.min(failures, 4)));
   };
 
+  const stopped = (): boolean => mode === 'stopped';
   const tick = async (gen: number): Promise<void> => {
-    if (!running || gen !== generation || mode === 'stopped') return;
-    const outcome = await soa.post<RecentMessagesResponse>(Endpoints.RECENT_MESSAGES, recentMessagesBody(deps, cursor, pageSize));
-    if (!running || gen !== generation) return;
+    if (!running || gen !== generation || stopped()) return;
+    if (inFlight || deps.now() - lastAttempt < 5000) { schedule(gen); return; }
+    lastAttempt = deps.now();
+    inFlight = true;
+    const outcome = await soa.post<RecentMessagesResponse>(Endpoints.RECENT_MESSAGES, recentMessagesBody(deps, cursor, pageSize), { retryNetworkErrors: false });
+    inFlight = false;
+    if (!running || gen !== generation || stopped()) return;
+    failures = outcome.kind === 'success' ? 0 : Math.min(failures + 1, 4);
     opts.onOutcome?.(outcome);
     if (outcome.kind === 'auth_invalid') {
       running = false;
@@ -103,10 +114,16 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
       const rows = Array.isArray(outcome.body.messages) ? (outcome.body.messages as HttpMessageObject[]) : [];
       for (const row of rows) {
         const fact = normalizeHttpMessage(row, { roles: opts.roles, source: 'compensation', ...(opts.msgTypeOverrides ? { msgTypeOverrides: opts.msgTypeOverrides } : {}) });
-        if (fact) opts.emit({ kind: 'message', fact });
+        if (fact) {
+          const key = JSON.stringify([fact.gid, fact.message_id]);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (seen.size > 4096) seen.delete(seen.values().next().value!);
+          opts.emit({ kind: 'message', fact });
+        }
       }
       const ts = normalizeTimeMs(outcome.body.lastMessageTimestamp);
-      if (ts !== null) cursor = ts;
+      if (ts !== null) cursor = Math.max(cursor, ts);
       opts.emit({ kind: 'compensation_sync', last_message_timestamp_ms: ts });
     }
     schedule(gen);
@@ -138,6 +155,8 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
     start(initial: TransportState): void {
       if (running) return;
       running = true;
+      failures = 0;
+      seen.clear();
       transport = initial;
       restart();
     },

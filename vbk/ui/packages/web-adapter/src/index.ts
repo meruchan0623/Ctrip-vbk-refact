@@ -51,7 +51,7 @@ import {
   type ConversationListVariant,
   type UnreadLookup,
 } from './conversationList.ts';
-import { createCompensationLoop, type CompensationLoop, type RecentMessagesResponse } from './compensation.ts';
+import { createCompensationLoop, type CompensationOptions, type CompensationLoop, type RecentMessagesResponse } from './compensation.ts';
 import type { SoaOutcome } from './soa.ts';
 import { CursorAllocator, UNKNOWN_ROLES, normalizeSdkMessage, type MemberRoles, type MsgTypeOverrides } from './facts.ts';
 
@@ -66,6 +66,8 @@ export interface AdapterOptions {
   readonly unread?: UnreadLookup;
   readonly msgTypeOverrides?: MsgTypeOverrides;
   readonly stopNormalLoopAfterLimit?: boolean;
+  readonly compensationOptions?: Pick<CompensationOptions, 'normalIntervalMs' | 'frequentIntervalMs' | 'normalLoopStopAfterMs' | 'stopNormalLoopAfterLimit'>;
+  readonly conversationCadence?: Pick<import('./conversationList.ts').ConversationListPollerOptions, 'officialRequests' | 'visibility' | 'officialLeaseMs' | 'intervalMs' | 'maxBackoffMs'>;
   readonly onServerTime?: (sample: ServerTimeSample) => void;
   readonly initialEpoch?: number;
   /** Raw conversation rows per poll (display cache, sessionId/worksheetId lookups). Never logged. */
@@ -122,6 +124,7 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
     emit,
     roles: rolesProxy,
     initialBeginMsgTime: opts.initialBeginMsgTime,
+    ...opts.compensationOptions,
     ...(opts.stopNormalLoopAfterLimit !== undefined ? { stopNormalLoopAfterLimit: opts.stopNormalLoopAfterLimit } : {}),
     ...(opts.msgTypeOverrides ? { msgTypeOverrides: opts.msgTypeOverrides } : {}),
     ...(opts.onCompensationOutcome ? { onOutcome: opts.onCompensationOutcome } : {}),
@@ -130,6 +133,7 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
     createConversationListPoller(deps, soa, {
       variant,
       emit,
+      ...opts.conversationCadence,
       includeLocale: opts.includeLocaleInConversationList ?? false,
       ...(opts.unread ? { unread: opts.unread } : {}),
       ...(opts.onConversationRows ? { onRows: (rows: readonly ConversationListItem[], full: boolean) => opts.onConversationRows?.(rows, full, variant) } : {}),

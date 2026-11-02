@@ -18,6 +18,7 @@
  */
 
 import type { PageContext } from './deps.ts';
+import { classifySoaBody, type SoaOutcome } from './soa.ts';
 
 export interface SniffedContext {
   readonly cid: string | null;
@@ -112,6 +113,70 @@ export function createContextSniffer(): ContextSniffer {
   };
 }
 
+/** Body-free timing records use canonical paths, never query strings or credentials. */
+export interface RequestTiming {
+  readonly id: number;
+  readonly path: string;
+  readonly initiator: 'official' | 'adapter';
+  readonly phase: 'request' | 'response';
+  readonly at: number;
+}
+export interface ObservedRequest extends RequestTiming {
+  readonly startTime: number | null;
+  readonly outcome?: SoaOutcome<unknown>;
+}
+export interface PageRequestObserver {
+  begin(url: unknown, body: unknown, initiator: 'official' | 'adapter'): ObservedRequest | null;
+  complete(request: ObservedRequest, status: number, body: unknown): void;
+  subscribe(cb: (event: ObservedRequest) => void): () => void;
+  lastOfficial(path: string): number | null;
+  latestOfficial(path: string): ObservedRequest | null;
+}
+const OBSERVED_PATHS = new Set(['16037/getConversationList', '16037/getConversationList.json', '16037/getRemarkList', '16037/getConversationInfoByGidList', '11679/getRecentMessages', '11679/getRecentMessages.json', '15529/getSessionEmpathyPhraseInfo', '11679/batchTranslateByMsgIds', '15529/queryToken', '14735/getOrderDetailsForVbk', '11679/PutAdviceOfReadByMsgId.json']);
+
+export function createPageRequestObserver(now: () => number, timing?: (record: RequestTiming) => void): PageRequestObserver {
+  let sequence = 0;
+  const listeners = new Set<(event: ObservedRequest) => void>();
+  const last = new Map<string, number>();
+  const latest = new Map<string, ObservedRequest>();
+  const unreadable = new Set<string>();
+  const publish = (event: ObservedRequest): void => {
+    try { timing?.({ id: event.id, path: event.path, initiator: event.initiator, phase: event.phase, at: event.at }); } catch { /* passive observer */ }
+    for (const cb of [...listeners]) { try { cb(event); } catch { /* passive observer */ } }
+  };
+  return {
+    begin(rawUrl, body, initiator) {
+      let url: URL;
+      try { url = new URL(urlString(rawUrl) ?? '', 'https://vbooking.ctrip.com'); } catch { return null; }
+      // Only the already-authorized SOA hosts can contribute adapter facts.
+      if (url.protocol !== 'https:' || !['m.ctrip.com', 'vbooking.ctrip.com', 'imvendor.ctrip.com', 's.c-ctrip.com'].includes(url.hostname) || (url.port !== '' && url.port !== '443')) return null;
+      const path = url.pathname.startsWith('/restapi/soa2/') ? url.pathname.slice('/restapi/soa2/'.length) : url.hostname === 's.c-ctrip.com' && url.pathname === '/bee/collect' ? 'telemetry' : '';
+      if (!OBSERVED_PATHS.has(path) && path !== 'telemetry') return null;
+      let parsed: unknown;
+      try { if (typeof body === 'string' && body.length <= MAX_BODY_CHARS) parsed = JSON.parse(body); } catch { /* unknown request cursor */ }
+      const value = typeof parsed === 'object' && parsed !== null ? (parsed as { startTime?: unknown }).startTime : undefined;
+      // Unknown/non-string request bodies must never be mistaken for a full snapshot.
+      const startTime = typeof value === 'number' && Number.isFinite(value) ? value : parsed && typeof parsed === 'object' && !('startTime' in parsed) ? null : -1;
+      const event: ObservedRequest = { id: ++sequence, path, initiator, phase: 'request', at: now(), startTime };
+      if (initiator === 'official') { last.set(path, event.at); if (path.startsWith('16037/getConversationList')) latest.set(path, event); }
+      publish(event);
+      return event;
+    },
+    complete(request, status, body) {
+      const outcome: SoaOutcome<unknown> = status < 200 || status >= 300 ? { kind: 'http_error', httpStatus: status } : classifySoaBody(body, status);
+      const event: ObservedRequest = { ...request, phase: 'response', at: now(), outcome };
+      if (request.initiator === 'official' && latest.get(request.path)?.id === request.id) {
+        if (status === 0) unreadable.add(request.path); else unreadable.delete(request.path);
+        latest.set(request.path, event);
+      }
+      publish(event);
+    },
+    subscribe(cb) { listeners.add(cb); return () => { listeners.delete(cb); }; },
+    latestOfficial(path) { return latest.get(path) ?? null; },
+    lastOfficial(path) { return unreadable.has(path) ? null : last.get(path) ?? null; },
+  };
+}
+
 // ------------------------------------------------------------- page hooks
 
 /** Loose window shape: only what the hooks touch. */
@@ -126,17 +191,33 @@ export interface HookableWindow {
  * untouched. Observation errors are swallowed; the page's call always goes
  * through with its original arguments and `this`.
  */
-export function installContextHooks(win: HookableWindow, sniffer: ContextSniffer): void {
+export function installContextHooks(win: HookableWindow, sniffer: ContextSniffer, requests?: PageRequestObserver): void {
   const origFetch = win.fetch;
   if (typeof origFetch === 'function') {
     const wrapped = function (this: unknown, input: unknown, init?: unknown): unknown {
+      let request: ObservedRequest | null = null;
       try {
         const body = typeof init === 'object' && init !== null ? (init as { body?: unknown }).body : undefined;
         sniffer.observe(input, body);
+        request = requests?.begin(input, body, 'official') ?? null;
       } catch {
         // observation must never break the page
       }
-      return (origFetch as (...a: unknown[]) => unknown).apply(this, arguments as unknown as unknown[]);
+      const result = (origFetch as (...a: unknown[]) => unknown).apply(this, arguments as unknown as unknown[]);
+      if (request) {
+        const captured = request;
+        // Clone only observed responses; return the original promise/response unchanged.
+        void Promise.resolve(result).then(async (response: unknown) => {
+          const r = response as { status: number; clone?: () => { text(): Promise<string> } };
+          if (typeof r?.clone !== 'function') { requests?.complete(captured, 0, null); return; }
+          const text = await r.clone().text();
+          if (text.length > MAX_BODY_CHARS) { requests?.complete(captured, 0, null); return; }
+          let body: unknown;
+          try { body = JSON.parse(text); } catch { body = null; }
+          requests?.complete(captured, r.status, body);
+        }).catch(() => requests?.complete(captured, 0, null));
+      }
+      return result;
     };
     win.fetch = wrapped;
   }

@@ -150,7 +150,6 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
   assert.deepEqual(identity?.args, { _contract_version: 1, payload: { buid: 'B-1', uid: 'me-1', agent_id: '77', nick: '昵称', party: '供应商', environment: 'production', self_profile: { uid: 'me-1', name: 'n', avatar: 'https://example.invalid/agent-self.png' } } });
   const ready = invoked.find((i) => i.cmd === 'adapter_ready');
   assert.deepEqual(ready?.args, { _contract_version: 1, payload: { url: 'https://vbooking.ctrip.com/vbk/im/main', sdk_version: null } });
-  assert.ok(fetchCalls.some((u) => u.includes('_fxpcqlniredt=T-1') && u.includes('getConversationList')));
   await new Promise((res) => setTimeout(res, 60));
   const facts = invoked.filter((i) => i.cmd === 'adapter_push_fact');
   assert.ok(facts.length > 0);

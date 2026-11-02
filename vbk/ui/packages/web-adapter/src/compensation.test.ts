@@ -49,15 +49,15 @@ test('compensation: frequent 5 s cadence when transport is not connected; switch
   assert.equal(deps.fakeFetch.calls.length, 2);
   loop.setTransport('reconnecting');
   await deps.clock.advance(0);
-  assert.equal(deps.fakeFetch.calls.length, 3); // restart fires immediately
+  assert.equal(deps.fakeFetch.calls.length, 2); // mode changes do not bypass the request floor
   loop.setTransport('connected');
   await deps.clock.advance(0);
   assert.equal(loop.mode, 'normal');
-  assert.equal(deps.fakeFetch.calls.length, 4);
+  assert.equal(deps.fakeFetch.calls.length, 2);
   await deps.clock.advance(5000);
-  assert.equal(deps.fakeFetch.calls.length, 4);
+  assert.equal(deps.fakeFetch.calls.length, 2);
   await deps.clock.advance(5000);
-  assert.equal(deps.fakeFetch.calls.length, 5);
+  assert.equal(deps.fakeFetch.calls.length, 3);
   loop.stop();
 });
 
