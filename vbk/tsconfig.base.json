@@ -16,7 +16,6 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "types": ["node"],
-    "typeRoots": ["./node_modules/@types", "/opt/node-tools/node_modules/@types"]
+    "types": ["node"]
   }
 }
