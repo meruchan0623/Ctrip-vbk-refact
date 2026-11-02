@@ -8,9 +8,11 @@
  * narrow `FeatureOpContext` below, so each one is testable under Node.
  *
  * Op names are `<feature>.<action>`. The host reaches them through
- * `adapter://request` (the dispatcher in `rpc.ts` forwards unknown ops to
- * `FeatureDispatcher.call`; that one-line hook and the matching
- * `AdapterOp` entries are an integration change request, not done here).
+ * `adapter://request`: `rpc.ts` forwards an op that is not one of its own
+ * `HANDLERS` to `FeatureDispatcher.call` with a per-request
+ * `FeatureOpContext` (`serverNowMs` comes from the host's `server_now_ms`
+ * argument, see `rpc.ts`). Facts (`emit`) still have no channel to the host
+ * (`feature://fact` is a host integration request) and are dropped there.
  *
  * Rules every feature obeys:
  * - nothing runs at import time, no timers/polling of its own beyond what the
@@ -46,7 +48,11 @@ export interface FeatureOpContext {
   readonly deps: AdapterDeps;
   readonly soa: SoaClient;
   readonly sdk: FeatureSdk;
-  /** Anchored server time (ms) or null when no trusted sample exists. */
+  /**
+   * Anchored server time (ms) or null when no trusted sample exists. In
+   * production this is the host's anchored clock passed per request as
+   * `server_now_ms`; the page never substitutes its own wall clock.
+   */
   serverNowMs(): number | null;
   /** In-page cached conversation row for `gid`; null when unknown. */
   conversation(gid: string): PeripheralConversation | null;

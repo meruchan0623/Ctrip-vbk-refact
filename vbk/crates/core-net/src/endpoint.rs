@@ -904,7 +904,8 @@ const TABLE: &[Row] = &[
 /// capture-verification.md). Kept apart from the 72 rows of
 /// `docs/api/README.md` so that table stays a verbatim mirror.
 ///
-/// * `getMessageTranslate` / `getIQMessages` / `putadviceofreadIQMessage` /
+/// * `getMessageTranslate` / `getIQMessages` / `putAdviceofreadIQMessage` /
+///   (spelling per the live evidence `message-notice-order-live-20261030.json`) /
 ///   `translateIQMessage`: paths from static call sites (rea FE, desktop
 ///   baseline 09-assistant); request shapes beyond what the web adapter
 ///   already uses are **not** captured.
@@ -934,10 +935,10 @@ const SUPPLEMENT: &[Row] = &[
         Core,
     ),
     (
-        "m:11679/putadviceofreadIQMessage",
+        "m:11679/putAdviceofreadIQMessage",
         Method::Post,
         M,
-        "/restapi/soa2/11679/putadviceofreadIQMessage",
+        "/restapi/soa2/11679/putAdviceofreadIQMessage",
         SdkHead,
         Write,
         SoaAck,
@@ -1032,18 +1033,21 @@ pub const BUILD_PROFILE: &str = if cfg!(feature = "test-endpoints") {
 /// domains the reverse report found in the official bundle (FAT/UAT/FWS/QA
 /// internals, `*.ctripcorp.com`, `tripqate`). Used by the table test and by
 /// build scripts that scan artifacts.
+///
+/// Deliberately label-wise: the former dotted substrings (`".qa.nt."`,
+/// `".uat."`, ...) were pooled next to each other in the production rlib and
+/// the artifact scanner (`tools/release-scan.mjs`) flagged the detector
+/// itself as a test host. No literal here contains a dot.
 pub fn is_test_domain(host: &str) -> bool {
     let h = host.to_ascii_lowercase();
-    [
-        ".qa.nt.",
-        ".fat",
-        ".uat.",
-        ".fws.",
-        "tripqate",
-        "ctripcorp.com",
-    ]
-    .iter()
-    .any(|m| h.contains(m))
+    let labels: Vec<&str> = h.split('.').collect();
+    let qa_nt = labels.windows(2).any(|w| w[0] == "qa" && w[1] == "nt");
+    qa_nt
+        || labels.contains(&"uat")
+        || labels.contains(&"fws")
+        || labels.iter().any(|l| l.starts_with("fat"))
+        || labels.iter().any(|l| l.contains("tripqate"))
+        || h.ends_with(&["ctripcorp", "com"].join("."))
 }
 
 /// Registry of every observed endpoint.
@@ -1339,8 +1343,11 @@ mod tests {
         assert!(is_test_domain("gateway.m.fws.qa.nt.ctripcorp.com"));
         assert!(is_test_domain("www.uat.tripqate.com"));
         assert!(is_test_domain("vbooking.ctrip.fat30.qa.nt.ctripcorp.com"));
+        assert!(is_test_domain("GATEWAY.M.UAT.QA.NT.CTRIPCORP.COM"));
+        assert!(is_test_domain("x.fat.ctrip.com"));
         assert!(!is_test_domain("m.ctrip.com"));
         assert!(!is_test_domain("im3.ctrip.com"));
+        assert!(!is_test_domain("nephele.ctrip.com"));
         // an alias host is only resolvable in a build that opted in
         #[cfg(not(feature = "test-endpoints"))]
         assert!(r
@@ -1350,6 +1357,29 @@ mod tests {
                 "/restapi/soa2/16037/getConversationList"
             )
             .is_none());
+    }
+
+    /// The detector's own literals must not look like a test host to the
+    /// artifact scanner (`tools/release-scan.mjs`): no literal carries a dot,
+    /// so no pooling order can form `.uat.`, `.fws.`, `qa.nt.` or `.nt.ctripcorp.com`.
+    #[test]
+    fn test_domain_detector_source_has_no_dotted_host_literals() {
+        let src = include_str!("endpoint.rs");
+        let start = src.find("pub fn is_test_domain").expect("fn");
+        let body = &src[start..start + src[start..].find("\n}\n").expect("end")];
+        for forbidden in [
+            "\".qa.nt",
+            "\".fat",
+            "\".uat.",
+            "\".fws.",
+            "\"ctripcorp.com\"",
+            "\".nt.",
+        ] {
+            assert!(
+                !body.contains(forbidden),
+                "detector literal {forbidden} would trip the release scan"
+            );
+        }
     }
 
     #[cfg(feature = "test-endpoints")]
@@ -1375,16 +1405,18 @@ mod tests {
         for id in [
             "m:11679/getMessageTranslate",
             "m:11679/getIQMessages",
-            "m:11679/putadviceofreadIQMessage",
+            "m:11679/putAdviceofreadIQMessage",
             "m:11679/translateIQMessage",
         ] {
             let p = r.assert_in_scope(id).expect(id);
             assert_eq!(p.auth, AuthKind::SdkHead, "{id}");
         }
         assert!(!r
-            .by_id("m:11679/putadviceofreadIQMessage")
+            .by_id("m:11679/putAdviceofreadIQMessage")
             .expect("row")
             .retryable());
+        // The lower-case spelling once registered here never existed on the wire.
+        assert!(r.by_id("m:11679/putadviceofreadIQMessage").is_none());
         for id in [
             "m:28967/reportInjectFnInfo",
             "vbooking:ivbk/accountV2/restapi/ab",

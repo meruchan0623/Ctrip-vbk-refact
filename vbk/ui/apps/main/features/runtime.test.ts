@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createFeatureRuntime, isFeatureFact } from './runtime.ts';
+import { FEATURE_COMMANDS, createFeatureRuntime, isFeatureFact } from './runtime.ts';
 import type { FeatureContext, FeatureModule } from './context.ts';
 import { FEATURE_CONTEXT_VERSION } from './context.ts';
 import { ACCOUNT, GID, makeHost, ownMessage, settle } from './testing.ts';
@@ -72,6 +72,13 @@ test('invalid or duplicate ids / command names are rejected up front', () => {
   assert.throws(() => createFeatureRuntime([probe('A b', [])], makeHost()), /invalid feature id/);
   assert.throws(() => createFeatureRuntime([probe('a', []), probe('a', [])], makeHost()), /duplicate feature id/);
   assert.throws(() => createFeatureRuntime([probe('a', ['Bad-Name'])], makeHost()), /invalid command/);
+  // a well-formed name outside the four feature commands is refused up front, even though
+  // the main window itself may call it
+  for (const c of ['account_forget', 'shell_open_external', 'im_send_text', 'media_pick']) {
+    assert.throws(() => createFeatureRuntime([probe('a', [c])], makeHost()), /not a feature command/, c);
+  }
+  assert.deepEqual([...FEATURE_COMMANDS].sort(), ['im_queue_drop_out', 'im_queue_status', 'im_recall_message', 'im_send_input_state']);
+  for (const m of FEATURES) for (const c of m.commands) assert.ok(FEATURE_COMMANDS.has(c), `${m.id}:${c}`);
 });
 
 test('slots render per scope, a throwing renderer shows nothing, no scope renders nothing', () => {

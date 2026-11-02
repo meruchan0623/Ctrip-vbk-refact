@@ -50,13 +50,29 @@ pub async fn im_recall_message(
     created_ms: i64,
 ) -> CmdResult<Value> {
     let ctx = authorize(&state, &webview, "im_recall_message", account)?;
-    gate(&gid, &message_id, created_ms, trusted_server_ms(&state)).map_err(AppErrorDto::from)?;
+    let server_now_ms = trusted_server_ms(&state);
+    gate(&gid, &message_id, created_ms, server_now_ms).map_err(AppErrorDto::from)?;
+    // `gate` only passes with an anchored clock, so the anchor is always Some
+    // here. The page has no server-time anchor of its own; it re-judges the
+    // window with this host-supplied value (the UI never reaches this field:
+    // the command builds the op arguments itself).
+    let server_now_ms = server_now_ms.ok_or_else(|| {
+        AppErrorDto::from(AppError::new(
+            core_im::feature_rules::codes::IM_RECALL_CLOCK_UNKNOWN,
+            "server time is not anchored; the recall window cannot be judged",
+        ))
+    })?;
     // single attempt, write timeout; the caller maps a timeout to "outcome unknown"
     adapter::request(
         &app,
         &ctx,
         "recall.message",
-        json!({ "gid": gid, "message_id": message_id, "created_ms": created_ms }),
+        json!({
+            "gid": gid,
+            "message_id": message_id,
+            "created_ms": created_ms,
+            "server_now_ms": server_now_ms,
+        }),
         adapter::WRITE_TIMEOUT,
     )
     .await

@@ -87,8 +87,34 @@ test('run: the window closing while the dialog is open aborts without a request'
   assert.match(host.toasts.at(-1)!, /2 分钟/);
 });
 
-test('run: unknown outcome and IPC failure are never replayed (action disappears)', async () => {
-  for (const reply of [{ outcome: 'unknown' }, new Error('ipc down')]) {
+test('run: a refusal raised before any request (unknown op, ACL, host gate) keeps the action and never reads as unknown', async () => {
+  const notSent = [
+    { code: 'host.unsupported', message: 'unknown op', retryable: false },
+    { code: 'host.unauthorized', message: 'window may not call', retryable: false },
+    { code: 'host.contract_mismatch', message: 'v', retryable: false },
+    { code: 'account.generation_mismatch', message: 'stale', retryable: false },
+    { code: 'im.feature_invalid_argument', message: 'gid', retryable: false },
+    { code: 'adapter.failed', message: 'arguments must be an object', retryable: false },
+  ];
+  for (const reply of notSent) {
+    const { host, mod, action } = setup(Object.assign(new Error(reply.message), reply));
+    const msg = ownMessage({ create_time_ms: host.now - 1000 });
+    await action()!.run(msg, host.active!);
+    assert.equal(host.invokes.length, 1);
+    assert.equal(mod.recalled(GID, MSG_ID), false);
+    assert.ok(action(), `${reply.code}: nothing was sent, so the action must stay available`);
+    assert.doesNotMatch(host.toasts.at(-1)!, /结果未知/, reply.code);
+  }
+  const expired = setup(Object.assign(new Error('x'), { code: 'im.recall_expired', message: 'x', retryable: false }));
+  await expired.action()!.run(ownMessage({ create_time_ms: expired.host.now - 1000 }), expired.host.active!);
+  assert.match(expired.host.toasts.at(-1)!, /2 分钟/);
+  const unanchored = setup(Object.assign(new Error('x'), { code: 'im.recall_clock_unknown', message: 'x', retryable: false }));
+  await unanchored.action()!.run(ownMessage({ create_time_ms: unanchored.host.now - 1000 }), unanchored.host.active!);
+  assert.match(unanchored.host.toasts.at(-1)!, /未校准/);
+});
+
+test('run: unknown outcome and a post-dispatch IPC failure are never replayed (action disappears)', async () => {
+  for (const reply of [{ outcome: 'unknown' }, new Error('ipc down'), Object.assign(new Error('t'), { code: 'adapter.timeout', message: 't', retryable: true })]) {
     const { host, mod, action } = setup(reply);
     const msg = ownMessage({ create_time_ms: host.now - 1000 });
     await action()!.run(msg, host.active!);

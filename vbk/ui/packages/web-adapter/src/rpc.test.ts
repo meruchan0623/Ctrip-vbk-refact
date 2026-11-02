@@ -479,3 +479,51 @@ test('rpc: even the first service cannot acknowledge through an unrelated cached
   const result = await rpc.handle({ req_id: 'first-service-old-room', op: 'im.mark_read', args: { gid: GID, expected_message_id: `m-${GID}`, expected_context_revision } });
   assert.equal(result?.ok, false); assert.equal(sdk.readReceipts.length, 0);
 });
+
+// ------------------------------------------------------------- I-30 feature ops via adapter://request
+
+const GID19 = '1234567890123456789';
+const MSG19 = '9876543210987654321';
+
+test('rpc: feature ops (typing/recall/queue) are reachable through the dispatcher; voice has none; unknown ops stay unsupported', async () => {
+  const { base, rpc, store } = setup((c) => {
+    if (c.url.includes('11679/recallMessage')) return jsonResponse({ ResponseStatus: OK_STATUS, status: { code: 0, msg: 'ok' } });
+    return jsonResponse({ ResponseStatus: OK_STATUS, bizResponseStatus: { resultCode: 'UNKNOWN', resultMessage: 'waiting' } });
+  });
+  store.update([sampleRow(GID19)]);
+  // typing: no verified page facade => unsupported, nothing sent, no throttle slot consumed
+  assert.deepEqual(ok(await rpc.handle({ req_id: 't', op: 'typing.send', args: { gid: GID19 } })), { sent: false, reason: 'unsupported' });
+  assert.equal(base.fakeFetch.calls.length, 0);
+  // queue.status: one checkSessionStatus with the cached customer uid
+  assert.deepEqual(ok(await rpc.handle({ req_id: 'q', op: 'queue.status', args: { gid: GID19 } })), { kind: 'ok', resultCode: 'UNKNOWN', resultMessage: 'waiting' });
+  assert.ok(base.fakeFetch.calls[0]!.url.includes('16037/checkSessionStatus'));
+  assert.equal((base.fakeFetch.calls[0]!.bodyJson as Record<string, unknown>)['customerUid'], `cust-${GID19}`);
+  // queue.drop_out: endpoint never captured => unsupported, nothing sent
+  assert.deepEqual(ok(await rpc.handle({ req_id: 'd', op: 'queue.drop_out', args: { gid: GID19 } })), { kind: 'unsupported', reason: 'endpoint_not_captured' });
+  assert.equal(base.fakeFetch.calls.length, 1);
+  // recall: the page has no clock anchor of its own; without the host's server_now_ms it refuses, nothing sent
+  const now = base.now();
+  assert.deepEqual(ok(await rpc.handle({ req_id: 'r0', op: 'recall.message', args: { gid: GID19, message_id: MSG19, created_ms: now - 1000 } })), { outcome: 'refused', reason: 'clock_unknown' });
+  assert.equal(base.fakeFetch.calls.length, 1);
+  // with the host's anchored clock the single HTTP recall goes out with both 19-digit ids as strings
+  assert.deepEqual(ok(await rpc.handle({ req_id: 'r1', op: 'recall.message', args: { gid: GID19, message_id: MSG19, created_ms: now - 1000, server_now_ms: now } })), { outcome: 'recalled' });
+  const recall = base.fakeFetch.calls[1]!;
+  assert.ok(recall.url.includes('11679/recallMessage'));
+  assert.deepEqual(Object.keys(recall.bodyJson as Record<string, unknown>), ['head', 'messageId', 'partnerId']);
+  assert.ok((recall.init.body as string).includes(`"messageId":"${MSG19}"`));
+  // argument refusals carry the feature code, not a generic adapter error, and send nothing
+  assert.equal(err(await rpc.handle({ req_id: 'r2', op: 'recall.message', args: { gid: GID19, message_id: MSG19 } })), 'adapter.failed');
+  assert.equal(err(await rpc.handle({ req_id: 'v', op: 'voice.play', args: {} })), 'host.unsupported');
+  assert.equal(err(await rpc.handle({ req_id: 'x', op: 'nope.nope', args: {} })), 'host.unsupported');
+  assert.equal(base.fakeFetch.calls.length, 2);
+});
+
+test('rpc: server_now_ms is only honoured as a positive safe integer; anything else refuses before any request', async () => {
+  const { base, rpc, store } = setup(() => jsonResponse({ ResponseStatus: OK_STATUS, status: { code: 0 } }));
+  store.update([sampleRow(GID19)]);
+  for (const bad of ['1700000000000', -1, 0, 1.5, NaN, null]) {
+    const r = ok(await rpc.handle({ req_id: 'r', op: 'recall.message', args: { gid: GID19, message_id: MSG19, created_ms: base.now() - 1000, server_now_ms: bad } })) as { outcome: string };
+    assert.equal(r.outcome, 'refused', String(bad));
+  }
+  assert.equal(base.fakeFetch.calls.length, 0);
+});

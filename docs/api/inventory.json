@@ -8,7 +8,7 @@
     "bodyEvidence仅描述旧证据保存形态，不代表完整可调用契约。",
     "HTTP endpoint逐host/path去重；同path已发现host变体时关联对应来源。"
   ],
-  "httpEndpointCount": 96,
+  "httpEndpointCount": 95,
   "endpoints": [
     {
       "host": null,
@@ -563,8 +563,10 @@
       "bodyEvidence": "unknown",
       "evidence": [
         "docs/research/2026-10-30-web-reminders.md",
-        "docs/research/evidence/message-notice-order-live-20261030.json"
-      ]
+        "docs/research/evidence/message-notice-order-live-20261030.json",
+        "docs/research/2026-10-30-web-im-observation.md"
+      ],
+      "note": "通知中心已读，仅静态调用点 {categoryId,categorySubId,msgId}；不同于聊天已读 PutAdviceOfReadByMsgId。 拼写以实机证据 message-notice-order-live-20261030.json 为准（大写 A）。"
     },
     {
       "host": "m.ctrip.com",
@@ -1873,20 +1875,6 @@
       "note": "2026-11-02 实机第二轮：请求体 {buildVersion,fnInfo}，响应 data.injectSwitch；疑似远程风控脚本上报被注入函数。仅记录，适配器不得调用；注入前后 fnInfo 对比见改进计划 I-15 第二步。headerNames 为实测可见的部分（受限头不可见）。",
       "evidence": [
         "docs/reviews/2026-11-02-desktop-live-capture-verification.md"
-      ]
-    },
-    {
-      "host": "m.ctrip.com",
-      "path": "/restapi/soa2/11679/putadviceofreadIQMessage",
-      "methods": null,
-      "headerNameCount": null,
-      "headerNames": null,
-      "headerValuesObserved": false,
-      "bodyEvidence": "unknown",
-      "note": "通知中心已读，仅静态调用点 {categoryId,categorySubId,msgId}；不同于聊天已读 PutAdviceOfReadByMsgId。",
-      "evidence": [
-        "docs/research/2026-10-30-web-im-observation.md",
-        "docs/research/2026-10-30-web-reminders.md"
       ]
     },
     {
