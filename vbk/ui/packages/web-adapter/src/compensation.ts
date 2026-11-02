@@ -7,8 +7,9 @@
  *
  * Cadence mirrors the static SDK policy (docs/research/2026-10-30-web-im-transport-and-polling.md §5):
  * - transport `connected`: normal loop, 10 000 ms, and the SDK stops that
- *   loop 300 000 ms after it started (`normalLoopStopAfterMs`, default on,
- *   NOT fault-injection verified — flag it off to keep polling forever)
+ *   loop 300 000 ms after it started. Configurable (`normalLoopStopAfterMs`,
+ *   `null` = never); the 300 s default is the static SDK value and NOT
+ *   fault-injection verified, so the production session sets it explicitly
  * - any other transport state: frequent loop, 5 000 ms (half of normal)
  *
  * Every message becomes `MessageFact(source: 'compensation')`; each round
@@ -23,6 +24,16 @@ import type { SoaClient, SoaOutcome } from './soa.ts';
 import { normalizeHttpMessage, normalizeTimeMs, type HttpMessageObject, type MemberRoles, type MsgTypeOverrides } from './facts.ts';
 
 export const OBSERVED_PAGE_SIZE = 100;
+/** Static SDK policy: the normal loop stops 300 s after it started. Unverified by fault injection. */
+export const DEFAULT_NORMAL_LOOP_STOP_AFTER_MS = 300_000;
+
+/** `null` = never stop. Non-finite or non-positive values are configuration errors and fall back to the default. */
+export function resolveNormalLoopStopAfterMs(opts: Pick<CompensationOptions, 'normalLoopStopAfterMs' | 'stopNormalLoopAfterLimit'>): number | null {
+  if (opts.stopNormalLoopAfterLimit === false) return null;
+  const v = opts.normalLoopStopAfterMs;
+  if (v === null) return null;
+  return v !== undefined && Number.isFinite(v) && v > 0 ? v : DEFAULT_NORMAL_LOOP_STOP_AFTER_MS;
+}
 
 export interface RecentMessagesResponse {
   readonly lastMessageTimestamp?: unknown;
@@ -37,8 +48,14 @@ export interface CompensationOptions {
   readonly initialBeginMsgTime: number;
   readonly normalIntervalMs?: number;
   readonly frequentIntervalMs?: number;
-  readonly normalLoopStopAfterMs?: number;
-  /** Mirror the SDK's "stop normal loop after 5 minutes" (unverified); default true. */
+  /**
+   * Stop the normal (connected) loop this long after it started. `null` = never
+   * stop. Omitted = {@link DEFAULT_NORMAL_LOOP_STOP_AFTER_MS}, the static SDK
+   * value, which has NOT been fault-injection verified; the production default
+   * is decided after that test (I-06), so callers choose explicitly.
+   */
+  readonly normalLoopStopAfterMs?: number | null;
+  /** Legacy switch: `false` = never stop (same as `normalLoopStopAfterMs: null`) and wins over it. */
   readonly stopNormalLoopAfterLimit?: boolean;
   readonly pageSize?: number;
   readonly msgTypeOverrides?: MsgTypeOverrides;
@@ -61,8 +78,8 @@ export function recentMessagesBody(deps: AdapterDeps, beginMsgTime: number, page
 export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: CompensationOptions): CompensationLoop {
   const normalMs = opts.normalIntervalMs ?? 10000;
   const frequentMs = opts.frequentIntervalMs ?? 5000;
-  const stopAfterMs = opts.normalLoopStopAfterMs ?? 300000;
-  const stopNormal = opts.stopNormalLoopAfterLimit ?? true;
+  const stopAfterMs = resolveNormalLoopStopAfterMs(opts);
+  const stopNormal = stopAfterMs !== null;
   const pageSize = opts.pageSize ?? OBSERVED_PAGE_SIZE;
 
   let running = false;
@@ -126,7 +143,7 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
             if (timer !== null) deps.clearTimeout(timer);
             timer = null;
           }
-        }, stopAfterMs);
+        }, stopAfterMs ?? 0);
       }
     } else {
       mode = 'frequent';

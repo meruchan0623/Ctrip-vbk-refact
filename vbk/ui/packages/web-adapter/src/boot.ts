@@ -33,7 +33,18 @@ import { Endpoints } from './endpoints.ts';
 import { sdkHead } from './heads.ts';
 import { SoaClient } from './soa.ts';
 import { readIdentity } from './identity.ts';
-import { buildPageContext, createContextSniffer, installContextHooks, type ContextSniffer } from './pageContext.ts';
+import {
+  buildPageContext,
+  createContextSniffer,
+  createOfficialConversationFeed,
+  createTrafficLedger,
+  createTrafficTap,
+  installContextHooks,
+  recordAdapterFetch,
+  type ContextSniffer,
+  type TrafficLedger,
+} from './pageContext.ts';
+import type { VisibilityGate } from './conversationList.ts';
 import { createPageSdk, type PageSdk } from './sdkGlue.ts';
 import { createPageSession, type PageSession } from './session.ts';
 import { notReadyReply } from './rpc.ts';
@@ -129,11 +140,35 @@ export function hostArgs(cmd: string, payload: unknown): Record<string, unknown>
   return cmd === AdapterCommands.PUSH_FACT ? { envelope: payload } : { payload };
 }
 
+// ------------------------------------------------------------- visibility
+
+export interface DocumentLike {
+  readonly cookie?: string;
+  readonly visibilityState?: string;
+  addEventListener?(type: string, cb: () => void): void;
+  removeEventListener?(type: string, cb: () => void): void;
+}
+
+/**
+ * `document.visibilityState` as a gate for the adapter's own conversation-list
+ * requests. Unknown state counts as visible: a missing value must never
+ * silence the loop.
+ */
+export function createVisibilityGate(doc: DocumentLike | undefined): VisibilityGate {
+  return {
+    isVisible: () => doc?.visibilityState !== 'hidden',
+    subscribe(cb) {
+      doc?.addEventListener?.('visibilitychange', cb);
+      return () => doc?.removeEventListener?.('visibilitychange', cb);
+    },
+  };
+}
+
 // ------------------------------------------------------------- boot
 
 export interface BootWindow {
   readonly location: LocationLike & { readonly href: string; readonly origin?: string; readonly search: string };
-  readonly document?: { readonly cookie?: string };
+  readonly document?: DocumentLike;
   readonly top?: unknown;
   readonly self?: unknown;
   fetch?: unknown;
@@ -159,13 +194,15 @@ export interface BootOptions {
   readonly identityRetryDelayMs?: number;
   readonly bindAttempts?: number;
   readonly bindDelayMs?: number;
+  /** Compensation normal-loop stop delay; `null`/omitted = never stop (default decided after fault injection). */
+  readonly normalLoopStopAfterMs?: number | null;
 }
 
 export type BootResult =
   | { readonly kind: 'skipped'; readonly reason: 'not_im_page' | 'not_top_frame' | 'already_booted' }
   | { readonly kind: 'no_host' }
   | { readonly kind: 'failed'; readonly step: string }
-  | { readonly kind: 'started'; readonly session: PageSession };
+  | { readonly kind: 'started'; readonly session: PageSession; readonly traffic: TrafficLedger };
 
 function consoleLogger(): BootLogger {
   const c = (globalThis as { console?: { info?: (...a: unknown[]) => void; error?: (...a: unknown[]) => void } }).console;
@@ -249,7 +286,10 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
   }
   const rawFetch = win.fetch;
   const sniffer: ContextSniffer = createContextSniffer();
-  installContextHooks(win, sniffer);
+  // I-06: the hooks also record the page's own traffic (`official`) and feed its conversation-list loop to the pollers.
+  const traffic = createTrafficLedger();
+  const officialFeed = createOfficialConversationFeed();
+  installContextHooks(win, sniffer, createTrafficTap(traffic, officialFeed, now));
 
   // ---- 2. request listener
   const dispatcher = startRequestListener(host, logger);
@@ -273,7 +313,8 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     return { kind: 'failed', step: 'fetch' };
   }
   const fetchImpl = rawFetch as (url: string, init: unknown) => Promise<{ status: number; text(): Promise<string> }>;
-  const fetchLike: FetchLike = (url, init) => fetchImpl.call(win, url, init);
+  // `rawFetch` was captured before the hooks went in, so only the adapter's own requests pass here: count them as `adapter`.
+  const fetchLike: FetchLike = recordAdapterFetch(traffic, (url, init) => fetchImpl.call(win, url, init), now);
 
   // ---- 3. ready
   const readyPayload: AdapterReadyPayload = { url: pageUrl(win.location), sdk_version: null };
@@ -348,6 +389,7 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     logger.error('host did not bind an account to this webview');
     return { kind: 'failed', step: 'bind' };
   }
+  traffic.setAccount(account.account_id);
   logger.info('identity published, account bound');
 
   // ---- 5. SDK (bounded wait; HTTP loops run even without it)
@@ -365,6 +407,10 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     sdk,
     pushDisplay: (payload: AdapterDisplayPayload) => call(AdapterCommands.PUSH_DISPLAY, payload),
     log: (m) => logger.info(m),
+    officialConversationFeed: officialFeed,
+    conversationVisibility: createVisibilityGate(win.document),
+    onConversationBootstrap: () => traffic.markBootstrap('conversation_list'),
+    ...(opts.normalLoopStopAfterMs !== undefined ? { normalLoopStopAfterMs: opts.normalLoopStopAfterMs } : {}),
   });
   session.start();
   dispatcher.setSession(session);
@@ -373,7 +419,7 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     session.stop();
     sdk.dispose();
   });
-  return { kind: 'started', session };
+  return { kind: 'started', session, traffic };
 }
 
 // ------------------------------------------------------------- auto-run (bundle entry)

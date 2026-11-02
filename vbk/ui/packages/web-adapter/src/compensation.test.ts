@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AdapterFact } from '../../ipc/src/contracts.ts';
 import { SoaClient } from './soa.ts';
-import { createCompensationLoop } from './compensation.ts';
+import { DEFAULT_NORMAL_LOOP_STOP_AFTER_MS, createCompensationLoop, resolveNormalLoopStopAfterMs } from './compensation.ts';
 import { UNKNOWN_ROLES } from './facts.ts';
 import { AUTH_FAILURE_STATUS, OK_STATUS, jsonResponse, makeDeps } from './testing.ts';
 
@@ -97,4 +97,32 @@ test('compensation: auth_invalid stops the loop', async () => {
   await deps.clock.advance(60000);
   assert.equal(deps.fakeFetch.calls.length, 1);
   assert.equal(loop.running, false);
+});
+
+test('compensation: the normal-loop stop delay is configurable (value, null = never, legacy flag, bad values)', async () => {
+  assert.equal(resolveNormalLoopStopAfterMs({}), DEFAULT_NORMAL_LOOP_STOP_AFTER_MS);
+  assert.equal(resolveNormalLoopStopAfterMs({ normalLoopStopAfterMs: 60_000 }), 60_000);
+  assert.equal(resolveNormalLoopStopAfterMs({ normalLoopStopAfterMs: null }), null);
+  assert.equal(resolveNormalLoopStopAfterMs({ normalLoopStopAfterMs: 60_000, stopNormalLoopAfterLimit: false }), null, 'legacy "never" wins');
+  for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(resolveNormalLoopStopAfterMs({ normalLoopStopAfterMs: bad }), DEFAULT_NORMAL_LOOP_STOP_AFTER_MS, String(bad));
+
+  const custom = makeDeps(() => jsonResponse({ ResponseStatus: OK_STATUS, lastMessageTimestamp: 1 }));
+  const short = createCompensationLoop(custom, new SoaClient(custom), { emit: () => undefined, roles: UNKNOWN_ROLES, initialBeginMsgTime: 1, normalLoopStopAfterMs: 60_000 });
+  short.start('connected');
+  await custom.clock.advance(60_000);
+  assert.equal(short.mode, 'stopped');
+  const stopped = custom.fakeFetch.calls.length;
+  assert.ok(stopped >= 6 && stopped <= 7);
+  await custom.clock.advance(120_000);
+  assert.equal(custom.fakeFetch.calls.length, stopped, 'stopped after the configured 60 s, not 300 s');
+  short.stop();
+
+  const never = makeDeps(() => jsonResponse({ ResponseStatus: OK_STATUS, lastMessageTimestamp: 1 }));
+  const forever = createCompensationLoop(never, new SoaClient(never), { emit: () => undefined, roles: UNKNOWN_ROLES, initialBeginMsgTime: 1, normalLoopStopAfterMs: null });
+  forever.start('connected');
+  await never.clock.advance(3_600_000);
+  assert.equal(forever.mode, 'normal');
+  assert.ok(never.fakeFetch.calls.length >= 360);
+  forever.stop();
+  assert.equal(never.clock.pendingCount(), 0);
 });

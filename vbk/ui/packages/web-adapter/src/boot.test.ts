@@ -151,6 +151,9 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
   const ready = invoked.find((i) => i.cmd === 'adapter_ready');
   assert.deepEqual(ready?.args, { payload: { url: 'https://vbooking.ctrip.com/vbk/im/main', sdk_version: null } });
   assert.ok(fetchCalls.some((u) => u.includes('_fxpcqlniredt=T-1') && u.includes('getConversationList')));
+  // I-06: the adapter's own requests are counted as `adapter` traffic for the bound account; the page's own call was not counted
+  assert.ok(r.traffic.rows().some((row) => row.path === 'conversation_list' && row.initiator === 'adapter' && row.account === 'acc-1'));
+  assert.equal(r.traffic.rows().some((row) => row.initiator === 'official'), false, 'getVenAgentByUid is outside the pacing contract');
   await new Promise((res) => setTimeout(res, 60));
   const facts = invoked.filter((i) => i.cmd === 'adapter_push_fact');
   assert.ok(facts.length > 0);
