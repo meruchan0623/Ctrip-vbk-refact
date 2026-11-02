@@ -10,6 +10,7 @@ import type { AgentStatus, MarkAction, OrderSearchResult, UiAccount, UiAgentStat
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { mergeMessageProfile } from './message-profile.ts';
 export { rowId } from './message-window.ts';
+export { personDisplayName } from './person-name.ts';
 import { historyKeyOf, historyKeyString, historyKeysMatch, parseHistoryKey } from './history-key.ts';
 import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';

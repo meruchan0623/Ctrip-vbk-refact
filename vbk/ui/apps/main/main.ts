@@ -5,6 +5,7 @@ import { readHistoryPage } from './history-read.ts';
 import { personDisplayName } from './person-name.ts';
 import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
 import { createMessagePane, PIN_THRESHOLD } from './message-pane.ts';
+import { createDraftBook, createIpcDraftPort } from './draft-book.ts';
 import type { MeasuredPane, PaneGeometry } from './message-pane.ts';
 import type { MessageAnchor } from './message-window.ts';
 import { createComposerInput } from './composer-input.ts';
@@ -1675,7 +1676,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
     );
   }
   const st = isSelf ? sendStateView(m.disposition) : null;
-  const who = m.sender_name?.trim() || m.sender_id?.trim() || (isSelf ? (acc ? accountLabel(acc) : roleLabel('merchant_self')) : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role));
+  const who = personDisplayName(m.sender_name?.trim() || null, '') || m.sender_id?.trim() || (isSelf ? (acc ? accountLabel(acc) : roleLabel('merchant_self')) : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role));
   return h(
     'div',
     { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '', rowId: rowId(m), historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } },
@@ -2328,6 +2329,38 @@ const visibleReads = createVisibleRead({
   visible: () => document.visibilityState === 'visible' && document.hasFocus(),
   invoke: args => ipc.invoke(UiCommands.IM_MARK_READ, args),
 });
+
+// ---- drafts per (account, conversation) (I-09)
+// The state map is per account generation and is reset on every account switch; the book remembers each
+// persistent account's drafts (and, once the host registers draft commands, stores them via core-store).
+const draftCommands: Readonly<Record<string, string | undefined>> = UiCommands;
+const draftLoad = draftCommands['DRAFT_LOAD'], draftSave = draftCommands['DRAFT_SAVE'];
+const draftBook = createDraftBook(draftLoad && draftSave
+  ? createIpcDraftPort((command, payload) => ipc.invoke(command, payload), { load: draftLoad, save: draftSave }, owner => S().accounts?.accounts.find(a => a.context.account_id === owner.account_id && a.context.environment === owner.environment)?.context ?? null)
+  : null);
+async function restoreDrafts(context: AccountContext): Promise<void> {
+  const stored = await draftBook.restore(context);
+  if (!stillActive(context)) return;
+  const s = S();
+  const drafts = { ...s.drafts };
+  let changed = false;
+  for (const [gid, text] of Object.entries(stored)) if (drafts[gid] === undefined) { drafts[gid] = text; changed = true; }
+  if (!changed) return;
+  const active = s.activeGid;
+  // Never overwrite what the agent has typed since the account became active.
+  const fill = !!active && s.draft === '' && s.drafts[active] === undefined && drafts[active] !== undefined;
+  store.patch({ drafts, ...(fill ? { draft: drafts[active]!, draftVersion: s.draftVersion + 1 } : {}) });
+}
+store.subscribe((s, prev) => {
+  const a = activeAccount(s)?.context ?? null, b = activeAccount(prev)?.context ?? null;
+  if (!a) return;
+  if (!b || !sameAccount(a, b) || a.session_generation !== b.session_generation) { void restoreDrafts(a); return; }
+  if (s.drafts === prev.drafts) return;
+  for (const [gid, text] of Object.entries(s.drafts)) if (prev.drafts[gid] !== text) draftBook.write(a, gid, text);
+  for (const gid of Object.keys(prev.drafts)) if (!(gid in s.drafts)) draftBook.write(a, gid, '');
+});
+window.addEventListener('pagehide', () => void draftBook.flush());
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') void draftBook.flush(); });
 
 function syncConversationViewport(): void {
   const pane = root?.querySelector<HTMLElement>('[data-list-scope]');
