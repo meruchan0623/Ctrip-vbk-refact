@@ -11,6 +11,7 @@
 //! * [`conversations`] — conversation registry (increment vs. full snapshot);
 //! * [`watermarks`] — list / compensation cursors and per-conversation
 //!   history windows with a proof-only complete watermark;
+//! * [`rows`] — stable history row identity for the windowed message pane;
 //! * [`outbox`] — immutable `SendIntent`s and `confirmed/rejected/unknown`
 //!   without any resend path;
 //! * [`rounds`] — waiting-round engine and first T1 deadline;
@@ -23,6 +24,7 @@ pub mod im_core;
 pub mod ingest;
 pub mod outbox;
 pub mod rounds;
+pub mod rows;
 pub mod watermarks;
 
 pub use conversations::{ConversationChange, ConversationEntry, ConversationRegistry, Presence};
@@ -34,6 +36,7 @@ pub use rounds::{
     first_t1_deadline, mask_label, BusinessLineRule, BusinessLineRules, Deadline, Eligibility,
     PersistedRound, Round, RoundState,
 };
+pub use rows::{HistoryRow, HistoryRowIndex, PageKind, RowId, RowInput};
 pub use watermarks::{HistoryWindow, SyncStateSnapshot, SyncWatermarks};
 
 /// Error codes private to this crate (prefix convention `im.*`).
