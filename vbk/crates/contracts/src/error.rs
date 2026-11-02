@@ -81,6 +81,8 @@ pub mod codes {
     pub const HOST_UNSUPPORTED: &str = "host.unsupported";
     /// URL rejected by the host's official-origin policy.
     pub const HOST_URL_REJECTED: &str = "host.url_rejected";
+    /// A window's contract version differs from the host's (or was never announced).
+    pub const HOST_CONTRACT_MISMATCH: &str = "host.contract_mismatch";
 }
 
 #[cfg(test)]

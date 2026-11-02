@@ -20,6 +20,7 @@ pub mod identity;
 pub mod im;
 pub mod json;
 pub mod notify;
+pub mod version;
 
 pub use clock::{ClockQuality, ClockReading};
 pub use error::{codes, AppError};
@@ -34,3 +35,4 @@ pub use im::{
 pub use notify::{
     AlarmCommand, AlarmEntry, AlarmLevel, AlarmSnapshot, ReminderSettings, SnoozeMinutes,
 };
+pub use version::{ContractGate, GateDiagnostic, CONTRACT_VERSION};

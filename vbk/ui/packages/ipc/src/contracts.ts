@@ -7,6 +7,16 @@
  * Nothing here may carry cookies, tickets, tokens or customer message text.
  */
 
+// ----------------------------------------------------------- contract version
+
+/**
+ * Mirror of `contracts::CONTRACT_VERSION` (`crates/contracts/src/version.rs`).
+ * Every local window announces it with its first call (`contract_hello`); on a
+ * mismatch the host rejects all commands of that window. Bump both together;
+ * `contracts.test.ts` fails when the two numbers drift.
+ */
+export const CONTRACT_VERSION = 1;
+
 // ---------------------------------------------------------------- identity
 
 export type AccountId = string;
@@ -121,6 +131,7 @@ export const ErrorCodes = {
   HOST_UNSUPPORTED: 'host.unsupported',
   HOST_URL_REJECTED: 'host.url_rejected',
   HOST_UNAVAILABLE: 'host.unavailable',
+  HOST_CONTRACT_MISMATCH: 'host.contract_mismatch',
 } as const;
 
 export function isAppError(x: unknown): x is AppError {

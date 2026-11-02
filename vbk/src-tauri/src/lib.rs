@@ -104,6 +104,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::contract_hello,
             commands::notify_snapshot,
             commands::notify_open_conversation,
             commands::notify_hide_round,

@@ -72,3 +72,4 @@ assistant_tsim_import_session
 
 assistant_tsim_browser_profiles
 assistant_tsim_browser_connect
+contract_hello

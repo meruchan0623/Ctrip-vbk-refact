@@ -7,6 +7,7 @@
  * `createMockIpc()` from `./mock.ts`.
  */
 
+import { CONTRACT_VERSION, ErrorCodes, isAppError } from './contracts.ts';
 import type {
   AccountContext,
   ConversationFact,
@@ -53,12 +54,28 @@ export const HOST_UNAVAILABLE = 'host.unavailable';
  * instead should check `hasTauri()` first (see `apps/_shared/ipc.ts`).
  */
 export function createTauriIpc(): IpcClient {
+  // Contract handshake (I-03): the first call of this window announces the
+  // contract version; every other call waits for it. A version mismatch is
+  // sticky (the host rejects the whole window), other failures are retried
+  // by the next call.
+  let hello: Promise<unknown> | null = null;
+  let rejected: unknown = null;
+  const handshake = (invoke: (cmd: string, args?: unknown) => Promise<unknown>): Promise<unknown> => {
+    if (rejected !== null) return Promise.reject(rejected);
+    hello ??= Promise.resolve(invoke(UiCommands.CONTRACT_HELLO, { version: CONTRACT_VERSION })).catch((e: unknown) => {
+      hello = null;
+      if (isAppError(e) && e.code === ErrorCodes.HOST_CONTRACT_MISMATCH) rejected = e;
+      throw e;
+    });
+    return hello;
+  };
   return {
     invoke<T>(cmd: string, payload?: unknown): Promise<T> {
       const invoke = tauriGlobal()?.core?.invoke;
       if (!invoke) return Promise.reject({ code: HOST_UNAVAILABLE, message: 'window.__TAURI__ is not available', retryable: true });
       try {
-        return Promise.resolve(invoke(cmd, payload ?? {})) as Promise<T>;
+        if (cmd === UiCommands.CONTRACT_HELLO) return Promise.resolve(invoke(cmd, payload ?? {})) as Promise<T>;
+        return handshake(invoke).then(() => invoke(cmd, payload ?? {})) as Promise<T>;
       } catch (e) {
         return Promise.reject(e);
       }
@@ -96,6 +113,8 @@ export function createTauriIpc(): IpcClient {
 // ---------------------------------------------------------------------------
 
 export const UiCommands = {
+  // contract version handshake (I-03): first call of every local window
+  CONTRACT_HELLO: 'contract_hello', // {version} → null; host.contract_mismatch rejects the window
   // account (in addition to AccountCommands)
   ACCOUNT_SET_REMARK: 'account_set_remark', // {account, remark}
   ACCOUNT_AGENT_STATUS: 'account_agent_status', // {account} → UiAgentStatus (read-back only)

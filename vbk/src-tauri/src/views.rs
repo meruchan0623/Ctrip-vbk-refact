@@ -50,6 +50,7 @@ impl Role {
     /// Commands a role may invoke. Mirrors `capabilities/*.json`.
     pub fn allows(&self, command: &str) -> bool {
         const MAIN_CMDS: &[&str] = &[
+            "contract_hello",
             "account_snapshot",
             "account_start_login",
             "account_cancel_login",
@@ -105,6 +106,7 @@ impl Role {
             "assistant_package_detail_open",
         ];
         const ALARM_CMDS: &[&str] = &[
+            "contract_hello",
             "notify_snapshot",
             "notify_open_conversation",
             "notify_hide_round",
@@ -113,6 +115,7 @@ impl Role {
             "prefs_snapshot",
         ];
         const SETTING_CMDS: &[&str] = &[
+            "contract_hello",
             "prefs_snapshot",
             "prefs_set",
             "account_snapshot",
@@ -130,9 +133,10 @@ impl Role {
             "assistant_tsim_browser_profiles",
             "assistant_tsim_browser_connect",
         ];
-        const DETAIL_CMDS: &[&str] = &["assistant_package_detail", "assistant_tsim_status", "shell_window"];
-        const UPDATE_CMDS: &[&str] = &["prefs_snapshot", "shell_window"];
+        const DETAIL_CMDS: &[&str] = &["contract_hello", "assistant_package_detail", "assistant_tsim_status", "shell_window"];
+        const UPDATE_CMDS: &[&str] = &["contract_hello", "prefs_snapshot", "shell_window"];
         const LOGIN_CMDS: &[&str] = &[
+            "contract_hello",
             "account_snapshot",
             "account_start_login",
             "account_cancel_login",

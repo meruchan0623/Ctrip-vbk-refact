@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyCursor, isStaleGeneration, sameAccountContext, DEFAULT_REMINDER_SETTINGS } from './contracts.ts';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { CONTRACT_VERSION, classifyCursor, isStaleGeneration, sameAccountContext, DEFAULT_REMINDER_SETTINGS } from './contracts.ts';
 
 const ctx = (g: number) => ({ account_id: 'a', environment: 'production', session_generation: g });
 
@@ -21,4 +23,11 @@ test('cursor classification mirrors Rust', () => {
 test('reminder defaults follow design', () => {
   assert.equal(DEFAULT_REMINDER_SETTINGS.t1_seconds, 30);
   assert.equal(DEFAULT_REMINDER_SETTINGS.continuous_l4, false);
+});
+
+test('CONTRACT_VERSION mirrors the Rust constant', () => {
+  const rust = readFileSync(join(import.meta.dirname, '..', '..', '..', '..', 'crates', 'contracts', 'src', 'version.rs'), 'utf8');
+  const m = /pub const CONTRACT_VERSION: u32 = (\d+);/.exec(rust);
+  assert.ok(m, 'version.rs declares CONTRACT_VERSION');
+  assert.equal(CONTRACT_VERSION, Number(m[1]));
 });

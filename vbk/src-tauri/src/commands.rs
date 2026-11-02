@@ -6,10 +6,11 @@
 //! No command sends a customer message, finishes a conversation or opens an
 //! arbitrary URL. The alarm window can only act on `(round_id, version)`.
 
-use contracts::{AlarmCommand, AppError};
+use contracts::{AlarmCommand, AppError, ContractGate, CONTRACT_VERSION};
 use core_net::url::{validate_official_im_url, UrlPolicy};
 use core_notify::{CommandAck, CommandSource};
 use serde::Serialize;
+use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, State, Window};
 
 use crate::dto::{
@@ -23,10 +24,53 @@ use crate::windows;
 
 type CmdResult<T> = Result<T, AppErrorDto>;
 
+/// Per-window contract handshake (I-03). Process-wide because it only holds
+/// window labels and version numbers; kept here so `state.rs` stays untouched.
+fn contract_gate() -> &'static Mutex<ContractGate> {
+    static GATE: OnceLock<Mutex<ContractGate>> = OnceLock::new();
+    GATE.get_or_init(|| Mutex::new(ContractGate::default()))
+}
+
 fn guard(state: &HostState, window: &Window, command: &str) -> CmdResult<()> {
     state
         .authorize(window.label(), command)
-        .map_err(AppErrorDto::from)
+        .map_err(AppErrorDto::from)?;
+    // A window that announced another contract version (or none) may not use
+    // any command of this module.
+    let verdict = contract_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .check(window.label());
+    verdict.map_err(|e| {
+        log::warn!(
+            "contract: {} rejected for {}: {}",
+            command,
+            window.label(),
+            e.code
+        );
+        AppErrorDto::from(e)
+    })
+}
+
+/// First call of every local window: announces the contract version it was
+/// built against. A mismatch rejects the window's commands and logs a
+/// diagnostic (label and two integers only).
+#[tauri::command]
+pub fn contract_hello(window: Window, state: State<'_, HostState>, version: u32) -> CmdResult<()> {
+    state
+        .authorize(window.label(), "contract_hello")
+        .map_err(AppErrorDto::from)?;
+    let verdict = contract_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .hello(window.label(), version);
+    verdict.map_err(|e| {
+        log::warn!(
+            "contract: window {} announced version {version}, host speaks {CONTRACT_VERSION}",
+            window.label()
+        );
+        AppErrorDto::from(e)
+    })
 }
 
 fn source_for(window: &Window) -> CommandSource {
