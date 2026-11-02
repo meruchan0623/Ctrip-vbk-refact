@@ -486,7 +486,7 @@ impl CredentialLedger {
         }
         for (account_id, cref) in &self.index {
             match store.probe(cref) {
-                Ok(true) => {},
+                Ok(true) => {}
                 Ok(false) => report.missing_secret.push(account_id.clone()),
                 Err(_) => report.unavailable_secret.push(account_id.clone()),
             }

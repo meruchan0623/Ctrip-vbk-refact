@@ -400,6 +400,7 @@ fn format_mb(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
     fn j(value: &str) -> JsonValue {
         JsonValue::parse(value).unwrap()

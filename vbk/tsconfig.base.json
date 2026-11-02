@@ -17,6 +17,6 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "typeRoots": ["./node_modules/@types", "/opt/node-tools/node_modules/@types"]
+    "typeRoots": ["./node_modules/@types"]
   }
 }
