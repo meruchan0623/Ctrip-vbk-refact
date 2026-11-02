@@ -250,6 +250,10 @@ impl NsState {
     pub fn to_json(&self, ns: &Namespace) -> JsonValue {
         let mut meta = JsonValue::object();
         meta.insert("format", JsonValue::number_from_i64(1));
+        meta.insert(
+            "schema_version",
+            JsonValue::number_from_i64(i64::from(crate::schema::CURRENT_SCHEMA_VERSION)),
+        );
         meta.insert("environment", JsonValue::string(ns.environment.as_str()));
         meta.insert("account_id", JsonValue::string(ns.account_id.as_str()));
         meta.insert("revision", JsonValue::number_from_i64(self.revision as i64));

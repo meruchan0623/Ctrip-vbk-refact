@@ -11,6 +11,9 @@ pub mod codes {
     pub const STORE_CAS_CONFLICT: &str = "store.cas_conflict";
     /// `PendingVerification` was opened without reconciliation evidence.
     pub const STORE_NOT_RECONCILED: &str = "store.not_reconciled";
+    /// The document on disk was written by a newer schema version. It is
+    /// left untouched; the older build refuses to load it.
+    pub const STORE_SCHEMA_TOO_NEW: &str = "store.schema_too_new";
     /// A transaction was committed against a different store / namespace
     /// than it was begun on.
     pub const STORE_TXN_MISMATCH: &str = "store.txn_mismatch";
