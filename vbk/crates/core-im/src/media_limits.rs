@@ -113,13 +113,9 @@ pub enum UploadPlan {
     Chunked { chunk_bytes: u64, chunks: u64 },
 }
 
-/// Size/duration admission for one attachment. `duration_ms` is only
-/// consulted for video; `None` for a video is a rejection.
-pub fn check_attachment(
-    kind: MediaKind,
-    size: u64,
-    duration_ms: Option<u64>,
-) -> Result<(), LimitViolation> {
+/// Size-only admission (empty, over the kind's cap). Used where the duration
+/// is not known yet, e.g. when the host freezes the file.
+pub fn check_size(kind: MediaKind, size: u64) -> Result<(), LimitViolation> {
     if size == 0 {
         return Err(LimitViolation::Empty);
     }
@@ -130,6 +126,17 @@ pub fn check_attachment(
             max: kind.max_bytes(),
         });
     }
+    Ok(())
+}
+
+/// Size/duration admission for one attachment. `duration_ms` is only
+/// consulted for video; `None` for a video is a rejection.
+pub fn check_attachment(
+    kind: MediaKind,
+    size: u64,
+    duration_ms: Option<u64>,
+) -> Result<(), LimitViolation> {
+    check_size(kind, size)?;
     if kind == MediaKind::Video {
         match duration_ms {
             None | Some(0) => return Err(LimitViolation::VideoDurationUnknown),
@@ -194,19 +201,25 @@ pub fn chunk_range(size: u64, index: u64) -> Option<(u64, u64)> {
     Some((start, (start + VIDEO_CHUNK_BYTES).min(size)))
 }
 
-/// What this build can actually send: [`check_attachment`] plus a refusal of
-/// anything [`plan_upload`] would chunk, because chunked upload is not
-/// implemented yet. Remove the second step when it is.
+/// This build stages and uploads in one request only: anything [`plan_upload`]
+/// would chunk is refused because chunked upload is not implemented yet.
+/// Remove this check when it is.
+pub fn check_staging(size: u64) -> Result<(), LimitViolation> {
+    match plan_upload(size) {
+        UploadPlan::Direct => Ok(()),
+        UploadPlan::Chunked { .. } => Err(LimitViolation::ChunkedUnsupported { size }),
+    }
+}
+
+/// What this build can actually send: [`check_attachment`] plus
+/// [`check_staging`].
 pub fn check_sendable(
     kind: MediaKind,
     size: u64,
     duration_ms: Option<u64>,
 ) -> Result<(), LimitViolation> {
     check_attachment(kind, size, duration_ms)?;
-    match plan_upload(size) {
-        UploadPlan::Direct => Ok(()),
-        UploadPlan::Chunked { .. } => Err(LimitViolation::ChunkedUnsupported { size }),
-    }
+    check_staging(size)
 }
 
 #[cfg(test)]

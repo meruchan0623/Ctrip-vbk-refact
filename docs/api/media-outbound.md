@@ -10,9 +10,9 @@
 
 宿主读取文件时冻结有界bytes，并校验读取前后长度/修改时间；Windows读取句柄禁止并发写/删除。SHA256覆盖冻结内容，同名异内容为不同附件；选择后路径被替换不会替换已冻结的消息意图。仅允许由宿主登记的附件ID，UI不能传任意路径或外部URL要求上传。
 
-资源限额为宿主4个live bytes快照/128条轻量metadata；页面16个active target、合计20MiB暂存bytes/128条transfer，均设5分钟有效期，后续登记/选择时惰性清理，不设定时回收器，空闲快照可能仍驻内存。取消选择、登记失败、发送完成及UI放弃旧归属会释放本地资源；`media.release`撤销该目标的后续准入，竞争请求的`media.discard`只丢自己的暂存transfer而不撤销赢家目标。终态释放active target与bytes，保留轻量单次attempt信息至TTL；这些释放绝不清持久账本，也不解除unknown重传/重发屏障。
+资源限额为宿主4个live bytes快照/128条轻量metadata；页面16个active target、合计60MiB暂存bytes（两个直传上限）/128条transfer，均设5分钟有效期，后续登记/选择时惰性清理，不设定时回收器，空闲快照可能仍驻内存。取消选择、登记失败、发送完成及UI放弃旧归属会释放本地资源；`media.release`撤销该目标的后续准入，竞争请求的`media.discard`只丢自己的暂存transfer而不撤销赢家目标。终态释放active target与bytes，保留轻量单次attempt信息至TTL；这些释放绝不清持久账本，也不解除unknown重传/重发屏障。
 
-首版所有种类每个附件上限10MiB，这是本客户端资源限制，低于部分官方静态限制。图片按PNG/JPEG/GIF/WebP内容头识别并实际解码取尺寸；视频为可解码MP4，实际metadata时长必须大于0且不超过180秒。一般非空文件保留原bytes/name，PDF内容头识别为application/pdf，其它采用application/octet-stream，不因扩展名伪称内容类型。Windows截图捕获仍返回HOST_UNSUPPORTED；截图按钮未完成不能算媒体功能已完整。
+限额以[附件登记契约 v1](media-attachment-contract.md) §3 为准：图片10MiB、文件30MiB、视频300MiB且不超过3分钟、单次不超过10个文件；本构建只实现直传（≤30MiB），超过30MiB的视频因分片上传未实现而在本地拒绝。（此前版本的统一10MiB上限已废止。）图片按PNG/JPEG/GIF/WebP内容头识别并实际解码取尺寸；视频为可解码MP4，实际metadata时长必须大于0且不超过180秒。一般非空文件保留原bytes/name，PDF内容头识别为application/pdf，其它采用application/octet-stream，不因扩展名伪称内容类型。Windows截图捕获仍返回HOST_UNSUPPORTED；截图按钮未完成不能算媒体功能已完整。
 
 ## 传输与持久屏障
 
