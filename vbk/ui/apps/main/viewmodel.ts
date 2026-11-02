@@ -6,7 +6,7 @@
 
 import type { AccountContext, AppError, SendDisposition } from '../../packages/ipc/src/contracts.ts';
 import { ErrorCodes, isAppError } from '../../packages/ipc/src/contracts.ts';
-import type { AgentStatus, MarkAction, OrderSearchResult, UiAccount, UiAgentStatus, UiConversation, UiMessage, UiNetStatus, UiOrderSummary } from '../../packages/ipc/src/client.ts';
+import type { AgentStatus, MarkAction, OrderSearchResult, UiAccount, UiAccountSnapshot, UiAgentStatus, UiConversation, UiMessage, UiNetStatus, UiOrderSummary } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { mergeMessageProfile } from './message-profile.ts';
 export { rowId } from './message-window.ts';
@@ -384,6 +384,35 @@ export function agentView(a: UiAgentStatus): { readonly label: string; readonly 
 
 export function agentStatusDesc(s: AgentStatus): string {
   return t(`status.desc.${s}` as I18nKey);
+}
+
+/**
+ * Send barrier mirror (I-04a): true while the host reports a failed durable
+ * write. The host is the real gate (`store.persist_failed` before the journal);
+ * the UI only pauses the composer and shows the status-bar notice. Absent flag
+ * (older host, mock) = not failed.
+ */
+export function persistFailed(snap: Pick<UiAccountSnapshot, 'persist_failed'> | null | undefined): boolean {
+  return snap?.persist_failed === true;
+}
+
+/**
+ * Disposition for a text send whose IPC call failed. Only codes that prove
+ * "nothing was submitted" become a local `rejected` (the user may resend):
+ * the host's permission check and its send barrier (`store.persist_failed`,
+ * refused before the outbound journal). Anything else is `unknown` and is
+ * never auto-resent.
+ */
+export function sendFailureDisposition(e: unknown): SendDisposition {
+  if (!isAppError(e)) return { kind: 'unknown' };
+  if (e.code === ErrorCodes.IM_PERMISSION_DENIED) return { kind: 'rejected', code: e.code, reason: e.message };
+  if (e.code === ErrorCodes.STORE_PERSIST_FAILED) return { kind: 'rejected', code: e.code, reason: t('bar.persistFailed') };
+  return { kind: 'unknown' };
+}
+
+/** Status-bar / composer notice for the send barrier, or null when sending is allowed. */
+export function persistFailedView(snap: Pick<UiAccountSnapshot, 'persist_failed'> | null | undefined): { readonly label: string; readonly title: string } | null {
+  return persistFailed(snap) ? { label: t('bar.persistFailed'), title: t('bar.persistFailedTitle') } : null;
 }
 
 /** Network label from the host read-back only; `null` means nothing was read back yet (「未连接」). */

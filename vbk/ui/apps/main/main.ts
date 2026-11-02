@@ -111,6 +111,9 @@ import {
   netView,
   nextLocalId,
   orderContactReduce,
+  persistFailed,
+  persistFailedView,
+  sendFailureDisposition,
   orderDetailUrl,
   previewOf,
   peripheralWriteView,
@@ -781,8 +784,9 @@ async function sendText(text: string, original: string | null): Promise<void> {
     upsertMessage({ ...local, disposition: d, message_id: d.kind === 'confirmed' ? d.server_message_id : null });
   } else {
     const e = result.error;
-    // An IPC failure is not a server rejection: the result is unknown and must not be auto-resent.
-    upsertMessage({ ...local, disposition: isAppError(e) && e.code === 'im.permission_denied' ? { kind: 'rejected', code: e.code, reason: e.message } : { kind: 'unknown' } });
+    // An IPC failure is not a server rejection: unless the code proves nothing was
+    // submitted (permission denied, send barrier), the result is unknown and must not be auto-resent.
+    upsertMessage({ ...local, disposition: sendFailureDisposition(e) });
   }
 }
 
@@ -794,6 +798,8 @@ async function handleSend(): Promise<void> {
   const s = S();
   const conv = activeConv(s);
   if (!conv || isDone(conv)) return;
+  // Send barrier (I-04a): keyboard path too (the button is already disabled); the draft is kept.
+  if (persistFailed(s.accounts)) { toast(t('bar.persistFailed')); return; }
   const result = await sendComposer({ draft: s.draft, attachment: s.attachment }, async (text) => {
     if (s.prefs?.assistant.send_mode === 'send_direct' && translationOn(s, conv)) {
       await translateAndSend(text);
@@ -1795,6 +1801,8 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
   const media = s.attachment && isRegisteredMediaAttachment(s.attachment) ? s.attachment : null;
   const operation = s.mediaOperation?.attachment === s.attachment ? s.mediaOperation : null;
   const mediaLocked = !!operation && operation.status !== 'not_submitted';
+  // Send barrier (I-04a): the host refuses sends while persistence is failed; the composer mirrors it.
+  const saveBlocked = persistFailed(s.accounts);
   const mediaLabel = operation?.status === 'busy' ? ({ prepare: '正在准备附件…', upload: '正在上传附件…', send: '正在提交附件消息…' } as const)[operation.stage]
     : operation?.error ?? (media ? '仅发送附件，文字/引用保留。' : s.attachment ? ATTACHMENT_SEND_UNAVAILABLE : '');
   const trOn = translationOn(s, conv);
@@ -1846,7 +1854,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
         }
       },
     }),
-    h('div', { class: 'cfoot' }, h('span', { class: 'hint' }, media ? '仅发送附件，文字/引用保留；结果未知时请先核对，勿重复发送。' : direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished || mediaLocked, onclick: () => { if (!composerInput.active()) void handleSend(); } }, icon(IC.send, 14), media ? '发送附件' : t('composer.send'))),
+    h('div', { class: 'cfoot' }, h('span', { class: cx('hint', { 'hint-bad': saveBlocked }), ...(saveBlocked ? { role: 'status', dataset: { persistFailed: '1' } } : {}) }, saveBlocked ? t('composer.persistFailed') : media ? '仅发送附件，文字/引用保留；结果未知时请先核对，勿重复发送。' : direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished || mediaLocked || saveBlocked, onclick: () => { if (!composerInput.active()) void handleSend(); } }, icon(IC.send, 14), media ? '发送附件' : t('composer.send'))),
   );
 }
 
@@ -2159,6 +2167,7 @@ let clockEl: HTMLElement | null = null;
 function statusBar(s: MainState): HTMLElement {
   const av = agentView(s.agent);
   const nv = netView(s.net);
+  const pf = persistFailedView(s.accounts);
   const hasAccount = !!activeAccount(s);
   clockEl = h('span', { class: 'sb-clock' }, `${formatDate(s.now)} ${formatClock(s.now, true)}`);
   return h(
@@ -2167,6 +2176,8 @@ function statusBar(s: MainState): HTMLElement {
     hasAccount ? h('span', { class: 'sb-item', dataset: { sb: 'agent', known: String(av.known) } }, h('span', { class: 'dot', style: { background: `var(${av.colorVar})` } }), av.label, av.known ? h('span', { class: 'muted' }, ` · ${t('status.readback')}`) : null) : null,
     h('span', { class: cx('sb-item', { 'sb-bad': nv.offline, 'sb-muted': !nv.ok && !nv.offline }), dataset: { sb: 'net' } }, icon(nv.ok ? IC.wifi : IC.wifiOff, 13), nv.label),
     s.alarmCount > 0 ? h('span', { class: 'sb-item sb-alarm', dataset: { sb: 'alarm' } }, icon(IC.clock, 13), t('bar.alarmCount', { n: s.alarmCount })) : null,
+    // Send barrier (I-04a): host-reported, cleared by the host when a retry lands.
+    pf ? h('span', { class: 'sb-item sb-bad', role: 'alert', title: pf.title, dataset: { sb: 'persist-failed' } }, icon(IC.alert, 13), pf.label) : null,
     h('button', { class: 'link sb-diagnostics', disabled: !hasAccount, dataset: { action: 'unknown-outbound' }, onclick: openUnknownOutbound }, '未知发送核验'),
     h('button', { class: 'link sb-diagnostics', dataset: { action: 'receive-diagnostics' }, onclick: () => void receiveDiagnostics.open() }, '接收诊断'),
     h('span', { class: 'sp' }),

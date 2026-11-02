@@ -71,6 +71,9 @@ pub mod codes {
     pub const NOTIFY_ROUND_VERSION_MISMATCH: &str = "notify.round_version_mismatch";
     pub const STORE_IO: &str = "store.io";
     pub const STORE_CORRUPT: &str = "store.corrupt";
+    /// A durable write failed and has not been retried successfully yet
+    /// ("本地保存失败"): the send barrier is closed, nothing is submitted.
+    pub const STORE_PERSIST_FAILED: &str = "store.persist_failed";
     /// The account's official-page webview is not connected yet.
     pub const ADAPTER_NOT_READY: &str = "adapter.not_ready";
     /// The page did not answer an `adapter://request` in time.
