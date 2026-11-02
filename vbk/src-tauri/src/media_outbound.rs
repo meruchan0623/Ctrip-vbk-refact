@@ -8,7 +8,23 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
-pub const LOCAL_CAP: usize = 10 * 1024 * 1024;
+pub const ATTACHMENT_CONTRACT_VERSION: u32 = 1;
+pub const IMAGE_CAP: usize = 10 * 1024 * 1024;
+pub const FILE_CAP: usize = 30 * 1024 * 1024;
+pub const VIDEO_CAP: usize = 300 * 1024 * 1024;
+/// Only direct video upload is evidenced. Larger videos require an unproven protocol.
+pub const VIDEO_DIRECT_CAP: usize = 30 * 1024 * 1024;
+pub const LOCAL_CAP: usize = FILE_CAP;
+pub const MAX_ATTACHMENTS: usize = 10;
+
+pub fn attachment_cap(kind: &str) -> Result<usize, AppError> {
+    match kind {
+        "image" => Ok(IMAGE_CAP),
+        "file" => Ok(FILE_CAP),
+        "video" => Ok(VIDEO_DIRECT_CAP),
+        _ => Err(invalid()),
+    }
+}
 pub const CHUNK_CAP: usize = 256 * 1024;
 pub const TTL_MS: i64 = 5 * 60 * 1000;
 
@@ -18,7 +34,7 @@ pub struct AttachmentOwner {
     pub gid: String,
 }
 #[derive(Clone, Serialize)]
-pub struct AttachmentDto {
+pub struct MediaAttachmentDto {
     pub attachment_id: String,
     pub name: String,
     pub kind: String,
@@ -28,6 +44,9 @@ pub struct AttachmentDto {
     pub owner: AttachmentOwner,
     pub supported: bool,
 }
+/// Compatibility name for the existing shell and UI wire contract.
+pub type AttachmentDto = MediaAttachmentDto;
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MediaTarget {
     pub target_token: String,
@@ -232,6 +251,7 @@ impl FrozenAttachment {
         gid: &str,
         target: MediaTarget,
     ) -> Result<Self, AppError> {
+        let cap = attachment_cap(kind)?;
         let mut options = std::fs::OpenOptions::new();
         options.read(true);
         #[cfg(windows)]
@@ -241,12 +261,21 @@ impl FrozenAttachment {
         }
         let file = options.open(path).map_err(|_| invalid())?;
         let before = file.metadata().map_err(|_| invalid())?;
-        if !before.is_file() || before.len() == 0 || before.len() > LOCAL_CAP as u64 {
+        if kind == "video"
+            && before.len() > VIDEO_DIRECT_CAP as u64
+            && before.len() <= VIDEO_CAP as u64
+        {
+            return Err(AppError::new(
+                "media.video_chunking_unsupported",
+                "video above 30 MiB requires an unverified chunk protocol (nothing submitted)",
+            ));
+        }
+        if !before.is_file() || before.len() == 0 || before.len() > cap as u64 {
             return Err(invalid());
         }
         let mut bytes = Vec::new();
         (&file)
-            .take(LOCAL_CAP as u64 + 1)
+            .take(cap as u64 + 1)
             .read_to_end(&mut bytes)
             .map_err(|_| invalid())?;
         let after = file.metadata().map_err(|_| invalid())?;
@@ -367,6 +396,77 @@ mod tests {
             sender_id: "synthetic-self".into(),
         }
     }
+    #[test]
+    fn attachment_v1_exact_wire_fields_and_kind_limits_are_frozen() {
+        assert_eq!(ATTACHMENT_CONTRACT_VERSION, 1);
+        assert_eq!(IMAGE_CAP, 10 * 1024 * 1024);
+        assert_eq!(FILE_CAP, 30 * 1024 * 1024);
+        assert_eq!(VIDEO_CAP, 300 * 1024 * 1024);
+        assert_eq!(VIDEO_DIRECT_CAP, 30 * 1024 * 1024);
+        assert_eq!(MAX_ATTACHMENTS, 10);
+        let file = LocalFile::new(b"%PDF- synthetic contract");
+        let frozen =
+            FrozenAttachment::read(&file.0, "file", &account(1), "room", target()).unwrap();
+        let value = serde_json::to_value(&frozen.dto).unwrap();
+        let keys: Vec<_> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "attachment_id",
+                "content_sha256",
+                "kind",
+                "mime",
+                "name",
+                "owner",
+                "size",
+                "supported"
+            ]
+        );
+        assert_eq!(
+            value["owner"],
+            serde_json::json!({"account": {"environment":"synthetic-env", "account_id":"synthetic-account", "session_generation":1}, "gid":"room"})
+        );
+        assert_eq!(value["supported"], true);
+        assert!(attachment_cap("audio").is_err());
+    }
+
+    #[test]
+    fn file_above_image_limit_is_supported_but_large_video_fails_before_reading_or_uploading() {
+        let mut bytes = vec![0; IMAGE_CAP + 1];
+        bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        let file = LocalFile::new(&bytes);
+        assert!(FrozenAttachment::read(&file.0, "image", &account(1), "room", target()).is_err());
+        assert_eq!(
+            FrozenAttachment::read(&file.0, "file", &account(1), "room", target())
+                .unwrap()
+                .dto
+                .size,
+            IMAGE_CAP + 1
+        );
+        let video = LocalFile::new(b"0000ftypisom");
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&video.0)
+            .unwrap();
+        file.set_len(VIDEO_DIRECT_CAP as u64 + 1).unwrap();
+        let error = FrozenAttachment::read(&video.0, "video", &account(1), "room", target())
+            .err()
+            .unwrap();
+        assert!(error.is("media.video_chunking_unsupported"));
+        file.set_len(VIDEO_CAP as u64 + 1).unwrap();
+        assert!(
+            FrozenAttachment::read(&video.0, "video", &account(1), "room", target())
+                .err()
+                .unwrap()
+                .is("media.invalid_attachment")
+        );
+    }
+
     #[test]
     fn snapshot_sends_selected_bytes_after_source_changes_and_same_name_never_aliases_content() {
         let file = LocalFile::new(b"%PDF- first selected bytes");

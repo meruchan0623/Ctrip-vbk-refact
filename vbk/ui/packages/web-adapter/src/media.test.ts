@@ -167,3 +167,19 @@ test('discarding a concurrent unsubmitted staging buffer leaves the first select
   assert.equal((await f.ok('media.upload', first)).kind, 'uploaded'); assert.equal(f.base.fakeFetch.calls.length, 1);
   assert.equal((await f.call('media.upload', duplicate))?.ok, false);
 });
+
+test('attachment v1 stages 30 MiB file boundary, rejects image/video above their supported caps and admits only ten active files', async () => {
+  const f = fixture(), common = { gid, target_token: 'limits' };
+  await f.ok('media.target', common);
+  const begin = (id: string, kind: string, size: number) => f.call('media.stage_begin', { ...common, transfer_id: id, kind, size, name: 'synthetic', mime: kind === 'image' ? 'image/png' : kind === 'video' ? 'video/mp4' : 'application/octet-stream', sha256: 'a'.repeat(64) });
+  assert.equal((await begin('file-cap', 'file', 30 * 1024 * 1024))?.ok, true);
+  await f.ok('media.discard', { ...common, transfer_id: 'file-cap' });
+  assert.equal((await begin('file-large', 'file', 30 * 1024 * 1024 + 1))?.ok, false);
+  assert.equal((await begin('image-large', 'image', 10 * 1024 * 1024 + 1))?.ok, false);
+  assert.equal((await begin('video-large', 'video', 30 * 1024 * 1024 + 1))?.ok, false);
+  for (let n = 0; n < 10; n++) assert.equal((await begin(`pending-${n}`, 'file', 1))?.ok, true);
+  assert.equal((await begin('eleventh', 'file', 1))?.ok, false);
+  await f.ok('media.discard', { ...common, transfer_id: 'pending-0' });
+  assert.equal((await begin('replacement', 'file', 1))?.ok, true);
+  assert.equal(f.base.fakeFetch.calls.length, 0); assert.equal(f.sdk.sent.length, 0);
+});

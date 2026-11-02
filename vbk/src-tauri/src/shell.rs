@@ -104,7 +104,9 @@ async fn register_attachment(
         .values()
         .filter(|item| !item.frozen.bytes.is_empty())
         .count()
-        >= 4
+        >= crate::media_outbound::MAX_ATTACHMENTS
+        || items.values().map(|item| item.frozen.bytes.len()).sum::<usize>()
+            .saturating_add(frozen.bytes.len()) > 300 * 1024 * 1024
         || items.len() >= 128
     {
         return Err(invalid_argument(

@@ -3,9 +3,14 @@ import type { RpcContext } from './rpc.ts';
 import type { MediaTarget, MediaUploadReply, MediaSendReply } from '../../ipc/src/adapterProtocol.ts';
 import type { MediaRef } from './send.ts';
 import { createMediaSendIntent, mediaMessageJson, submitIntent } from './send.ts';
-import { uploadFile, uploadImage, uploadVideo, type UploadFailure } from './upload.ts';
+import { IMAGE_UPLOAD_CAP, FILE_UPLOAD_CAP, VIDEO_DIRECT_UPLOAD_CAP, uploadFile, uploadImage, uploadVideo, type UploadFailure } from './upload.ts';
 
-export const MEDIA_LOCAL_CAP = 10 * 1024 * 1024;
+export const ATTACHMENT_CONTRACT_VERSION = 1;
+export const MEDIA_LOCAL_CAP = FILE_UPLOAD_CAP;
+export const MEDIA_MAX_ATTACHMENTS = 10;
+export function mediaKindCap(kind: unknown): number {
+  return kind === 'image' ? IMAGE_UPLOAD_CAP : kind === 'file' ? FILE_UPLOAD_CAP : kind === 'video' ? VIDEO_DIRECT_UPLOAD_CAP : 0;
+}
 export const MEDIA_CHUNK_CAP = 256 * 1024;
 export const MEDIA_TARGET_TTL = 5 * 60 * 1000;
 /** Official installed 1.2.12/ares1.2.17 constant, also observed in evidence44. */
@@ -24,6 +29,7 @@ function safeUrl(value: string): boolean {
   try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443') && ['ctrip.com', 'c-ctrip.com', 'tripcdn.com'].some(d => u.hostname === d || u.hostname.endsWith(`.${d}`)); } catch { return false; }
 }
 function uploadFailure(failure: UploadFailure): MediaUploadReply {
+  if (failure.kind === 'local_rejected') return { kind: 'not_submitted', media: null, body_json: null, error: failure.code };
   const explicit = failure.kind === 'rejected' || (failure.kind === 'token_failed' && ['business_failure', 'auth_invalid'].includes(failure.outcome.kind));
   return { kind: explicit ? 'rejected' : 'unknown', media: null, body_json: null, error: failure.kind === 'token_failed' ? 'upload token acquisition did not complete; no file upload was started; do not retry automatically' : 'file upload did not produce verified resource metadata; do not retry automatically' };
 }
@@ -93,7 +99,7 @@ export function createMediaRpc(ctx: RpcContext) {
       const a = object(args), t = valid(a), id = string(a, 'transfer_id');
       const kind = a['kind'], size = a['size'], name = string(a, 'name'), mime = string(a, 'mime'), hash = string(a, 'sha256');
       const stagedBytes = [...transfers.values()].reduce((n, transfer) => n + transfer.bytes.length, 0);
-      if (!['image', 'file', 'video'].includes(String(kind)) || !Number.isSafeInteger(size) || Number(size) <= 0 || Number(size) > MEDIA_LOCAL_CAP || stagedBytes + Number(size) > 2 * MEDIA_LOCAL_CAP || !/^[a-f0-9]{64}$/.test(hash) || /[\\/\x00-\x1f]/.test(name) || transfers.has(id) || transfers.size >= 128) error();
+      if (!['image', 'file', 'video'].includes(String(kind)) || !Number.isSafeInteger(size) || Number(size) <= 0 || Number(size) > mediaKindCap(kind) || stagedBytes + Number(size) > MEDIA_MAX_ATTACHMENTS * MEDIA_LOCAL_CAP || [...transfers.values()].filter(r => r.bytes.length > 0).length >= MEDIA_MAX_ATTACHMENTS || !/^[a-f0-9]{64}$/.test(hash) || /[\\/\x00-\x1f]/.test(name) || transfers.has(id) || transfers.size >= 128) error();
       if (kind === 'image' && !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mime)) error();
       if (kind === 'video' && mime !== 'video/mp4') error();
       transfers.set(id, { target: t, token: string(a, 'target_token'), name, kind: kind as Transfer['kind'], mime, sha256: hash, bytes: new Uint8Array(Number(size)), received: 0 });

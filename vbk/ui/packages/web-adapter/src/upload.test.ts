@@ -111,3 +111,28 @@ test('uploadVideo chain: token(im/video) → v3 upload with auth+MD5 → v1 proc
   assert.equal(proc?.init.headers['Content-Type'], 'application/json');
   assert.equal('Authorization' in (proc?.init.headers ?? {}), false);
 });
+
+test('file auth is anonymous even with ambient page cookies; image auth remains explicit and redirects fail closed', async () => {
+  const deps = makeDeps((_, i) => i === 0 ? jsonResponse({ file_name: 'a', url: 'https://static.tripcdn.com/a' })
+    : i === 1 ? jsonResponse({ ResponseStatus: OK_STATUS, token: 'image-only' })
+      : jsonResponse({ Code: 2000, Content: { url: 'https://dimg04.c-ctrip.com/a.png' } }));
+  await uploadFile(deps, { bytes: new Uint8Array([1]), mime: 'application/octet-stream', filename: 'a' });
+  await uploadImage(deps, new SoaClient(deps), { bytes: new Uint8Array([1]), mime: 'image/png', scene: 's', width: 1, height: 1 });
+  const file = deps.fakeFetch.calls[0]!, image = deps.fakeFetch.calls[2]!;
+  assert.equal(file.init.credentials, 'omit');
+  assert.equal(file.init.headers['Authorization'], undefined);
+  assert.equal(file.init.headers['Content-MD5'], undefined);
+  assert.match(image.init.headers['Authorization']!, /\/im_business\//);
+  assert.equal(file.init.redirect, 'error'); assert.equal(image.init.redirect, 'error');
+});
+
+test('kind size limits reject locally with zero token/upload calls; large video never invents a chunk request', async () => {
+  const deps = makeDeps(() => { throw new Error('no network should occur'); }), soa = new SoaClient(deps);
+  const image = await uploadImage(deps, soa, { bytes: new Uint8Array(10 * 1024 * 1024 + 1), mime: 'image/png', scene: 's', width: 1, height: 1 });
+  const file = await uploadFile(deps, { bytes: new Uint8Array(30 * 1024 * 1024 + 1), mime: 'application/octet-stream', filename: 'large' });
+  const video = await uploadVideo(deps, soa, { bytes: new Uint8Array(30 * 1024 * 1024 + 1), mime: 'video/mp4', filename: 'large.mp4' });
+  assert.deepEqual(image, { kind: 'failed', failure: { kind: 'local_rejected', code: 'media.invalid_attachment' } });
+  assert.deepEqual(file, image);
+  assert.deepEqual(video, { kind: 'failed', stage: 'upload', failure: { kind: 'local_rejected', code: 'media.video_chunking_unsupported' } });
+  assert.equal(deps.fakeFetch.calls.length, 0);
+});
