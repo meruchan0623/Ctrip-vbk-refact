@@ -17,8 +17,10 @@ pub mod peripheral_journal;
 pub mod media_outbound;
 pub mod assistant;
 pub mod commands;
+pub mod diag_bridge;
 pub mod dto;
 pub mod events;
+pub mod local_tz;
 pub mod login;
 pub mod prefs;
 pub mod scheduler;
@@ -51,6 +53,7 @@ pub fn run() {
         }))
         .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
+            diag_bridge::install(data_dir.join("logs"));
             let store = match FileStore::open(data_dir.join("state")) {
                 Ok(s) => Some(s),
                 Err(e) => {

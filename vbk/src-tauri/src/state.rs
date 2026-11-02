@@ -483,11 +483,10 @@ impl HostState {
     pub fn set_dnd_until_tomorrow(&self) {
         let mut cores = self.lock();
         let now = self.now(&mut cores);
-        // Next local 08:00 is computed by the setting UI in a later REL
-        // task; until then "until tomorrow" is the next midnight-plus-8h in
-        // server time, which is documented as an approximation.
-        let day_ms = 86_400_000;
-        let until_ms = (now.server_now_ms / day_ms + 1) * day_ms + 8 * 3_600_000;
+        // Next local 08:00 (pure day-boundary math in core-notify; the zone
+        // offset is read from the OS, falling back to UTC if unavailable).
+        let offset_min = crate::local_tz::local_utc_offset_minutes(now.server_now_ms);
+        let until_ms = core_notify::dnd_until_tomorrow_ms(now.server_now_ms, offset_min);
         let effects = cores
             .notify
             .set_dnd(DndMode::UntilTomorrow { until_ms }, &now);

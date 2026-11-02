@@ -10,10 +10,10 @@
 //! cores treat as "reconcile first".
 
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use contracts::{ClockQuality, ClockReading};
-use core_notify::{Effect, Sound};
+use core_notify::{Effect, Pacer, Sound};
 use tauri::{AppHandle, Emitter, Manager, UserAttentionType};
 
 use crate::dto::AlarmSnapshotDto;
@@ -38,10 +38,25 @@ pub fn start(app: AppHandle) {
 fn run(app: AppHandle) {
     let mut flashing = false;
     let mut phase = false;
+    // Deadline pacer: tick stays 1 Hz and the tray phase flips every 500 ms
+    // while flashing, without the old fixed-sleep drift (`Pacer` docs).
+    let origin = Instant::now();
+    let now_ms = move || i64::try_from(origin.elapsed().as_millis()).unwrap_or(i64::MAX);
+    let mut pacer = Pacer::new(now_ms());
     loop {
         let state = app.state::<HostState>();
         if state.quit_requested() {
             return;
+        }
+        // The 500 ms tray phase is a Windows notification-area effect; macOS
+        // keeps the plain 1 Hz tick (its L1 signal is the Dock attention).
+        let fast = flashing && cfg!(not(target_os = "macos"));
+        if !pacer.tick_due(fast) {
+            // Half-step wake: only flip the tray icon, no core tick.
+            phase = !phase;
+            tray::set_flash_phase(&app, phase);
+            thread::sleep(Duration::from_millis(pacer.sleep_ms(now_ms(), fast)));
+            continue;
         }
         crate::adapter::expire_agent_statuses(&app);
         let mut effects = state.tick();
@@ -130,18 +145,12 @@ fn run(app: AppHandle) {
         // Reminder settings changed via notify_set_* → persist + prefs://changed.
         prefs::sync_reminder(&app);
         emit_clock(&app, &state);
-        // The 500 ms tray phase is a Windows notification-area effect; macOS
-        // keeps the plain 1 Hz tick (its L1 signal is the Dock attention).
-        if flashing && cfg!(not(target_os = "macos")) {
+        let fast = flashing && cfg!(not(target_os = "macos"));
+        if fast {
             phase = !phase;
             tray::set_flash_phase(&app, phase);
-            thread::sleep(FLASH_PHASE);
-            phase = !phase;
-            tray::set_flash_phase(&app, phase);
-            thread::sleep(FLASH_PHASE);
-        } else {
-            thread::sleep(TICK);
         }
+        thread::sleep(Duration::from_millis(pacer.sleep_ms(now_ms(), fast)));
     }
 }
 
