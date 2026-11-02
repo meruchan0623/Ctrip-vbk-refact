@@ -29,6 +29,7 @@
 | [接口复查](docs/research/2026-10-30-missing-apis.md) | 网页必要契约的已知项与剩余验证 |
 | [后端接口支持对照](docs/research/2026-10-30-backend-support-matrix.md) | 区分受控验证、观测缺口、静态候选及外部能力 |
 | [浏览器接口实测](docs/research/2026-10-30-browser-api-validation.md) | 受控会话真实调试、接口修正、业务失败及剩余验证项 |
+| [并入 TSim_CS 的架构研究](docs/05-tsim-cs-merge-research.md) | KKday 工作台并入模式、方案对比、请求路由与 CORS 教训、M0–M6 阶段计划与待决问题 |
 
 ## 文档状态
 
