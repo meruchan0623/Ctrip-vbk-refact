@@ -6,7 +6,8 @@ import { personDisplayName } from './person-name.ts';
 import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
 import { createMessagePane, PIN_THRESHOLD } from './message-pane.ts';
 import { createDraftBook, createIpcDraftPort } from './draft-book.ts';
-import type { MeasuredPane, PaneGeometry } from './message-pane.ts';
+import type { MeasuredPane, PaneGeometry, PaneWindow } from './message-pane.ts';
+import { sameWindow } from './message-pane.ts';
 import type { MessageAnchor } from './message-window.ts';
 import { createComposerInput } from './composer-input.ts';
 import { createMainFeatureRuntime } from './features/registry.ts';
@@ -1924,17 +1925,21 @@ function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
 
 // Retain the expensive message subtree across draft, sidebar and unrelated updates.
 // Only one active pane is retained, so old accounts/rooms do not accumulate DOM caches.
-let messagePaneCache: { deps: readonly unknown[]; node: HTMLElement } | undefined;
+let messagePaneCache: { deps: readonly unknown[]; msgs: readonly UiMessage[]; win: PaneWindow; node: HTMLElement } | undefined;
 function messagePane(s: MainState, conv: UiConversation, acc: UiAccount | null, pinned: boolean): HTMLElement {
-  const deps = [s.messages[conv.gid], s.history[conv.gid], conv, acc, s.prefs, s.hideInboundTr, s.tsimStatus, s.messageView];
-  if (messagePaneCache && deps.every((value, i) => value === messagePaneCache!.deps[i])) {
-    messagePaneCache.node.dataset['scrollBottom'] = pinned ? '1' : '0';
-    return messagePaneCache.node;
-  }
+  const deps = [s.messages[conv.gid], s.history[conv.gid], conv, acc, s.prefs, s.hideInboundTr, s.tsimStatus];
+  const sameInputs = !!messagePaneCache && deps.every((value, i) => value === messagePaneCache!.deps[i]);
   const scope = historyScopeKey(acc?.context ?? null, conv.gid);
-  const msgs = visibleMessages(s.messages[conv.gid] ?? []);
+  const msgs = sameInputs ? messagePaneCache!.msgs : visibleMessages(s.messages[conv.gid] ?? []);
   const view = s.messageView?.scope === scope ? s.messageView : undefined;
+  // The window is planned on every render (cheap: the layout is cached) so the model always describes the
+  // mounted pane; the rows are rebuilt only when the inputs or the window itself changed, not on every
+  // persisted `{top, anchor}` of the same window.
   const win = messagePaneModel.plan({ scope, list: msgs, view, pinned, anchor: liveAnchor ?? view?.anchor ?? null });
+  if (sameInputs && sameWindow(win, messagePaneCache!.win)) {
+    messagePaneCache!.node.dataset['scrollBottom'] = pinned ? '1' : '0';
+    return messagePaneCache!.node;
+  }
   const spacer = (kind: 'top' | 'bottom', height: number): HTMLElement => h('div', { class: 'msgs-spacer', 'aria-hidden': 'true', dataset: { msgSpacer: kind }, style: { height: `${height}px`, flex: 'none' } });
   const node = h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: scope, readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
       s.history[conv.gid]?.firstPage === 'loading' ? h('div', { class: 'history-more', role: 'status' }, '正在读取聊天记录…') : null,
@@ -1943,7 +1948,7 @@ function messagePane(s: MainState, conv: UiConversation, acc: UiAccount | null, 
       win.range.start > 0 ? spacer('top', win.topSpacer) : null,
       msgs.slice(win.range.start, win.range.end).map((m) => messageRow(s, m, conv, acc)),
       win.range.end < msgs.length ? spacer('bottom', win.bottomSpacer) : null);
-  messagePaneCache = { deps, node };
+  messagePaneCache = { deps, msgs, win, node };
   return node;
 }
 

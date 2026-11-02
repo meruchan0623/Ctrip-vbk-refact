@@ -7,7 +7,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import * as viewmodel from './viewmodel.ts';
 import { historyDiagnostics } from './history-diagnostics.ts';
 import { observeHistoryLayout } from './history-layout.ts';
-import { createMessagePane, PIN_THRESHOLD } from './message-pane.ts';
+import { createMessagePane, PIN_THRESHOLD, sameWindow } from './message-pane.ts';
 import { messageAlignment } from './message-alignment.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
@@ -64,14 +64,20 @@ function fixture(initial: UiMessage[], options: { rowHeight?: (id: string) => nu
   let pane: Pane | null = null;
   let resize = () => {}, stopLayout = () => {};
   const jsonParses: number[] = [0];
+  /** How many times the `.msgs` pane (and so every mounted row) was rebuilt. */
+  const built = { count: 0 };
+  let account: { context: typeof OWNER } = { context: owner };
+  let conv: Record<string, unknown> = { gid: '', account: null };
   const env: Record<string, unknown> = {
-    visibleReads: { afterRender() {}, retry() {} }, ...viewmodel, historyDiagnostics, messageAlignment, cx, store, S: () => store.get(), PIN_THRESHOLD,
+    visibleReads: { afterRender() {}, retry() {} }, ...viewmodel, historyDiagnostics, messageAlignment, cx, store, S: () => store.get(), PIN_THRESHOLD, sameWindow,
     messagePaneModel: createMessagePane(),
     subscribeFrame: subscribeBatched, fillHistoryViewport() {}, syncConversationViewport() {},
-    activeAccount: () => ({ context: owner }), activeConv: () => ({ gid: store.get().activeGid, account: owner, waiting_since_ms: null, status: 'active', service_type: 'chat', lang: 'en', title: 'Synthetic Customer', color: '#aaa' }),
+    // Like the real app, the account and conversation objects are stable references between renders.
+    activeAccount: () => (account.context === owner ? account : (account = { context: owner })),
+    activeConv: () => (conv.gid === store.get().activeGid && conv.account === owner ? conv : (conv = { gid: store.get().activeGid, account: owner, waiting_since_ms: null, status: 'active', service_type: 'chat', lang: 'en', title: 'Synthetic Customer', color: '#aaa' })),
     document: { querySelector: () => pane }, getComputedStyle: () => ({ marginBottom: '0px' }), queueMicrotask, Element: class {}, CSS: { escape: encodeURIComponent },
     composerInput: { deferRender: () => false }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (k: string) => k, icon: () => null, IC: {}, richText: (text: string) => [text],
-    h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
+    h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => { if (props?.['class'] === 'msgs') built.count++; return { tag, props: props ?? {}, children, dataset: props?.['dataset'] ?? {} }; },
     netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, langName: (c: string) => c, openConversation: () => {}, loadEarlier: () => {}, setTimeout, clearTimeout,
     stopHistoryLayout: () => stopLayout(),
     startHistoryLayout: (scroll: Pane, capture: () => unknown, restore: (a: unknown) => void, current: () => boolean) => {
@@ -117,9 +123,24 @@ function fixture(initial: UiMessage[], options: { rowHeight?: (id: string) => nu
     grow: async (id: string, delta: number) => { truth.set(id, heightOf(id) + delta); const part = pane!.parts.find(p => p.dataset['rowId'] === id)!; part.height = heightOf(id); resize(); await settle(); },
     switchScope: async (next: typeof OWNER) => { owner = next; store.patch({}); await settle(); },
     countJsonParse: <T>(fn: () => T): { value: T; parses: number } => { let n = 0; JSON.parse = ((...a: Parameters<typeof JSON.parse>) => { n++; return originalParse(...a); }) as typeof JSON.parse; try { const value = fn(); return { value, parses: n }; } finally { JSON.parse = originalParse; } },
-    env, jsonParses,
+    env, jsonParses, built,
   };
 }
+
+test('a store change that leaves the window alone (clock tick, persisted view of the same window) does not rebuild the rows', async () => {
+  const f = fixture(thread(10_000));
+  await f.open();
+  await f.scrollTo(100 * 5000); await f.scrollTo(100 * 5000);
+  f.built.count = 0;
+  f.store.patch({ now: 1 }); await f.settle();
+  assert.equal(f.built.count, 0, 'unrelated patch');
+  // The debounced anchor persist re-stores the same window: same rows stay mounted.
+  await f.scrollTo(100 * 5000 + 8);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(f.built.count, 0, 'same window persisted');
+  await f.scrollTo(100 * 3000);
+  assert.ok(f.built.count >= 1, 'a new window rebuilds');
+});
 
 test('10k messages mount a bounded window through the real glue and open at the bottom', async () => {
   const f = fixture(thread(10_000));

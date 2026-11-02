@@ -98,12 +98,14 @@ export function scrollTopFor(layout: Layout, index: number, offset: number): num
 /** Measured row heights for one pane scope. */
 export class RowHeights {
   #scope = '';
+  #rev = 0;
   readonly #heights = new Map<string, number>();
   /** Switching scope drops the cache so conversations never share geometry. */
   use(scope: string): void {
     if (scope === this.#scope) return;
     this.#scope = scope;
     this.#heights.clear();
+    this.#rev++;
   }
   get(id: string): number { return this.#heights.get(id) ?? ROW_ESTIMATE; }
   /** Returns true when the cached value moved by more than half a pixel. */
@@ -112,9 +114,12 @@ export class RowHeights {
     const previous = this.#heights.get(id);
     if (previous !== undefined && Math.abs(previous - height) <= 0.5) return false;
     this.#heights.set(id, height);
+    this.#rev++;
     return true;
   }
   get size(): number { return this.#heights.size; }
+  /** Changes whenever any cached height changes; a layout built at the same rev over the same list is still valid. */
+  get rev(): number { return this.#rev; }
 }
 
 /** Stable per-row id for the height cache (local id survives server confirmation). */
