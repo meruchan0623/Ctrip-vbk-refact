@@ -39,16 +39,23 @@ export interface SyncResult {
   readonly top: number;
 }
 
+/** Same mounted range and the same spacer heights: the rendered pane would be identical. */
+export function sameWindow(a: PaneWindow, b: PaneWindow): boolean {
+  return sameRange(a.range, b.range) && a.topSpacer === b.topSpacer && a.bottomSpacer === b.bottomSpacer;
+}
+
 /** Bottom-pinned when within this many pixels of the end. */
 export const PIN_THRESHOLD = 48;
 export const DEFAULT_VIEWPORT = 800;
 
 export function createMessagePane() {
   const heights = new RowHeights();
-  let current: { scope: string; list: readonly PaneMessage[]; layout: Layout; range: WindowRange; header: number } | null = null;
+  let current: { scope: string; list: readonly PaneMessage[]; layout: Layout; layoutRev: number; range: WindowRange; header: number } | null = null;
 
+  /** The O(n) prefix sum is rebuilt only when the list or a cached height changed (every render calls this). */
   const relayout = (scope: string, list: readonly PaneMessage[]): Layout => {
     heights.use(scope);
+    if (current && current.scope === scope && current.list === list && current.layoutRev === heights.rev) return current.layout;
     return buildLayout(list.length, i => heights.get(rowId(list[i]!)));
   };
 
@@ -66,7 +73,7 @@ export function createMessagePane() {
       else if (anchor && index >= 0) y = scrollTopFor(layout, index, anchor.offset);
       else y = input.view?.top ?? 0;
       const range = windowRange(layout, y, viewport);
-      current = { scope, list, layout, range, header };
+      current = { scope, list, layout, layoutRev: heights.rev, range, header };
       return { range, topSpacer: layout.tops[range.start]!, bottomSpacer: layoutTotal(layout) - layout.tops[range.end]! };
     },
 
@@ -93,6 +100,7 @@ export function createMessagePane() {
       for (const row of measured.rows) if (heights.set(row.id, row.height)) measuredChanged = true;
       current.header = measured.header;
       current.layout = relayout(scope, current.list);
+      current.layoutRev = heights.rev;
       let scrollTo: number | null = null;
       if (!pinned && anchor?.scope === scope) {
         const index = findAnchorIndex(current.list, anchor);
@@ -103,7 +111,9 @@ export function createMessagePane() {
       }
       const top = Math.max(0, (scrollTo ?? geometry.scrollTop) - current.header);
       const range = windowRange(current.layout, top, geometry.clientHeight);
-      return { scrollTo, rerender: measuredChanged || !sameRange(range, current.range), measuredChanged, top };
+      // Spacers stand in for unmounted rows only, so a measured (mounted) row never invalidates them:
+      // the window needs a re-render exactly when the row range it should mount changed.
+      return { scrollTo, rerender: !sameRange(range, current.range), measuredChanged, top };
     },
 
     /** Window needed for a scroll position, without touching the model. */

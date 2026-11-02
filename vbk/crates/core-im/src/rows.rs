@@ -18,9 +18,11 @@
 //!   order never depends on an id that can change.
 //!
 //! Conflicting server ids are never merged: a row that already has a
-//! `message_id` does not adopt a different one through a shared local id.
+//! `message_id` does not adopt a different one through a shared local id,
+//! and a row that already has a `local_id` never absorbs (or drops) another
+//! row through a second local id the server attaches to its message.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use contracts::AppError;
 
@@ -73,40 +75,86 @@ pub enum PageKind {
 
 #[derive(Debug, Clone, Default)]
 struct Thread {
+    /// Display order: sorted by `(create_time_ms, id)`.
     rows: Vec<HistoryRow>,
-    by_message: BTreeMap<String, usize>,
-    by_local: BTreeMap<String, usize>,
+    /// Ids are stable, so these maps are only touched for the rows a page
+    /// changes; `pos` (row id -> index) is the only thing a reorder rebuilds.
+    by_message: HashMap<String, RowId>,
+    by_local: HashMap<String, RowId>,
+    pos: HashMap<RowId, usize>,
     next_back: i64,
     next_fwd: i64,
 }
 
+fn order_key(r: &HistoryRow) -> (i64, RowId) {
+    (r.create_time_ms, r.id)
+}
+
 impl Thread {
-    fn reindex(&mut self) {
-        self.by_message.clear();
-        self.by_local.clear();
+    fn reindex_positions(&mut self) {
+        self.pos.clear();
         for (i, r) in self.rows.iter().enumerate() {
-            if let Some(m) = &r.message_id {
-                self.by_message.insert(m.clone(), i);
-            }
-            if let Some(l) = &r.local_id {
-                self.by_local.insert(l.clone(), i);
-            }
+            self.pos.insert(r.id, i);
         }
+    }
+
+    fn index_of(&self, id: RowId) -> usize {
+        // Every id in `by_*` is in `pos`; the two are updated together.
+        self.pos.get(&id).copied().unwrap_or(usize::MAX)
     }
 
     fn find(&self, input: &RowInput) -> Option<usize> {
         if let Some(m) = &input.message_id {
-            if let Some(&i) = self.by_message.get(m) {
-                return Some(i);
+            if let Some(&id) = self.by_message.get(m) {
+                return Some(self.index_of(id));
             }
         }
         let l = input.local_id.as_ref()?;
-        let &i = self.by_local.get(l)?;
+        let &id = self.by_local.get(l)?;
+        let i = self.index_of(id);
         let row = &self.rows[i];
         // A shared local id never bridges two different server ids.
         match (&row.message_id, &input.message_id) {
             (Some(a), Some(b)) if a != b => None,
             _ => Some(i),
+        }
+    }
+
+    /// Restore the display order after a page. `before` is the row count
+    /// when the page started; `reorder` says existing rows changed key or
+    /// position. New rows are usually all newer (live) or all older (an
+    /// earlier page) than everything known, so only they get indexed.
+    fn restore_order(&mut self, before: usize, reorder: bool) {
+        if reorder || before == 0 {
+            self.rows.sort_by_key(order_key);
+            self.reindex_positions();
+            return;
+        }
+        if self.rows.len() == before {
+            return;
+        }
+        let mut tail = self.rows.split_off(before);
+        tail.sort_by_key(order_key);
+        let first_new = order_key(&tail[0]);
+        let last_new = order_key(&tail[tail.len() - 1]);
+        if first_new > order_key(&self.rows[before - 1]) {
+            for (k, r) in tail.iter().enumerate() {
+                self.pos.insert(r.id, before + k);
+            }
+            self.rows.extend(tail);
+        } else if last_new < order_key(&self.rows[0]) {
+            let shift = tail.len();
+            for v in self.pos.values_mut() {
+                *v += shift;
+            }
+            for (k, r) in tail.iter().enumerate() {
+                self.pos.insert(r.id, k);
+            }
+            self.rows.splice(0..0, tail);
+        } else {
+            self.rows.extend(tail);
+            self.rows.sort_by_key(order_key);
+            self.reindex_positions();
         }
     }
 }
@@ -129,12 +177,14 @@ impl HistoryRowIndex {
 
     pub fn find_by_message_id(&self, gid: &str, message_id: &str) -> Option<&HistoryRow> {
         let t = self.threads.get(gid)?;
-        t.by_message.get(message_id).map(|&i| &t.rows[i])
+        t.by_message
+            .get(message_id)
+            .map(|&id| &t.rows[t.index_of(id)])
     }
 
     pub fn find_by_local_id(&self, gid: &str, local_id: &str) -> Option<&HistoryRow> {
         let t = self.threads.get(gid)?;
-        t.by_local.get(local_id).map(|&i| &t.rows[i])
+        t.by_local.get(local_id).map(|&id| &t.rows[t.index_of(id)])
     }
 
     /// Merge one page / batch. A page with an input that has no id is
@@ -174,22 +224,36 @@ impl HistoryRowIndex {
                 e
             }
         };
+        let before = thread.rows.len();
+        let mut reorder = false;
+        // Indexes are kept in step with every push / enrichment so later
+        // inputs of the same page see earlier rows; the display order is
+        // restored once at the end (one sort per page, not one per row).
         for (ordinal, input) in page.iter().enumerate() {
             if let Some(i) = thread.find(input) {
                 // The input may also name a second, sparse row (one holding
                 // only the local id, one only the server id): bridge them.
-                let other = input
-                    .local_id
-                    .as_ref()
-                    .and_then(|l| thread.by_local.get(l))
-                    .copied()
-                    .filter(|&j| j != i && thread.rows[j].message_id.is_none());
+                // Only a row that still lacks that id may absorb the other;
+                // a conflicting pairing is never merged (and never dropped).
+                let other = if thread.rows[i].local_id.is_none() {
+                    input
+                        .local_id
+                        .as_ref()
+                        .and_then(|l| thread.by_local.get(l))
+                        .map(|&id| thread.index_of(id))
+                        .filter(|&j| j != i && thread.rows[j].message_id.is_none())
+                } else {
+                    None
+                };
                 let other = other.or_else(|| {
+                    if thread.rows[i].message_id.is_some() {
+                        return None;
+                    }
                     input
                         .message_id
                         .as_ref()
                         .and_then(|m| thread.by_message.get(m))
-                        .copied()
+                        .map(|&id| thread.index_of(id))
                         .filter(|&j| j != i && thread.rows[j].local_id.is_none())
                 });
                 let i = match other {
@@ -204,45 +268,71 @@ impl HistoryRowIndex {
                             (j, i)
                         };
                         let gone = thread.rows.remove(drop);
+                        thread.pos.remove(&gone.id);
                         let keep = if drop < keep { keep - 1 } else { keep };
                         let row = &mut thread.rows[keep];
+                        let keep_id = row.id;
                         if row.message_id.is_none() {
                             row.message_id = gone.message_id;
+                            if let Some(m) = &row.message_id {
+                                thread.by_message.insert(m.clone(), keep_id);
+                            }
                         }
                         if row.local_id.is_none() {
                             row.local_id = gone.local_id;
+                            if let Some(l) = &row.local_id {
+                                thread.by_local.insert(l.clone(), keep_id);
+                            }
                         }
+                        // Removal shifted the positions behind `drop`.
+                        thread.reindex_positions();
+                        reorder = true;
                         keep
                     }
                     None => i,
                 };
                 let row = &mut thread.rows[i];
+                let row_id = row.id;
                 // Enrichment only: ids never change once set.
                 if row.message_id.is_none() {
-                    row.message_id = input.message_id.clone();
+                    if let Some(m) = &input.message_id {
+                        row.message_id = Some(m.clone());
+                        thread.by_message.insert(m.clone(), row_id);
+                    }
                 }
                 if row.local_id.is_none() {
-                    row.local_id = input.local_id.clone();
+                    if let Some(l) = &input.local_id {
+                        row.local_id = Some(l.clone());
+                        thread.by_local.insert(l.clone(), row_id);
+                    }
                 }
                 // The server time wins over a local creation time.
-                if input.message_id.is_some() {
+                if input.message_id.is_some() && row.create_time_ms != input.create_time_ms {
                     row.create_time_ms = input.create_time_ms;
+                    reorder = true;
                 }
             } else {
+                let i = thread.rows.len();
+                let id = RowId {
+                    epoch,
+                    ordinal: ordinal as u32,
+                };
+                if let Some(m) = &input.message_id {
+                    thread.by_message.insert(m.clone(), id);
+                }
+                if let Some(l) = &input.local_id {
+                    thread.by_local.insert(l.clone(), id);
+                }
+                thread.pos.insert(id, i);
                 thread.rows.push(HistoryRow {
-                    id: RowId {
-                        epoch,
-                        ordinal: ordinal as u32,
-                    },
+                    id,
                     message_id: input.message_id.clone(),
                     local_id: input.local_id.clone(),
                     create_time_ms: input.create_time_ms,
                 });
             }
-            // Later inputs of the same page must see this row.
-            thread.rows.sort_by_key(|r| (r.create_time_ms, r.id));
-            thread.reindex();
         }
+        thread.restore_order(before, reorder);
         Ok(&thread.rows)
     }
 }
@@ -336,6 +426,72 @@ mod tests {
         assert_eq!(ix.rows("g").len(), 2);
     }
 
+    /// Counterexample: `m1` is already paired with local `l2`; a pending row
+    /// `l1` exists; the server then claims `(m1, l1)`. Bridging must not make
+    /// the `l1` row vanish (its id and anchor key would be lost); conflicting
+    /// pairings stay separate rows.
+    #[test]
+    fn bridging_never_drops_a_row_whose_local_id_conflicts() {
+        let mut ix = HistoryRowIndex::new();
+        ix.merge_page(
+            "g",
+            PageKind::Live,
+            &[inp(Some("m1"), Some("l2"), 1), inp(None, Some("l1"), 2)],
+        )
+        .unwrap();
+        let pending = ix.find_by_local_id("g", "l1").unwrap().id;
+        ix.merge_page("g", PageKind::Live, &[inp(Some("m1"), Some("l1"), 1)])
+            .unwrap();
+        assert_eq!(ix.rows("g").len(), 2, "no row may disappear");
+        assert_eq!(ix.find_by_local_id("g", "l1").unwrap().id, pending);
+        assert_eq!(
+            ix.find_by_message_id("g", "m1")
+                .unwrap()
+                .local_id
+                .as_deref(),
+            Some("l2"),
+            "ids never change once set"
+        );
+        assert_invariants(ix.rows("g"));
+    }
+
+    /// 10k rows through 500 older pages of 20 plus 1k single live rows must
+    /// stay well under a second (the UI calls this per page / per message).
+    #[test]
+    fn ten_thousand_rows_merge_in_bounded_time() {
+        let mut ix = HistoryRowIndex::new();
+        let start = std::time::Instant::now();
+        for p in 0..500i64 {
+            let page: Vec<RowInput> = (0..20i64)
+                .map(|i| {
+                    inp(
+                        Some(&format!("m{}", p * 20 + i)),
+                        None,
+                        1_000_000 - p * 20 - 20 + i,
+                    )
+                })
+                .collect();
+            ix.merge_page("g", PageKind::Earlier, &page).unwrap();
+        }
+        for i in 0..1_000i64 {
+            ix.merge_page(
+                "g",
+                PageKind::Live,
+                &[inp(Some(&format!("live{i}")), None, 2_000_000 + i)],
+            )
+            .unwrap();
+        }
+        let rows = ix.rows("g");
+        assert_eq!(rows.len(), 11_000);
+        assert_invariants(rows);
+        let elapsed = start.elapsed();
+        eprintln!("rows: 11k merge took {elapsed:?}");
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "took {elapsed:?}"
+        );
+    }
+
     #[test]
     fn unidentified_row_rejects_the_whole_page() {
         let mut ix = HistoryRowIndex::new();
@@ -359,6 +515,81 @@ mod tests {
             .unwrap();
         assert_eq!(ix.rows("a").len(), 1);
         assert_eq!(ix.rows("b").len(), 1);
+    }
+
+    /// Adversarial streams with *conflicting* pairings (`m{n}` arriving with
+    /// a foreign `l{k}`, time rollbacks, replays, retries that reuse a local
+    /// id): no input id is ever lost, the index always points at the row
+    /// that carries the id, the order stays strict, and server ids stay unique.
+    #[test]
+    fn conflicting_page_streams_never_lose_an_id_or_desync_the_index() {
+        let mut seed = 0x5851_F42D_4C95_7F2Du64;
+        let mut next = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        for _ in 0..300 {
+            let mut ix = HistoryRowIndex::new();
+            let mut messages = std::collections::BTreeSet::new();
+            let mut locals = std::collections::BTreeSet::new();
+            for _ in 0..16 {
+                let kind = if next(2) == 0 {
+                    PageKind::Earlier
+                } else {
+                    PageKind::Live
+                };
+                let page: Vec<RowInput> = (0..next(5) + 1)
+                    .map(|_| {
+                        let m = next(10);
+                        let l = if next(4) == 0 { next(10) } else { m };
+                        let t = next(4) as i64 - 1; // ties and rollbacks
+                        match next(3) {
+                            0 => inp(Some(&format!("m{m}")), None, t),
+                            1 => inp(None, Some(&format!("l{l}")), t),
+                            _ => inp(Some(&format!("m{m}")), Some(&format!("l{l}")), t),
+                        }
+                    })
+                    .collect();
+                for r in &page {
+                    messages.extend(r.message_id.clone());
+                    // A local id that arrives beside a server id already paired
+                    // with another local is a conflicting pairing and is ignored;
+                    // a local-only input must always leave a row behind.
+                    if r.message_id.is_none() {
+                        locals.extend(r.local_id.clone());
+                    }
+                }
+                let rows = ix.merge_page("g", kind, &page).unwrap().to_vec();
+                for w in rows.windows(2) {
+                    assert!(order_key(&w[0]) < order_key(&w[1]), "strictly monotonic");
+                }
+                let mut ids = std::collections::BTreeSet::new();
+                for r in &rows {
+                    assert!(ids.insert(r.id), "duplicate RowId {:?}", r.id);
+                }
+                let mut ms = std::collections::BTreeSet::new();
+                for r in &rows {
+                    if let Some(m) = &r.message_id {
+                        assert!(ms.insert(m.clone()), "duplicate message_id {m}");
+                    }
+                }
+                for m in &messages {
+                    let row = ix.find_by_message_id("g", m).expect("message id kept");
+                    assert_eq!(row.message_id.as_deref(), Some(m.as_str()));
+                }
+                for l in &locals {
+                    let row = ix.find_by_local_id("g", l).expect("local id kept");
+                    assert_eq!(row.local_id.as_deref(), Some(l.as_str()));
+                }
+                let t = ix.threads.get("g").unwrap();
+                for (i, r) in t.rows.iter().enumerate() {
+                    assert_eq!(t.pos.get(&r.id), Some(&i), "pos index out of step");
+                }
+                assert_eq!(t.pos.len(), t.rows.len());
+            }
+        }
     }
 
     /// Deterministic pseudo-random page streams: invariants hold after every

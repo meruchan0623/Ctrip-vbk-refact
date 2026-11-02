@@ -552,7 +552,7 @@ function mergeCore(earlier: readonly UiMessage[], current: readonly UiMessage[])
 // mix of conflicting senders/aliases, so each full-merge result is verified once (one extra merge) and
 // unverified or failing lists keep the full path. Exact server matches, local aliases and odd
 // timestamps always take the full path.
-interface MergeIndex { list: readonly UiMessage[]; servers: Set<string>; locals: Set<string> }
+interface MergeIndex { list: readonly UiMessage[]; servers: Set<string>; locals: Set<string>; /** Every row has a finite time, so the binary search agrees with the full sort. */ finite: boolean }
 const mergeOutputs = new WeakSet<readonly UiMessage[]>();
 const fixpoints = new WeakSet<readonly UiMessage[]>();
 const mergeIndexes = new WeakMap<readonly UiMessage[], MergeIndex>();
@@ -561,10 +561,11 @@ function registerMergeOutput(list: UiMessage[]): UiMessage[] { mergeOutputs.add(
 function mergeIndexOf(list: readonly UiMessage[]): MergeIndex {
   const cached = mergeIndexes.get(list);
   if (cached?.list === list) return cached;
-  const index: MergeIndex = { list, servers: new Set(), locals: new Set() };
+  const index: MergeIndex = { list, servers: new Set(), locals: new Set(), finite: true };
   for (const row of list) {
     if (row.message_id) index.servers.add(identityKey(row.gid, row.message_id));
     if (row.local_id) index.locals.add(identityKey(row.gid, row.local_id));
+    if (!Number.isFinite(row.create_time_ms)) index.finite = false;
   }
   mergeIndexes.set(list, index);
   return index;
@@ -578,7 +579,8 @@ export function mergeHistoryIncremental(list: readonly UiMessage[], message: UiM
     fixpoints.add(list);
   }
   const index = mergeIndexOf(list);
-  if ((message.message_id && index.servers.has(identityKey(message.gid, message.message_id))) || (message.local_id && index.locals.has(identityKey(message.gid, message.local_id)))) return mergeHistory(list, [message]);
+  // A NaN time in the list makes the full sort order depend on arrival order; only the full path reproduces it.
+  if (!index.finite || (message.message_id && index.servers.has(identityKey(message.gid, message.message_id))) || (message.local_id && index.locals.has(identityKey(message.gid, message.local_id)))) return mergeHistory(list, [message]);
   let lo = 0, hi = list.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
