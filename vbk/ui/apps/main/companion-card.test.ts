@@ -102,3 +102,19 @@ test('showing a hidden package restores its CDR scroll after visibility changes'
   tabs[1]!.props.onclick({ currentTarget: { getRootNode: () => root } });
   assert.equal(cdr.scrollTop, 73);
 });
+test('usage ring is built with DOM APIs (no innerHTML) and carries only validated numeric geometry', () => {
+  const view = render('ring');
+  const rings = view.nodes.filter(n => n.tag === 'span' && typeof n.props.ref === 'function');
+  assert.ok(rings.length >= 2, 'a big and a mini ring per plan');
+  const created: { tag: string; ns: string; attrs: Record<string, string>; children: unknown[] }[] = [];
+  const doc = { createElementNS: (ns: string, tag: string) => { const node = { tag, ns, attrs: {} as Record<string, string>, children: [] as unknown[], setAttribute(k: string, v: string) { this.attrs[k] = v; }, append(...c: unknown[]) { this.children.push(...c); } }; created.push(node); return node; } };
+  let mounted: any = null;
+  const element = { ownerDocument: doc, replaceChildren: (n: unknown) => { mounted = n; }, set innerHTML(_: string) { throw new Error('innerHTML must not be used'); } };
+  rings[0]!.props.ref(element);
+  assert.equal(mounted.tag, 'svg'); assert.equal(mounted.ns, 'http://www.w3.org/2000/svg');
+  assert.equal(mounted.attrs['aria-hidden'], 'true'); assert.match(mounted.attrs['viewBox'], /^0 0 \d+ \d+$/);
+  const circles = mounted.children as typeof created;
+  assert.deepEqual(circles.map(c => c.attrs['class']), ['tr', 'fg']);
+  for (const c of circles) for (const k of ['cx', 'cy', 'r']) assert.ok(Number.isFinite(Number(c.attrs[k])), k);
+  assert.match(circles[1]!.attrs['stroke-dasharray']!, /^\d+(\.\d)? \d+(\.\d)?$/);
+});

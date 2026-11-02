@@ -67,7 +67,18 @@ export function companionPackageCard(input: {
     const percent = plan.remain ? plan.remain_pct : null, unlimited = !plan.remain && plan.unlimited === true, size = mini ? 22 : 44, radius = mini ? 8.5 : 18, circumference = 2 * Math.PI * radius;
     const svg = h('span', { ref: (element: Element) => {
       // Only validated numeric values enter SVG geometry; service text remains text nodes.
-      element.innerHTML = `<svg viewBox="0 0 ${size} ${size}" aria-hidden="true"><circle class="tr" cx="${size/2}" cy="${size/2}" r="${radius}"/><circle class="fg" cx="${size/2}" cy="${size/2}" r="${radius}" stroke-dasharray="${(circumference * (percent ?? (unlimited ? 100 : 0)) / 100).toFixed(1)} ${circumference.toFixed(1)}"/></svg>`;
+      const doc = element.ownerDocument, ns = 'http://www.w3.org/2000/svg';
+      const svgNode = doc.createElementNS(ns, 'svg');
+      svgNode.setAttribute('viewBox', `0 0 ${size} ${size}`);
+      svgNode.setAttribute('aria-hidden', 'true');
+      const circle = (cls: string, extra: Record<string, string> = {}): void => {
+        const node = doc.createElementNS(ns, 'circle');
+        for (const [name, value] of Object.entries({ class: cls, cx: String(size / 2), cy: String(size / 2), r: String(radius), ...extra })) node.setAttribute(name, value);
+        svgNode.append(node);
+      };
+      circle('tr');
+      circle('fg', { 'stroke-dasharray': `${(circumference * (percent ?? (unlimited ? 100 : 0)) / 100).toFixed(1)} ${circumference.toFixed(1)}` });
+      element.replaceChildren(svgNode);
     } });
     return h('span', { class: mini ? 'mini' : 'ring', dataset: { tone: percent === null ? 'muted' : percent <= 0 ? 'over' : percent <= 20 ? 'warn' : 'ok' }, ...(percent === null ? {} : { role: 'meter', 'aria-label': '剩余流量', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(percent) }) }, svg, mini ? null : h('b', null, percent === null ? unlimited ? '∞' : '—' : `${percent}%`));
   };
