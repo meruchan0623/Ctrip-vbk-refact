@@ -75,6 +75,11 @@ pub enum JobPayload {
     Compensation(i64),
     /// Makes the namespace read-only until re-auth. Never coalesced.
     LogoutLock,
+    /// Lifts a `LogoutLock` after the same identity logged in again. Same
+    /// kind as the lock, so the two stay ordered with each other (by `seq`)
+    /// and act as barriers for the data jobs around them. Idempotent on a
+    /// namespace that is not locked.
+    Unlock,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,7 +101,7 @@ impl JobPayload {
         match self {
             JobPayload::Rounds(_) => Kind::Rounds,
             JobPayload::Compensation(_) => Kind::Compensation,
-            JobPayload::LogoutLock => Kind::Lock,
+            JobPayload::LogoutLock | JobPayload::Unlock => Kind::Lock,
         }
     }
 }
@@ -359,11 +364,12 @@ impl Worker {
     }
 
     fn process(&mut self, jobs: Vec<PersistJob>) {
-        // Data jobs are grouped between logout locks, which act as ordered
-        // barriers: writes queued before a lock land before it.
+        // Data jobs are grouped between lock/unlock jobs, which act as
+        // ordered barriers: writes queued before a lock land before it, and
+        // writes queued after an unlock are not skipped as locked.
         let mut group: Vec<PersistJob> = Vec::new();
         for job in jobs {
-            if job.payload == JobPayload::LogoutLock {
+            if job.payload.kind() == Kind::Lock {
                 self.write_group(std::mem::take(&mut group));
                 self.apply_lock(job);
             } else {
@@ -398,13 +404,34 @@ impl Worker {
         }
     }
 
+    /// Applies a `LogoutLock` or `Unlock`. Lock-kind jobs are ordered by
+    /// `seq` like data jobs: one older than the last applied lock-kind job
+    /// for the namespace is dropped as `Superseded` (a late `Unlock` from
+    /// before a newer `LogoutLock` must not reopen the namespace).
     fn apply_lock(&mut self, job: PersistJob) {
-        let result = self.guarded(std::slice::from_ref(&job), || {
-            self.store.logout_lock(&job.ns)
+        let key = (job.ns.clone(), Kind::Lock);
+        if self.last_seq.get(&key).is_some_and(|&done| job.seq <= done) {
+            self.counters.stale_dropped.fetch_add(1, Ordering::Relaxed);
+            self.receive(Receipt {
+                ns: job.ns,
+                seq: job.seq,
+                outcome: ReceiptOutcome::Superseded,
+            });
+            return;
+        }
+        let result = self.guarded(std::slice::from_ref(&job), || match job.payload {
+            JobPayload::Unlock => self.store.unlock_after_reauth(&job.ns),
+            _ => self.store.logout_lock(&job.ns),
         });
+        // Snapshots written before the lock state changed are no longer a
+        // reason to skip an identical one: after a lock they were dropped,
+        // after an unlock the namespace must be brought up to date again.
         self.last_payload.retain(|(ns, _), _| *ns != job.ns);
         let outcome = match result {
-            Ok(()) => ReceiptOutcome::Written,
+            Ok(()) => {
+                self.last_seq.insert(key, job.seq);
+                ReceiptOutcome::Written
+            }
             Err(failed) => failed,
         };
         self.counters.commits.fetch_add(1, Ordering::Relaxed);
@@ -520,7 +547,7 @@ impl Worker {
                         SyncWatermarkRepo::set_compensation_cursor(&mut txn, *ms);
                         comp_seq = Some(job.seq as i64);
                     }
-                    JobPayload::LogoutLock => {}
+                    JobPayload::LogoutLock | JobPayload::Unlock => {}
                 }
             }
             if let Some(n) = rounds_seq {
@@ -619,6 +646,26 @@ impl PersistTracker {
     /// True while any namespace could not be persisted ("本地保存失败").
     pub fn persist_failed(&self) -> bool {
         !self.failed.is_empty()
+    }
+
+    /// Send barrier (I-04a): while a write is failed nothing new may be
+    /// submitted, because the outbound journal and the state behind it can
+    /// no longer be trusted to land. `Err(store.persist_failed)` is the
+    /// error the host returns before it touches the journal or the page;
+    /// it carries the latest store error code as `detail`, never a path.
+    pub fn send_barrier(&self) -> Result<(), AppError> {
+        if !self.persist_failed() {
+            return Ok(());
+        }
+        let err = AppError::new(
+            codes::STORE_PERSIST_FAILED,
+            "local persistence failed; sending is paused until a retry succeeds",
+        )
+        .retryable();
+        Err(match self.last_error.as_deref() {
+            Some(code) => err.with_detail(format!("cause={code}")),
+            None => err,
+        })
     }
 
     pub fn failed_namespaces(&self) -> Vec<Namespace> {
@@ -1027,6 +1074,128 @@ mod tests {
             Some(5)
         );
         assert!(store.is_locked(&a).unwrap());
+    }
+
+    /// Re-login after logout: `LogoutLock` → `Unlock` → the next snapshot
+    /// is written again (the namespace is not read-only for the rest of
+    /// the process, review §3.1 `unlock_after_reauth`).
+    #[test]
+    fn unlock_after_logout_lock_lets_later_writes_land() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let mut tracker = PersistTracker::new();
+        q.try_enqueue(job(&q, &a, JobPayload::LogoutLock)).unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(1)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert!(store.is_locked(&a).unwrap());
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            None,
+            "write after the lock is skipped"
+        );
+        q.try_enqueue(job(&q, &a, JobPayload::Unlock)).unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(2)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(!store.is_locked(&a).unwrap());
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            Some(2),
+            "write after the unlock lands"
+        );
+        assert!(!tracker.persist_failed());
+        assert!(tracker.send_barrier().is_ok());
+    }
+
+    /// `Unlock` on a namespace that was never locked is a no-op with a
+    /// `Written` receipt: the login path may always enqueue it.
+    #[test]
+    fn unlock_is_idempotent_on_an_unlocked_namespace() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        q.try_enqueue(job(&q, &a, JobPayload::Unlock)).unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::Unlock)).unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        let receipts = q.drain_receipts();
+        assert_eq!(receipts.len(), 2);
+        assert!(receipts
+            .iter()
+            .all(|r| r.outcome == ReceiptOutcome::Written));
+        assert!(!store.is_locked(&a).unwrap());
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(3)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            Some(3)
+        );
+    }
+
+    /// Lock-kind jobs follow `seq`, not arrival: an `Unlock` taken before a
+    /// newer `LogoutLock` (and vice versa) cannot undo it even when the
+    /// caller threads enqueue them out of order. The dropped job is still
+    /// acknowledged.
+    #[test]
+    fn lock_and_unlock_are_ordered_by_seq_when_enqueued_out_of_order() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        // seq: unlock < lock, arrival: lock first → stays locked.
+        let unlock = job(&q, &a, JobPayload::Unlock);
+        let lock = job(&q, &a, JobPayload::LogoutLock);
+        assert!(unlock.seq < lock.seq);
+        q.try_enqueue(lock).unwrap();
+        q.try_enqueue(unlock).unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert!(store.is_locked(&a).unwrap(), "older unlock must not reopen");
+        let receipts = q.drain_receipts();
+        assert_eq!(receipts.len(), 2);
+        assert!(receipts
+            .iter()
+            .any(|r| r.outcome == ReceiptOutcome::Superseded));
+        assert_eq!(q.stats().stale_dropped, 1);
+
+        // seq: lock < unlock, arrival: unlock first → ends unlocked.
+        let lock = job(&q, &a, JobPayload::LogoutLock);
+        let unlock = job(&q, &a, JobPayload::Unlock);
+        q.try_enqueue(unlock).unwrap();
+        q.try_enqueue(lock).unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert!(!store.is_locked(&a).unwrap(), "older lock must not re-lock");
+        assert_eq!(q.stats().stale_dropped, 2);
+        let mut tracker = PersistTracker::new();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(!tracker.persist_failed());
+    }
+
+    /// The send barrier is the tracker's `persist_failed` state as an
+    /// error: closed with `store.persist_failed` (cause in `detail`), open
+    /// again once the retry lands.
+    #[test]
+    fn send_barrier_closes_on_failure_and_reopens_after_retry() {
+        let store = Gated::new(true);
+        store.fail.store(true, Ordering::SeqCst);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let mut tracker = PersistTracker::new();
+        assert!(tracker.send_barrier().is_ok(), "open before any failure");
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(7)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        let err = tracker.send_barrier().unwrap_err();
+        assert!(err.is(codes::STORE_PERSIST_FAILED));
+        assert!(err.retryable);
+        assert_eq!(err.detail.as_deref(), Some("cause=store.io"));
+        store.fail.store(false, Ordering::SeqCst);
+        assert!(q.submit(tracker.take_pending()).is_empty());
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(tracker.send_barrier().is_ok());
     }
 
     #[test]

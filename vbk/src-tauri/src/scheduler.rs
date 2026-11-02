@@ -38,6 +38,11 @@ pub fn start(app: AppHandle) {
 fn run(app: AppHandle) {
     let mut flashing = false;
     let mut phase = false;
+    // Edge detector for `persist_failed` (I-04a): the tick already drains
+    // the persistence receipts; when the state flips the account snapshot
+    // (which carries the flag) is re-emitted, so the main window shows and
+    // clears "本地保存失败，发送已暂停" without any extra polling.
+    let mut persist_failed = false;
     // Deadline pacer: tick stays 1 Hz and the tray phase flips every 500 ms
     // while flashing, without the old fixed-sleep drift (`Pacer` docs).
     let origin = Instant::now();
@@ -60,6 +65,16 @@ fn run(app: AppHandle) {
         }
         crate::adapter::expire_agent_statuses(&app);
         let mut effects = state.tick();
+        let failed_now = state.persist_failed();
+        if failed_now != persist_failed {
+            persist_failed = failed_now;
+            if failed_now {
+                log::error!("persistence failed; sending is paused until a retry succeeds");
+            } else {
+                log::info!("persistence recovered; sending resumed");
+            }
+            crate::login::emit_changed(&app);
+        }
         // Effects from settings changed through `prefs_set`.
         effects.extend(prefs::take_pending_effects(&app));
         let mut snapshot_changed = false;

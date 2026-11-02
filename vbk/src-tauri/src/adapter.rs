@@ -774,6 +774,16 @@ pub async fn im_send_media(
         result.replay_only = !verified;
         return Ok(result);
     }
+    // Send barrier (I-04a): a replay of an existing intent is read-only and
+    // still answered above; a new one is refused before anything is staged,
+    // uploaded or journaled ("not_submitted", code `store.persist_failed`).
+    if let Err(barrier) = state.persist_barrier() {
+        return Ok(MediaSendResult::blocked(
+            "prepare",
+            false,
+            &format!("{}: {}", barrier.code, barrier.message),
+        ));
+    }
     let frozen = match selected {
         Ok(frozen) if frozen.validate(&ctx, &gid).is_ok() => frozen,
         _ => {
@@ -1393,6 +1403,10 @@ pub async fn im_send_text(
             "durable outbound storage is unavailable (nothing sent)",
         ))
     })?;
+    // Send barrier (I-04a): while a durable write is failed nothing is
+    // journaled or sent. `store.persist_failed` before `reserve`, so the
+    // refusal is "nothing submitted" and the UI shows it as a local reject.
+    state.persist_barrier().map_err(e2dto)?;
     let payload = outbound_journal::SendPayload {
         gid,
         text,

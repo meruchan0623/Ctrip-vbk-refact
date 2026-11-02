@@ -221,6 +221,14 @@ export interface UiAccountSnapshot {
   readonly accounts: readonly UiAccount[];
   readonly active_account_id: string | null;
   readonly max_accounts: number;
+  /**
+   * Host-wide: a durable write failed and has not been retried successfully
+   * (「本地保存失败」). While true the host refuses `im_send_text` /
+   * `im_send_media` with `store.persist_failed` and the UI pauses sending;
+   * the host re-emits `account://changed` when it flips back. Absent = false
+   * (older snapshots, mocks).
+   */
+  readonly persist_failed?: boolean;
 }
 
 export type AgentStatus = 'online' | 'hangup' | 'leaving' | 'getoff';

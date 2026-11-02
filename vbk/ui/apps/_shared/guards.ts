@@ -115,6 +115,7 @@ export function isPrefsSnapshot(x: unknown): x is PrefsSnapshot {
 
 export function isUiAccountSnapshot(x: unknown): x is UiAccountSnapshot {
   if (!rec(x) || !Array.isArray(x['accounts']) || !nullableStr(x['active_account_id']) || !num(x['max_accounts'])) return false;
+  if (x['persist_failed'] !== undefined && !bool(x['persist_failed'])) return false;
   return (x['accounts'] as unknown[]).every((a) => rec(a) && accountContext(a['context']) && str(a['nick']) && nullableStr(a['remark']) && str(a['party']) && str(a['color']) && str(a['state']) && num(a['unread']));
 }
 

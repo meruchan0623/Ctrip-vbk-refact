@@ -336,6 +336,40 @@ impl HostState {
         cores.persist.persist_failed()
     }
 
+    /// Send barrier (I-04a, fail-closed): `Err(store.persist_failed)` while
+    /// [`Self::persist_failed`] holds. `im_send_text` / `im_send_media` call
+    /// it before the outbound journal is touched, so a refused send is
+    /// "nothing submitted". Receipts are drained first, so a retry that
+    /// already landed reopens the barrier without waiting for the next tick.
+    pub fn persist_barrier(&self) -> Result<(), AppError> {
+        let receipts = self
+            .persist
+            .as_ref()
+            .map(PersistQueue::drain_receipts)
+            .unwrap_or_default();
+        let mut cores = self.lock();
+        cores.persist.apply_receipts(receipts);
+        cores.persist.send_barrier()
+    }
+
+    /// Lifts the logout lock of the account's namespace after the same
+    /// identity logged in again (`Namespace` is per identity, the generation
+    /// is not part of it: the same construction as [`Self::logout`]). Goes
+    /// through the persistence queue, so it is ordered after the lock and
+    /// before the snapshots the new session produces, and acknowledged like
+    /// every other job. Never blocks; call it without the `Cores` lock held.
+    pub fn unlock_namespace(&self, account: &AccountContext) {
+        let Some(queue) = self.persist.as_ref() else {
+            return;
+        };
+        let job = PersistJob {
+            ns: Namespace::from_context(account),
+            seq: queue.next_seq(),
+            payload: JobPayload::Unlock,
+        };
+        self.submit_persist(vec![job]);
+    }
+
     /// Exit barrier: resubmits parked jobs, then waits (at most `timeout`)
     /// until everything queued so far is committed. Parked jobs that do not
     /// fit into a full queue are resubmitted once it has drained, until the

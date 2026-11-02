@@ -3,7 +3,7 @@
 use contracts::AppError;
 
 pub mod codes {
-    pub use contracts::codes::{STORE_CORRUPT, STORE_IO};
+    pub use contracts::codes::{STORE_CORRUPT, STORE_IO, STORE_PERSIST_FAILED};
 
     /// The namespace is logout-locked: reads work, writes are refused.
     pub const STORE_LOCKED: &str = "store.locked";

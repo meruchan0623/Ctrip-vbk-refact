@@ -125,6 +125,8 @@ export const ErrorCodes = {
   NOTIFY_ROUND_VERSION_MISMATCH: 'notify.round_version_mismatch',
   STORE_IO: 'store.io',
   STORE_CORRUPT: 'store.corrupt',
+  /** A durable write failed and was not retried successfully yet: the send barrier is closed, nothing was submitted. */
+  STORE_PERSIST_FAILED: 'store.persist_failed',
   ADAPTER_NOT_READY: 'adapter.not_ready',
   ADAPTER_TIMEOUT: 'adapter.timeout',
   ADAPTER_FAILED: 'adapter.failed',
