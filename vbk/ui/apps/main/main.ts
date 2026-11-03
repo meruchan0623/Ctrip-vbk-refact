@@ -21,7 +21,9 @@ import { FeatureEvents } from './features/context.ts';
  * Every displayed status comes from a host read-back (command result or
  * event); nothing is assumed: the agent status starts as 「状态未知」 and
  * the network as 「未连接」. All state lives in one store; the view is
- * re-rendered on change (focus/caret/scroll preserved by `rerender`).
+ * re-rendered on change, once per animation frame, by an incremental
+ * `rerender(..., { morph: true })`: mounted nodes (scroll containers, rows,
+ * media) stay in the document, so focus/caret/scroll and in-flight scrolling survive.
  */
 
 import { applyPlatform } from '../_shared/platform.ts';
@@ -1429,6 +1431,7 @@ function conversationList(s: MainState): HTMLElement {
   const acc = activeAccount(s);
   const av = agentView(s.agent);
   const nv = netView(s.net);
+  const nextRows = new Map<string, { deps: readonly unknown[]; node: HTMLElement }>();
   const rows = list.slice(range.start, range.end).map((c) => {
     const on = c.gid === s.activeGid;
     const waiting = c.waiting_since_ms !== null && !isDone(c);
@@ -1436,7 +1439,11 @@ function conversationList(s: MainState): HTMLElement {
     const mark = MARK_COLORS.find((m) => m.action === c.mark);
     const draft = s.drafts[c.gid] ?? c.draft;
     const hasDraft = !!draft && !on;
-    return h(
+    // 行只依赖这些输入：未变就交回上次的节点，增量渲染原地保留，不再逐帧重建/比对整行（滚动与计时刷新时的主要脚本开销）。
+    const deps = [c, on, hasDraft ? draft : null, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '', waiting ? `${waited >= RED_AFTER_SECONDS}|${formatDuration(waited)}` : '', s.prefs];
+    const cached = conversationRows.get(c.gid);
+    if (cached && cached.deps.length === deps.length && cached.deps.every((value, i) => value === deps[i])) { nextRows.set(c.gid, cached); return cached.node; }
+    const node = h(
       'div',
       {
         class: cx('conv', { on, top: c.is_top }),
@@ -1470,7 +1477,11 @@ function conversationList(s: MainState): HTMLElement {
       ),
       h('button', { class: 'ibtn cmore', 'aria-label': t('list.more'), onclick: (e: MouseEvent) => { e.stopPropagation(); store.patch({ ctxMenu: { gid: c.gid, x: e.clientX, y: e.clientY } }); } }, icon(IC.more, 14)),
     );
+    nextRows.set(c.gid, { deps, node });
+    return node;
   });
+  // 只留本次窗口内的行，滑出窗口的随之释放。
+  conversationRows = nextRows;
   return h(
     'div',
     { class: 'clist' },
@@ -1507,6 +1518,8 @@ function conversationList(s: MainState): HTMLElement {
     } }, h('div', { style: { height: `${range.start * 96}px` }, 'aria-hidden': 'true' }), rows, h('div', { style: { height: `${(list.length - range.end) * 96}px` }, 'aria-hidden': 'true' }), rows.length === 0 ? h('div', { class: 'empty', style: { margin: '16px' } }, s.query ? t('list.emptySearch') : t('list.empty')) : null),
   );
 }
+/** 会话列表行节点缓存（gid → 依赖 + 节点），只保存当前窗口内的行。 */
+let conversationRows = new Map<string, { deps: readonly unknown[]; node: HTMLElement }>();
 
 function contextMenu(s: MainState): HTMLElement | null {
   const m = s.ctxMenu;
@@ -1881,7 +1894,8 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
       'aria-label': '输入消息',
       value: s.draft,
       disabled: locked,
-      dataset: { fid: 'draft' },
+      // key 随作废次数变化：被作废（失焦/过期的输入法会话）的节点不会被增量渲染复用。
+      dataset: { fid: 'draft', key: `draft:${composerInput.revision()}` },
       ...composerInput.bind(composerInputContext(s)?.scope ?? null),
       onkeydown: (e: KeyboardEvent) => {
         if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || composerInput.active() || e.altKey) return;
@@ -2190,7 +2204,8 @@ function statusBar(s: MainState): HTMLElement {
   const nv = netView(s.net);
   const pf = persistFailedView(s.accounts);
   const hasAccount = !!activeAccount(s);
-  clockEl = h('span', { class: 'sb-clock' }, `${formatDate(s.now)} ${formatClock(s.now, true)}`);
+  // morph 下新建的 span 可能被折叠进页面上的旧 span：经 ref 拿到真正留在页面上的那个给时钟定时器用。
+  const clock = h('span', { class: 'sb-clock', ref: (el: Element) => { clockEl = el as HTMLElement; } }, `${formatDate(s.now)} ${formatClock(s.now, true)}`);
   return h(
     'div',
     { class: 'statusbar', role: 'status' },
@@ -2204,7 +2219,7 @@ function statusBar(s: MainState): HTMLElement {
     h('span', { class: 'sp' }),
     sel.mock ? h('span', { class: 'sb-item muted' }, t('app.mockMode')) : null,
     s.clockTrusted ? null : h('span', { class: 'sb-item sb-warn', title: t('bar.clockUntrustedTitle'), dataset: { sb: 'clock-untrusted' } }, icon(IC.alert, 13), t('bar.clockUntrusted')),
-    clockEl,
+    clock,
   );
 }
 
@@ -2464,19 +2479,9 @@ const fillFeatureSlots = (): void => {
 
 subscribeFrame(store, (s) => {
   if (composerInput.deferRender()) return;
-  withMessageAnchor(s, () => rerender(root, () => {
-  const next = render({ ...s, now: Date.now() });
-  // Keep the actual video node so waiting timers and live updates do not restart playback.
-  if (next instanceof Element) {
-    for (const video of next.querySelectorAll<HTMLVideoElement>('video[data-media-key]')) {
-      const key = video.dataset['mediaKey'];
-      if (!key) continue;
-      const current = root.querySelector<HTMLVideoElement>(`video[data-media-key="${CSS.escape(key)}"]`);
-      if (current && current.getAttribute('src') === video.getAttribute('src')) video.replaceWith(current);
-    }
-  }
-  return next;
-  }));
+  // 增量 morph：已挂载的节点（滚动容器、行、头像、按 data-media-key 配对的 video）原地保留，
+  // 计时刷新和实时更新既不重启播放，也不把正在滚动的列表/对话串从文档里拔下来（否则触控板惯性丢失、整树重排）。
+  withMessageAnchor(s, () => rerender(root, () => render({ ...s, now: Date.now() }), { morph: true }));
   visibleReads.afterRender();
   fillHistoryViewport();
   syncConversationViewport();

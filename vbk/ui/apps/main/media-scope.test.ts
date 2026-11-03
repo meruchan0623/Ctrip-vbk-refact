@@ -5,50 +5,38 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import * as vm from './viewmodel.ts';
 import { messageAlignment } from './message-alignment.ts';
-import { cx } from '../../packages/ui-kit/src/h.ts';
-import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
+import { cx, h, rerender } from '../../packages/ui-kit/src/h.ts';
+import { installFakeDom, fakeDocument } from '../../tests/fake-dom.ts';
 const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
 const scope = { account_id: 'synthetic-account', environment: 'prod', session_generation: 1 };
-class ElementFixture {
-  replacement: ElementFixture | null = null;
-  readonly tag: string; readonly props: Record<string, unknown>; readonly children: unknown[];
-  constructor(tag: string, props: Record<string, unknown>, children: unknown[]) { this.tag = tag; this.props = props; this.children = children; }
-  get dataset(): Record<string, string> { return (this.props['dataset'] as Record<string, string> | undefined) ?? {}; }
-  querySelectorAll(): ElementFixture[] { return descendants(this).filter(n => n.tag === 'video' && n.dataset['mediaKey'] !== undefined); }
-  querySelector(selector: string) { const encoded = selector.slice('video[data-media-key="'.length, -2); return this.querySelectorAll().find(n => encodeURIComponent(n.dataset['mediaKey'] ?? '') === encoded) ?? null; }
-  getAttribute(key: string) { return this.props[key] ?? null; }
-  replaceWith(node: ElementFixture) { this.replacement = node; }
-}
-function descendants(tree: unknown): ElementFixture[] { if (Array.isArray(tree)) return tree.flatMap(descendants); if (!(tree instanceof ElementFixture)) return []; return [tree, ...descendants(tree.children)]; }
-function renderVideo(account = scope, room = 'synthetic-room', id: string | null = 'synthetic-message', url = 'https://media.ctrip.com/synthetic.mp4', owner = account): ElementFixture {
-  const env: Record<string, unknown> = { visibleReads: { retry() {}, afterRender() {} }, ...vm, historyDiagnostics, cx, messageAlignment, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => new ElementFixture(tag, props ?? {}, children), document: {}, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: () => null, IC: {} };
+const { root } = installFakeDom();
+/** The actual `messageRow` (with `mediaNodeKey`) rendered through the real ui-kit `h` into a minimal DOM. */
+function renderVideo(account = scope, room = 'synthetic-room', id: string | null = 'synthetic-message', url = 'https://media.ctrip.com/synthetic.mp4', owner = account): { row: HTMLElement; video: HTMLVideoElement } {
+  const env: Record<string, unknown> = { visibleReads: { retry() {}, afterRender() {} }, ...vm, historyDiagnostics, cx, messageAlignment, h, document: fakeDocument, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: () => null, IC: {} };
   if (source.includes('function mediaNodeKey(')) { const a = source.indexOf('function mediaNodeKey('), b = source.indexOf('\nfunction messageRow(', a); env['mediaNodeKey'] = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn mediaNodeKey;')(...Object.values(env)); }
   const a = source.indexOf('function messageRow('), b = source.indexOf('\nfunction translationBar(', a);
   const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn messageRow;')(...Object.values(env));
   const m = { gid: room, message_id: id, local_id: null, sender_role: 'customer', kind: 'video', media_url: url, text: 'SYNTHETIC VIDEO', disposition: null, quote: null };
-  const tree = render({ messages: {}, prefs: { general: { show_msg_time: false } } }, m, { account: owner, gid: room, title: 'Synthetic Customer' }, { context: account });
-  const video = descendants(tree).find(n => n.tag === 'video'); assert.ok(video); return video;
+  const row = render({ messages: {}, prefs: { general: { show_msg_time: false } } }, m, { account: owner, gid: room, title: 'Synthetic Customer' }, { context: account }) as HTMLElement;
+  const video = row.querySelector('video') as HTMLVideoElement | null; assert.ok(video); return { row, video };
 }
-function actualReuse(oldVideo: ElementFixture, nextVideo: ElementFixture): void {
-  const oldRoot = new ElementFixture('div', {}, [oldVideo]); const nextRoot = new ElementFixture('div', {}, [nextVideo]);
-  let trigger!: (state: object) => void;
-  const env: Record<string, unknown> = { visibleReads: { retry() {}, afterRender() {} }, ...vm, historyDiagnostics, activeConv: () => null, activeAccount: () => null, S: () => ({}), Element: ElementFixture, CSS: { escape: encodeURIComponent }, root: oldRoot, store: {}, render: () => nextRoot, fillHistoryViewport() {}, syncConversationViewport() {}, subscribeFrame: (_store: unknown, callback: typeof trigger) => { trigger = callback; }, rerender: (_root: unknown, callback: () => unknown) => callback() };
-  Object.assign(env, { startHistoryLayout, stopHistoryLayout, document: { querySelector: () => null } });
-  env['composerInput'] = { deferRender: () => false }; // Playback fixture has no composing editor.
-  for (const [name, next] of [['captureMessageAnchor', 'restoreMessageAnchor'], ['restoreMessageAnchor', 'withMessageAnchor'], ['withMessageAnchor', 'messageRow']] as const) {
-    const start = source.indexOf(`function ${name}(`), end = source.indexOf(`\nfunction ${next}(`, start);
-    assert.ok(start >= 0 && end > start);
-    env[name] = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)) + `\nreturn ${name};`)(...Object.values(env));
-  }
+/** The redraw path the frame subscriber takes: an incremental `rerender(..., { morph: true })` of the pane. */
+function actualReuse(old: { row: HTMLElement; video: HTMLVideoElement }, next: { row: HTMLElement }): boolean {
+  root.replaceChildren();
+  rerender(root as unknown as Element, () => h('div', { class: 'msgs', dataset: { keepScroll: 'msgs' } }, old.row));
+  assert.equal(root.querySelector('video'), old.video);
+  rerender(root as unknown as Element, () => h('div', { class: 'msgs', dataset: { keepScroll: 'msgs' } }, next.row), { morph: true });
+  return root.querySelector('video') === (old.video as unknown);
+}
+test('the frame subscriber redraws incrementally, so a mounted video can survive a redraw', () => {
   const a = source.indexOf('subscribeFrame(store,'), b = source.indexOf('\nrerender(root, () => render(S()));', a); assert.ok(a >= 0 && b > a);
-  new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)))(...Object.values(env)); trigger({});
-}
+  assert.match(source.slice(a, b), /rerender\(root, [^\n]*\{ morph: true \}\)/);
+});
 test('actual video render and subscribed redraw reuse only the same complete account scope', () => {
-  const old = renderVideo(), next = renderVideo(); actualReuse(old, next); assert.equal(next.replacement, old);
-  for (const account of [{ ...scope, environment: 'other-env' }, { ...scope, session_generation: 2 }, { ...scope, account_id: 'synthetic-other' }]) { const candidate = renderVideo(account); actualReuse(old, candidate); assert.equal(candidate.replacement, null); assert.notEqual(candidate.dataset['mediaKey'], old.dataset['mediaKey']); }
+  const old = renderVideo(); assert.equal(actualReuse(old, renderVideo()), true);
+  for (const account of [{ ...scope, environment: 'other-env' }, { ...scope, session_generation: 2 }, { ...scope, account_id: 'synthetic-other' }]) { const fresh = renderVideo(), candidate = renderVideo(account); assert.equal(actualReuse(fresh, candidate), false); assert.notEqual(candidate.video.dataset['mediaKey'], fresh.video.dataset['mediaKey']); }
 });
 test('different room, message or URL and unverifiable owner/identity never reuse old playback', () => {
-  const old = renderVideo();
-  for (const next of [renderVideo(scope, 'synthetic-other-room'), renderVideo(scope, 'synthetic-room', 'synthetic-other-message'), renderVideo(scope, 'synthetic-room', 'synthetic-message', 'https://media.ctrip.com/other.mp4'), renderVideo(scope, 'synthetic-room', null), renderVideo(scope, 'synthetic-room', 'synthetic-message', undefined, { ...scope, session_generation: 2 })]) { actualReuse(old, next); assert.equal(next.replacement, null); }
-  const unidentified = renderVideo(scope, 'synthetic-room', null), next = renderVideo(scope, 'synthetic-room', null); actualReuse(unidentified, next); assert.equal(next.replacement, null);
+  for (const next of [() => renderVideo(scope, 'synthetic-other-room'), () => renderVideo(scope, 'synthetic-room', 'synthetic-other-message'), () => renderVideo(scope, 'synthetic-room', 'synthetic-message', 'https://media.ctrip.com/other.mp4'), () => renderVideo(scope, 'synthetic-room', null), () => renderVideo(scope, 'synthetic-room', 'synthetic-message', undefined, { ...scope, session_generation: 2 })]) assert.equal(actualReuse(renderVideo(), next()), false);
+  assert.equal(actualReuse(renderVideo(scope, 'synthetic-room', null), renderVideo(scope, 'synthetic-room', null)), false);
 });
