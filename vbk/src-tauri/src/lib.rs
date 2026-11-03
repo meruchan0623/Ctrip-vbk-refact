@@ -17,6 +17,7 @@ pub mod peripheral_journal;
 pub mod media_outbound;
 pub mod assistant;
 pub mod commands;
+pub mod data_guard;
 pub mod diag_bridge;
 pub mod dto;
 pub mod events;

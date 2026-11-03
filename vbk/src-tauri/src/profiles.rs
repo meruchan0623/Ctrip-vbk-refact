@@ -78,9 +78,13 @@ pub fn data_store_id(profile_id: &str) -> [u8; 16] {
 
 /// Data directory of a profile (used on Windows / Linux; on macOS only for
 /// cleanup of anything WebKit may have put there).
+///
+/// 固定在 `app_data_dir/profiles/<profile_id>`：只由 bundle identifier 与
+/// profile id 决定，不随版本号、安装目录或 exe 路径变化，NSIS 覆盖安装/升级
+/// 后原样复用（见 `data_guard::profile_dir` 的单测）。
 pub fn data_dir(app: &AppHandle, profile_id: &str) -> Option<PathBuf> {
     let base = app.path().app_data_dir().ok()?;
-    Some(base.join("profiles").join(profile_id))
+    crate::data_guard::profile_dir(&base, profile_id)
 }
 
 /// Whether a remote webview may navigate to `url`. Only secure web URLs (and
