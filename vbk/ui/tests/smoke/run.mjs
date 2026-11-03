@@ -441,6 +441,8 @@ async function testMain(context, base) {
   await page.waitForSelector('[data-action="order-query"]', { timeout: 5000 });
   const expectState = async (id, state) => {
     await page.click(`[data-sample="${id}"]`);
+    // 查询先把状态置为 loading，DOM 下一帧才更新：等两帧，避免把上一次查询残留的结果当成本次结果。
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     await page.waitForSelector(`[data-order-state="${state}"]`, { timeout: 8000 });
     return text(page, `[data-order-state="${state}"]`);
   };
@@ -495,8 +497,8 @@ async function testMain(context, base) {
   await page.waitForTimeout(900);
   const lateIm = await rec.calls('order_create_im_chat');
   const lateConvs = await rec.calls('im_conversations');
-  check(lateIm.length === 1 && lateIm[0].payload.account?.account_id === 'acc-demo-a', 'in-flight createimchat still carries account A');
-  check(lateConvs.some((c) => c.payload.account?.account_id === 'acc-demo-a') && lateConvs.some((c) => c.payload.account?.account_id === 'acc-demo-b'), 'conversation reloads are issued per account');
+  check(lateIm.length === 1 && lateIm[0].payload.account?.account_id === 'acc-demo-a', `in-flight createimchat still carries account A (${JSON.stringify(lateIm.map((c) => c.payload.account?.account_id))})`);
+  check(lateConvs.some((c) => c.payload.account?.account_id === 'acc-demo-a') && lateConvs.some((c) => c.payload.account?.account_id === 'acc-demo-b'), `conversation reloads are issued per account (${JSON.stringify(lateConvs.map((c) => c.payload.account?.account_id))})`);
   check(document_view(await page.getAttribute('.app', 'data-view')) === 'order' && (await page.$('[data-order-state]')) === null, 'switching accounts keeps the navigation view but drops the other account\'s order result');
   await page.click('[data-nav="messages"]');
   await page.waitForTimeout(100);
