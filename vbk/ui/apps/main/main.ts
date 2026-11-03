@@ -83,6 +83,7 @@ import { mergeMessageProfile, renderMessageAvatar } from './message-profile.ts';
 import { createUnknownOutbound, type UnknownOutboundView } from './unknown-outbound.ts';
 import { createReceiveCounters, createReceiveDiagnostics, receiveDiagnosticsJson, type ReceiveDiagnosticsView } from './receive-diagnostics.ts';
 import { sendComposer, attachmentSendUnavailable, isRegisteredMediaAttachment, ATTACHMENT_SEND_UNAVAILABLE } from './sendComposer.ts';
+import { createTsimOrderOpener, orderInfoSection } from './order-info.ts';
 import { createPackagePreview, EMPTY_PACKAGE_PREVIEW, packageIdentity, packageOrderId, packageViewApplies, type PackageContext, type PackagePreviewState } from './package-preview.ts';
 import {
   AGENT_STATUS_ORDER,
@@ -1052,6 +1053,11 @@ async function refreshPackages(): Promise<void> {
   await packagePreview.query(true);
 }
 
+const tsimOrder = createTsimOrderOpener({
+  current: () => { const s = S(), account = activeAccount(s)?.context, conversation = activeConv(s); return account && conversation && sameAccount(account, conversation.account) && account.session_generation === conversation.account.session_generation ? { account, conversation, identity: s.tsimStatus } : null; },
+  invoke: (command, payload) => ipc.invoke(command, payload), notify: toast, login: () => openTsimSettings(),
+});
+
 function openTsimSettings(): void { void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); }
 
 function receivePackageIdentity(value: unknown): void {
@@ -1906,7 +1912,6 @@ function packageCard(s: MainState, conv: UiConversation): HTMLElement | null {
 
 function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
   const o = conv.order;
-  const row = (label: string, value: string | undefined) => value?.trim() ? [h('div', { class: 'ik' }, label), h('div', { class: 'iv' }, value)] : null;
   return h(
     'aside',
     { class: 'side' },
@@ -1917,25 +1922,9 @@ function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
       h('div', { class: 'side-customer' }, h('div', { class: 'ava', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)), h('span', { class: 'side-customer-name' }, conv.title)),
       h('div', { class: 'source-heading' }, '咨询来源'),
       o
-        ? h('div', { class: cx('source-info', { hot: s.hotOrder }) },
-            o.source_title ? h('div', { class: 'source-title' }, o.source_title) : null,
-            o.source_description ? h('div', { class: 'source-description' }, o.source_description) : null,
-            h('div', { class: 'info-grid' },
-              row('来源渠道', o.source_channel),
-              row('订单号', o.order_id),
-              row('商品名称', o.product),
-              row('使用日期', o.use_date),
-              row('订单总额', o.total_amount),
-              row('备注名称', o.remark_name),
-              row('数量', o.quantity),
-              row('订单状态', o.status),
-            ),
-            h('div', { class: 'source-actions' },
-              h('button', { class: 'ibtn', 'aria-label': t('side.copyOrder'), onclick: () => copyText(o.order_id, t('side.orderCopied')) }, icon(IC.copy, 12)),
-              h('button', { class: 'link', dataset: { side: 'detail' }, onclick: () => goOrderDetail(o.order_id) }, t('side.detail')),
-              h('button', { class: 'link', dataset: { side: 'pc' }, onclick: () => void openWebAdvanced(o) }, t('side.pcDetail')),
-            ),
-          )
+        ? orderInfoSection({ order: o, hot: s.hotOrder, labels: { copy: t('side.copyOrder'), detail: t('side.detail'), pcDetail: t('side.pcDetail') },
+            copy: () => void copyText(o.order_id, t('side.orderCopied')), detail: () => goOrderDetail(o.order_id), pcDetail: () => void openWebAdvanced(o),
+            queryTsim: () => void tsimOrder.open(conv.gid) }, h, icon, IC.copy)
         : h('div', { class: 'muted', style: { 'font-size': '12px' } }, t('side.noOrder')),
     ),
     packageCard(s, conv),

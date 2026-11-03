@@ -280,6 +280,12 @@ html[data-platform="macos"] .wbtns { display: none; }
 .source-description { font-size: 12px; color: var(--c-text-muted); margin-top: -6px; }
 .source-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .side .info-grid { grid-template-columns: 68px minmax(0, 1fr); gap: 12px 10px; }
+/* 订单ID：数字本身是打开 TSim 订单查询窗的链接，旁边保留复制。 */
+.iv-order { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; }
+.order-link { color: var(--c-primary); font: inherit; letter-spacing: inherit; padding: 0; text-align: left; word-break: break-all; user-select: text; cursor: pointer; }
+.order-link:hover { text-decoration: underline; }
+.order-link:focus-visible, .order-copy:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; border-radius: 3px; }
+.order-copy { width: 20px; height: 20px; }
 
 .receipt-unread { color: #f35b4b; margin-right: 4px; }
 .receipt-read { color: #929292; margin-right: 4px; }

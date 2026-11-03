@@ -844,6 +844,16 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       checkOrderBinding(summary); openedPackage = { summary, plan };
       emit(UiEvents.TOAST, { text: '（演示）已选择对应套餐详情；原生客户端会打开独立详情窗口。' }); return null;
     },
+    [UiCommands.ASSIST_TSIM_ORDER_OPEN]: async (p) => {
+      const account = checkAccount(p);
+      const { gid, order_id, context_revision, session_epoch } = p as { gid: string; order_id: string; context_revision: string; session_epoch: number };
+      if (typeof order_id !== 'string' || !/^(?:\d{10}|\d{16})$/.test(order_id)) throw appError('assistant.invalid_input', '完整订单号无效');
+      const conv = convFor(account, gid);
+      if (conv.order?.order_id !== order_id || conv.assistant_context_revision !== context_revision) throw appError('account.stale_generation', '订单范围已变化');
+      if (!st.tsim.logged_in) throw appError('assistant.tsim_unauthenticated', 'TSim 未登录', false);
+      if (st.tsim.session_epoch !== session_epoch) throw appError('host.view_unauthorized', 'TSim 身份已变化');
+      emit(UiEvents.TOAST, { text: `（演示）原生客户端会打开 TSim 订单查询窗：${order_id}` }); return null;
+    },
     [UiCommands.ASSIST_PACKAGE_DETAIL]: async () => {
       if (!openedPackage) throw appError('host.view_unauthorized', '详情窗口尚未绑定套餐');
       const { summary, plan } = openedPackage; checkOrderBinding(summary);

@@ -110,6 +110,7 @@ impl Role {
             "assistant_package_quick_view",
             "assistant_order_summary",
             "assistant_package_detail_open",
+            "assistant_tsim_order_open",
         ];
         const ALARM_CMDS: &[&str] = &[
             "contract_hello",

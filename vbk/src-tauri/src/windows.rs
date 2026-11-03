@@ -176,7 +176,7 @@ static SECONDARY_WINDOW_OPEN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const
 
 /// The real secondary-window construction seam, shared by command and tray.
 /// Serializes the existing-window check and creation as one operation.
-async fn dispatch_secondary_window<T: Send + 'static>(
+pub(crate) async fn dispatch_secondary_window<T: Send + 'static>(
     open: impl FnOnce() -> tauri::Result<T> + Send + 'static,
 ) -> tauri::Result<T> {
     let _gate = SECONDARY_WINDOW_OPEN.lock().await;

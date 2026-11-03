@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { companionPackageCard, preserveCompanionFocus } from './companion-card.ts';
+import { COMPANION_MAX_HEIGHT, companionPackageCard, packageFreshness, preserveCompanionFocus } from './companion-card.ts';
 import { packageInfo } from './package-preview.ts';
 import type { PackagePlanInfo } from './package-preview.ts';
 import type { h } from '../../packages/ui-kit/src/h.ts';
@@ -11,7 +11,7 @@ const plan: PackagePlanInfo = { plan: '渠道套餐', iccid: '898600000000000000
 type Tree = { tag: string; props: Record<string, any>; children: unknown[] };
 const fakeH = ((tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children })) as unknown as typeof h;
 function nodes(tree: unknown): Tree[] { if (Array.isArray(tree)) return tree.flatMap(nodes); return tree && typeof tree === 'object' && 'tag' in tree ? [tree as Tree, ...nodes((tree as Tree).children)] : []; }
-function render(scope: string, plans = [plan, { ...plan, plan: '套餐二' }]) { const copied: string[] = []; const opened: number[] = []; const tree = companionPackageCard({ scope, plans, total: 3, open: true, busy: false, hot: false, identity: '订单', refreshDisabled: false, notice: [], canDetail: true, refresh() {}, toggle() {}, detail: index => opened.push(index), copy: text => copied.push(text) }, fakeH, (() => null) as any); return { tree, nodes: nodes(tree), copied, opened }; }
+function render(scope: string, plans: PackagePlanInfo[] = [plan, { ...plan, plan: '套餐二' }], now?: number) { const copied: string[] = []; const opened: number[] = []; const tree = companionPackageCard({ scope, plans, total: 3, open: true, busy: false, hot: false, identity: '订单', refreshDisabled: false, notice: [], canDetail: true, refresh() {}, toggle() {}, detail: index => opened.push(index), copy: text => copied.push(text), ...(now === undefined ? {} : { now }) }, fakeH, (() => null) as any); return { tree, nodes: nodes(tree), copied, opened }; }
 test('legacy card renders actual projected identities, usage and at most ten scrollable CDR rows per plan', () => {
   const view = render('records'); const content = JSON.stringify(view.nodes.filter(n => n.tag !== 'style').map(n => n.children.filter(c => typeof c === 'string')));
   for (const text of ['原始套餐', 'Enabled', 'iPhone', '1 GB', '最近 10 条 CDR · 日本', '10 MB 合计']) assert.ok(content.includes(text), text);
@@ -117,4 +117,39 @@ test('usage ring is built with DOM APIs (no innerHTML) and carries only validate
   assert.deepEqual(circles.map(c => c.attrs['class']), ['tr', 'fg']);
   for (const c of circles) for (const k of ['cx', 'cy', 'r']) assert.ok(Number.isFinite(Number(c.attrs[k])), k);
   assert.match(circles[1]!.attrs['stroke-dasharray']!, /^\d+(\.\d)? \d+(\.\d)?$/);
+});
+
+const strings = (list: Tree[]): string => JSON.stringify(list.filter(n => n.tag !== 'style').map(n => n.children.filter(c => typeof c === 'string')));
+test('fields without data are hidden instead of showing placeholders; unknown usage stays 未知', () => {
+  const bare: PackagePlanInfo = { plan: '', iccid: '8986000000000000009', status: '', remain: '', remain_pct: null, total: '', supplier: '', apn: '', fetched_at_ms: 1 };
+  const view = render('bare', [bare]), content = strings(view.nodes);
+  for (const placeholder of ['未返回', '未回传', '实体卡', '当前套餐速览未提供']) assert.equal(content.includes(placeholder), false, placeholder);
+  assert.ok(content.includes('未知'), 'unknown remaining/total usage keeps 未知');
+  assert.equal(view.nodes.some(n => n.props.class === 'pill'), false, 'blank status has no badge');
+  assert.equal(view.nodes.some(n => n.props.class === 'spec'), false, 'supplier/APN/eSIM grid disappears with no values');
+  assert.equal(view.nodes.some(n => n.props.class === 'row records'), false, 'no CDR projection, no CDR section');
+  assert.deepEqual(view.nodes.filter(n => n.tag === 'dt').map(n => n.children[0]), ['ICCID']);
+  const partial = render('partial', [{ ...bare, supplier: 'ESIM_SPARKS', cdrs: [] }]);
+  const spec = partial.nodes.find(n => n.props.class === 'spec')!;
+  assert.equal(spec.props.style['grid-template-columns'], 'repeat(1,minmax(0,auto))');
+  assert.ok(strings(partial.nodes).includes('暂无 CDR 记录'), 'an empty CDR list from the host is real data');
+});
+test('reference layout: status badge, hero, 源 line, three spec cells, grouped identifiers and footer reuse note', () => {
+  const full: PackagePlanInfo = { ...plan, status: 'using', remain: '500 MB', total: '500 MB', remain_pct: 100, usage_scope: 'daily', supplier: 'ESIM_SPARKS', apn: 'plus', fetched_at_ms: 10_000,
+    detail_fields: [{ label: '业务流水号', value: '9000026102742578' }, { label: '来源套餐', value: '波兰IP(直连) - 埃及' }, { label: 'eSIM状态', value: 'Disabled' }, { label: 'EID', value: '89049032007408882600210309968795' }],
+    live_fields: [{ label: '累计用量（MB）', value: '1597.44' }, { label: '当日用量（MB）', value: '0' }, { label: '设备型号', value: 'Apple iPhone 16 Pro Max' }] };
+  const view = render('reference', [full], 10_000 + 5_000), content = strings(view.nodes);
+  for (const expected of ['使用中', '今日剩余', '500 MB', '/ 500 MB', '1.56 GB', '0 MB', '波兰IP(直连) - 埃及', 'ESIM_SPARKS', 'plus', 'Disabled', '9000 0261 0274 2578', '8904 9032 0074 0888 2600 2103 0996 8795', 'Apple iPhone 16 Pro Max', '刚刚更新 · TSIM · 60 秒内复用']) assert.ok(content.includes(expected), expected);
+  assert.deepEqual(view.nodes.filter(n => n.tag === 'dt').map(n => n.children[0]), ['流水号', 'ICCID', 'EID', '设备']);
+  assert.equal(view.nodes.filter(n => n.props.class === 'copy').length, 3, 'copy for serial, ICCID and EID only');
+});
+test('freshness wording and the raised height cap', () => {
+  const base = new Date(2026, 10, 3, 9, 5).getTime();
+  assert.equal(packageFreshness(base, base + 59_999), '刚刚更新');
+  assert.equal(packageFreshness(base, base + 5 * 60_000), '5 分钟前更新');
+  assert.equal(packageFreshness(base, base + 2 * 3_600_000), '09:05 更新');
+  assert.equal(packageFreshness(base, base + 2 * 86_400_000), '11-03 09:05 更新');
+  assert.equal(packageFreshness(Number.NaN, base), '更新时间未知');
+  assert.equal(COMPANION_MAX_HEIGHT, '78%');
+  assert.equal((render('height').tree as unknown as Tree).props.style['max-height'], '78%');
 });

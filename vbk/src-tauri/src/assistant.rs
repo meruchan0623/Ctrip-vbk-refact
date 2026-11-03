@@ -13,6 +13,8 @@ pub mod http;
 pub mod service;
 #[path = "assistant/order_commands.rs"]
 pub mod order_commands;
+#[path = "assistant/tsim_order.rs"]
+pub mod tsim_order;
 #[path = "assistant/public_error.rs"]
 pub mod public_error;
 #[path = "assistant/session_storage.rs"]
@@ -87,6 +89,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         Box::new(wall_ms),
     ).with_status_observer(move |status| {
         order_commands::on_tsim_status(&event_app, &status);
+        tsim_order::on_tsim_status(&event_app, &status);
         for label in event_app.webview_windows().keys() {
             if label == crate::views::MAIN || label == crate::views::SETTING || label.starts_with(crate::views::PACKAGE_DETAIL_PREFIX) {
                 let _ = event_app.emit_to(label, "assistant://tsim-status", status.clone());
@@ -96,6 +99,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     svc.restore();
     app.manage(AssistantState(Arc::clone(&svc)));
     order_commands::init(app, Arc::clone(&svc));
+    app.manage(tsim_order::TsimOrderWindows::default());
     tauri::async_runtime::spawn(async move {
         loop {
             svc.maintain().await;
