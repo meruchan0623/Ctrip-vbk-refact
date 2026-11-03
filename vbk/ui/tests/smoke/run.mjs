@@ -137,6 +137,13 @@ async function shot(page, name) {
   screenshots.push(file);
 }
 
+/** Each case owns a fresh BrowserContext (storage, cookies, permissions); pages only set their size. */
+async function openPage(context, viewport) {
+  const page = await context.newPage();
+  await page.setViewportSize(viewport);
+  return page;
+}
+
 function watch(page, errors) {
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
@@ -203,10 +210,10 @@ const ACC_A = { account_id: 'acc-demo-a', environment: 'production', session_gen
 const ACC_B = { account_id: 'acc-demo-b', environment: 'production', session_generation: 1 };
 const A_GIDS = ['g-demo-1', 'g-demo-2', 'g-demo-3', 'g-demo-4', 'g-demo-5', 'g-demo-7'];
 
-async function testMain(browser, base) {
+async function testMain(context, base) {
   console.log('[smoke] main');
   const errors = [];
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const page = await openPage(context, { width: 1440, height: 900 });
   watch(page, errors);
   await page.goto(`${base}/apps/main/index.html?scenario=default&platform=windows`);
   await page.waitForSelector('.conv', { timeout: 10000 });
@@ -525,11 +532,11 @@ async function testMain(browser, base) {
 }
 
 /** Window shell per platform: macOS leaves room for the traffic lights and hides the caption buttons; Windows keeps them. */
-async function testMainChrome(browser, base) {
+async function testMainChrome(context, base) {
   console.log('[smoke] main title bar (macos / windows)');
   const errors = [];
   for (const platform of ['windows', 'macos']) {
-    const page = await browser.newPage({ viewport: { width: 1260, height: 805 } });
+    const page = await openPage(context, { width: 1260, height: 805 });
     watch(page, errors);
     await page.goto(`${base}/apps/main/index.html?scenario=default&platform=${platform}`);
     await page.waitForSelector('.conv', { timeout: 10000 });
@@ -576,10 +583,10 @@ async function testMainChrome(browser, base) {
 }
 
 /** First start: no account → welcome state, 「添加账号」 → account_start_login {attempt_id}, tab shows 登录中. */
-async function testMainWelcome(browser, base) {
+async function testMainWelcome(context, base) {
   console.log('[smoke] main welcome (no account)');
   const errors = [];
-  const page = await browser.newPage({ viewport: { width: 1260, height: 805 } });
+  const page = await openPage(context, { width: 1260, height: 805 });
   watch(page, errors);
   await page.goto(`${base}/apps/main/index.html?scenario=no-accounts&platform=macos`);
   await page.waitForSelector('[data-welcome="ready"]', { timeout: 8000 });
@@ -605,10 +612,10 @@ async function testMainWelcome(browser, base) {
   await page.close();
 }
 
-async function testAlarm(browser, base) {
+async function testAlarm(context, base) {
   console.log('[smoke] alarm');
   const errors = [];
-  const page = await browser.newPage({ viewport: { width: 420, height: 520 } });
+  const page = await openPage(context, { width: 420, height: 520 });
   watch(page, errors);
   await page.goto(`${base}/apps/alarm/index.html?scenario=default`);
   await page.waitForSelector('.arow', { timeout: 8000 });
@@ -733,10 +740,10 @@ async function testAlarm(browser, base) {
   await page.close();
 }
 
-async function testSetting(browser, base) {
+async function testSetting(context, base) {
   console.log('[smoke] setting');
   const errors = [];
-  const page = await browser.newPage({ viewport: { width: 880, height: 640 } });
+  const page = await openPage(context, { width: 880, height: 640 });
   watch(page, errors);
   await page.goto(`${base}/apps/setting/index.html`);
   await page.waitForSelector('[data-setting="reminder.enabled"]', { timeout: 8000 });
@@ -824,11 +831,11 @@ async function testSetting(browser, base) {
   await page.close();
 }
 
-async function testLogin(browser, base) {
+async function testLogin(context, base) {
   console.log('[smoke] login');
   const errors = [];
   // Windows: local 68px header with the close button; the official page is a separate host webview below it.
-  const page = await browser.newPage({ viewport: { width: 420, height: 460 } });
+  const page = await openPage(context, { width: 420, height: 460 });
   watch(page, errors);
   await page.goto(`${base}/apps/login/index.html?platform=windows&attempt_id=attempt-demo-x`);
   await page.waitForSelector('[data-action="cancel"]', { timeout: 8000 });
@@ -850,7 +857,7 @@ async function testLogin(browser, base) {
   check(closeCalls.length === 1 && closeCalls[0].payload.action === 'close', 'cancel closes the login window through shell_window');
   await page.close();
   // macOS: traffic lights instead of the close button
-  const mac = await browser.newPage({ viewport: { width: 420, height: 460 } });
+  const mac = await openPage(context, { width: 420, height: 460 });
   watch(mac, errors);
   await mac.goto(`${base}/apps/login/index.html?platform=macos`);
   await mac.waitForSelector('.url', { timeout: 8000 });
@@ -900,11 +907,15 @@ async function main() {
       ['setting', testSetting],
       ['login', testLogin],
     ]) {
+      // A fresh context per case: no localStorage, cookies or mock state leaks from one case into the next.
+      const context = await browser.newContext();
       try {
-        await run(browser, base);
+        await run(context, base);
       } catch (e) {
         failures += 1;
         console.error(`  FAIL (exception in ${name}): ${e?.stack ?? e}`);
+      } finally {
+        await context.close().catch(() => undefined);
       }
     }
   } finally {

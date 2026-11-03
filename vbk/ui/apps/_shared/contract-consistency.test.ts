@@ -47,6 +47,17 @@ test('capability files grant exactly their role list', () => {
   }
 });
 
+// `sorted` above merges repeats, so a duplicated registration would otherwise pass every equality check.
+test('command registrations and role lists cannot hide duplicate entries', () => {
+  const dups = (xs: string[]) => sorted(xs.filter((x, i) => xs.indexOf(x) !== i));
+  const declared = read('src-tauri/commands.txt').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  assert.deepEqual(dups(declared), [], 'duplicate commands.txt entry');
+  assert.deepEqual(dups([...handler.matchAll(/\w+::(\w+),/g)].map((m) => m[1]!)), [], 'duplicate generate_handler! entry');
+  for (const m of views.matchAll(/const (\w+)_CMDS: &\[&str\] = &\[([\s\S]*?)\];/g)) {
+    assert.deepEqual(dups([...m[2]!.matchAll(/"(\w+)"/g)].map((x) => x[1]!)), [], `duplicate command in ${m[1]}_CMDS`);
+  }
+});
+
 // I-03: the contract handshake must cover EVERY module's commands, not only commands.rs.
 // `HostState::authorize` is the single gated path; a direct `views.authorize` elsewhere would
 // let a window skip `contract_hello` for that command.

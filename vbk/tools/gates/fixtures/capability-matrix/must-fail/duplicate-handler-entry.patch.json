@@ -1,0 +1,3 @@
+{
+  "libRs": "tauri::generate_handler![\n    commands::ping,\n    commands::secret_free,\n    commands::adapter_ready,\n    commands::adapter_identity,\n    commands::adapter_push_fact,\n    commands::adapter_push_display,\n    commands::adapter_reply,\n    commands::ping,\n]"
+}

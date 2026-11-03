@@ -1,0 +1,10 @@
+{
+  "capabilities": {
+    "adapter.json": {
+      "webviews": [
+        "acct-*",
+        "acct-*"
+      ]
+    }
+  }
+}

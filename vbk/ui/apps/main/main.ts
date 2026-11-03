@@ -1951,8 +1951,8 @@ function messagePane(s: MainState, conv: UiConversation, acc: UiAccount | null, 
   const spacer = (kind: 'top' | 'bottom', height: number): HTMLElement => h('div', { class: 'msgs-spacer', 'aria-hidden': 'true', dataset: { msgSpacer: kind }, style: { height: `${height}px`, flex: 'none' } });
   const node = h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: scope, readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
       s.history[conv.gid]?.firstPage === 'loading' ? h('div', { class: 'history-more', role: 'status' }, '正在读取聊天记录…') : null,
-      s.history[conv.gid]?.firstPage === 'error' ? h('button', { class: 'history-more', onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
-      s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null,
+      s.history[conv.gid]?.firstPage === 'error' ? h('button', { class: 'history-more', dataset: { history: 'retry', fid: 'history:retry' }, onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
+      s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', disabled: s.history[conv.gid]?.busy, dataset: { history: 'earlier', fid: 'history:earlier' }, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null,
       win.range.start > 0 ? spacer('top', win.topSpacer) : null,
       msgs.slice(win.range.start, win.range.end).map((m) => messageRow(s, m, conv, acc)),
       win.range.end < msgs.length ? spacer('bottom', win.bottomSpacer) : null);

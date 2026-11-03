@@ -41,6 +41,8 @@ const FORBIDDEN_TYPES = /(?:^|[^A-Za-z])(?:PathBuf|Path|OsString|OsStr)(?:$|[^A-
 const URL_PARAMS = new Set(['url', 'uri', 'href', 'endpoint']);
 
 const sorted = (xs) => [...new Set(xs)].sort();
+/** Names listed more than once: the parsers merge them, so they must be reported, not absorbed. */
+const duplicates = (xs) => sorted(xs.filter((x, i) => xs.indexOf(x) !== i));
 /** Capability permissions are strings or `{identifier, allow, deny}` objects; both name the permission. */
 const permissionIds = (cap) => (cap.permissions ?? []).map((p) => (typeof p === 'string' ? p : p?.identifier)).filter((p) => typeof p === 'string');
 const permissionToCommand = (p) => p.slice('allow-'.length).replaceAll('-', '_');
@@ -53,19 +55,27 @@ export function parseViews(viewsRs) {
     (m[1].endsWith('_PREFIX') ? prefixes : labels)[m[1]] = m[2];
   }
   const roleLists = {};
-  for (const m of viewsRs.matchAll(/const (\w+)_CMDS: &\[&str\] = &\[([\s\S]*?)\];/g)) roleLists[m[1]] = sorted([...m[2].matchAll(/"(\w+)"/g)].map((x) => x[1]));
-  return { labels, prefixes, roleLists };
+  const roleDuplicates = {};
+  for (const m of viewsRs.matchAll(/const (\w+)_CMDS: &\[&str\] = &\[([\s\S]*?)\];/g)) {
+    const raw = [...m[2].matchAll(/"(\w+)"/g)].map((x) => x[1]);
+    roleLists[m[1]] = sorted(raw);
+    roleDuplicates[m[1]] = duplicates(raw);
+  }
+  return { labels, prefixes, roleLists, roleDuplicates };
 }
 
-export function parseHandler(libRs) {
+/** `raw: true` keeps repeated entries so the caller can report them. */
+export function parseHandler(libRs, { raw = false } = {}) {
   const start = libRs.indexOf('generate_handler![');
   if (start < 0) return [];
   const body = libRs.slice(start, libRs.indexOf(']', start));
-  return sorted([...body.matchAll(/(?:\w+::)+(\w+)/g)].map((m) => m[1]).filter((n) => n !== 'generate_handler'));
+  const names = [...body.matchAll(/(?:\w+::)+(\w+)/g)].map((m) => m[1]).filter((n) => n !== 'generate_handler');
+  return raw ? names : sorted(names);
 }
 
-export function parseCommandsTxt(txt) {
-  return sorted(txt.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')));
+export function parseCommandsTxt(txt, { raw = false } = {}) {
+  const names = txt.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  return raw ? names : sorted(names);
 }
 
 /** Matrix rows from the capability files. */
@@ -98,6 +108,13 @@ export function check(world) {
   const handler = parseHandler(world.libRs);
   const ts = sorted(world.tsCommands);
   const diff = (a, b) => ({ onlyA: a.filter((x) => !b.includes(x)), onlyB: b.filter((x) => !a.includes(x)) });
+  for (const [name, list] of [
+    ['src-tauri/commands.txt', parseCommandsTxt(world.commandsTxt, { raw: true })],
+    ['lib.rs generate_handler!', parseHandler(world.libRs, { raw: true })],
+  ]) {
+    const dup = duplicates(list);
+    if (dup.length) v(name, `duplicate command entries: ${dup.join(', ')}`);
+  }
 
   for (const [nameA, a, nameB, b] of [
     ['commands.txt', txt, 'lib.rs generate_handler!', handler],
@@ -108,7 +125,8 @@ export function check(world) {
     if (d.onlyB.length) v(nameB, `in ${nameB} but not in ${nameA}: ${d.onlyB.join(', ')}`);
   }
 
-  const { labels, prefixes, roleLists } = parseViews(world.viewsRs);
+  const { labels, prefixes, roleLists, roleDuplicates } = parseViews(world.viewsRs);
+  for (const [role, dup] of Object.entries(roleDuplicates)) if (dup.length) v('src-tauri/src/views.rs', `${role}_CMDS lists a command more than once: ${dup.join(', ')}`);
   const roleUnion = sorted(Object.values(roleLists).flat());
   for (const c of roleUnion) if (!txt.includes(c)) v('src-tauri/src/views.rs', `role list names unknown command ${c}`);
   const orphan = txt.filter((c) => !roleUnion.includes(c));
@@ -149,6 +167,9 @@ export function check(world) {
     if (JSON.stringify(sorted(adapter.remote?.urls ?? [])) !== JSON.stringify(ADAPTER_URLS)) v('capabilities/adapter.json', `remote.urls must be exactly ${ADAPTER_URLS.join(' , ')}`);
     if (JSON.stringify(sorted(permissionIds(adapter))) !== JSON.stringify(ADAPTER_PERMISSIONS) || permissionIds(adapter).length !== (adapter.permissions ?? []).length) v('capabilities/adapter.json', `permissions must be exactly the 5 adapter bridge commands + 2 event permissions (remote surface <= 7), got ${JSON.stringify(adapter.permissions ?? [])}`);
     if ((adapter.windows ?? []).length) v('capabilities/adapter.json', 'adapter capability must target webviews only');
+    const accountGlob = `${prefixes.ACCOUNT_WEBVIEW_PREFIX ?? 'acct-'}*`;
+    if (JSON.stringify(adapter.webviews ?? []) !== JSON.stringify([accountGlob])) v('capabilities/adapter.json', `webviews must be exactly [${JSON.stringify(accountGlob)}], got ${JSON.stringify(adapter.webviews ?? [])}`);
+    if (adapter.local === true) v('capabilities/adapter.json', 'adapter capability must not set `local: true` (remote origins only)');
   }
 
   // G-SEC-5: no free-form path / SQL / program parameter; URL parameters only when reviewed.

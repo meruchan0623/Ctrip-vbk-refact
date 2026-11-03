@@ -1,0 +1,3 @@
+{
+  "viewsRs": "pub const MAIN: &str = \"main\";\npub const ALARM: &str = \"alarm\";\npub const PACKAGE_DETAIL_PREFIX: &str = \"package-detail-\";\npub const ACCOUNT_WEBVIEW_PREFIX: &str = \"acct-\";\nconst MAIN_CMDS: &[&str] = &[\"ping\", \"secret_free\", \"ping\"];\nconst ALARM_CMDS: &[&str] = &[\"ping\"];\nconst DETAIL_CMDS: &[&str] = &[\"ping\"];\nconst ADAPTER_CMDS: &[&str] = &[\"adapter_ready\", \"adapter_identity\", \"adapter_push_fact\", \"adapter_push_display\", \"adapter_reply\"];\n"
+}
