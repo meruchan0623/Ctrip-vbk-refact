@@ -29,6 +29,11 @@ import {
   orderDetailUrl,
   sendStateView,
   shouldShowTranslationBar,
+  composerLocked,
+  customerLanguage,
+  needsOutboundTranslation,
+  outboundTarget,
+  suggestLanguage,
   sortConversations,
   tabCounts,
   translationApplies,
@@ -235,7 +240,9 @@ test('translation gating and draft-version binding', () => {
   assert.equal(shouldShowTranslationBar(en, true, true), true);
   assert.equal(shouldShowTranslationBar(conv('g', { lang: 'zh' }), true, true), false);
   assert.equal(shouldShowTranslationBar(en, false, true), false);
-  assert.equal(shouldShowTranslationBar(conv('g', { lang: 'en', status: 'finished' }), true, true), false);
+  assert.equal(shouldShowTranslationBar(conv('g', { lang: 'en', status: 'finished' }), true, true), true, '已结束仍可发送（发送即重开），翻译照常');
+  assert.equal(shouldShowTranslationBar(conv('g', { lang: 'en', status: 'transferred_out' }), true, true), false);
+  assert.equal(shouldShowTranslationBar(conv('g', { lang: 'zh' }), true, true, 'ru'), true, '有效客户语言优先于行上的 zh');
   assert.equal(shouldShowTranslationBar(null, true, true), false);
   const st = { status: 'done' as const, gid: 'g', draftVersion: 3, target: 'en', text: 'x', error: null };
   assert.equal(translationApplies(st, 'g', 3), true);
@@ -363,4 +370,32 @@ test('peripheral acceptance and contradictory confirmation never imply verified 
   assert.equal(peripheralWriteView({ kind: 'unknown', confirmed: false }).confirmed, false);
   assert.equal(peripheralWriteView({ kind: 'confirmed', confirmed: false }).confirmed, false);
   assert.equal(peripheralWriteView({ kind: 'confirmed', confirmed: true }).confirmed, true);
+});
+
+test('客户语言：行上 zh（zh_HK/缺失）时按最近客户文字消息的书写脚本识别', () => {
+  const m = (sender_role: UiMessage['sender_role'], text: string, kind: UiMessage['kind'] = 'text') => ({ sender_role, kind, text });
+  assert.equal(suggestLanguage('Здравствуйте, могу я увеличить тарифный план?'), 'ru');
+  assert.equal(suggestLanguage('こんにちは、予約したいです'), 'ja');
+  assert.equal(suggestLanguage('안녕하세요 예약'), 'ko');
+  assert.equal(suggestLanguage('สวัสดีครับ'), 'th');
+  assert.equal(suggestLanguage('مرحبا بكم'), 'ar');
+  assert.equal(suggestLanguage('Hello, I want to book'), 'en');
+  assert.equal(suggestLanguage('你好，我想预订门票'), 'zh');
+  assert.equal(suggestLanguage('ok'), null, '低置信不判定');
+  assert.equal(suggestLanguage('12345 😀 !!!'), null);
+  const zhRow = { lang: 'zh' };
+  assert.equal(customerLanguage(zhRow, [m('customer', 'Здравствуйте, после покупки'), m('merchant_self', '您好')]), 'ru');
+  assert.equal(customerLanguage(zhRow, [m('customer', 'Здравствуйте'), m('customer', 'ok')]), 'ru', '低置信的新消息不覆盖更早的明确语言');
+  assert.equal(customerLanguage(zhRow, [m('merchant_self', 'Hello there friend'), m('robot', 'Welcome to Trip.com')]), 'zh', '只看客户消息');
+  assert.equal(customerLanguage(zhRow, [m('customer', 'Здравствуйте', 'image')]), 'zh', '只看文字消息');
+  assert.equal(customerLanguage(zhRow, [m('customer', 'Здравствуйте'), m('customer', '你好你好请问')]), 'zh', '最近一条明确是中文');
+  assert.equal(customerLanguage({ lang: 'ja' }, [m('customer', 'Здравствуйте')]), 'ja', '行上已是外语时直接采用');
+  assert.equal(customerLanguage(zhRow, []), 'zh');
+  assert.equal(outboundTarget('ru'), 'ru');
+  assert.equal(outboundTarget('fil'), 'en', '不支持的目标退回英语');
+  assert.equal(needsOutboundTranslation('您好，购买后无法更改。'), true);
+  assert.equal(needsOutboundTranslation('Hello'), false);
+  assert.equal(needsOutboundTranslation('ご予約ありがとうございます'), false, '已替换成日文的草稿不再翻译');
+  assert.equal(composerLocked(conv('g', { status: 'finished' })), false);
+  assert.equal(composerLocked(conv('g', { status: 'transferred_out' })), true);
 });

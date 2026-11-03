@@ -210,8 +210,77 @@ export function translationApplies(state: TranslationState, gid: string, draftVe
   return state.gid === gid && state.draftVersion === draftVersion;
 }
 
-export function shouldShowTranslationBar(conv: UiConversation | null, assistantEnabled: boolean, outboundEnabled: boolean): boolean {
-  return !!conv && !isDone(conv) && conv.lang !== 'zh' && assistantEnabled && outboundEnabled;
+/**
+ * 输入区是否锁定。已结束（finished）的会话仍可发送：适配器在提交前按官方网页
+ * 行为先重新开启会话（docs/api/validation.md「受控结束/重新进入」，evidence 49）。
+ * 转出（transferred_out）的会话责任已不在本坐席，仍然禁止发送。
+ */
+export function composerLocked(c: UiConversation): boolean {
+  return c.status === 'transferred_out';
+}
+
+/** `lang`：会话的有效客户语言（见 `customerLanguage`），缺省取行上的 `conv.lang`。 */
+export function shouldShowTranslationBar(conv: UiConversation | null, assistantEnabled: boolean, outboundEnabled: boolean, lang: string = conv?.lang ?? 'zh'): boolean {
+  return !!conv && !composerLocked(conv) && lang !== 'zh' && assistantEnabled && outboundEnabled;
+}
+
+/** 出站翻译允许的目标语言（与 core-assistant `TARGET_LANGS` 去掉 zh 后一致）。 */
+export const OUTBOUND_TARGETS: readonly string[] = ['en', 'ja', 'ko', 'th', 'vi', 'id', 'ms', 'es', 'fr', 'de', 'ru', 'ar', 'zh-TW', 'pt', 'it', 'tr'];
+
+/** 客户语言 → 可提交给 TSim 的目标语言；不在白名单内（如 `fil`、`nl`）时退回英语，避免宿主以 unsupported target 拒绝。 */
+export function outboundTarget(lang: string): string {
+  return OUTBOUND_TARGETS.includes(lang) ? lang : 'en';
+}
+
+const HAN = /[㐀-䶿一-鿿豈-﫿]/;
+const KANA_OR_HANGUL = /[ぁ-ヿㇰ-ㇿｦ-ﾟ가-힯ᄀ-ᇿ㄰-㆏]/;
+/**
+ * 出站翻译只处理客服输入的中文；不含汉字、或含假名/谚文（例如已「替换」成
+ * 日文/韩文译文的草稿）按原样发送，不把外文再当中文翻一遍。
+ */
+export function needsOutboundTranslation(text: string): boolean {
+  return HAN.test(text) && !KANA_OR_HANGUL.test(text);
+}
+
+/**
+ * 文字脚本启发式（与 core-assistant `suggest_language` 同序）：假名→ja、谚文→ko、
+ * 泰文→th、阿拉伯文→ar、西里尔文→ru、汉字→zh、拉丁字母→en。判定字母少于 4 个视为低置信，返回 null。
+ */
+export function suggestLanguage(text: string): string | null {
+  let kana = 0, hangul = 0, thai = 0, arabic = 0, cyrillic = 0, han = 0, latin = 0;
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    if ((c >= 0x3041 && c <= 0x30FF) || (c >= 0x31F0 && c <= 0x31FF) || (c >= 0xFF66 && c <= 0xFF9F)) kana++;
+    else if ((c >= 0xAC00 && c <= 0xD7AF) || (c >= 0x1100 && c <= 0x11FF) || (c >= 0x3130 && c <= 0x318F) || (c >= 0xA960 && c <= 0xA97F)) hangul++;
+    else if ((c >= 0x0E01 && c <= 0x0E3A) || (c >= 0x0E40 && c <= 0x0E4E)) thai++;
+    else if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0x0750 && c <= 0x077F) || (c >= 0xFB50 && c <= 0xFDFF) || (c >= 0xFE70 && c <= 0xFEFF)) arabic++;
+    else if (c >= 0x0400 && c <= 0x052F) cyrillic++;
+    else if (HAN.test(ch) || c === 0x3005 || c === 0x3007 || (c >= 0x20000 && c <= 0x2A6DF)) han++;
+    else if ((c < 0x80 && /[A-Za-z]/.test(ch)) || (c >= 0x00C0 && c <= 0x024F) || (c >= 0x1E00 && c <= 0x1EFF)) latin++;
+  }
+  const [lang, count] = kana > 0 ? ['ja', kana + han] : hangul > 0 ? ['ko', hangul] : thai > 0 ? ['th', thai] : arabic > 0 ? ['ar', arabic] : cyrillic > 0 ? ['ru', cyrillic] : han > 0 ? ['zh', han] : latin > 0 ? ['en', latin] : [null, 0];
+  return lang !== null && count >= 4 ? lang : null;
+}
+
+/** 识别时最多回看的客户文字消息条数。 */
+export const LANGUAGE_SCAN_LIMIT = 5;
+
+/**
+ * 会话的有效客户语言。官方行的 `languageInfo.lang / ext.locale` 是客户端界面区域
+ * （Trip-App 常见 `zh_HK`，或整个缺失而被归为 zh），不等于客户实际书写的语言；
+ * 行上为外语时直接采用，否则按最近几条客户文字消息的书写脚本识别。
+ */
+export function customerLanguage(conv: Pick<UiConversation, 'lang'>, messages: readonly Pick<UiMessage, 'sender_role' | 'kind' | 'text'>[]): string {
+  if (conv.lang !== 'zh') return conv.lang;
+  let seen = 0;
+  for (let i = messages.length - 1; i >= 0 && seen < LANGUAGE_SCAN_LIMIT; i--) {
+    const m = messages[i]!;
+    if (m.sender_role !== 'customer' || m.kind !== 'text' || !m.text) continue;
+    seen++;
+    const lang = suggestLanguage(m.text);
+    if (lang !== null) return lang;
+  }
+  return 'zh';
 }
 
 export const LANG_NAMES: Readonly<Record<string, string>> = {

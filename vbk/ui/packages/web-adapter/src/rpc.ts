@@ -21,7 +21,7 @@ import { ErrorCodes } from '../../ipc/src/contracts.ts';
 import type { AgentStatus, MarkAction, UiMessage, UiMessagePage, UiNoticeCategory, UiPeripheralWrite } from '../../ipc/src/client.ts';
 import type { AdapterDisplayPayload, AdapterOp, AdapterReplyPayload, AdapterResultMap } from '../../ipc/src/adapterProtocol.ts';
 import type { AdapterDeps } from './deps.ts';
-import { getCustomerScripts, getCurrentMembers, getInviteMemberListBySkillGroup, getLatestConversationState, finishConversation, inviteVenAgent, transferVenMaster, type PeripheralFailure, type PeripheralReadResult, type CurrentMember, type PeripheralConversation } from './peripheral.ts';
+import { getCustomerScripts, getCurrentMembers, getInviteMemberListBySkillGroup, getLatestConversationState, finishConversation, inviteVenAgent, transferVenMaster, reopenConversationForSend, FINISHED_STATUS, type ReopenResult, type PeripheralFailure, type PeripheralReadResult, type CurrentMember, type PeripheralConversation } from './peripheral.ts';
 import { Endpoints } from './endpoints.ts';
 import { businessHead, sdkHead } from './heads.ts';
 import type { SoaClient, SoaOutcome } from './soa.ts';
@@ -310,9 +310,40 @@ const imMessagePage: Handler<'im.message_page'> = async (ctx, args): Promise<UiM
 
 const imMessages: Handler<'im.messages'> = async (ctx, args, state) => (await imMessagePage(ctx, args, state)).items;
 
+/** 同一页面、同一会话并发发送只共用一次重开（键为会话缓存实例，换会话缓存即失效）。 */
+const reopening = new WeakMap<ConversationStore, Map<string, Promise<ReopenResult>>>();
+
+/**
+ * 已结束（status=4）会话的发送前重开。官方网页在结束后发送时先 `startChatB2C` 重新开启
+ * （evidence 49），本函数照做；重开失败、被拒或结果未知时消息一律不提交，以
+ * ADAPTER_NOT_READY 回报，宿主记为「未发送」(rejected)，而不是 unknown。
+ * 再次发送会先读回服务端状态，已重开的会话不会再写一次。
+ */
+async function reopenBeforeSend(ctx: RpcContext, gid: string, current: () => boolean): Promise<void> {
+  if (ctx.store.row(gid)?.status !== FINISHED_STATUS) return;
+  let inflight = reopening.get(ctx.store);
+  if (!inflight) reopening.set(ctx.store, inflight = new Map());
+  let pending = inflight.get(gid);
+  if (!pending) {
+    const memo = inflight;
+    pending = reopenConversationForSend(ctx.deps, ctx.soa, gid).finally(() => memo.delete(gid));
+    inflight.set(gid, pending);
+  }
+  const r = await pending;
+  ensureCurrent(current);
+  if (r.kind === 'already_open' || r.kind === 'accepted') return;
+  const why = r.kind === 'biz_failure' ? 'rejected by the server'
+    : r.kind === 'unknown' ? 'outcome unknown, check the conversation before sending again'
+    : r.kind === 'unsupported' ? `conversation fields missing: ${r.missing.join(',')}`
+    : r.kind === 'invalid' ? `invalid ${r.field}` : 'request failed';
+  fail(ErrorCodes.ADAPTER_NOT_READY, `finished conversation could not be reopened (${why}); message not sent`, r.kind === 'failed');
+}
+
 async function sendOnce(ctx: RpcContext, gid: string, localId: string, text: string, original: string | null, quoteId: string | null, attempt: { started: boolean }): Promise<SendDisposition> {
   const current = ctx.captureWriteGuard?.() ?? (() => true);
   ensureCurrent(current);
+  requireConversation(ctx, gid);
+  await reopenBeforeSend(ctx, gid, current);
   const view = requireConversation(ctx, gid);
   const identity = sendIdentity(ctx, view);
   let targetJid = partnerJidOf(ctx, gid);
