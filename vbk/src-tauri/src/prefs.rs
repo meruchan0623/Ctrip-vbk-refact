@@ -87,7 +87,7 @@ pub struct GeneralPrefs {
 impl Default for GeneralPrefs {
     fn default() -> Self {
         Self {
-            autostart: true,
+            autostart: false,
             close_action: CloseAction::Tray,
             start_hidden: false,
             show_msg_time: true,
@@ -637,6 +637,15 @@ mod tests {
                 .code,
             codes::INVALID_VALUE
         );
+    }
+
+    #[test]
+    fn autostart_defaults_off_and_missing_field_stays_off() {
+        // I-20: never enable launch-at-login without an explicit user action.
+        assert!(!GeneralPrefs::default().autostart);
+        let f: PrefsFile =
+            serde_json::from_value(json!({ "general": { "start_hidden": true } })).unwrap();
+        assert!(!f.local.general.autostart);
     }
 
     #[test]

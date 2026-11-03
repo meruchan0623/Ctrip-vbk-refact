@@ -1,0 +1,5 @@
+[
+  { "command": "order_validate_im_url", "param": "url", "reason": "validate_official_im_url: official IM origin policy, returns parsed parts only" },
+  { "command": "shell_open_webview", "param": "url", "reason": "host webview policy: official origins only, account-bound" },
+  { "command": "shell_open_external", "param": "url", "reason": "check_external_url: https allowlist before the system browser opens it" }
+]

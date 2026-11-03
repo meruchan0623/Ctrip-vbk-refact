@@ -1,2 +1,1 @@
-element.outerHTML += untrusted;
-element.insertAdjacentHTML("beforeend", untrusted);
+export const f = (el: any, s: string) => { el.outerHTML = s; };

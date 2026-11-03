@@ -66,20 +66,19 @@ export function companionPackageCard(input: {
   const ring = (plan: typeof plans[number], mini = false) => {
     const percent = plan.remain ? plan.remain_pct : null, unlimited = !plan.remain && plan.unlimited === true, size = mini ? 22 : 44, radius = mini ? 8.5 : 18, circumference = 2 * Math.PI * radius;
     const svg = h('span', { ref: (element: Element) => {
-      const document = element.ownerDocument, namespace = 'http://www.w3.org/2000/svg';
-      const svg = document.createElementNS(namespace, 'svg');
-      svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
-      svg.setAttribute('aria-hidden', 'true');
-      for (const className of ['tr', 'fg']) {
-        const circle = document.createElementNS(namespace, 'circle');
-        circle.setAttribute('class', className);
-        circle.setAttribute('cx', String(size / 2));
-        circle.setAttribute('cy', String(size / 2));
-        circle.setAttribute('r', String(radius));
-        if (className === 'fg') circle.setAttribute('stroke-dasharray', `${(circumference * (percent ?? (unlimited ? 100 : 0)) / 100).toFixed(1)} ${circumference.toFixed(1)}`);
-        svg.appendChild(circle);
-      }
-      element.appendChild(svg);
+      // Only validated numeric values enter SVG geometry; service text remains text nodes.
+      const doc = element.ownerDocument, ns = 'http://www.w3.org/2000/svg';
+      const svgNode = doc.createElementNS(ns, 'svg');
+      svgNode.setAttribute('viewBox', `0 0 ${size} ${size}`);
+      svgNode.setAttribute('aria-hidden', 'true');
+      const circle = (cls: string, extra: Record<string, string> = {}): void => {
+        const node = doc.createElementNS(ns, 'circle');
+        for (const [name, value] of Object.entries({ class: cls, cx: String(size / 2), cy: String(size / 2), r: String(radius), ...extra })) node.setAttribute(name, value);
+        svgNode.append(node);
+      };
+      circle('tr');
+      circle('fg', { 'stroke-dasharray': `${(circumference * (percent ?? (unlimited ? 100 : 0)) / 100).toFixed(1)} ${circumference.toFixed(1)}` });
+      element.replaceChildren(svgNode);
     } });
     return h('span', { class: mini ? 'mini' : 'ring', dataset: { tone: percent === null ? 'muted' : percent <= 0 ? 'over' : percent <= 20 ? 'warn' : 'ok' }, ...(percent === null ? {} : { role: 'meter', 'aria-label': '剩余流量', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(percent) }) }, svg, mini ? null : h('b', null, percent === null ? unlimited ? '∞' : '—' : `${percent}%`));
   };

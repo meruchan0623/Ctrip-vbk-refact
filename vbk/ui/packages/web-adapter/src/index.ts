@@ -38,6 +38,15 @@ export * from './sdkGlue.ts';
 export * from './stores.ts';
 export * from './notice.ts';
 export * from './rpc.ts';
+export * from './features.ts';
+export { createTypingFeature, TypingThrottle, TypingTracker, parseInboundTyping, sendTypingState, TYPING_THROTTLE_MS, TYPING_VISIBLE_MS } from './typingState.ts';
+export { recallFeature, recallMessage, recallWithWindow, recallVerdict, recallBody, RECALL_WINDOW_MS, RECALL_MESSAGE } from './recall.ts';
+export { voiceFeature, parseVoiceBody, playableVoiceUrl, VOICE_MSGTYPE } from './voice.ts';
+export { queueFeature, isQueueNotice, checkManualAgentStatus, QUEUE_NOTICE_ACTION } from './queueStatus.ts';
+export { translateDraft, createDraftTranslator, outboundTranslateBody, GET_MESSAGE_TRANSLATE, OUTBOUND_TRANSLATE_DEBOUNCE_MS, OUTBOUND_TRANSLATE_DEFAULT_MODE } from './outboundTranslate.ts';
+
+/** Adapter feature registration (plan I-30 access rule 2) lives in `adapterFeatures.ts`; see there. */
+export { createAdapterFeatures } from './adapterFeatures.ts';
 
 import type { AccountContext, AdapterFact, TransportState } from '../../ipc/src/contracts.ts';
 import type { AdapterDeps, SdkSocketStatus } from './deps.ts';
@@ -51,7 +60,9 @@ import {
   type ConversationListVariant,
   type UnreadLookup,
 } from './conversationList.ts';
-import { createCompensationLoop, type CompensationOptions, type CompensationLoop, type RecentMessagesResponse } from './compensation.ts';
+import { createCompensationLoop, type CompensationLoop, type RecentMessagesResponse } from './compensation.ts';
+import type { VisibilityGate } from './conversationList.ts';
+import type { OfficialConversationFeed } from './pageContext.ts';
 import type { SoaOutcome } from './soa.ts';
 import { CursorAllocator, UNKNOWN_ROLES, normalizeSdkMessage, type MemberRoles, type MsgTypeOverrides } from './facts.ts';
 
@@ -66,8 +77,14 @@ export interface AdapterOptions {
   readonly unread?: UnreadLookup;
   readonly msgTypeOverrides?: MsgTypeOverrides;
   readonly stopNormalLoopAfterLimit?: boolean;
-  readonly compensationOptions?: Pick<CompensationOptions, 'normalIntervalMs' | 'frequentIntervalMs' | 'normalLoopStopAfterMs' | 'stopNormalLoopAfterLimit'>;
-  readonly conversationCadence?: Pick<import('./conversationList.ts').ConversationListPollerOptions, 'officialRequests' | 'visibility' | 'officialLeaseMs' | 'intervalMs' | 'maxBackoffMs'>;
+  /** Normal-loop stop delay for the compensation loop; `null` = never stop (see `compensation.ts`). */
+  readonly normalLoopStopAfterMs?: number | null;
+  /** Observed official `getConversationList` loop: while active the pollers only consume its responses (I-06). */
+  readonly officialConversationFeed?: OfficialConversationFeed;
+  /** `visibilityState` gate for self-run conversation-list requests. */
+  readonly conversationVisibility?: VisibilityGate;
+  /** Fired when a poller had to pull one full snapshot itself while the official loop was active. */
+  readonly onConversationBootstrap?: () => void;
   readonly onServerTime?: (sample: ServerTimeSample) => void;
   readonly initialEpoch?: number;
   /** Raw conversation rows per poll (display cache, sessionId/worksheetId lookups). Never logged. */
@@ -124,8 +141,8 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
     emit,
     roles: rolesProxy,
     initialBeginMsgTime: opts.initialBeginMsgTime,
-    ...opts.compensationOptions,
     ...(opts.stopNormalLoopAfterLimit !== undefined ? { stopNormalLoopAfterLimit: opts.stopNormalLoopAfterLimit } : {}),
+    ...(opts.normalLoopStopAfterMs !== undefined ? { normalLoopStopAfterMs: opts.normalLoopStopAfterMs } : {}),
     ...(opts.msgTypeOverrides ? { msgTypeOverrides: opts.msgTypeOverrides } : {}),
     ...(opts.onCompensationOutcome ? { onOutcome: opts.onCompensationOutcome } : {}),
   });
@@ -133,8 +150,10 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
     createConversationListPoller(deps, soa, {
       variant,
       emit,
-      ...opts.conversationCadence,
       includeLocale: opts.includeLocaleInConversationList ?? false,
+      ...(opts.officialConversationFeed ? { official: opts.officialConversationFeed } : {}),
+      ...(opts.conversationVisibility ? { visibility: opts.conversationVisibility } : {}),
+      ...(opts.onConversationBootstrap ? { onBootstrap: opts.onConversationBootstrap } : {}),
       ...(opts.unread ? { unread: opts.unread } : {}),
       ...(opts.onConversationRows ? { onRows: (rows: readonly ConversationListItem[], full: boolean) => opts.onConversationRows?.(rows, full, variant) } : {}),
       ...(opts.onConversationListRequest ? { onRequest: opts.onConversationListRequest } : {}),

@@ -20,6 +20,9 @@ const ALL_FACTS: AdapterFact[] = [
   { kind: 'compensation_sync', last_message_timestamp_ms: 1 },
   { kind: 'transport', state: 'connected' },
   { kind: 'auth_invalid' },
+  { kind: 'feature', fact: { kind: 'typing', gid: 'g', from: 'u', until_ms: 1700000005000 } },
+  { kind: 'feature', fact: { kind: 'recalled', gid: 'g', message_id: 'm' } },
+  { kind: 'feature', fact: { kind: 'queue_notice', gid: 'g' } },
 ];
 
 /** Every key the frozen contract allows anywhere inside an envelope. */
@@ -28,6 +31,7 @@ const ALLOWED_KEYS = new Set([
   'gid', 'message_id', 'local_id', 'create_time_ms', 'sender_role', 'sender_id', 'source', 'disposition',
   'server_message_id', 'server_time_ms', 'code', 'reason', 'status', 'agent_in_group', 'is_owner', 'service_type',
   'last_message_time_ms', 'last_update_time_ms', 'unread_count', 'is_full_snapshot', 'full', 'last_message_timestamp_ms', 'state',
+  'from', 'until_ms',
 ]);
 
 function walkKeys(x: unknown, seen: (k: string) => void): void {
@@ -49,6 +53,7 @@ test('review/bridge: envelope keys/value types equal AdapterFactEnvelope; stream
     conversation_list_sync: FactStreams.CONVERSATION,
     transport: FactStreams.TRANSPORT,
     auth_invalid: FactStreams.TRANSPORT,
+    feature: FactStreams.FEATURE,
   };
   for (const fact of ALL_FACTS) {
     const env = bridge.push(fact);

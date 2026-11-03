@@ -899,6 +899,157 @@ const TABLE: &[Row] = &[
     ),
 ];
 
+/// Supplement from the 2026-11-02 live capture of the official desktop
+/// client and the rea static analysis (docs/reviews/2026-11-02-desktop-live-
+/// capture-verification.md). Kept apart from the 72 rows of
+/// `docs/api/README.md` so that table stays a verbatim mirror.
+///
+/// * `getMessageTranslate` / `getIQMessages` / `putAdviceofreadIQMessage` /
+///   (spelling per the live evidence `message-notice-order-live-20261030.json`) /
+///   `translateIQMessage`: paths from static call sites (rea FE, desktop
+///   baseline 09-assistant); request shapes beyond what the web adapter
+///   already uses are **not** captured.
+/// * `28967/reportInjectFnInfo`, `ivbk/accountV2/restapi/ab`,
+///   `tour/im/ex-area/qconfig/json`: page-auxiliary traffic of the official
+///   page. They are evidence only (`assert_in_scope` refuses them); the
+///   adapter never calls them.
+const SUPPLEMENT: &[Row] = &[
+    (
+        "m:11679/getMessageTranslate",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/getMessageTranslate",
+        SdkHead,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:11679/getIQMessages",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/getIQMessages",
+        SdkHead,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:11679/putAdviceofreadIQMessage",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/putAdviceofreadIQMessage",
+        SdkHead,
+        Write,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:11679/translateIQMessage",
+        Method::Post,
+        M,
+        "/restapi/soa2/11679/translateIQMessage",
+        SdkHead,
+        ReadOnly,
+        SoaAck,
+        Core,
+    ),
+    (
+        "m:28967/reportInjectFnInfo",
+        Method::Post,
+        M,
+        "/restapi/soa2/28967/reportInjectFnInfo",
+        Cookie,
+        Write,
+        SoaAck,
+        PageAux,
+    ),
+    (
+        "vbooking:ivbk/accountV2/restapi/ab",
+        Method::Post,
+        VBOOKING,
+        "/ivbk/accountV2/restapi/ab",
+        Cookie,
+        ReadOnly,
+        Raw,
+        PageAux,
+    ),
+    (
+        "vbooking:tour/im/ex-area/qconfig/json",
+        Method::Post,
+        VBOOKING,
+        "/tour/im/ex-area/qconfig/json",
+        Cookie,
+        ReadOnly,
+        Raw,
+        PageAux,
+    ),
+];
+
+/// Development-only host aliases. Compiled only with the `test-endpoints`
+/// feature; a release build contains none of these strings (plan I-24,
+/// SEC-12 / F-07). The aliases are folded onto their production host before
+/// lookup, so no test endpoint ever gets its own policy row.
+#[cfg(feature = "test-endpoints")]
+pub mod test_env {
+    /// `(test host, production host)`; hosts per rea 02 section 5.2.
+    pub const HOST_ALIASES: &[(&str, &str)] = &[
+        ("gateway.m.fws.qa.nt.ctripcorp.com", "m.ctrip.com"),
+        ("gateway.m.uat.qa.nt.ctripcorp.com", "m.ctrip.com"),
+        (
+            "vbooking.ctrip.fat29.qa.nt.ctripcorp.com",
+            "vbooking.ctrip.com",
+        ),
+        (
+            "vbooking.ctrip.fat30.qa.nt.ctripcorp.com",
+            "vbooking.ctrip.com",
+        ),
+        (
+            "vbooking.ctrip.fws.qa.nt.ctripcorp.com",
+            "vbooking.ctrip.com",
+        ),
+        (
+            "vbooking.ctrip.uat.qa.nt.ctripcorp.com",
+            "vbooking.ctrip.com",
+        ),
+    ];
+
+    pub fn production_host(host: &str) -> Option<&'static str> {
+        HOST_ALIASES
+            .iter()
+            .find(|(t, _)| t.eq_ignore_ascii_case(host))
+            .map(|&(_, p)| p)
+    }
+}
+
+/// Which endpoint table this binary was built with.
+pub const BUILD_PROFILE: &str = if cfg!(feature = "test-endpoints") {
+    "test-endpoints"
+} else {
+    "production"
+};
+
+/// Release gate: true when `host` looks like one of the non-production
+/// domains the reverse report found in the official bundle (FAT/UAT/FWS/QA
+/// internals, `*.ctripcorp.com`, `tripqate`). Used by the table test and by
+/// build scripts that scan artifacts.
+///
+/// Deliberately label-wise: the former dotted substrings (`".qa.nt."`,
+/// `".uat."`, ...) were pooled next to each other in the production rlib and
+/// the artifact scanner (`tools/release-scan.mjs`) flagged the detector
+/// itself as a test host. No literal here contains a dot.
+pub fn is_test_domain(host: &str) -> bool {
+    let h = host.to_ascii_lowercase();
+    let labels: Vec<&str> = h.split('.').collect();
+    let qa_nt = labels.windows(2).any(|w| w[0] == "qa" && w[1] == "nt");
+    qa_nt
+        || labels.contains(&"uat")
+        || labels.contains(&"fws")
+        || labels.iter().any(|l| l.starts_with("fat"))
+        || labels.iter().any(|l| l.contains("tripqate"))
+        || h.ends_with(&["ctripcorp", "com"].join("."))
+}
+
 /// Registry of every observed endpoint.
 #[derive(Debug, Clone)]
 pub struct EndpointRegistry {
@@ -916,10 +1067,11 @@ impl Default for EndpointRegistry {
 impl EndpointRegistry {
     /// Builds the registry from the observed table.
     pub fn official() -> Self {
-        let mut policies = Vec::with_capacity(TABLE.len());
-        let mut by_key = HashMap::with_capacity(TABLE.len());
-        let mut by_id = HashMap::with_capacity(TABLE.len());
-        for (i, row) in TABLE.iter().enumerate() {
+        let total = TABLE.len() + SUPPLEMENT.len();
+        let mut policies = Vec::with_capacity(total);
+        let mut by_key = HashMap::with_capacity(total);
+        let mut by_id = HashMap::with_capacity(total);
+        for (i, row) in TABLE.iter().chain(SUPPLEMENT.iter()).enumerate() {
             let (id, method, host, path, auth, side_effect, response_kind, scope) = *row;
             let retry = match side_effect {
                 SideEffect::ReadOnly => RetryPolicy::SafeRead,
@@ -961,6 +1113,8 @@ impl EndpointRegistry {
     /// Exact lookup; host is compared case-insensitively, path exactly
     /// (query string must be stripped by the caller).
     pub fn lookup(&self, method: Method, host: &str, path: &str) -> Option<&EndpointPolicy> {
+        #[cfg(feature = "test-endpoints")]
+        let host = test_env::production_host(host).unwrap_or(host);
         let key = (method, host.to_ascii_lowercase(), path.to_string());
         self.by_key.get(&key).map(|&i| &self.policies[i])
     }
@@ -1015,14 +1169,17 @@ mod tests {
 
     #[test]
     fn registry_has_exactly_72_entries() {
+        // 72 rows mirror docs/api/README.md; SUPPLEMENT is the 2026-11-02 live capture.
+        assert_eq!(TABLE.len(), 72);
         let r = EndpointRegistry::official();
-        assert_eq!(r.len(), 72);
+        let total = 72 + SUPPLEMENT.len();
+        assert_eq!(r.len(), total);
         assert!(!r.is_empty());
         let ids: HashSet<&str> = r.iter().map(|p| p.id).collect();
-        assert_eq!(ids.len(), 72, "ids must be unique");
+        assert_eq!(ids.len(), total, "ids must be unique");
         let keys: HashSet<(Method, &str, &str)> =
             r.iter().map(|p| (p.method, p.host, p.path)).collect();
-        assert_eq!(keys.len(), 72, "method+host+path must be unique");
+        assert_eq!(keys.len(), total, "method+host+path must be unique");
         assert_eq!(r.iter().filter(|p| p.method == Method::Get).count(), 2);
     }
 
@@ -1102,13 +1259,17 @@ mod tests {
     #[test]
     fn scope_per_readme_column() {
         let r = EndpointRegistry::official();
-        let count = |s: EndpointScope| r.iter().filter(|p| p.scope == s).count();
+        // README column counts are over the 72 mirrored rows only.
+        let count = |s: EndpointScope| TABLE.iter().filter(|row| row.7 == s).count();
         assert_eq!(count(EndpointScope::SettingsReadback), 2);
         assert_eq!(count(EndpointScope::PageAuxiliaryNotInScope), 9);
         assert_eq!(count(EndpointScope::OrderDetailEvidenceNotInScope), 8);
         assert_eq!(count(EndpointScope::OrderContact), 2);
         assert_eq!(count(EndpointScope::Core), 72 - 2 - 9 - 8 - 2);
-        assert_eq!(r.iter().filter(|p| p.is_in_scope()).count(), 51 + 2);
+        assert_eq!(
+            TABLE.iter().filter(|row| row.7.is_in_scope()).count(),
+            51 + 2
+        );
 
         assert!(r.assert_in_scope("m:16037/getConversationList").is_ok());
         assert!(r.assert_in_scope("sec-m:14361/createimchat").is_ok());
@@ -1168,5 +1329,108 @@ mod tests {
                 .map(|p| p.response_kind),
             Some(ResponseKind::SoaResponseErrorCode)
         );
+    }
+
+    #[test]
+    fn release_table_has_no_test_domains() {
+        let r = EndpointRegistry::official();
+        for p in r.iter() {
+            assert!(!is_test_domain(p.host), "{} -> {}", p.id, p.host);
+            assert!(p.host.ends_with(".ctrip.com"), "{}", p.host);
+        }
+        #[cfg(not(feature = "test-endpoints"))]
+        assert_eq!(BUILD_PROFILE, "production");
+        assert!(is_test_domain("gateway.m.fws.qa.nt.ctripcorp.com"));
+        assert!(is_test_domain("www.uat.tripqate.com"));
+        assert!(is_test_domain("vbooking.ctrip.fat30.qa.nt.ctripcorp.com"));
+        assert!(is_test_domain("GATEWAY.M.UAT.QA.NT.CTRIPCORP.COM"));
+        assert!(is_test_domain("x.fat.ctrip.com"));
+        assert!(!is_test_domain("m.ctrip.com"));
+        assert!(!is_test_domain("im3.ctrip.com"));
+        assert!(!is_test_domain("nephele.ctrip.com"));
+        // an alias host is only resolvable in a build that opted in
+        #[cfg(not(feature = "test-endpoints"))]
+        assert!(r
+            .lookup(
+                Method::Post,
+                "gateway.m.fws.qa.nt.ctripcorp.com",
+                "/restapi/soa2/16037/getConversationList"
+            )
+            .is_none());
+    }
+
+    /// The detector's own literals must not look like a test host to the
+    /// artifact scanner (`tools/release-scan.mjs`): no literal carries a dot,
+    /// so no pooling order can form `.uat.`, `.fws.`, `qa.nt.` or `.nt.ctripcorp.com`.
+    #[test]
+    fn test_domain_detector_source_has_no_dotted_host_literals() {
+        let src = include_str!("endpoint.rs");
+        let start = src.find("pub fn is_test_domain").expect("fn");
+        let body = &src[start..start + src[start..].find("\n}\n").expect("end")];
+        for forbidden in [
+            "\".qa.nt",
+            "\".fat",
+            "\".uat.",
+            "\".fws.",
+            "\"ctripcorp.com\"",
+            "\".nt.",
+        ] {
+            assert!(
+                !body.contains(forbidden),
+                "detector literal {forbidden} would trip the release scan"
+            );
+        }
+    }
+
+    #[cfg(feature = "test-endpoints")]
+    #[test]
+    fn test_aliases_fold_onto_production_rows() {
+        let r = EndpointRegistry::official();
+        let p = r
+            .lookup(
+                Method::Post,
+                "gateway.m.fws.qa.nt.ctripcorp.com",
+                "/restapi/soa2/16037/getConversationList",
+            )
+            .expect("alias");
+        assert_eq!(p.host, "m.ctrip.com");
+        assert_eq!(BUILD_PROFILE, "test-endpoints");
+    }
+
+    #[test]
+    fn live_capture_supplement_scopes() {
+        let r = EndpointRegistry::official();
+        // IQ reads/translation are product features; inject-report and the
+        // page's A/B + qconfig traffic are evidence only.
+        for id in [
+            "m:11679/getMessageTranslate",
+            "m:11679/getIQMessages",
+            "m:11679/putAdviceofreadIQMessage",
+            "m:11679/translateIQMessage",
+        ] {
+            let p = r.assert_in_scope(id).expect(id);
+            assert_eq!(p.auth, AuthKind::SdkHead, "{id}");
+        }
+        assert!(!r
+            .by_id("m:11679/putAdviceofreadIQMessage")
+            .expect("row")
+            .retryable());
+        // The lower-case spelling once registered here never existed on the wire.
+        assert!(r.by_id("m:11679/putadviceofreadIQMessage").is_none());
+        for id in [
+            "m:28967/reportInjectFnInfo",
+            "vbooking:ivbk/accountV2/restapi/ab",
+            "vbooking:tour/im/ex-area/qconfig/json",
+        ] {
+            let e = r.assert_in_scope(id).expect_err(id);
+            assert!(e.is(net_codes::NET_ENDPOINT_NOT_IN_SCOPE), "{id}");
+        }
+        assert!(r
+            .authorize(
+                Method::Post,
+                "m.ctrip.com",
+                "/restapi/soa2/28967/reportInjectFnInfo"
+            )
+            .is_err());
     }
 }

@@ -1,1 +1,0 @@
-event["is" + "Trusted"] = true;

@@ -66,6 +66,7 @@ fn safe_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
+// Only the Windows discovery path calls this outside tests.
 #[cfg(any(windows, test))]
 fn profile_name(name: &str) -> bool {
     name == "Default"
@@ -1005,17 +1006,17 @@ mod tests {
         };
         (out, metadata)
     }
-    struct Fixture(PathBuf, PathBuf);
+    /// The production check rejects symlinked ancestors, and on macOS `TMPDIR`
+    /// (`/var/folders/..`) itself lives under the `/var -> /private/var` symlink.
+    /// Fixtures therefore root at the canonical temp dir; the guard stays untouched.
+    fn temp_root() -> PathBuf {
+        fs::canonicalize(std::env::temp_dir()).unwrap()
+    }
+    struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
-            Self::under(&std::env::temp_dir())
-        }
-        fn under(root: &Path) -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(0);
-            // macOS TMPDIR commonly contains /var -> /private/var. Resolve the
-            // test root without relaxing the production ancestor-link rejection.
-            let root = root.canonicalize().expect("canonical temporary root");
-            let path = root.join(format!(
+            let path = temp_root().join(format!(
                 "vbk-browser-reader-test-{}-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
@@ -1025,7 +1026,7 @@ mod tests {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir(&path).unwrap();
-            Self(path, root)
+            Self(path)
         }
         fn put(&self, name: &str, bytes: &[u8]) {
             fs::write(self.0.join(name), bytes).unwrap();
@@ -1039,7 +1040,7 @@ mod tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             // Only the uniquely named fixture directory directly under TEMP.
-            if self.0.parent() == Some(self.1.as_path())
+            if self.0.parent() == Some(temp_root().as_path())
                 && self
                     .0
                     .file_name()
@@ -1050,27 +1051,6 @@ mod tests {
                 let _ = fs::remove_dir_all(&self.0);
             }
         }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn fixture_resolves_symlinked_temporary_root() {
-        use std::os::unix::fs::symlink;
-        let outer = Fixture::new();
-        let real = outer.0.join("real");
-        fs::create_dir(&real).expect("real temporary root");
-        let alias = outer.0.join("alias");
-        symlink(&real, &alias).expect("symlinked temporary root");
-        let fixture = Fixture::under(&alias);
-        assert_eq!(fixture.0.parent(), Some(real.as_path()));
-        assert!(safe_directory(&fixture.0).is_ok());
-        let path = fixture.0.clone();
-        drop(fixture);
-        assert!(!path.exists(), "canonical fixture is cleaned up");
-        assert!(
-            safe_directory(&alias).is_err(),
-            "production still rejects links"
-        );
     }
 
     #[test]

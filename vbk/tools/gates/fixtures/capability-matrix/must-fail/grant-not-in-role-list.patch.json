@@ -1,0 +1,10 @@
+{
+  "capabilities": {
+    "popups.json": {
+      "permissions": [
+        "allow-ping",
+        "allow-secret-free"
+      ]
+    }
+  }
+}

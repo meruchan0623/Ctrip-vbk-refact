@@ -6,6 +6,7 @@ import { ConversationStore, RoleBook } from './stores.ts';
 import { SoaClient } from './soa.ts';
 import { FakePageSdk, OK_STATUS, flush, jsonResponse, makeDeps, sampleRow, type FetchScript } from './testing.ts';
 import { MEDIA_CHUNK_CAP, MEDIA_LOCAL_CAP } from './media.ts';
+import { FILE_MAX_BYTES, IMAGE_MAX_BYTES, MIB } from './media-limits.ts';
 const gid = 'synthetic-room', bytes = new TextEncoder().encode('%PDF- synthetic content'), url = 'https://static.tripcdn.com/synthetic.pdf';
 const hash = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 function fixture(script: FetchScript = () => jsonResponse({ file_name: 'server-file', url })) {
@@ -168,18 +169,14 @@ test('discarding a concurrent unsubmitted staging buffer leaves the first select
   assert.equal((await f.call('media.upload', duplicate))?.ok, false);
 });
 
-test('attachment v1 stages 30 MiB file boundary, rejects image/video above their supported caps and admits only ten active files', async () => {
-  const f = fixture(), common = { gid, target_token: 'limits' };
-  await f.ok('media.target', common);
-  const begin = (id: string, kind: string, size: number) => f.call('media.stage_begin', { ...common, transfer_id: id, kind, size, name: 'synthetic', mime: kind === 'image' ? 'image/png' : kind === 'video' ? 'video/mp4' : 'application/octet-stream', sha256: 'a'.repeat(64) });
-  assert.equal((await begin('file-cap', 'file', 30 * 1024 * 1024))?.ok, true);
-  await f.ok('media.discard', { ...common, transfer_id: 'file-cap' });
-  assert.equal((await begin('file-large', 'file', 30 * 1024 * 1024 + 1))?.ok, false);
-  assert.equal((await begin('image-large', 'image', 10 * 1024 * 1024 + 1))?.ok, false);
-  assert.equal((await begin('video-large', 'video', 30 * 1024 * 1024 + 1))?.ok, false);
-  for (let n = 0; n < 10; n++) assert.equal((await begin(`pending-${n}`, 'file', 1))?.ok, true);
-  assert.equal((await begin('eleventh', 'file', 1))?.ok, false);
-  await f.ok('media.discard', { ...common, transfer_id: 'pending-0' });
-  assert.equal((await begin('replacement', 'file', 1))?.ok, true);
-  assert.equal(f.base.fakeFetch.calls.length, 0); assert.equal(f.sdk.sent.length, 0);
+test('official per-kind caps gate staging: image 10 MiB, file up to 30 MiB, anything needing chunked upload is refused', async () => {
+  const f = fixture(); await f.ok('media.target', { gid, target_token: 'caps' });
+  let n = 0;
+  const begin = (kind: string, mime: string, size: number) => f.call('media.stage_begin', { gid, target_token: 'caps', transfer_id: `caps-${++n}`, kind, mime, name: 'synthetic.bin', size, sha256: hash(bytes) });
+  assert.equal((await begin('image', 'image/png', IMAGE_MAX_BYTES + 1))?.ok, false);
+  assert.equal((await begin('file', 'application/octet-stream', FILE_MAX_BYTES + 1))?.ok, false);
+  assert.equal((await begin('video', 'video/mp4', 30 * MIB + 1))?.ok, false);
+  assert.equal((await begin('file', 'application/octet-stream', 12 * MIB))?.ok, true);
+  assert.equal((await begin('image', 'image/png', IMAGE_MAX_BYTES))?.ok, true);
+  assert.equal(f.base.fakeFetch.calls.length, 0);
 });

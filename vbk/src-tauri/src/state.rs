@@ -4,10 +4,17 @@
 //!
 //! Everything time-related is computed from `core-net`'s `ClockService`;
 //! the host only supplies wall/monotonic readings.
+//!
+//! Persistence (I-04a): nothing in this file touches the disk while the
+//! `Cores` lock is held. Under the lock the host only builds **snapshots**
+//! (`collect_*`, pure and in-memory) tagged with a monotonic `seq`; after
+//! `drop(cores)` the snapshots are handed to `core_store::PersistQueue`,
+//! whose `vbk-persist` thread does the `fsync`s. A full queue or a failed
+//! write parks the job in `Cores::persist` and the next scheduler tick
+//! retries it. Lock order: see `core_store::lock_order`.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, MutexGuard};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use contracts::{
@@ -21,11 +28,14 @@ use core_notify::{
     mask_label, CommandAck, CommandSource, DndMode, Effect, NotifyCore, Now, RestoredRound,
     SystemState,
 };
-use core_store::{FileStore, Namespace, PersistJob, PersistQueue, ReminderStateRepo, RoundRecord, SyncWatermarkRepo};
+use core_store::{
+    FileStore, JobPayload, Namespace, PersistJob, PersistQueue, PersistTracker, ReminderStateRepo,
+    RoundRecord, SyncWatermarkRepo,
+};
 use tauri::AppHandle;
 
 use crate::dto::{AdapterFactDto, AdapterFactEnvelopeDto};
-use crate::views::ViewRegistry;
+use crate::views::{Role, ViewRegistry};
 
 /// Boot-scoped monotonic clock.
 #[derive(Debug)]
@@ -72,16 +82,14 @@ pub struct Cores {
     pub notify: NotifyCore,
     pub clock: ClockService,
     pub views: ViewRegistry,
-    pub store: Option<FileStore>,
+    pub store: Option<Arc<FileStore>>,
+    /// Jobs that did not fit into the persistence queue or failed to write,
+    /// and the `persist_failed` state ("本地保存失败").
+    pub persist: PersistTracker,
     glue: HashMap<(Environment, AccountId), AccountGlue>,
     /// Pending effects produced by inputs between scheduler ticks.
     pending_effects: Vec<Effect>,
     quit_requested: bool,
-    pending_persist: HashMap<Namespace, PersistJob>,
-    pub persist_failed: HashMap<Namespace, AppError>,
-    persist_receipt_seq: HashMap<Namespace, u64>,
-    persist_locked: HashSet<Namespace>,
-    persist_unlock_pending: HashMap<Namespace, u64>,
 }
 
 impl Cores {
@@ -114,9 +122,9 @@ impl std::fmt::Debug for Cores {
 pub struct HostState {
     pub clock: HostClock,
     cores: Mutex<Cores>,
-    persistence: Option<PersistQueue>,
-    persistence_start_error: Option<AppError>,
-    persist_seq: AtomicU64,
+    /// Persistence thread handle; `None` when running without a store.
+    /// Lives outside the `Cores` mutex so enqueueing never needs that lock.
+    persist: Option<PersistQueue>,
 }
 
 impl std::fmt::Debug for HostState {
@@ -127,16 +135,19 @@ impl std::fmt::Debug for HostState {
 
 impl HostState {
     pub fn new(store: Option<FileStore>, boot_epoch: u64) -> Self {
-        let (persistence, persistence_start_error) = match store.clone().map(PersistQueue::new) {
-            Some(Ok(queue)) => (Some(queue), None),
-            Some(Err(error)) => (None, Some(error)),
-            None => (None, None),
-        };
+        let store = store.map(Arc::new);
+        let persist = store
+            .as_ref()
+            .and_then(|s| match PersistQueue::spawn(s.clone()) {
+                Ok(queue) => Some(queue),
+                Err(e) => {
+                    log::error!("persistence thread unavailable: {e}; state will not be saved");
+                    None
+                }
+            });
         Self {
-            persistence,
-            persistence_start_error,
-            persist_seq: AtomicU64::new(1),
             clock: HostClock::new(),
+            persist,
             cores: Mutex::new(Cores {
                 accounts: AccountRegistry::new(boot_epoch),
                 im: ImCores::new(),
@@ -144,14 +155,10 @@ impl HostState {
                 clock: ClockService::default(),
                 views: ViewRegistry::default(),
                 store,
+                persist: PersistTracker::new(),
                 glue: HashMap::new(),
                 pending_effects: Vec::new(),
                 quit_requested: false,
-                pending_persist: HashMap::new(),
-                persist_failed: HashMap::new(),
-                persist_receipt_seq: HashMap::new(),
-                persist_locked: HashSet::new(),
-                persist_unlock_pending: HashMap::new(),
             }),
         }
     }
@@ -181,8 +188,20 @@ impl HostState {
 
     // ------------------------------------------------------------ views
 
+    /// Runtime ACL for every command of every module: the label's role must
+    /// grant `command`, and (I-03) a local window must have announced the
+    /// host's `CONTRACT_VERSION` through `contract_hello` first. The remote
+    /// `acct-*` adapter webviews run the host-injected boot script of the
+    /// same build and have no `contract_hello` permission, so only the local
+    /// window roles take the handshake.
     pub fn authorize(&self, label: &str, command: &str) -> Result<(), AppError> {
-        self.lock().views.authorize(label, command).map(|_| ())
+        // The `Cores` guard is a temporary: it is released before the (separate,
+        // process-wide) contract-gate mutex is taken, so the two never nest.
+        self.lock().views.authorize(label, command)?;
+        if command == "contract_hello" || Role::for_label(label) == Some(Role::Adapter) {
+            return Ok(());
+        }
+        crate::commands::contract_check(label)
     }
 
     // ------------------------------------------------------------ IM facts
@@ -205,6 +224,7 @@ impl HostState {
             )
         })?;
         let fact = convert_fact(dto.fact)?;
+        let is_compensation = matches!(fact, Fact::CompensationSync { .. });
         if cores.im.get(&account).is_none() {
             cores.im.insert(ImCore::new(account.clone()));
             // First facts after (re-)login: rounds persisted under this
@@ -220,6 +240,10 @@ impl HostState {
             fact,
         };
         let report = cores.im.ingest(env)?;
+        let mut jobs: Vec<PersistJob> = Vec::new();
+        if is_compensation && report.applied {
+            jobs.extend(self.collect_compensation_snapshot(&cores, &account));
+        }
         if report.auth_invalid {
             // core-account decides the generation change; the host just
             // records the signal and revokes.
@@ -255,11 +279,121 @@ impl HostState {
                 .begin_reconcile(ReconcileReason::StreamGap);
             log::warn!("stream {:?} needs resync (reconcile gen {gen})", stream);
         }
-        self.pump_rounds(&mut cores);
-        let jobs = self.collect_round_snapshots(&cores);
+        jobs.extend(self.pump_rounds(&mut cores));
+        // No IO under the lock: release it, then hand the snapshots over.
         drop(cores);
-        self.enqueue_snapshots(jobs);
+        self.submit_persist(jobs);
         Ok(report)
+    }
+
+    /// Snapshot of the account's compensation watermark (`beginMsgTime` for
+    /// the next page boot). Only a timestamp; no message content. Pure and
+    /// in-memory: safe under the `Cores` lock (W1).
+    fn collect_compensation_snapshot(
+        &self,
+        cores: &Cores,
+        account: &AccountContext,
+    ) -> Option<PersistJob> {
+        let queue = self.persist.as_ref()?;
+        let ms = cores
+            .im
+            .get(account)?
+            .watermarks()
+            .compensation_cursor_ms()?;
+        Some(PersistJob {
+            ns: Namespace::from_context(account),
+            seq: queue.next_seq(),
+            payload: JobPayload::Compensation(ms),
+        })
+    }
+
+    /// Hands snapshots to the persistence thread. Never blocks and never
+    /// touches the disk; call it **after** `drop(cores)`. Jobs the queue
+    /// refuses are parked in `Cores::persist` for the next tick.
+    fn submit_persist(&self, jobs: Vec<PersistJob>) {
+        let Some(queue) = self.persist.as_ref() else {
+            return;
+        };
+        if jobs.is_empty() {
+            return;
+        }
+        let rejected = queue.submit(jobs);
+        if !rejected.is_empty() {
+            self.lock().persist.stash_all(rejected);
+        }
+    }
+
+    /// True while a write could not be persisted ("本地保存失败"). The send
+    /// barrier and the UI notice read this; it clears when a retry succeeds.
+    pub fn persist_failed(&self) -> bool {
+        let receipts = self
+            .persist
+            .as_ref()
+            .map(PersistQueue::drain_receipts)
+            .unwrap_or_default();
+        let mut cores = self.lock();
+        cores.persist.apply_receipts(receipts);
+        cores.persist.persist_failed()
+    }
+
+    /// Send barrier (I-04a, fail-closed): `Err(store.persist_failed)` while
+    /// [`Self::persist_failed`] holds. `im_send_text` / `im_send_media` call
+    /// it before the outbound journal is touched, so a refused send is
+    /// "nothing submitted". Receipts are drained first, so a retry that
+    /// already landed reopens the barrier without waiting for the next tick.
+    pub fn persist_barrier(&self) -> Result<(), AppError> {
+        let receipts = self
+            .persist
+            .as_ref()
+            .map(PersistQueue::drain_receipts)
+            .unwrap_or_default();
+        let mut cores = self.lock();
+        cores.persist.apply_receipts(receipts);
+        cores.persist.send_barrier()
+    }
+
+    /// Lifts the logout lock of the account's namespace after the same
+    /// identity logged in again (`Namespace` is per identity, the generation
+    /// is not part of it: the same construction as [`Self::logout`]). Goes
+    /// through the persistence queue, so it is ordered after the lock and
+    /// before the snapshots the new session produces, and acknowledged like
+    /// every other job. Never blocks; call it without the `Cores` lock held.
+    pub fn unlock_namespace(&self, account: &AccountContext) {
+        let Some(queue) = self.persist.as_ref() else {
+            return;
+        };
+        let job = PersistJob {
+            ns: Namespace::from_context(account),
+            seq: queue.next_seq(),
+            payload: JobPayload::Unlock,
+        };
+        self.submit_persist(vec![job]);
+    }
+
+    /// Exit barrier: resubmits parked jobs, then waits (at most `timeout`)
+    /// until everything queued so far is committed. Parked jobs that do not
+    /// fit into a full queue are resubmitted once it has drained, until the
+    /// deadline. Returns `true` when no write is outstanding or failed.
+    pub fn flush_persist(&self, timeout: Duration) -> bool {
+        let Some(queue) = self.persist.as_ref() else {
+            return true;
+        };
+        let deadline = Instant::now() + timeout;
+        let mut pending = self.lock().persist.take_pending();
+        let flushed = loop {
+            pending = queue.submit(pending);
+            let ok = queue
+                .flush(deadline.saturating_duration_since(Instant::now()))
+                .is_ok();
+            if pending.is_empty() || !ok || Instant::now() >= deadline {
+                break ok;
+            }
+        };
+        let receipts = queue.drain_receipts();
+        let mut cores = self.lock();
+        cores.persist.apply_receipts(receipts);
+        cores.persist.stash_all(pending);
+        flushed && !cores.persist.persist_failed() && cores.persist.pending_len() == 0
     }
 
     /// Compensation watermark for `account` (Unix ms, 0 when unknown): the
@@ -270,7 +404,7 @@ impl HostState {
             .im
             .get(account)
             .and_then(|c| c.watermarks().compensation_cursor_ms());
-        let stored = cores.store.as_ref().and_then(|s| {
+        let stored = cores.store.as_deref().and_then(|s| {
             SyncWatermarkRepo::compensation_cursor(s, &Namespace::from_context(account))
                 .ok()
                 .flatten()
@@ -279,8 +413,10 @@ impl HostState {
     }
 
     /// Moves round events and reconcile state from core-im into
-    /// core-notify, collecting the effects for the scheduler.
-    fn pump_rounds(&self, cores: &mut Cores) {
+    /// core-notify, collecting the effects for the scheduler. Returns the
+    /// round snapshots to persist (W2); the caller submits them after it has
+    /// released the `Cores` lock.
+    fn pump_rounds(&self, cores: &mut Cores) -> Vec<PersistJob> {
         let now = self.now(cores);
         let events: Vec<RoundEvent> = cores.im.drain_round_events();
         let mut effects = Vec::new();
@@ -304,135 +440,49 @@ impl HostState {
         };
         effects.extend(cores.notify.apply_reconcile_state(state, &now));
         cores.pending_effects.extend(effects);
+        self.collect_round_snapshots(cores)
     }
 
-    /// Pure memory snapshot collection. All sequence allocation happens under
-    /// Cores; no producer holds that lock while enqueueing or writing files.
+    /// Snapshot of the minimal round state (strong-alert §5 / docs/dev/05)
+    /// for every account, one job per namespace. Labels are not persisted;
+    /// on restore they fall back to the masked gid until facts re-confirm.
+    /// Pure and in-memory (W2).
     fn collect_round_snapshots(&self, cores: &Cores) -> Vec<PersistJob> {
-        if cores.store.is_none() { return Vec::new(); }
+        let Some(queue) = self.persist.as_ref() else {
+            return Vec::new();
+        };
         let mut by_ns: HashMap<Namespace, Vec<RoundRecord>> = HashMap::new();
-        for core in cores.im.iter() {
-            let ns = Namespace::from_context(core.account());
-            if !cores.persist_locked.contains(&ns) { by_ns.entry(ns).or_default(); }
-        }
         for r in cores.notify.persistable() {
             let ns = Namespace::from_context(&r.round.account);
-            if cores.persist_locked.contains(&ns) { continue; }
             by_ns.entry(ns).or_default().push(RoundRecord {
-                gid: r.round.gid.clone(), round_id: r.round.round_id.clone(),
-                version: r.round.version, start_message_id: None,
-                start_time_ms: r.start_time_ms, start_confirmed: r.start_confirmed,
+                gid: r.round.gid.clone(),
+                round_id: r.round.round_id.clone(),
+                version: r.round.version,
+                start_message_id: None,
+                start_time_ms: r.start_time_ms,
+                start_confirmed: r.start_confirmed,
                 reminded_version: r.round.version,
                 hidden_version: r.hidden_version.unwrap_or(0),
                 snoozed_until_ms: r.snoozed_until_ms,
             });
         }
-        by_ns.into_iter().map(|(ns, rounds)| {
-            let compensation_cursor_ms = cores.im.iter()
-                .find(|core| Namespace::from_context(core.account()) == ns)
-                .and_then(|core| core.watermarks().compensation_cursor_ms());
-            PersistJob { seq: self.persist_seq.fetch_add(1, Ordering::Relaxed),
-                unlock_before_write: cores.persist_unlock_pending.contains_key(&ns),
-                ns, rounds: Some(rounds), compensation_cursor_ms, logout_lock: false }
-        }).collect()
-    }
-
-    fn enqueue_snapshots(&self, jobs: Vec<PersistJob>) {
-        let Some(queue) = &self.persistence else { return; };
-        for job in jobs {
-            if let Err(job) = queue.try_enqueue(job) {
-                core_store::queue::coalesce(&mut self.lock().pending_persist, job);
-            }
-        }
-    }
-
-    /// Nonblocking scheduler hook; pending overflow jobs are retried outside
-    /// Cores, and successful newer receipts clear a previous save failure.
-    pub fn service_persistence(&self) {
-        let Some(queue) = &self.persistence else { return; };
-        let receipts = queue.drain_receipts();
-        let jobs = {
-            let mut cores = self.lock();
-            for receipt in receipts {
-                if cores.persist_receipt_seq.get(&receipt.ns).is_some_and(|seq| *seq > receipt.seq) { continue; }
-                cores.persist_receipt_seq.insert(receipt.ns.clone(), receipt.seq);
-                match receipt.result {
-                    Ok(()) => {
-                        cores.persist_failed.remove(&receipt.ns);
-                        if cores.persist_unlock_pending.get(&receipt.ns).is_some_and(|seq| receipt.seq >= *seq) {
-                            cores.persist_unlock_pending.remove(&receipt.ns);
-                        }
-                    }
-                    Err(error) => { cores.persist_failed.insert(receipt.ns, error); }
-                }
-            }
-            std::mem::take(&mut cores.pending_persist).into_values().collect()
-        };
-        self.enqueue_snapshots(jobs);
-    }
-
-    /// Invoke only after the official page's verified identity is published.
-    /// Unlock is ordered with the final logout snapshot and survives coalescing.
-    pub fn unlock_persistence_after_reauth(&self, account: &AccountContext) -> Result<(), AppError> {
-        let mut cores = self.lock();
-        cores.accounts.validate(account)?;
-        let ns = Namespace::from_context(account);
-        let seq = self.persist_seq.fetch_add(1, Ordering::Relaxed);
-        cores.persist_locked.remove(&ns);
-        cores.persist_unlock_pending.insert(ns.clone(), seq);
-        let job = PersistJob { ns, seq, rounds: None, compensation_cursor_ms: None,
-            logout_lock: false, unlock_before_write: true };
-        drop(cores);
-        self.enqueue_snapshots(vec![job]);
-        Ok(())
-    }
-
-    pub fn persistence_failures(&self) -> Vec<(Namespace, AppError)> {
-        self.service_persistence();
-        self.lock().persist_failed.iter().map(|(ns, error)| (ns.clone(), error.clone())).collect()
-    }
-
-    pub fn ensure_persistence_healthy(&self, account: &AccountContext) -> Result<(), AppError> {
-        self.service_persistence();
-        if let Some(error) = &self.persistence_start_error { return Err(error.clone()); }
-        if self.persistence.is_none() {
-            return Err(AppError::new("store.unavailable", "local persistence is unavailable"));
-        }
-        let cores = self.lock();
-        cores.accounts.validate(account)?;
-        let ns = Namespace::from_context(account);
-        if let Some(error) = cores.persist_failed.get(&ns) { return Err(error.clone()); }
-        if cores.persist_locked.contains(&ns) || cores.persist_unlock_pending.contains_key(&ns) {
-            return Err(AppError::new("store.locked", "local persistence awaits verified reauthentication"));
-        }
-        Ok(())
-    }
-
-    /// Shutdown hook: admission must already be stopped by the caller. A
-    /// timeout never claims durability and never waits while holding Cores.
-    pub fn flush_persistence(&self, timeout: Duration) -> Result<(), AppError> {
-        let deadline = Instant::now() + timeout;
-        let Some(queue) = &self.persistence else {
-            return self.persistence_start_error.clone().map_or(Ok(()), Err);
-        };
-        loop {
-            self.service_persistence();
-            if self.lock().pending_persist.is_empty() { break; }
-            if Instant::now() >= deadline {
-                return Err(AppError::new("store.flush_timeout", "pending local saves exceeded deadline"));
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        let result = queue.flush(deadline.saturating_duration_since(Instant::now()));
-        self.service_persistence();
-        result
+        let mut jobs: Vec<PersistJob> = by_ns
+            .into_iter()
+            .map(|(ns, records)| PersistJob {
+                ns,
+                seq: queue.next_seq(),
+                payload: JobPayload::Rounds(records),
+            })
+            .collect();
+        jobs.sort_by_key(|j| j.seq);
+        jobs
     }
 
     /// Loads persisted rounds for `account` into notify as pending
     /// verification. `PendingVerification` is only ever consumed here with
     /// the restore barrier, never turned into a popup directly.
     fn restore_rounds_for(&self, cores: &mut Cores, account: &AccountContext) {
-        let Some(store) = cores.store.as_ref() else {
+        let Some(store) = cores.store.as_deref() else {
             return;
         };
         let ns = Namespace::from_context(account);
@@ -499,10 +549,9 @@ impl HostState {
                 }
             }
         }
-        self.pump_rounds(&mut cores);
-        let jobs = self.collect_round_snapshots(&cores);
+        let jobs = self.pump_rounds(&mut cores);
         drop(cores);
-        self.enqueue_snapshots(jobs);
+        self.submit_persist(jobs);
         Ok(())
     }
 
@@ -532,12 +581,25 @@ impl HostState {
 
     /// 1 Hz scheduler entry: returns the effects to execute.
     pub fn tick(&self) -> Vec<Effect> {
-        self.service_persistence();
-        let mut cores = self.lock();
-        let now = self.now(&mut cores);
-        let mut effects = std::mem::take(&mut cores.pending_effects);
-        effects.extend(cores.notify.tick(&now));
-        effects.retain(|effect| cores.notify.effect_is_current(effect, &now));
+        // Receipts are read before the lock is taken (the channel is
+        // lock-free for us); applying them is in-memory bookkeeping.
+        let receipts = self
+            .persist
+            .as_ref()
+            .map(PersistQueue::drain_receipts)
+            .unwrap_or_default();
+        let (effects, retry) = {
+            let mut cores = self.lock();
+            cores.persist.apply_receipts(receipts);
+            let retry = cores.persist.take_pending();
+            let now = self.now(&mut cores);
+            let mut effects = std::mem::take(&mut cores.pending_effects);
+            effects.extend(cores.notify.tick(&now));
+            effects.retain(|effect| cores.notify.effect_is_current(effect, &now));
+            (effects, retry)
+        };
+        // Parked / failed writes are retried here, outside the lock.
+        self.submit_persist(retry);
         effects
     }
 
@@ -567,11 +629,10 @@ impl HostState {
     pub fn set_dnd_until_tomorrow(&self) {
         let mut cores = self.lock();
         let now = self.now(&mut cores);
-        // Next local 08:00 is computed by the setting UI in a later REL
-        // task; until then "until tomorrow" is the next midnight-plus-8h in
-        // server time, which is documented as an approximation.
-        let day_ms = 86_400_000;
-        let until_ms = (now.server_now_ms / day_ms + 1) * day_ms + 8 * 3_600_000;
+        // Next local 08:00 (pure day-boundary math in core-notify; the zone
+        // offset is read from the OS, falling back to UTC if unavailable).
+        let offset_min = crate::local_tz::local_utc_offset_minutes(now.server_now_ms);
+        let until_ms = core_notify::dnd_until_tomorrow_ms(now.server_now_ms, offset_min);
         let effects = cores
             .notify
             .set_dnd(DndMode::UntilTomorrow { until_ms }, &now);
@@ -593,10 +654,11 @@ impl HostState {
         mode: LogoutMode,
     ) -> Result<core_account::RevokeList, AppError> {
         let mut cores = self.lock();
+        let mut jobs: Vec<PersistJob> = Vec::new();
         let id = AccountId::new(account_id);
         let old_ctx = cores.accounts.current_context(&id);
         let revoke = cores.accounts.logout(&id, mode)?;
-        if let Some(old) = old_ctx.as_ref() {
+        if let Some(old) = old_ctx {
             let now = self.now(&mut cores);
             let effects = cores.notify.set_account_notifications(&old, false, &now);
             cores.pending_effects.extend(effects);
@@ -605,21 +667,19 @@ impl HostState {
                 .current_context(&id)
                 .unwrap_or_else(|| old.next_generation());
             let _ = cores.im.invalidate_generation(new_ctx);
-        }
-        self.pump_rounds(&mut cores);
-        let mut jobs = self.collect_round_snapshots(&cores);
-        if let Some(old) = old_ctx.as_ref() {
-            let ns = Namespace::from_context(old);
-            if let Some(job) = jobs.iter_mut().find(|job| job.ns == ns) { job.logout_lock = true; }
-            else if cores.store.is_some() {
-                jobs.push(PersistJob { ns: ns.clone(), seq: self.persist_seq.fetch_add(1, Ordering::Relaxed),
-                    rounds: None, compensation_cursor_ms: None, logout_lock: true, unlock_before_write: false });
+            // The lock marker is an fsync'd write: it goes through the
+            // persistence thread, ordered before the round snapshot below.
+            if let Some(queue) = self.persist.as_ref() {
+                jobs.push(PersistJob {
+                    ns: Namespace::from_context(&old),
+                    seq: queue.next_seq(),
+                    payload: JobPayload::LogoutLock,
+                });
             }
-            cores.persist_unlock_pending.remove(&ns);
-            cores.persist_locked.insert(ns);
         }
+        jobs.extend(self.pump_rounds(&mut cores));
         drop(cores);
-        self.enqueue_snapshots(jobs);
+        self.submit_persist(jobs);
         Ok(revoke)
     }
 
@@ -632,6 +692,10 @@ impl HostState {
         {
             let mut cores = self.lock();
             cores.quit_requested = true;
+        }
+        // Give the persistence thread a bounded chance to finish (I-04a).
+        if !self.flush_persist(Duration::from_secs(5)) {
+            log::warn!("exit: persistence did not fully flush within 5 s");
         }
         app.exit(0);
     }
@@ -670,5 +734,13 @@ fn convert_fact(dto: AdapterFactDto) -> Result<Fact, AppError> {
             }
         }),
         AdapterFactDto::AuthInvalid => Fact::AuthInvalid,
+        // Forwarded by `adapter::adapter_push_fact` before it reaches here;
+        // the local `im_push_fact` path has no window to forward to.
+        AdapterFactDto::Feature { .. } => {
+            return Err(AppError::new(
+                "im.invalid_fact",
+                "feature facts never enter the IM core",
+            ))
+        }
     })
 }

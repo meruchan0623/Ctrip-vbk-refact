@@ -7,38 +7,90 @@
  * is a different endpoint with different spelling and parameters; never
  * route one through the other. Marking read is a consumption fact only: it
  * never ends a waiting round (strong-alert §4.5).
+ *
+ * Pacing (I-06, official desktop capture round 5): the receipt is
+ * cursor-like — one receipt per conversation carrying the **last
+ * counterpart** message's `msgId`, not one per message. The official client
+ * even repeats it twice per opening; this adapter must not:
+ *
+ * - {@link selectReadTarget} picks that message from a conversation's messages;
+ * - {@link markRead} sends a given `(partnerJid, msgId)` at most once per SDK
+ *   handle (concurrent calls share one request; `acked` and `unknown`
+ *   outcomes are remembered, a definite `failed` may be retried).
  */
 
 import type { ImSdkHandle, SdkCallOutcome } from './deps.ts';
-import { jidLocal, normalizeTimeMs } from './facts.ts';
-import type { ConversationStore, LatestMessage } from './stores.ts';
 
 export interface MarkReadRequest {
   /** SDK-generated target JID for the group; taken from the SDK/conversation, not built here. */
   readonly partnerJid: string;
   readonly msgId: string;
-  /** Service/context revision, keeping reused rooms in separate receipt scopes. */
-  readonly contextRevision?: string;
 }
 
-export type MarkReadResult = { readonly kind: 'acked' } | { readonly kind: 'failed'; readonly raw: unknown } | { readonly kind: 'unknown' };
+export type MarkReadResult = { readonly kind: 'acked'; readonly deduped?: true } | { readonly kind: 'failed'; readonly raw: unknown } | { readonly kind: 'unknown' };
 
-const receipts = new WeakMap<ImSdkHandle, Map<string, Promise<MarkReadResult>>>();
+/** Minimal message view for target selection. */
+export interface ReadCandidate {
+  readonly msgId: string | null | undefined;
+  readonly createTimeMs: number;
+  /** Sent by this agent. */
+  readonly fromSelf: boolean;
+  /** System / notice rows never carry a read receipt. */
+  readonly system?: boolean;
+  /** Already read according to the server (`isread`). */
+  readonly read?: boolean;
+}
 
-export function markRead(sdk: ImSdkHandle, req: MarkReadRequest): Promise<MarkReadResult> {
-  if (req.partnerJid === '' || req.msgId === '') return Promise.resolve({ kind: 'failed', raw: 'empty target' });
-  let cache = receipts.get(sdk);
-  if (!cache) { cache = new Map(); receipts.set(sdk, cache); }
-  const key = JSON.stringify([req.partnerJid, req.contextRevision ?? '', req.msgId]);
-  const previous = cache.get(key);
-  if (previous) return previous;
-  const result = submitRead(sdk, req);
-  cache.set(key, result); // include unknown/failure: never silently replay a receipt
+/**
+ * The newest counterpart message that still needs a receipt, or `null`.
+ * Like the official client it ignores own and system messages, and returns
+ * `null` when the newest counterpart message is already read (nothing to send).
+ */
+export function selectReadTarget(messages: readonly ReadCandidate[]): string | null {
+  let best: ReadCandidate | null = null;
+  for (const m of messages) {
+    if (m.fromSelf || m.system === true) continue;
+    if (typeof m.msgId !== 'string' || m.msgId === '') continue;
+    if (!Number.isFinite(m.createTimeMs)) continue;
+    if (best === null || m.createTimeMs >= best.createTimeMs) best = m;
+  }
+  return best === null || best.read === true ? null : (best.msgId as string);
+}
+
+const MAX_REMEMBERED = 256;
+const sent = new WeakMap<object, Map<string, Promise<MarkReadResult>>>();
+
+function ledgerOf(sdk: ImSdkHandle): Map<string, Promise<MarkReadResult>> {
+  let ledger = sent.get(sdk);
+  if (!ledger) {
+    ledger = new Map();
+    sent.set(sdk, ledger);
+  }
+  return ledger;
+}
+
+export async function markRead(sdk: ImSdkHandle, req: MarkReadRequest): Promise<MarkReadResult> {
+  if (req.partnerJid === '' || req.msgId === '') return { kind: 'failed', raw: 'empty target' };
+  const ledger = ledgerOf(sdk);
+  const key = JSON.stringify([req.partnerJid, req.msgId]);
+  const previous = ledger.get(key);
+  if (previous) {
+    const r = await previous;
+    return r.kind === 'acked' ? { kind: 'acked', deduped: true } : r;
+  }
+  const attempt = send(sdk, req);
+  ledger.set(key, attempt);
+  if (ledger.size > MAX_REMEMBERED) {
+    const oldest = ledger.keys().next();
+    if (!oldest.done) ledger.delete(oldest.value);
+  }
+  const result = await attempt;
+  // Only a definite rejection may be retried; an uncertain write must not be repeated blindly.
+  if (result.kind === 'failed' && ledger.get(key) === attempt) ledger.delete(key);
   return result;
 }
 
-async function submitRead(sdk: ImSdkHandle, req: MarkReadRequest): Promise<MarkReadResult> {
-  if (req.partnerJid === '' || req.msgId === '') return { kind: 'failed', raw: 'empty target' };
+async function send(sdk: ImSdkHandle, req: MarkReadRequest): Promise<MarkReadResult> {
   let outcome: SdkCallOutcome;
   try {
     outcome = await sdk.putAdviceOfReadByMsgId({ partnerJid: req.partnerJid, msgId: req.msgId, conversationType: 'groupchat' });
@@ -46,25 +98,4 @@ async function submitRead(sdk: ImSdkHandle, req: MarkReadRequest): Promise<MarkR
     return { kind: 'unknown' };
   }
   return outcome.kind === 'success' ? { kind: 'acked' } : { kind: 'failed', raw: outcome.raw };
-}
-
-// Only authoritative list rows may advance this cursor. Gid-only history or
-// realtime messages do not establish the service/customer association.
-const peerTargets = new WeakMap<ConversationStore, Map<string, { revision: number | null; target: LatestMessage | null }>>();
-export function latestPeerReadTarget(store: ConversationStore, gid: string): LatestMessage | null {
-  let targets = peerTargets.get(store);
-  if (!targets) { targets = new Map(); peerTargets.set(store, targets); }
-  const revision = store.messageContext(gid);
-  let entry = targets.get(gid);
-  if (!entry || entry.revision !== revision) { entry = { revision, target: null }; targets.set(gid, entry); }
-  const view = store.view(gid);
-  const message = view?.lastMessage;
-  const sender = typeof message?.fromJid === 'string' ? jidLocal(message.fromJid).toLowerCase() : '';
-  const customer = view?.customerUid?.toLowerCase();
-  const time = normalizeTimeMs(message?.createTime);
-  const id = message?.msgId;
-  if (customer && sender === customer && typeof id === 'string' && id !== '' && time !== null && (!entry.target || time >= entry.target.createTime)) {
-    entry.target = { msgId: id, createTime: time };
-  }
-  return entry.target;
 }

@@ -67,6 +67,8 @@ const zhCN = {
   'bar.clockUntrustedTitle': '服务器时间锚点失效，等待时长为估计值',
   'bar.clockOk': '时间已校准',
   'bar.alarmCount': '超时提醒 {n}',
+  'bar.persistFailed': '本地保存失败，发送已暂停',
+  'bar.persistFailedTitle': '本地状态未能写入磁盘；宿主持续重试，成功后自动恢复发送',
 
   // logout dialog
   'logout.title': '登出「{name}」',
@@ -186,6 +188,7 @@ const zhCN = {
   'composer.removeAttach': '移除附件',
   'composer.hintEnter': 'Enter 发送 · Shift+Enter 换行',
   'composer.directMode': '直接发送模式：发送键即发出 TSim 译文',
+  'composer.persistFailed': '本地保存失败，发送已暂停；恢复后自动解除',
 
   // translation bar
   'tr.title': '出站翻译',

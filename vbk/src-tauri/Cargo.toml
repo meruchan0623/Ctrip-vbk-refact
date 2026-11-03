@@ -56,6 +56,3 @@ security-framework = "=3.7.0"
 default = []
 # Dev builds may open devtools; release builds never do (archive §5).
 devtools = ["tauri/devtools"]
-
-[dev-dependencies]
-tauri = { version = "2", features = ["test"] }

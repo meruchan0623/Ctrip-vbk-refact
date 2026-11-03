@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HOST_UNAVAILABLE, createTauriIpc, hasTauri } from './client.ts';
-import { CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH, isAppError } from './contracts.ts';
+import { CONTRACT_VERSION, ErrorCodes, isAppError } from './contracts.ts';
 
 const g = globalThis as unknown as Record<string, unknown>;
 
@@ -60,7 +60,14 @@ test('createTauriIpc resolves the host globals lazily and unsubscribes correctly
     };
     assert.equal(hasTauri(), true);
     assert.deepEqual(await ipc.invoke('prefs_snapshot'), { ok: 'prefs_snapshot' });
-    assert.deepEqual(calls, [['prefs_snapshot', { _contract_version: CONTRACT_VERSION }]], 'a missing payload still proves contract compatibility');
+    assert.deepEqual(
+      calls,
+      [
+        ['contract_hello', { version: CONTRACT_VERSION }],
+        ['prefs_snapshot', {}],
+      ],
+      'the first call announces the contract version; a missing payload is sent as an empty object',
+    );
     const got: unknown[] = [];
     const off = ipc.listen<unknown>('prefs://changed', (p) => got.push(p));
     await Promise.resolve();
@@ -73,33 +80,55 @@ test('createTauriIpc resolves the host globals lazily and unsubscribes correctly
     assert.equal(unlistened, 1);
   }));
 
+function hostWith(invoke: (cmd: string, args: unknown) => Promise<unknown>): void {
+  g['window'] = { __TAURI__: { core: { invoke }, event: { listen: async () => () => undefined } } };
+}
 
-test('native invokes carry the current contract version and cannot override it through payloads', () =>
+test('contract handshake: hello is sent once, before and not again after the first command', () =>
   withWindow(async () => {
-    const calls: unknown[] = [];
-    g['window'] = { __TAURI__: {
-      core: { invoke: async (cmd: string, args: unknown) => { calls.push([cmd, args]); return null; } },
-      event: { listen: async () => () => undefined },
-    } };
-    const payload = Object.freeze({ gid: 'g', _contract_version: 999 });
-    await createTauriIpc().invoke('im_messages', payload);
-    assert.deepEqual(calls, [['im_messages', { gid: 'g', _contract_version: CONTRACT_VERSION }]]);
-    assert.equal(payload._contract_version, 999, 'caller data is untouched');
+    const calls: string[] = [];
+    hostWith(async (cmd) => {
+      calls.push(cmd);
+      return null;
+    });
+    const ipc = createTauriIpc();
+    await Promise.all([ipc.invoke('notify_snapshot'), ipc.invoke('prefs_snapshot')]);
+    await ipc.invoke('prefs_snapshot');
+    assert.deepEqual(calls.filter((c) => c === 'contract_hello'), ['contract_hello']);
+    assert.equal(calls[0], 'contract_hello', 'hello goes out before any other command');
+    assert.equal(calls.length, 4);
   }));
 
-test('native contract rejection propagates without running a retry or poisoning later calls', () =>
+test('contract handshake: a host that rejects the version blocks every command of the window', () =>
   withWindow(async () => {
-    let attempts = 0;
-    g['window'] = { __TAURI__: {
-      core: { invoke: async () => {
-        attempts += 1;
-        if (attempts === 1) throw { code: CONTRACT_VERSION_MISMATCH, message: 'incompatible', retryable: false };
-        return 'current';
-      } },
-      event: { listen: async () => () => undefined },
-    } };
+    const calls: string[] = [];
+    const mismatch = { code: ErrorCodes.HOST_CONTRACT_MISMATCH, message: 'contract version 1 is not supported', retryable: false };
+    hostWith(async (cmd) => {
+      calls.push(cmd);
+      if (cmd === 'contract_hello') throw mismatch;
+      return 'should not be reached';
+    });
     const ipc = createTauriIpc();
-    await assert.rejects(ipc.invoke('prefs_snapshot'), (e: unknown) => isAppError(e) && e.code === CONTRACT_VERSION_MISMATCH);
-    assert.equal(attempts, 1);
-    assert.equal(await ipc.invoke('prefs_snapshot'), 'current');
+    for (const cmd of ['notify_snapshot', 'prefs_snapshot', 'account_snapshot']) {
+      await assert.rejects(ipc.invoke(cmd), (e: unknown) => isAppError(e) && e.code === ErrorCodes.HOST_CONTRACT_MISMATCH);
+    }
+    assert.deepEqual(calls, ['contract_hello'], 'no business command reaches the host, and hello is not retried');
+  }));
+
+test('contract handshake: a transient hello failure is retried by the next call', () =>
+  withWindow(async () => {
+    const calls: string[] = [];
+    let first = true;
+    hostWith(async (cmd) => {
+      calls.push(cmd);
+      if (cmd === 'contract_hello' && first) {
+        first = false;
+        throw { code: 'host.unavailable', message: 'starting', retryable: true };
+      }
+      return null;
+    });
+    const ipc = createTauriIpc();
+    await assert.rejects(ipc.invoke('prefs_snapshot'));
+    await ipc.invoke('prefs_snapshot');
+    assert.deepEqual(calls, ['contract_hello', 'contract_hello', 'prefs_snapshot']);
   }));

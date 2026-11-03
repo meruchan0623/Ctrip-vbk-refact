@@ -53,6 +53,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-transport"
+version = "0.1.0"
+
+[[package]]
+name = "core-update"
+version = "0.1.0"
+
+[[package]]
 name = "vbk-scenarios"
 version = "0.1.0"
 dependencies = [

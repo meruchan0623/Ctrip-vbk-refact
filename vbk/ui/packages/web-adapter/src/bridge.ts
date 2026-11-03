@@ -5,7 +5,9 @@
  *
  * - stream by fact kind: message/compensation_sync → `im.message`,
  *   conversation/conversation_list_sync → `im.conversation`,
- *   transport/auth_invalid → `im.transport`
+ *   transport/auth_invalid → `im.transport`, feature → `im.feature` (its own
+ *   cursor: the host forwards these without ingesting, so they must not
+ *   consume a seq on a core-tracked stream)
  * - `epoch`/`seq` come from the shared `CursorAllocator`; a reconnect or
  *   reload bumps the epoch so the host re-handshakes
  * - the envelope carries only the frozen fact shapes: no cookies, tokens,
@@ -14,7 +16,7 @@
  *   claim is never trusted on its own
  */
 
-import { withContractVersion, FactStreams, type AccountContext, type AdapterFact, type AdapterFactEnvelope } from '../../ipc/src/contracts.ts';
+import { FactStreams, type AccountContext, type AdapterFact, type AdapterFactEnvelope } from '../../ipc/src/contracts.ts';
 import { ImCommands } from '../../ipc/src/commands.ts';
 import type { InvokeLike } from './deps.ts';
 import { CursorAllocator } from './facts.ts';
@@ -32,6 +34,8 @@ export function streamFor(fact: AdapterFact): FactStream {
     case 'transport':
     case 'auth_invalid':
       return FactStreams.TRANSPORT;
+    case 'feature':
+      return FactStreams.FEATURE;
   }
 }
 
@@ -79,7 +83,7 @@ export class AdapterBridge {
   /** Allocates the cursor synchronously (order is fixed at call time) and pushes in order. */
   push(fact: AdapterFact): AdapterFactEnvelope {
     const env = this.envelope(fact);
-    this.#queue = this.#queue.then(() => this.#invoke(ImCommands.PUSH_FACT, withContractVersion(env))).then(
+    this.#queue = this.#queue.then(() => this.#invoke(ImCommands.PUSH_FACT, env)).then(
       () => undefined,
       (error: unknown) => {
         this.#onPushError?.(env, error);

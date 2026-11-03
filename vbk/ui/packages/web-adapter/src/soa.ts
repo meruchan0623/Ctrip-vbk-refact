@@ -64,8 +64,6 @@ export interface SoaClientOptions {
 export interface PostOptions {
   /** Fixed-source security reads must never accept redirected responses. */
   readonly rejectRedirects?: boolean;
-  /** Cadence owners schedule retries themselves to enforce their request floor. */
-  readonly retryNetworkErrors?: boolean;
   readonly timeoutMs?: number;
   /** Extra HTTP headers (never cookies/authorization). */
   readonly headers?: Readonly<Record<string, string>>;
@@ -200,7 +198,7 @@ export class SoaClient {
       if (first.kind === 'network_error') return { kind: 'unknown', detail: first.detail };
       return first;
     }
-    if (first.kind === 'network_error' && opts.retryNetworkErrors !== false) {
+    if (first.kind === 'network_error') {
       // reads: one retry on a transport error only
       return this.#attempt<T>(spec, body, opts);
     }

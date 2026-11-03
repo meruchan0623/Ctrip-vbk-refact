@@ -7,8 +7,7 @@
  * `createMockIpc()` from `./mock.ts`.
  */
 
-import { withContractVersion } from './contracts.ts';
-
+import { CONTRACT_VERSION, ErrorCodes, isAppError } from './contracts.ts';
 import type {
   AccountContext,
   ConversationFact,
@@ -55,12 +54,28 @@ export const HOST_UNAVAILABLE = 'host.unavailable';
  * instead should check `hasTauri()` first (see `apps/_shared/ipc.ts`).
  */
 export function createTauriIpc(): IpcClient {
+  // Contract handshake (I-03): the first call of this window announces the
+  // contract version; every other call waits for it. A version mismatch is
+  // sticky (the host rejects the whole window), other failures are retried
+  // by the next call.
+  let hello: Promise<unknown> | null = null;
+  let rejected: unknown = null;
+  const handshake = (invoke: (cmd: string, args?: unknown) => Promise<unknown>): Promise<unknown> => {
+    if (rejected !== null) return Promise.reject(rejected);
+    hello ??= Promise.resolve(invoke(UiCommands.CONTRACT_HELLO, { version: CONTRACT_VERSION })).catch((e: unknown) => {
+      hello = null;
+      if (isAppError(e) && e.code === ErrorCodes.HOST_CONTRACT_MISMATCH) rejected = e;
+      throw e;
+    });
+    return hello;
+  };
   return {
     invoke<T>(cmd: string, payload?: unknown): Promise<T> {
       const invoke = tauriGlobal()?.core?.invoke;
       if (!invoke) return Promise.reject({ code: HOST_UNAVAILABLE, message: 'window.__TAURI__ is not available', retryable: true });
       try {
-        return Promise.resolve(invoke(cmd, withContractVersion(payload))) as Promise<T>;
+        if (cmd === UiCommands.CONTRACT_HELLO) return Promise.resolve(invoke(cmd, payload ?? {})) as Promise<T>;
+        return handshake(invoke).then(() => invoke(cmd, payload ?? {})) as Promise<T>;
       } catch (e) {
         return Promise.reject(e);
       }
@@ -98,6 +113,8 @@ export function createTauriIpc(): IpcClient {
 // ---------------------------------------------------------------------------
 
 export const UiCommands = {
+  // contract version handshake (I-03): first call of every local window
+  CONTRACT_HELLO: 'contract_hello', // {version} → null; host.contract_mismatch rejects the window
   // account (in addition to AccountCommands)
   ACCOUNT_SET_REMARK: 'account_set_remark', // {account, remark}
   ACCOUNT_AGENT_STATUS: 'account_agent_status', // {account} → UiAgentStatus (read-back only)
@@ -165,10 +182,6 @@ export const UiEvents = {
   TOAST: 'shell://toast', // {text}
 } as const;
 
-/** Attachment DTO version, mirrored by the host's media contract. */
-export const ATTACHMENT_CONTRACT_VERSION = 1;
-export type MediaAttachmentDto = UiAttachment;
-
 export interface UiAttachment {
   readonly attachment_id: string; readonly name: string;
   readonly kind: 'image' | 'file' | 'video'; readonly mime: string; readonly size: number;
@@ -208,6 +221,14 @@ export interface UiAccountSnapshot {
   readonly accounts: readonly UiAccount[];
   readonly active_account_id: string | null;
   readonly max_accounts: number;
+  /**
+   * Host-wide: a durable write failed and has not been retried successfully
+   * (「本地保存失败」). While true the host refuses `im_send_text` /
+   * `im_send_media` with `store.persist_failed` and the UI pauses sending;
+   * the host re-emits `account://changed` when it flips back. Absent = false
+   * (older snapshots, mocks).
+   */
+  readonly persist_failed?: boolean;
 }
 
 export type AgentStatus = 'online' | 'hangup' | 'leaving' | 'getoff';

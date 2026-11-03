@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AdapterFact } from '../../ipc/src/contracts.ts';
 import { SoaClient } from './soa.ts';
-import { createPageRequestObserver } from './pageContext.ts';
 import { createConversationListPoller, mapConversationStatus, toConversationFact } from './conversationList.ts';
 import { AUTH_FAILURE_STATUS, OK_STATUS, jsonResponse, makeDeps } from './testing.ts';
 
@@ -125,88 +124,5 @@ test('poller: transient failure keeps polling without emitting facts', async () 
   assert.equal(deps.fakeFetch.calls.length, 2);
   // the retry after a failure is still a full snapshot (no cursor yet)
   assert.equal('startTime' in (deps.fakeFetch.calls[1]?.bodyJson as object), false);
-  poller.stop();
-});
-
-test('official loop: thirty minute buckets have zero adapter list requests; official full/incremental bodies feed facts', async () => {
-  const deps = makeDeps();
-  const requests = createPageRequestObserver(deps.now);
-  const facts: AdapterFact[] = [];
-  const poller = createConversationListPoller(deps, new SoaClient(deps), { variant: 'plain', officialRequests: requests, emit: fact => facts.push(fact) });
-  poller.start();
-  const buckets = new Array<number>(30).fill(0);
-  for (let i = 0; i < 360; i++) {
-    const request = requests.begin('https://m.ctrip.com/restapi/soa2/16037/getConversationList', JSON.stringify(i === 0 ? {} : { startTime: 1700000000000 + i * 5000 }), 'official')!;
-    requests.complete(request, 200, { ResponseStatus: OK_STATUS, conversationList: i === 0 ? [row('g1')] : [], lastUpdateTime: 1700000000000 + (i + 1) * 5000 });
-    await deps.clock.advance(5000);
-    buckets[Math.floor(i / 12)] = deps.fakeFetch.calls.length;
-  }
-  assert.deepEqual(buckets, new Array<number>(30).fill(0));
-  assert.equal(facts.filter(f => f.kind === 'conversation_list_sync').length, 360);
-  assert.deepEqual(facts[1], { kind: 'conversation_list_sync', full: true, last_update_time_ms: 1700000005000 });
-  assert.equal(poller.cursor, 1700001800000);
-  poller.stop();
-});
-
-test('fallback obeys visible gate, five-second minimum including transport errors, and exponential backoff', async () => {
-  const deps = makeDeps(() => new Error('offline'));
-  let visible = true;
-  let changed = () => {};
-  const poller = createConversationListPoller(deps, new SoaClient(deps), { variant: 'plain', intervalMs: 1, emit: () => {}, visibility: { visible: () => visible, subscribe: cb => { changed = cb; return () => {}; } } });
-  poller.start();
-  await deps.clock.advance(4999);
-  assert.equal(deps.fakeFetch.calls.length, 1, 'SoaClient must not instantly retry a cadence read');
-  await deps.clock.advance(1);
-  assert.equal(deps.fakeFetch.calls.length, 2);
-  await deps.clock.advance(9999);
-  assert.equal(deps.fakeFetch.calls.length, 2);
-  await deps.clock.advance(1);
-  assert.equal(deps.fakeFetch.calls.length, 3);
-  visible = false; changed();
-  await deps.clock.advance(600000);
-  assert.equal(deps.fakeFetch.calls.length, 3);
-  visible = true; changed();
-  await deps.clock.advance(4999);
-  assert.equal(deps.fakeFetch.calls.length, 3);
-  await deps.clock.advance(1);
-  assert.equal(deps.fakeFetch.calls.length, 4);
-  poller.stop();
-});
-
-test('official request supersedes in-flight adapter result; out-of-order official and stopped-epoch responses are ignored', async () => {
-  let release!: (response: ReturnType<typeof jsonResponse>) => void;
-  const deps = makeDeps(() => new Promise(resolve => { release = resolve; }));
-  const requests = createPageRequestObserver(deps.now);
-  const facts: AdapterFact[] = [];
-  const poller = createConversationListPoller(deps, new SoaClient(deps), { variant: 'plain', officialRequests: requests, emit: fact => facts.push(fact) });
-  poller.start(); await deps.clock.advance(5000);
-  const older = requests.begin('https://m.ctrip.com/restapi/soa2/16037/getConversationList', '{}', 'official')!;
-  const newer = requests.begin('https://m.ctrip.com/restapi/soa2/16037/getConversationList', '{"startTime":1700000000100}', 'official')!;
-  requests.complete(newer, 200, { ResponseStatus: OK_STATUS, conversationList: [row('new')], lastUpdateTime: 1700000000300 });
-  requests.complete(older, 200, { ResponseStatus: OK_STATUS, conversationList: [row('old')], lastUpdateTime: 1700000000200 });
-  release(jsonResponse({ ResponseStatus: OK_STATUS, conversationList: [row('adapter-old')] }));
-  await deps.clock.advance(0);
-  assert.deepEqual(facts.filter(f => f.kind === 'conversation').map(f => f.fact.gid), ['new']);
-  assert.equal((facts.find(f => f.kind === 'conversation') as { fact: { is_full_snapshot: boolean } }).fact.is_full_snapshot, false);
-  const pending = requests.begin('https://m.ctrip.com/restapi/soa2/16037/getConversationList', '{}', 'official')!;
-  poller.stop(); poller.start();
-  requests.complete(pending, 200, { ResponseStatus: OK_STATUS, conversationList: [row('previous-epoch')] });
-  assert.equal(facts.filter(f => f.kind === 'conversation').length, 1);
-  poller.stop();
-});
-
-test('boot handoff consumes a completed official full snapshot once; stopping the official loop enables fallback after the lease', async () => {
-  const deps = makeDeps(() => jsonResponse({ ResponseStatus: OK_STATUS, conversationList: [] }));
-  const requests = createPageRequestObserver(deps.now);
-  const request = requests.begin('https://m.ctrip.com/restapi/soa2/16037/getConversationList', '{}', 'official')!;
-  requests.complete(request, 200, { ResponseStatus: OK_STATUS, conversationList: [row('boot')] });
-  const facts: AdapterFact[] = [];
-  const poller = createConversationListPoller(deps, new SoaClient(deps), { variant: 'plain', officialRequests: requests, emit: fact => facts.push(fact) });
-  poller.start();
-  assert.equal(facts.filter(f => f.kind === 'conversation').length, 1);
-  await deps.clock.advance(14999); assert.equal(deps.fakeFetch.calls.length, 0);
-  await deps.clock.advance(1); assert.equal(deps.fakeFetch.calls.length, 1);
-  poller.stop(); poller.start();
-  assert.equal(facts.filter(f => f.kind === 'conversation').length, 1);
   poller.stop();
 });

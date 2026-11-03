@@ -1,4 +1,5 @@
 import { readHistoryPage } from './history-read.ts';
+import { createMessagePane, PIN_THRESHOLD, sameWindow } from './message-pane.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -21,7 +22,7 @@ function fixture() {
   const open = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn openConversation;')(...Object.values(env));
   const loadEnd = source.indexOf('\n/** `im://locate-conversation`', b);
   const load = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(b, loadEnd)) + '\nreturn loadEarlier;')(...Object.values(env));
-  const renderEnv = { ...env, cx, activeConv: () => state.conversations[0], document: { querySelector: () => null }, h: (tag: string, props: any, ...children: any[]) => ({ tag, props: props ?? {}, dataset: props?.dataset ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, renderMessageAvatar: () => null, netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, messageRow: () => null, openConversation: open, loadEarlier: load };
+  const renderEnv = { ...env, messagePaneModel: createMessagePane(), liveAnchor: null, PIN_THRESHOLD, sameWindow, cx, activeConv: () => state.conversations[0], document: { querySelector: () => null }, h: (tag: string, props: any, ...children: any[]) => ({ tag, props: props ?? {}, dataset: props?.dataset ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, renderMessageAvatar: () => null, netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, messageRow: () => null, openConversation: open, loadEarlier: load };
   const ca = source.indexOf('let messagePaneCache:'), cb = source.indexOf('\nfunction messagesView(', ca);
   const render = new Function(...Object.keys(renderEnv), stripTypeScriptTypes(source.slice(ca, cb)) + '\nreturn chatPane;')(...Object.values(renderEnv));
   return { state, requests, visibility, render: () => render(state), open: () => open('synthetic-room'), earlier: () => load(state.conversations[0]), respond: (value: unknown) => { response = value; }, invalidate: () => { active = false; }, page: { items: [], has_more: false, before_ms: null } };
@@ -159,7 +160,7 @@ test('scrolling near the top loads history only for the current mounted scope an
   const account = { account_id: 'a', environment: 'test', session_generation: 1 }, conv = { gid: 'g', account };
   const state: any = { history: { g: {} } }; let calls = 0;
   let onScroll!: (event: any) => void;
-  const env = { root: { addEventListener: (_: string, fn: typeof onScroll) => { onScroll = fn; } }, visibleReads: { afterRender() {} }, S: () => state, activeConv: () => conv, activeAccount: () => ({ context: account }), historyScopeKey: vm.historyScopeKey, loadEarlier: () => { calls++; } };
+  const env = { root: { addEventListener: (_: string, fn: typeof onScroll) => { onScroll = fn; } }, visibleReads: { afterRender() {} }, onMessageScroll() {}, S: () => state, activeConv: () => conv, activeAccount: () => ({ context: account }), historyScopeKey: vm.historyScopeKey, loadEarlier: () => { calls++; } };
   const a = source.indexOf("root.addEventListener('scroll',"), b = source.indexOf("window.addEventListener('resize',", a);
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)))(...Object.values(env));
   const pane = { isConnected: true, scrollTop: 100, dataset: { keepScroll: 'msgs', historyScope: vm.historyScopeKey(account, 'g') } };

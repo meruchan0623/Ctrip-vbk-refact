@@ -1,1 +1,1 @@
-window.document["wr" + "ite"](untrusted);
+document.write('<b>x</b>');

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CONTRACT_VERSION, type AdapterFactEnvelope } from '../../ipc/src/contracts.ts';
+import type { AdapterFactEnvelope } from '../../ipc/src/contracts.ts';
 import { ImCommands } from '../../ipc/src/commands.ts';
 import { AdapterBridge, streamFor } from './bridge.ts';
 import { createAdapter } from './index.ts';
@@ -28,8 +28,8 @@ test('bridge: envelope shape, stream tagging, seq per stream, epoch bump', async
   );
   assert.equal(pushed.length, 4);
   assert.equal(pushed[0]?.cmd, ImCommands.PUSH_FACT);
-  assert.deepEqual(pushed[0]?.payload, { account, stream: 'im.transport', epoch: 1, seq: 1, fact: { kind: 'transport', state: 'connected' }, _contract_version: CONTRACT_VERSION });
-  assert.deepEqual(Object.keys(pushed[1]?.payload as object), ['account', 'stream', 'epoch', 'seq', 'fact', '_contract_version']);
+  assert.deepEqual(pushed[0]?.payload, { account, stream: 'im.transport', epoch: 1, seq: 1, fact: { kind: 'transport', state: 'connected' } });
+  assert.deepEqual(Object.keys(pushed[1]?.payload as object), ['account', 'stream', 'epoch', 'seq', 'fact']);
   assert.equal(bridge.bumpEpoch(), 2);
   const e5 = bridge.push({ kind: 'auth_invalid' });
   assert.deepEqual([e5.stream, e5.epoch, e5.seq], ['im.transport', 2, 1]);

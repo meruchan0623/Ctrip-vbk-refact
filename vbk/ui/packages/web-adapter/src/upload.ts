@@ -33,10 +33,6 @@ export const NEPHELE_OK_CODE = 2000;
 export const IMAGE_CHANNEL = 'im_business';
 export const FILE_CHANNEL = 'im';
 export const VIDEO_CHANNEL = 'im';
-export const IMAGE_UPLOAD_CAP = 10 * 1024 * 1024;
-export const FILE_UPLOAD_CAP = 30 * 1024 * 1024;
-export const VIDEO_UPLOAD_CAP = 300 * 1024 * 1024;
-export const VIDEO_DIRECT_UPLOAD_CAP = 30 * 1024 * 1024;
 /** No observed value: generous enough for a small video on a slow link, finite so a stalled upload still settles. */
 export const UPLOAD_TIMEOUT_MS = 120000;
 
@@ -83,7 +79,6 @@ export function nepheleAuthorization(parts: { rand32: string; dateStamp: string;
 }
 
 export type UploadFailure =
-  | { readonly kind: 'local_rejected'; readonly code: 'media.invalid_attachment' | 'media.video_chunking_unsupported' }
   | { readonly kind: 'token_failed'; readonly outcome: SoaOutcome<unknown> }
   | { readonly kind: 'http_error'; readonly httpStatus: number }
   | { readonly kind: 'network_error' }
@@ -107,8 +102,8 @@ interface RawPost {
   readonly json: unknown;
 }
 
-async function rawPost(deps: AdapterDeps, url: string, headers: Record<string, string>, body: Uint8Array | string, timeoutMs: number, credentials: 'include' | 'omit' = 'include'): Promise<RawPost | UploadFailure> {
-  const init: FetchInit = { method: 'POST', headers, body, credentials, redirect: 'error' };
+async function rawPost(deps: AdapterDeps, url: string, headers: Record<string, string>, body: Uint8Array | string, timeoutMs: number): Promise<RawPost | UploadFailure> {
+  const init: FetchInit = { method: 'POST', headers, body, credentials: 'include' };
   const exchange = (async (): Promise<RawPost | UploadFailure> => {
     let status: number;
     let text: string;
@@ -176,7 +171,6 @@ export interface ImageUploadInput {
 export type ImageUploadResult = { readonly kind: 'uploaded'; readonly media: MediaImageRef; readonly fileName: string } | { readonly kind: 'failed'; readonly failure: UploadFailure };
 
 export async function uploadImage(deps: AdapterDeps, soa: SoaClient, input: ImageUploadInput): Promise<ImageUploadResult> {
-  if (!input.bytes.length || input.bytes.length > IMAGE_UPLOAD_CAP) return { kind: 'failed', failure: { kind: 'local_rejected', code: 'media.invalid_attachment' } };
   input.ensureCurrent?.();
   const tok = await fetchToken(deps, soa, IMAGE_CHANNEL, 'img');
   if (isFailure(tok)) return { kind: 'failed', failure: tok };
@@ -215,10 +209,9 @@ export interface FileUploadInput {
 export type FileUploadResult = { readonly kind: 'uploaded'; readonly media: MediaFileRef } | { readonly kind: 'failed'; readonly failure: UploadFailure };
 
 export async function uploadFile(deps: AdapterDeps, input: FileUploadInput): Promise<FileUploadResult> {
-  if (!input.bytes.length || input.bytes.length > FILE_UPLOAD_CAP) return { kind: 'failed', failure: { kind: 'local_rejected', code: 'media.invalid_attachment' } };
   input.ensureCurrent?.();
   const url = `${NEPHELE_HOST}/file/v1/api/upload?channel=${FILE_CHANNEL}&public=1`;
-  const res = await rawPost(deps, url, { Accept: 'application/json, text/plain, */*', 'Content-Type': input.mime }, input.bytes, input.timeoutMs ?? UPLOAD_TIMEOUT_MS, 'omit');
+  const res = await rawPost(deps, url, { Accept: 'application/json, text/plain, */*', 'Content-Type': input.mime }, input.bytes, input.timeoutMs ?? UPLOAD_TIMEOUT_MS);
   if (isFailure(res)) return { kind: 'failed', failure: res };
   const j = (typeof res.json === 'object' && res.json !== null ? res.json : {}) as { file_name?: unknown; url?: unknown };
   if (typeof j.url !== 'string' || j.url === '') return { kind: 'failed', failure: { kind: 'malformed' } };
@@ -247,8 +240,6 @@ export type VideoUploadResult =
 export const VIDEO_PROC_BODY = { extract: { interval: 20, end_second: 3 } } as const;
 
 export async function uploadVideo(deps: AdapterDeps, soa: SoaClient, input: VideoUploadInput): Promise<VideoUploadResult> {
-  if (!input.bytes.length || input.bytes.length > VIDEO_UPLOAD_CAP) return { kind: 'failed', stage: 'upload', failure: { kind: 'local_rejected', code: 'media.invalid_attachment' } };
-  if (input.bytes.length > VIDEO_DIRECT_UPLOAD_CAP) return { kind: 'failed', stage: 'upload', failure: { kind: 'local_rejected', code: 'media.video_chunking_unsupported' } };
   input.ensureCurrent?.();
   const tok = await fetchToken(deps, soa, VIDEO_CHANNEL, 'video');
   if (isFailure(tok)) return { kind: 'failed', failure: tok, stage: 'token' };

@@ -1,0 +1,10 @@
+{
+  "capabilities": {
+    "main.json": {
+      "windows": [
+        "main",
+        "ghost"
+      ]
+    }
+  }
+}

@@ -23,6 +23,10 @@ pub const SHELL_TOAST: &str = "shell://toast"; // {text}
 pub const NOTIFY_BANNER: &str = "notify://banner";
 pub const NOTIFY_PLAY_SOUND: &str = "notify://play-sound";
 pub const NOTIFY_STOP_SOUND: &str = "notify://stop-sound";
+/// Validated page feature fact (typing / recalled / queue notice) → main
+/// window; payload `FeatureFactEventDto`. Mirrors `FeatureEvents.FACT` in
+/// `ui/apps/main/features/context.ts` (added 2026-11-02, main window only).
+pub const FEATURE_FACT: &str = "feature://fact";
 /// Host → one `acct-*` webview only.
 pub const ADAPTER_REQUEST: &str = "adapter://request";
 

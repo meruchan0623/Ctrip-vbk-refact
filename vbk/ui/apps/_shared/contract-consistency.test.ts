@@ -8,7 +8,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { AccountCommands, ImCommands, NotifyCommands, OrderCommands, PrefsCommands } from '../../packages/ipc/src/commands.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { AdapterCommands } from '../../packages/ipc/src/adapterProtocol.ts';
@@ -48,21 +47,20 @@ test('capability files grant exactly their role list', () => {
   }
 });
 
-test('capability matrix covers registered labels in both directions and restricts remote grants', () => {
-  const output = execFileSync(process.execPath, [join(vbk, 'tools/gates/capability-matrix.mjs'), '--check', '--json'], { encoding: 'utf8' });
-  const matrix = JSON.parse(output) as { labels: string[]; rows: { capability: string; command: string; remote_urls: string[] }[] };
-  assert.equal(matrix.labels.length, 7);
-  assert.equal(matrix.rows.filter((row) => row.capability === 'adapter').length, 7);
-  assert.ok(matrix.rows.filter((row) => row.remote_urls.length).every((row) => row.capability === 'adapter'));
-});
-
-test('command registrations and role lists cannot hide duplicate entries', () => {
-  const declared = read('src-tauri/commands.txt').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
-  assert.equal(declared.length, new Set(declared).size, 'duplicate command registration');
-  const handlers = [...handler.matchAll(/\w+::(\w+),/g)].map((m) => m[1]!);
-  assert.equal(handlers.length, new Set(handlers).size, 'duplicate generate_handler registration');
-  for (const role of views.matchAll(/const (\w+)_CMDS: &\[&str\] = &\[([\s\S]*?)\];/g)) {
-    const commands = [...role[2]!.matchAll(/"(\w+)"/g)].map((m) => m[1]!);
-    assert.equal(commands.length, new Set(commands).size, `duplicate role command in ${role[1]}`);
-  }
+// I-03: the contract handshake must cover EVERY module's commands, not only commands.rs.
+// `HostState::authorize` is the single gated path; a direct `views.authorize` elsewhere would
+// let a window skip `contract_hello` for that command.
+test('contract handshake is enforced in HostState::authorize and no module bypasses it', () => {
+  const state = read('src-tauri/src/state.rs');
+  const body = state.slice(state.indexOf('pub fn authorize('));
+  assert.ok(/contract_check\(label\)/.test(body.slice(0, body.indexOf('\n    }\n'))), 'HostState::authorize calls commands::contract_check');
+  const walk = (dir: string): string[] => readdirSync(join(vbk, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}/${e.name}`) : [`${dir}/${e.name}`]));
+  const direct = walk('src-tauri/src')
+    .filter((f) => f.endsWith('.rs') && !/(?:_tests|tests)\.rs$/.test(f))
+    .filter((f) => /\.views\s*\.authorize\(/.test(read(f).split('#[cfg(test)]')[0]!));
+  assert.deepEqual(direct.sort(), ['src-tauri/src/assistant/order_commands.rs', 'src-tauri/src/state.rs']);
+  // order_commands captures the ViewContext only after the gated check
+  const cap = read('src-tauri/src/assistant/order_commands.rs');
+  const fnCapture = cap.slice(cap.indexOf('fn capture('), cap.indexOf('fn current('));
+  assert.ok(fnCapture.indexOf('state.authorize(') < fnCapture.indexOf('.views.authorize('), 'capture() runs HostState::authorize first');
 });

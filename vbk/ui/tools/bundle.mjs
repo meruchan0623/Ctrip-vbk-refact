@@ -20,7 +20,7 @@
  * Usage (from `vbk/`): `node ui/tools/bundle.mjs`
  */
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +62,13 @@ else if (localTsc) execFileSync(process.execPath, [localTsc, ...tscArgs], opts);
 else execFileSync('tsc', tscArgs, { ...opts, shell: process.platform === 'win32' });
 
 // 2. Assemble.
+const MOCK_LOADER = join('dist', 'apps', '_shared', 'mock-loader.js');
+const MOCK_ONLY = new Set([MOCK_LOADER, join('dist', 'packages', 'ipc', 'src', 'mock.js')]);
+const MOCK_LOADER_STUB = `// Release stub written by ui/tools/bundle.mjs: the mock IPC is not shipped.
+export function createMockIpc() { throw new Error('mock IPC is not part of the release bundle'); }
+export function scenarioFromLocation() { return 'default'; }
+export const MOCK_ORDER_SAMPLES = [];
+`;
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
@@ -72,8 +79,13 @@ for (const f of walk(join(uiRoot, 'packages'))) {
   if (f.endsWith('.css')) copyInto(f, relative(uiRoot, f));
 }
 for (const f of walk(join(uiRoot, 'dist'))) {
-  if (f.endsWith('.js') && !/\.test\.js$/.test(f)) copyInto(f, relative(uiRoot, f));
+  if (f.endsWith('.js') && !/\.test\.js$/.test(f) && !MOCK_ONLY.has(relative(uiRoot, f))) copyInto(f, relative(uiRoot, f));
 }
+// The windows select the mock through `apps/_shared/mock-loader`; the release
+// bundle gets a data-free stub there and no `mock.js` at all, so neither the
+// fake accounts nor the demo order samples ship (release-scan enforces it).
+mkdirSync(dirname(join(out, MOCK_LOADER)), { recursive: true });
+writeFileSync(join(out, MOCK_LOADER), MOCK_LOADER_STUB);
 
 // 3. Verify every local reference resolves inside the bundle.
 const refRe = /\b(?:href|src)\s*=\s*"([^"]+)"/g;

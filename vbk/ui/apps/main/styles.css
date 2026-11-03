@@ -98,7 +98,11 @@ html[data-platform="macos"] .wbtns { display: none; }
 .chat-sub { font-size: 12px; color: var(--c-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-empty { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--c-text-muted); }
 /* Synchronous row restore and ResizeObserver own this pane's reading position. */
-.msgs { flex: 1; overflow-y: auto; overflow-anchor: none; padding: 16px 18px 8px; display: flex; flex-direction: column; gap: 14px; }
+.msgs { flex: 1; overflow-y: auto; overflow-anchor: none; padding: 16px 18px 0; display: flex; flex-direction: column; }
+/* Rows carry their own bottom margin (not flex gap) so the windowing spacers add up exactly. */
+.msgs > .msg, .msgs > .msg-sys { margin-bottom: 14px; flex: none; }
+.msgs > .history-more { margin-bottom: 14px; }
+.msgs-spacer { flex: none; }
 .msg-sys { display: flex; justify-content: center; }
 .msg-sys span { font-size: 11.5px; color: var(--c-text-muted); background: #E8ECF2; border-radius: 10px; padding: 3px 10px; max-width: 80%; text-align: center; }
 .msg { display: flex; gap: 8px; align-items: flex-start; position: relative; }
@@ -156,6 +160,7 @@ html[data-platform="macos"] .wbtns { display: none; }
 .ta { border: 0; outline: none; resize: none; padding: 6px 14px; height: 76px; font-size: 13.5px; line-height: 1.55; background: transparent; user-select: text; }
 .cfoot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 0 12px 10px; }
 .hint { font-size: 11.5px; color: var(--c-text-faint); }
+.hint-bad { color: var(--c-alert-text); }
 
 /* side panel */
 .side { width: var(--side-w); flex: none; background: #fff; border-left: 1px solid var(--c-border); display: flex; flex-direction: column; min-height: 0; }

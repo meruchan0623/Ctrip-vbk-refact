@@ -15,10 +15,367 @@
  *   `query.lang || "zh-CN"` (static excerpt `conversation-incremental-cursor`).
  *
  * Nothing else from the observed requests is kept; nothing is logged.
+ *
+ * I-06 additions (request pacing, docs/api/transports.md "请求节奏"):
+ *
+ * - `TrafficLedger`: per account x request path x one-minute bucket x
+ *   initiator (`official` = the page's own calls seen by the hooks,
+ *   `adapter` = calls the adapter makes through its un-hooked `fetch`).
+ * - `OfficialConversationFeed`: the official page's own
+ *   `getConversationList` loop, observed request + response, so the adapter
+ *   consumes those responses instead of issuing a second request.
  */
 
-import type { PageContext } from './deps.ts';
-import { classifySoaBody, type SoaOutcome } from './soa.ts';
+import type { FetchLike, PageContext } from './deps.ts';
+
+// ------------------------------------------------------------- traffic classification
+
+/** Counted categories (the five path groups of the I-06 acceptance) plus two reported separately. */
+export type TrafficCategory = 'conversation_list' | 'remark_info' | 'recent_messages' | 'empathy_phrase' | 'open_session' | 'read_receipt' | 'telemetry';
+export const COUNTED_CATEGORIES: readonly TrafficCategory[] = ['conversation_list', 'remark_info', 'recent_messages', 'empathy_phrase', 'open_session'];
+export type TrafficInitiator = 'official' | 'adapter';
+export type OfficialListVariant = 'plain' | 'json';
+
+const SOA_NAME_TO_CATEGORY: Readonly<Record<string, TrafficCategory>> = {
+  getConversationList: 'conversation_list',
+  getRemarkList: 'remark_info',
+  getConversationInfoByGidList: 'remark_info',
+  getRecentMessages: 'recent_messages',
+  getSessionEmpathyPhraseInfo: 'empathy_phrase',
+  batchTranslateByMsgIds: 'open_session',
+  queryToken: 'open_session',
+  getOrderDetailsForVbk: 'open_session',
+  PutAdviceOfReadByMsgId: 'read_receipt',
+};
+
+function pathOf(url: string): string {
+  const cut = url.search(/[?#]/);
+  return cut >= 0 ? url.slice(0, cut) : url;
+}
+
+/** Category of one request URL, or `null` when it is not part of the pacing contract. */
+export function classifyTrafficPath(rawUrl: unknown): TrafficCategory | null {
+  const url = urlString(rawUrl);
+  if (url === null) return null;
+  const path = pathOf(url);
+  const soa = path.indexOf('/restapi/soa2/');
+  if (soa >= 0) {
+    const rest = path.slice(soa + '/restapi/soa2/'.length).split('/');
+    const name = (rest[rest.length - 1] ?? '').replace(/\.json$/, '');
+    return Object.prototype.hasOwnProperty.call(SOA_NAME_TO_CATEGORY, name) ? (SOA_NAME_TO_CATEGORY[name] ?? null) : null;
+  }
+  return /\/bee\/collect$/.test(path) ? 'telemetry' : null;
+}
+
+/** `.json` entry vs the plain vbooking entry of `getConversationList`; `null` for other URLs. */
+export function conversationListVariantOf(rawUrl: unknown): OfficialListVariant | null {
+  const url = urlString(rawUrl);
+  if (url === null || classifyTrafficPath(url) !== 'conversation_list') return null;
+  return pathOf(url).endsWith('.json') ? 'json' : 'plain';
+}
+
+export const TRAFFIC_BUCKET_MS = 60_000;
+
+export interface TrafficRow {
+  readonly account: string | null;
+  readonly path: TrafficCategory;
+  /** `floor(ms / 60000)`; one-minute bucket index. */
+  readonly bucket: number;
+  readonly initiator: TrafficInitiator;
+  readonly count: number;
+  /** Subset of `count` that was a deliberate one-off bootstrap full snapshot (reported, never hidden). */
+  readonly bootstrap: number;
+}
+
+export interface TrafficEvent {
+  readonly seq: number;
+  readonly phase: 'request' | 'response';
+  readonly category: TrafficCategory;
+  readonly initiator: TrafficInitiator;
+  readonly at: number;
+  readonly status?: number;
+}
+
+export interface TrafficTicket {
+  readonly seq: number;
+  readonly category: TrafficCategory;
+  readonly initiator: TrafficInitiator;
+}
+
+export interface TrafficLedger {
+  setAccount(account: string | null): void;
+  /** Counts one request and logs its position in the request/response order. */
+  request(url: unknown, initiator: TrafficInitiator, nowMs: number): TrafficTicket | null;
+  response(ticket: TrafficTicket, status: number, nowMs: number): void;
+  /** The *next* adapter request of `category` is a deliberate one-off bootstrap snapshot (counted in `bootstrap` too). */
+  markBootstrap(category: TrafficCategory): void;
+  count(category: TrafficCategory, initiator: TrafficInitiator, bucket: number): number;
+  rows(): readonly TrafficRow[];
+  /** Newest-last request/response log (bounded). */
+  events(): readonly TrafficEvent[];
+}
+
+export interface TrafficLedgerOptions {
+  readonly retainBuckets?: number;
+  readonly retainEvents?: number;
+}
+
+export function createTrafficLedger(opts: TrafficLedgerOptions = {}): TrafficLedger {
+  const retainBuckets = opts.retainBuckets ?? 360;
+  const retainEvents = opts.retainEvents ?? 512;
+  let account: string | null = null;
+  let seq = 0;
+  const cells = new Map<string, { account: string | null; category: TrafficCategory; bucket: number; initiator: TrafficInitiator; count: number; bootstrap: number }>();
+  const log: TrafficEvent[] = [];
+  const pendingBootstrap = new Set<TrafficCategory>();
+  const keyOf = (c: TrafficCategory, b: number, i: TrafficInitiator): string => `${c}|${b}|${i}`;
+  const prune = (bucket: number): void => {
+    for (const [k, cell] of cells) if (cell.bucket <= bucket - retainBuckets) cells.delete(k);
+  };
+  const push = (e: TrafficEvent): void => {
+    log.push(e);
+    if (log.length > retainEvents) log.splice(0, log.length - retainEvents);
+  };
+  return {
+    setAccount(next) {
+      account = next;
+    },
+    request(url, initiator, nowMs) {
+      const category = classifyTrafficPath(url);
+      if (category === null) return null;
+      const bucket = Math.floor(nowMs / TRAFFIC_BUCKET_MS);
+      const key = keyOf(category, bucket, initiator);
+      const cell = cells.get(key) ?? { account, category, bucket, initiator, count: 0, bootstrap: 0 };
+      cell.count += 1;
+      if (initiator === 'adapter' && pendingBootstrap.delete(category)) cell.bootstrap += 1;
+      cells.set(key, cell);
+      prune(bucket);
+      seq += 1;
+      push({ seq, phase: 'request', category, initiator, at: nowMs });
+      return { seq, category, initiator };
+    },
+    response(ticket, status, nowMs) {
+      push({ seq: ticket.seq, phase: 'response', category: ticket.category, initiator: ticket.initiator, at: nowMs, status });
+    },
+    markBootstrap(category) {
+      pendingBootstrap.add(category);
+    },
+    count: (category, initiator, bucket) => cells.get(keyOf(category, bucket, initiator))?.count ?? 0,
+    rows: () =>
+      [...cells.values()]
+        .map((c) => ({ account: c.account, path: c.category, bucket: c.bucket, initiator: c.initiator, count: c.count, bootstrap: c.bootstrap }))
+        .sort((a, b) => a.bucket - b.bucket || a.path.localeCompare(b.path) || a.initiator.localeCompare(b.initiator)),
+    events: () => log.slice(),
+  };
+}
+
+// ------------------------------------------------------------- official conversation-list feed
+
+export interface OfficialConversationEntry {
+  readonly variant: OfficialListVariant;
+  /** Request body `startTime`; `null` = absent/0 = a full snapshot; `undefined` = body not observable. */
+  readonly startTime: number | null | undefined;
+  readonly full: boolean;
+  readonly status: number;
+  readonly text: string;
+  readonly at: number;
+}
+
+export interface OfficialFeedHandler {
+  /** Called when the official page sends a request; the returned ticket comes back with the response. */
+  onRequest(): unknown;
+  onResponse(entry: OfficialConversationEntry, ticket: unknown): void;
+}
+
+export interface OfficialFeedAttachment {
+  /** `true` when the buffered chain starts at an observed full snapshot and was replayed to the handler. */
+  readonly complete: boolean;
+  detach(): void;
+}
+
+export interface OfficialConversationFeed {
+  /**
+   * The official loop is considered a usable feed for `variant`: >= `minCalls`
+   * requests of that variant in `windowMs`, the latest not older than
+   * `staleMs`, **and** its responses are actually reaching the tap (a body was
+   * observed within `responseStaleMs`, or the first request is younger than
+   * that). Requests alone never count: a loop whose bodies cannot be read
+   * (opaque response type, clone failure, the other URL variant) would
+   * otherwise silence the poller with zero requests *and* zero data.
+   * Without `variant`, any variant counts (request liveness only).
+   */
+  active(nowMs: number, variant?: OfficialListVariant): boolean;
+  attach(variant: OfficialListVariant, handler: OfficialFeedHandler): OfficialFeedAttachment;
+}
+
+export interface OfficialFeedToken {
+  readonly variant: OfficialListVariant;
+  readonly startTime: number | null | undefined;
+  readonly tickets: ReadonlyMap<OfficialFeedHandler, unknown>;
+}
+
+export interface OfficialFeedSink extends OfficialConversationFeed {
+  noteRequest(url: unknown, body: unknown, nowMs: number): OfficialFeedToken | null;
+  noteResponse(token: OfficialFeedToken, status: number, text: string | null, nowMs: number): void;
+}
+
+export interface OfficialFeedOptions {
+  /** Official interval is 5 s; 3x tolerates one throttled/skipped round. */
+  readonly staleMs?: number;
+  readonly windowMs?: number;
+  readonly minCalls?: number;
+  /** Longest time a variant may go without an observed response body before its loop stops counting as a feed (default `windowMs`). */
+  readonly responseStaleMs?: number;
+  /** Replay buffer bounds (entries/characters since the last full snapshot, per variant). */
+  readonly maxEntries?: number;
+  readonly maxChars?: number;
+}
+
+function startTimeOf(body: unknown): number | null | undefined {
+  if (typeof body !== 'string' || body.length > MAX_BODY_CHARS || body.charCodeAt(0) !== 123) return undefined;
+  try {
+    const parsed = JSON.parse(body) as { startTime?: unknown };
+    const v = typeof parsed === 'object' && parsed !== null ? parsed.startTime : undefined;
+    if (v === undefined || v === null || v === 0 || v === '') return null;
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function createOfficialConversationFeed(opts: OfficialFeedOptions = {}): OfficialFeedSink {
+  const staleMs = opts.staleMs ?? 15_000;
+  const windowMs = opts.windowMs ?? 30_000;
+  const minCalls = opts.minCalls ?? 2;
+  const maxEntries = opts.maxEntries ?? 32;
+  const maxChars = opts.maxChars ?? 4_000_000;
+  const responseStaleMs = opts.responseStaleMs ?? windowMs;
+  const times: Record<OfficialListVariant, number[]> = { plain: [], json: [] };
+  /** First observed request / last observed response body per variant (response liveness). */
+  const firstRequestAt: Record<OfficialListVariant, number | undefined> = { plain: undefined, json: undefined };
+  const lastBodyAt: Record<OfficialListVariant, number | undefined> = { plain: undefined, json: undefined };
+  const handlers = new Map<OfficialFeedHandler, OfficialListVariant>();
+  const chains: Record<OfficialListVariant, { entries: OfficialConversationEntry[]; chars: number; anchored: boolean }> = {
+    plain: { entries: [], chars: 0, anchored: false },
+    json: { entries: [], chars: 0, anchored: false },
+  };
+
+  const store = (entry: OfficialConversationEntry): void => {
+    const chain = chains[entry.variant];
+    if (entry.status !== 200) return;
+    if (entry.full) {
+      chain.entries = [entry];
+      chain.chars = entry.text.length;
+      chain.anchored = true;
+      return;
+    }
+    if (!chain.anchored) return; // an increment without its full snapshot cannot be replayed
+    chain.entries.push(entry);
+    chain.chars += entry.text.length;
+    if (chain.entries.length > maxEntries || chain.chars > maxChars) {
+      chain.entries = [];
+      chain.chars = 0;
+      chain.anchored = false; // lost the chain: the next official full snapshot re-anchors
+    }
+  };
+
+  const requestsAlive = (nowMs: number, variant: OfficialListVariant): boolean => {
+    const list = times[variant];
+    const last = list[list.length - 1];
+    if (last === undefined || nowMs - last > staleMs) return false;
+    return list.filter((t) => nowMs - t <= windowMs).length >= minCalls;
+  };
+  const responsesAlive = (nowMs: number, variant: OfficialListVariant): boolean => {
+    const seen = lastBodyAt[variant] ?? firstRequestAt[variant];
+    return seen !== undefined && nowMs - seen <= responseStaleMs;
+  };
+
+  return {
+    active(nowMs, variant) {
+      if (variant === undefined) return requestsAlive(nowMs, 'plain') || requestsAlive(nowMs, 'json');
+      return requestsAlive(nowMs, variant) && responsesAlive(nowMs, variant);
+    },
+    attach(variant, handler) {
+      handlers.set(handler, variant);
+      const chain = chains[variant];
+      const complete = chain.anchored && chain.entries.length > 0;
+      if (complete) for (const entry of chain.entries.slice()) handler.onResponse(entry, undefined);
+      return {
+        complete,
+        detach() {
+          handlers.delete(handler);
+        },
+      };
+    },
+    noteRequest(url, body, nowMs) {
+      const variant = conversationListVariantOf(url);
+      if (variant === null) return null;
+      const list = times[variant];
+      list.push(nowMs);
+      if (list.length > 16) list.splice(0, list.length - 16);
+      firstRequestAt[variant] ??= nowMs;
+      const tickets = new Map<OfficialFeedHandler, unknown>();
+      for (const [h, v] of handlers) if (v === variant) tickets.set(h, h.onRequest());
+      return { variant, startTime: startTimeOf(body), tickets };
+    },
+    noteResponse(token, status, text, nowMs) {
+      if (text === null) return;
+      lastBodyAt[token.variant] = nowMs;
+      const entry: OfficialConversationEntry = { variant: token.variant, startTime: token.startTime, full: token.startTime === null, status, text, at: nowMs };
+      store(entry);
+      for (const [h, v] of [...handlers]) if (v === token.variant) h.onResponse(entry, token.tickets.get(h));
+    },
+  };
+}
+
+/**
+ * Counts every request the adapter itself sends as `adapter` traffic. The
+ * adapter's `fetch` is the page's original one (captured before the hooks),
+ * so this wrapper is the only place those requests are seen.
+ */
+export function recordAdapterFetch(ledger: TrafficLedger, inner: FetchLike, now: () => number): FetchLike {
+  return (url, init) => {
+    const ticket = ledger.request(url, 'adapter', now());
+    const result = inner(url, init);
+    if (ticket) {
+      result.then(
+        (r) => ledger.response(ticket, r.status, now()),
+        () => ledger.response(ticket, 0, now()),
+      );
+    }
+    return result;
+  };
+}
+
+// ------------------------------------------------------------- hook tap
+
+export interface PageTicket {
+  readonly traffic: TrafficTicket | null;
+  readonly feed: OfficialFeedToken | null;
+  /** Only conversation-list bodies are read; other responses are logged by status alone. */
+  readonly wantsBody: boolean;
+}
+
+export interface TrafficTap {
+  /** Sees one request the *page* issued; never alters it. */
+  onRequest(url: unknown, body: unknown): PageTicket | null;
+  onResponse(ticket: PageTicket, status: number, text: string | null): void;
+}
+
+export function createTrafficTap(ledger: TrafficLedger, feed: OfficialFeedSink | null, now: () => number): TrafficTap {
+  return {
+    onRequest(url, body) {
+      const traffic = ledger.request(url, 'official', now());
+      if (traffic === null) return null;
+      const token = feed && traffic.category === 'conversation_list' ? feed.noteRequest(url, body, now()) : null;
+      return { traffic, feed: token, wantsBody: token !== null };
+    },
+    onResponse(ticket, status, text) {
+      if (ticket.traffic) ledger.response(ticket.traffic, status, now());
+      if (ticket.feed && feed) feed.noteResponse(ticket.feed, status, text, now());
+    },
+  };
+}
 
 export interface SniffedContext {
   readonly cid: string | null;
@@ -113,70 +470,6 @@ export function createContextSniffer(): ContextSniffer {
   };
 }
 
-/** Body-free timing records use canonical paths, never query strings or credentials. */
-export interface RequestTiming {
-  readonly id: number;
-  readonly path: string;
-  readonly initiator: 'official' | 'adapter';
-  readonly phase: 'request' | 'response';
-  readonly at: number;
-}
-export interface ObservedRequest extends RequestTiming {
-  readonly startTime: number | null;
-  readonly outcome?: SoaOutcome<unknown>;
-}
-export interface PageRequestObserver {
-  begin(url: unknown, body: unknown, initiator: 'official' | 'adapter'): ObservedRequest | null;
-  complete(request: ObservedRequest, status: number, body: unknown): void;
-  subscribe(cb: (event: ObservedRequest) => void): () => void;
-  lastOfficial(path: string): number | null;
-  latestOfficial(path: string): ObservedRequest | null;
-}
-const OBSERVED_PATHS = new Set(['16037/getConversationList', '16037/getConversationList.json', '16037/getRemarkList', '16037/getConversationInfoByGidList', '11679/getRecentMessages', '11679/getRecentMessages.json', '15529/getSessionEmpathyPhraseInfo', '11679/batchTranslateByMsgIds', '15529/queryToken', '14735/getOrderDetailsForVbk', '11679/PutAdviceOfReadByMsgId.json']);
-
-export function createPageRequestObserver(now: () => number, timing?: (record: RequestTiming) => void): PageRequestObserver {
-  let sequence = 0;
-  const listeners = new Set<(event: ObservedRequest) => void>();
-  const last = new Map<string, number>();
-  const latest = new Map<string, ObservedRequest>();
-  const unreadable = new Set<string>();
-  const publish = (event: ObservedRequest): void => {
-    try { timing?.({ id: event.id, path: event.path, initiator: event.initiator, phase: event.phase, at: event.at }); } catch { /* passive observer */ }
-    for (const cb of [...listeners]) { try { cb(event); } catch { /* passive observer */ } }
-  };
-  return {
-    begin(rawUrl, body, initiator) {
-      let url: URL;
-      try { url = new URL(urlString(rawUrl) ?? '', 'https://vbooking.ctrip.com'); } catch { return null; }
-      // Only the already-authorized SOA hosts can contribute adapter facts.
-      if (url.protocol !== 'https:' || !['m.ctrip.com', 'vbooking.ctrip.com', 'imvendor.ctrip.com', 's.c-ctrip.com'].includes(url.hostname) || (url.port !== '' && url.port !== '443')) return null;
-      const path = url.pathname.startsWith('/restapi/soa2/') ? url.pathname.slice('/restapi/soa2/'.length) : url.hostname === 's.c-ctrip.com' && url.pathname === '/bee/collect' ? 'telemetry' : '';
-      if (!OBSERVED_PATHS.has(path) && path !== 'telemetry') return null;
-      let parsed: unknown;
-      try { if (typeof body === 'string' && body.length <= MAX_BODY_CHARS) parsed = JSON.parse(body); } catch { /* unknown request cursor */ }
-      const value = typeof parsed === 'object' && parsed !== null ? (parsed as { startTime?: unknown }).startTime : undefined;
-      // Unknown/non-string request bodies must never be mistaken for a full snapshot.
-      const startTime = typeof value === 'number' && Number.isFinite(value) ? value : parsed && typeof parsed === 'object' && !('startTime' in parsed) ? null : -1;
-      const event: ObservedRequest = { id: ++sequence, path, initiator, phase: 'request', at: now(), startTime };
-      if (initiator === 'official') { last.set(path, event.at); if (path.startsWith('16037/getConversationList')) latest.set(path, event); }
-      publish(event);
-      return event;
-    },
-    complete(request, status, body) {
-      const outcome: SoaOutcome<unknown> = status < 200 || status >= 300 ? { kind: 'http_error', httpStatus: status } : classifySoaBody(body, status);
-      const event: ObservedRequest = { ...request, phase: 'response', at: now(), outcome };
-      if (request.initiator === 'official' && latest.get(request.path)?.id === request.id) {
-        if (status === 0) unreadable.add(request.path); else unreadable.delete(request.path);
-        latest.set(request.path, event);
-      }
-      publish(event);
-    },
-    subscribe(cb) { listeners.add(cb); return () => { listeners.delete(cb); }; },
-    latestOfficial(path) { return latest.get(path) ?? null; },
-    lastOfficial(path) { return unreadable.has(path) ? null : last.get(path) ?? null; },
-  };
-}
-
 // ------------------------------------------------------------- page hooks
 
 /** Loose window shape: only what the hooks touch. */
@@ -191,32 +484,20 @@ export interface HookableWindow {
  * untouched. Observation errors are swallowed; the page's call always goes
  * through with its original arguments and `this`.
  */
-export function installContextHooks(win: HookableWindow, sniffer: ContextSniffer, requests?: PageRequestObserver): void {
+export function installContextHooks(win: HookableWindow, sniffer: ContextSniffer, tap?: TrafficTap): void {
   const origFetch = win.fetch;
   if (typeof origFetch === 'function') {
     const wrapped = function (this: unknown, input: unknown, init?: unknown): unknown {
-      let request: ObservedRequest | null = null;
+      let ticket: PageTicket | null = null;
       try {
         const body = typeof init === 'object' && init !== null ? (init as { body?: unknown }).body : undefined;
         sniffer.observe(input, body);
-        request = requests?.begin(input, body, 'official') ?? null;
+        ticket = tap?.onRequest(input, body) ?? null;
       } catch {
         // observation must never break the page
       }
       const result = (origFetch as (...a: unknown[]) => unknown).apply(this, arguments as unknown as unknown[]);
-      if (request) {
-        const captured = request;
-        // Clone only observed responses; return the original promise/response unchanged.
-        void Promise.resolve(result).then(async (response: unknown) => {
-          const r = response as { status: number; clone?: () => { text(): Promise<string> } };
-          if (typeof r?.clone !== 'function') { requests?.complete(captured, 0, null); return; }
-          const text = await r.clone().text();
-          if (text.length > MAX_BODY_CHARS) { requests?.complete(captured, 0, null); return; }
-          let body: unknown;
-          try { body = JSON.parse(text); } catch { body = null; }
-          requests?.complete(captured, r.status, body);
-        }).catch(() => requests?.complete(captured, 0, null));
-      }
+      if (tap && ticket) tapFetchResult(tap, ticket, result);
       return result;
     };
     win.fetch = wrapped;
@@ -237,13 +518,83 @@ export function installContextHooks(win: HookableWindow, sniffer: ContextSniffer
     };
     proto.send = function (this: object, body?: unknown): unknown {
       try {
-        sniffer.observe(urls.get(this), body);
+        const url = urls.get(this);
+        sniffer.observe(url, body);
+        const ticket = tap?.onRequest(url, body) ?? null;
+        if (tap && ticket) tapXhr(tap, ticket, this);
       } catch {
         // ignore
       }
       return origSend.apply(this, arguments as unknown as unknown[]);
     };
   }
+}
+
+/**
+ * Side branch on the page's own fetch promise. It is registered before the
+ * page can attach its handlers, so `Response.clone()` still sees an unread
+ * body; the promise handed back to the page is the original, untouched one.
+ */
+function tapFetchResult(tap: TrafficTap, ticket: PageTicket, result: unknown): void {
+  const then = (result as { then?: unknown } | null)?.then;
+  if (typeof then !== 'function') {
+    tap.onResponse(ticket, 0, null);
+    return;
+  }
+  (then as (a: (r: unknown) => void, b: () => void) => unknown).call(
+    result,
+    (res: unknown) => {
+      try {
+        const r = res as { status?: unknown; clone?: () => { text(): Promise<string> } };
+        const status = typeof r.status === 'number' ? r.status : 0;
+        if (ticket.wantsBody && typeof r.clone === 'function') {
+          r.clone()
+            .text()
+            .then(
+              (text) => tap.onResponse(ticket, status, text),
+              () => tap.onResponse(ticket, status, null),
+            );
+        } else {
+          tap.onResponse(ticket, status, null);
+        }
+      } catch {
+        // observation must never break the page
+      }
+    },
+    () => {
+      try {
+        tap.onResponse(ticket, 0, null);
+      } catch {
+        // ignore
+      }
+    },
+  );
+}
+
+function tapXhr(tap: TrafficTap, ticket: PageTicket, xhr: object): void {
+  const target = xhr as { addEventListener?: (type: string, cb: () => void) => void; status?: unknown; responseType?: unknown; responseText?: unknown; response?: unknown };
+  target.addEventListener?.('loadend', () => {
+    try {
+      const status = typeof target.status === 'number' ? target.status : 0;
+      tap.onResponse(ticket, status, ticket.wantsBody ? xhrBodyText(target) : null);
+    } catch {
+      // ignore
+    }
+  });
+}
+
+/** Body of a finished XHR as text: `responseText` for text responses, the parsed object re-serialised for `responseType: 'json'`; `null` otherwise. */
+function xhrBodyText(target: { responseType?: unknown; responseText?: unknown; response?: unknown }): string | null {
+  try {
+    if (target.responseType === '' || target.responseType === 'text') return typeof target.responseText === 'string' ? target.responseText : null;
+    if (target.responseType === 'json') {
+      const r = target.response;
+      return typeof r === 'object' && r !== null ? JSON.stringify(r) : null;
+    }
+  } catch {
+    // `responseText` throws for non-text response types; treated as unobservable
+  }
+  return null;
 }
 
 // ------------------------------------------------------------- context

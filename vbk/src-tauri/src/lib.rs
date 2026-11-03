@@ -17,15 +17,16 @@ pub mod peripheral_journal;
 pub mod media_outbound;
 pub mod assistant;
 pub mod commands;
-pub mod contract_version;
-pub mod diagnostics;
-pub mod startup_args;
+pub mod diag_bridge;
 pub mod dto;
 pub mod events;
+pub mod features;
+pub mod local_tz;
 pub mod login;
 pub mod prefs;
 pub mod scheduler;
 pub mod shell;
+pub mod startup_args;
 pub mod state;
 pub mod tray;
 pub mod views;
@@ -59,18 +60,11 @@ pub fn run() {
         }))
         .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
-            diagnostics::init(data_dir.join("logs"))?;
-            crate::diag_log!(log::Level::Info, "host_started", {
-                timestamp = core_diag::Value::Count(boot_epoch)
-            });
+            diag_bridge::install(data_dir.join("logs"));
             let store = match FileStore::open(data_dir.join("state")) {
                 Ok(s) => Some(s),
                 Err(e) => {
                     log::error!("store unavailable: {e}; running without persistence");
-                    crate::diag_log!(log::Level::Error, "store_unavailable", {
-                        error_code = core_diag::Value::Text("store_open_failed"),
-                        count = core_diag::Value::Count(1)
-                    });
                     None
                 }
             };
@@ -119,7 +113,14 @@ pub fn run() {
             scheduler::start(handle);
             Ok(())
         })
-        .invoke_handler(contract_version::with_contract_version(tauri::generate_handler![
+        .invoke_handler(tauri::generate_handler![
+            commands::contract_hello,
+            features::typing::im_send_input_state,
+            features::recall::im_recall_message,
+            features::queue::im_queue_status,
+            features::queue::im_queue_drop_out,
+            features::draft::im_draft_load,
+            features::draft::im_draft_save,
             commands::notify_snapshot,
             commands::notify_open_conversation,
             commands::notify_hide_round,
@@ -189,20 +190,10 @@ pub fn run() {
             assistant::order_commands::assistant_order_summary,
             assistant::order_commands::assistant_package_detail_open,
             assistant::order_commands::assistant_package_detail,
-        ]))
+        ])
         .build(tauri::generate_context!())
         .expect("error while building the VBooking host")
         .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                if let Some(state) = app.try_state::<HostState>() {
-                    if state.flush_persistence(std::time::Duration::from_secs(5)).is_err() {
-                        crate::diag_log!(log::Level::Error, "persistence_flush_failed", {
-                            count = core_diag::Value::Count(1)
-                        });
-                    }
-                }
-                log::logger().flush();
-            }
             // macOS: closing main only hides it (tray behaviour), so a click
             // on the Dock icon must bring it back.
             #[cfg(target_os = "macos")]

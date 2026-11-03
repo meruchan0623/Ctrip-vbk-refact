@@ -1,0 +1,5 @@
+jobs:
+  dev:
+    steps:
+      - run: cargo run --features devtools
+      # cargo tauri build --features devtools  (comment)

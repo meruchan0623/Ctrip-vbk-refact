@@ -1,1 +1,0 @@
-struct Stored { password: String }

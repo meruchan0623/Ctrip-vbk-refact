@@ -1,0 +1,26 @@
+{
+  "rustCommands": [
+    {
+      "name": "ping",
+      "params": []
+    },
+    {
+      "name": "secret_free",
+      "params": [
+        {
+          "name": "account",
+          "type": "AccountContextDto"
+        }
+      ]
+    },
+    {
+      "name": "ping",
+      "params": [
+        {
+          "name": "cmd",
+          "type": "String"
+        }
+      ]
+    }
+  ]
+}

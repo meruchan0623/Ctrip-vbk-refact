@@ -30,7 +30,7 @@ import { conversationListBody, type ConversationListResponse } from './conversat
 import { fetchHistoryPage } from './history.ts';
 import { is13DigitMs, normalizeTimeMs, jidLocal } from './facts.ts';
 import { createSendIntent, submitIntent, type SendIntent } from './send.ts';
-import { markRead, latestPeerReadTarget } from './markRead.ts';
+import { markRead } from './markRead.ts';
 import { createMediaRpc } from './media.ts';
 import { numericGid, setWorkSheetStar } from './worksheetStar.ts';
 import { createImChat, isValidOrderId, validateImUrl } from './order.ts';
@@ -39,6 +39,8 @@ import type { PageSdk } from './sdkGlue.ts';
 import { roomJidFromMessage, type ConversationStore, RoleBook } from './stores.ts';
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, type NoticeCategoryInfo } from './notice.ts';
 import type { StatusRead } from './presence.ts';
+import { createFeatureDispatcher, FeatureOpError, type FeatureDispatcher, type FeatureOpContext } from './features.ts';
+import { createAdapterFeatures } from './adapterFeatures.ts';
 
 export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
   'clock.sample': 'host-requested fixed GetMyInfo.json authenticated SOA Timestamp; no display, facts or read receipts',
@@ -101,6 +103,38 @@ export interface RpcContext {
   /** Captures the current lifecycle generation; old awaited work must never write. */
   readonly captureWriteGuard?: () => (() => boolean);
   readonly receiveDiagnostics?: () => import('../../ipc/src/client.ts').UiPageReceiveDiagnostics;
+  /**
+   * Feature ops (`typing.*`, `recall.*`, `queue.*`; plan I-30). Defaults to
+   * `createAdapterFeatures()` built fresh for this rpc instance. Tests inject
+   * their own.
+   */
+  readonly features?: FeatureDispatcher;
+}
+
+/**
+ * Builds the narrow context a feature op sees for ONE request. The host is the
+ * only caller of `adapter://request`, so a `server_now_ms` argument is the
+ * host's anchored server clock (the host's `im_recall_message` adds it after
+ * its own gate); the page has no anchor of its own and treats anything else
+ * as "clock unknown", which every feature maps to a refusal, never a pass.
+ * `emit` wraps the fact as `AdapterFact {kind: 'feature'}` and hands it to the
+ * same `pushFact` every other fact uses (bridge envelope, stream `im.feature`,
+ * ordered queue, push-error accounting); the host validates and rate-limits it
+ * before forwarding it to the main window as `feature://fact`.
+ */
+function featureOpContext(ctx: RpcContext, args: unknown): FeatureOpContext {
+  const serverNow = recordOrNull(args)?.['server_now_ms'];
+  const anchored = typeof serverNow === 'number' && Number.isSafeInteger(serverNow) && serverNow > 0 ? serverNow : null;
+  return {
+    deps: ctx.deps,
+    soa: ctx.soa,
+    // PageSdk has no verified typing facade yet: typing.send reports `unsupported`.
+    sdk: {},
+    serverNowMs: () => anchored,
+    conversation: (gid) => ctx.store.view(gid),
+    selfUid: () => (ctx.roles.selfUid === '' ? null : ctx.roles.selfUid),
+    emit: (fact) => ctx.pushFact({ kind: 'feature', fact }),
+  };
 }
 
 export class RpcError extends Error {
@@ -356,14 +390,14 @@ const imMarkRead: Handler<'im.mark_read'> = async (ctx, args) => {
   const expectedRevision = requireString(args, 'expected_context_revision');
   requireConversation(ctx, gid);
   const partnerJid = partnerJidOf(ctx, gid);
-  const latest = latestPeerReadTarget(ctx.store, gid);
+  const latest = ctx.store.latestMessage(gid);
   if (!partnerJid || !latest) fail(ErrorCodes.ADAPTER_NOT_READY, 'no message / target jid known for this conversation yet', true);
   const authoritativeRoom = roomJidFromMessage(gid, ctx.store.view(gid)?.lastMessage ?? null);
   if (!authoritativeRoom || authoritativeRoom !== partnerJid) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation read target has not been verified');
   const revision = ctx.store.assistantContextRevision(gid, ctx.roles.selfUid, partnerJid);
   if (!revision || revision !== expectedRevision) fail(ErrorCodes.ADAPTER_FAILED, 'read conversation context changed since visibility was observed');
   if (latest.msgId !== expectedMessageId) fail(ErrorCodes.ADAPTER_FAILED, 'read target changed since visibility was observed');
-  const r = await markRead(ctx.sdk, { partnerJid, msgId: expectedMessageId, contextRevision: revision });
+  const r = await markRead(ctx.sdk, { partnerJid, msgId: expectedMessageId });
   ensureCurrent(current);
   if (ctx.store.assistantContextRevision(gid, ctx.roles.selfUid, partnerJidOf(ctx, gid)) !== revision) fail(ErrorCodes.ADAPTER_FAILED, 'conversation changed while read receipt was in flight');
   if (r.kind === 'acked') return null;
@@ -703,12 +737,24 @@ export interface Rpc {
 let rpcSequence = 0;
 export function createRpc(ctx: RpcContext): Rpc {
   const state: RpcState = { sends: new Map(), categories: new Map(), selectionNamespace: `${ctx.deps.now()}-${ctx.deps.random()}-${++rpcSequence}` };
+  const features = ctx.features ?? createFeatureDispatcher(createAdapterFeatures());
   return {
     async handle(request) {
       const r = recordOrNull(request);
       const reqId = r?.['req_id'];
       if (typeof reqId !== 'string' || reqId === '') return null;
       const op = r?.['op'];
+      if (typeof op === 'string' && !Object.prototype.hasOwnProperty.call(HANDLERS, op) && features.has(op)) {
+        const args = r?.['args'] ?? {};
+        try {
+          return { req_id: reqId, ok: true, data: await features.call(op, args, featureOpContext(ctx, args)) };
+        } catch (e: unknown) {
+          // FeatureOpError = argument/dispatch refusal before any request; anything else is an adapter bug.
+          const code = e instanceof FeatureOpError ? e.code : ErrorCodes.ADAPTER_FAILED;
+          const message = e instanceof FeatureOpError ? e.message : 'adapter error';
+          return { req_id: reqId, ok: false, error: { code, message, retryable: e instanceof FeatureOpError ? e.retryable : false } };
+        }
+      }
       if (typeof op !== 'string' || !Object.prototype.hasOwnProperty.call(HANDLERS, op)) {
         return { req_id: reqId, ok: false, error: { code: ErrorCodes.HOST_UNSUPPORTED, message: `unknown op`, retryable: false } };
       }

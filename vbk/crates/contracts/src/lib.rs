@@ -14,16 +14,15 @@
 //! `docs/archive/desktop-baseline/dev/00-architecture.md` §4.
 
 pub mod clock;
-pub mod contract_version;
 pub mod error;
 pub mod events;
 pub mod identity;
 pub mod im;
 pub mod json;
 pub mod notify;
+pub mod version;
 
 pub use clock::{ClockQuality, ClockReading};
-pub use contract_version::{validate_contract_version, CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH};
 pub use error::{codes, AppError};
 pub use events::{EventEnvelope, Snapshot, StreamCursor, StreamKey};
 pub use identity::{
@@ -36,3 +35,4 @@ pub use im::{
 pub use notify::{
     AlarmCommand, AlarmEntry, AlarmLevel, AlarmSnapshot, ReminderSettings, SnoozeMinutes,
 };
+pub use version::{ContractGate, GateDiagnostic, CONTRACT_VERSION};

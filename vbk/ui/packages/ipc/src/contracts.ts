@@ -7,15 +7,15 @@
  * Nothing here may carry cookies, tickets, tokens or customer message text.
  */
 
-/** Mirror of contracts::CONTRACT_VERSION. Every native app command carries this. */
-export const CONTRACT_VERSION = 1;
-export const CONTRACT_VERSION_MISMATCH = 'contract.version_mismatch';
+// ----------------------------------------------------------- contract version
 
-/** Never trust a caller-supplied version and never mutate the caller's DTO. */
-export function withContractVersion(payload?: unknown): Record<string, unknown> {
-  const args = typeof payload === 'object' && payload !== null && !Array.isArray(payload) ? payload : {};
-  return { ...args, _contract_version: CONTRACT_VERSION };
-}
+/**
+ * Mirror of `contracts::CONTRACT_VERSION` (`crates/contracts/src/version.rs`).
+ * Every local window announces it with its first call (`contract_hello`); on a
+ * mismatch the host rejects all commands of that window. Bump both together;
+ * `contracts.test.ts` fails when the two numbers drift.
+ */
+export const CONTRACT_VERSION = 1;
 
 // ---------------------------------------------------------------- identity
 
@@ -125,12 +125,15 @@ export const ErrorCodes = {
   NOTIFY_ROUND_VERSION_MISMATCH: 'notify.round_version_mismatch',
   STORE_IO: 'store.io',
   STORE_CORRUPT: 'store.corrupt',
+  /** A durable write failed and was not retried successfully yet: the send barrier is closed, nothing was submitted. */
+  STORE_PERSIST_FAILED: 'store.persist_failed',
   ADAPTER_NOT_READY: 'adapter.not_ready',
   ADAPTER_TIMEOUT: 'adapter.timeout',
   ADAPTER_FAILED: 'adapter.failed',
   HOST_UNSUPPORTED: 'host.unsupported',
   HOST_URL_REJECTED: 'host.url_rejected',
   HOST_UNAVAILABLE: 'host.unavailable',
+  HOST_CONTRACT_MISMATCH: 'host.contract_mismatch',
 } as const;
 
 export function isAppError(x: unknown): x is AppError {
@@ -200,14 +203,31 @@ export interface ConversationFact {
   readonly is_full_snapshot: boolean;
 }
 
-/** Stream names used for adapter → core facts. */
+/**
+ * Stream names used for adapter → core facts. `im.feature` carries page
+ * feature facts: the host validates and forwards them to the main window
+ * (`feature://fact`) without ingesting them, so its cursor is never tracked
+ * and never triggers a resync.
+ */
 export const FactStreams = {
   MESSAGE: 'im.message',
   CONVERSATION: 'im.conversation',
   TRANSPORT: 'im.transport',
+  FEATURE: 'im.feature',
 } as const;
 
 export type TransportState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
+
+/**
+ * Page feature fact (plan I-30: typing / recall / queue). Mirrors
+ * `FeatureFactDto` in `src-tauri/src/dto.rs`. The host injects the account
+ * before the fact reaches the main window; the page never names one.
+ */
+export type FeatureFact =
+  | { readonly kind: 'typing'; readonly gid: string; readonly from: string; readonly until_ms: number }
+  | { readonly kind: 'recalled'; readonly gid: string; readonly message_id: string }
+  /** A realtime queue system message (`action` NBZ11) arrived for `gid`. */
+  | { readonly kind: 'queue_notice'; readonly gid: string };
 
 export type AdapterFact =
   | { readonly kind: 'message'; readonly fact: MessageFact }
@@ -215,7 +235,9 @@ export type AdapterFact =
   | { readonly kind: 'conversation_list_sync'; readonly full: boolean; readonly last_update_time_ms: number | null }
   | { readonly kind: 'compensation_sync'; readonly last_message_timestamp_ms: number | null }
   | { readonly kind: 'transport'; readonly state: TransportState }
-  | { readonly kind: 'auth_invalid' };
+  | { readonly kind: 'auth_invalid' }
+  /** Forwarded to the main window by the host; never enters the IM core. */
+  | { readonly kind: 'feature'; readonly fact: FeatureFact };
 
 /** Envelope the adapter hands to the host: identity + generation + cursor. */
 export interface AdapterFactEnvelope {

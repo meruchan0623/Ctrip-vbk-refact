@@ -17,7 +17,8 @@ import type { AdapterDisplayPayload, DisplayConversation } from '../../ipc/src/a
 import type { AdapterDeps, SdkMessageEvent, SdkSocketStatus } from './deps.ts';
 import { createAdapter, type Adapter } from './index.ts';
 import { SoaClient, recordOrNull, type SoaOutcome } from './soa.ts';
-import { toConversationFact, type ConversationListItem, type ConversationListResponse, type ConversationListVariant } from './conversationList.ts';
+import { toConversationFact, type ConversationListItem, type ConversationListResponse, type ConversationListVariant, type VisibilityGate } from './conversationList.ts';
+import type { OfficialConversationFeed } from './pageContext.ts';
 import type { RecentMessagesResponse } from './compensation.ts';
 import { normalizeTimeMs, type HttpMessageObject } from './facts.ts';
 import { agentStatusOf, byCreateTime, httpMessageToUi, orderSummaryFromMessage, previewOfUi, sdkMessageToUi, toDisplayConversation } from './display.ts';
@@ -27,7 +28,6 @@ import type { IdentityProfile } from './identity.ts';
 import type { PageSdk } from './sdkGlue.ts';
 import { createReceiveCounters, receiveCount } from './diagnostics.ts';
 import { createPresence, type StatusRead } from './presence.ts';
-import { latestPeerReadTarget } from './markRead.ts';
 
 export interface PageSessionOptions {
   readonly account: AccountContext;
@@ -39,8 +39,12 @@ export interface PageSessionOptions {
   /** Display push (`adapter_push_display`); errors are swallowed by the session. */
   readonly pushDisplay: (payload: AdapterDisplayPayload) => Promise<unknown>;
   readonly variants?: readonly ConversationListVariant[];
-  readonly conversationCadence?: import('./index.ts').AdapterOptions['conversationCadence'];
-  readonly compensationOptions?: import('./index.ts').AdapterOptions['compensationOptions'];
+  /** Compensation normal-loop stop delay (ms); `null`/omitted = never stop. */
+  readonly normalLoopStopAfterMs?: number | null;
+  /** Official page's own conversation-list loop (fetch hook); pollers consume it instead of requesting (I-06). */
+  readonly officialConversationFeed?: OfficialConversationFeed;
+  readonly conversationVisibility?: VisibilityGate;
+  readonly onConversationBootstrap?: () => void;
   readonly sendAckTimeoutMs?: number;
   readonly orderGidWaitMs?: number;
   readonly unreadDebounceMs?: number;
@@ -124,7 +128,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
             // The row's customer uid is the only association for this surface.
             // RoleBook preserves known profile fields on incomplete refreshes.
             customer_avatar: uid ? roles.profileOf(uid).avatar : null,
-            read_target_message_id: latestPeerReadTarget(store, item.gid)?.msgId ?? null,
+            read_target_message_id: store.latestMessage(item.gid)?.msgId ?? null,
             assistant_context_revision: store.assistantContextRevision(item.gid, roles.selfUid, opts.sdk.partnerJidOf(item.gid) ?? roomJidFromMessage(item.gid, store.view(item.gid)?.lastMessage ?? null)) ?? '',
             ...(previous && (previous.last_message_time_ms ?? 0) > (item.last_message_time_ms ?? 0)
               ? { preview: previous.preview, last_message_time_ms: previous.last_message_time_ms }
@@ -167,7 +171,6 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   const unreadContexts = new Map<string, number | null>();
   store.watch(gids => {
     for (const gid of gids) {
-      latestPeerReadTarget(store, gid);
       const current = store.messageContext(gid);
       const room = roomJidFromMessage(gid, store.view(gid)?.lastMessage ?? null);
       if (room) opts.sdk.rememberPartnerJid(gid, room);
@@ -355,8 +358,12 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     initialBeginMsgTime: opts.beginMsgTime,
     initialEpoch: opts.initialEpoch,
     conversationListVariants: variants,
-    ...(opts.conversationCadence ? { conversationCadence: opts.conversationCadence } : {}),
-    ...(opts.compensationOptions ? { compensationOptions: opts.compensationOptions } : {}),
+    // A hidden account is long-lived; keep the read-only recovery path active
+    // unless the caller configures a stop delay (I-06; default decided after fault injection).
+    normalLoopStopAfterMs: opts.normalLoopStopAfterMs ?? null,
+    ...(opts.officialConversationFeed ? { officialConversationFeed: opts.officialConversationFeed } : {}),
+    ...(opts.conversationVisibility ? { conversationVisibility: opts.conversationVisibility } : {}),
+    ...(opts.onConversationBootstrap ? { onConversationBootstrap: opts.onConversationBootstrap } : {}),
     roles,
     unread,
     onConversationListOutcome: onListOutcome,

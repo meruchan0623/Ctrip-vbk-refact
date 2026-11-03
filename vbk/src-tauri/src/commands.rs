@@ -6,10 +6,11 @@
 //! No command sends a customer message, finishes a conversation or opens an
 //! arbitrary URL. The alarm window can only act on `(round_id, version)`.
 
-use contracts::{AlarmCommand, AppError};
+use contracts::{AlarmCommand, AppError, ContractGate, CONTRACT_VERSION};
 use core_net::url::{validate_official_im_url, UrlPolicy};
 use core_notify::{CommandAck, CommandSource};
 use serde::Serialize;
+use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, State, Window};
 
 use crate::dto::{
@@ -23,10 +24,54 @@ use crate::windows;
 
 type CmdResult<T> = Result<T, AppErrorDto>;
 
+/// Per-window contract handshake (I-03). Process-wide because it only holds
+/// window labels and version numbers; `HostState::authorize` consults it
+/// through `contract_check` for every command of every module.
+fn contract_gate() -> &'static Mutex<ContractGate> {
+    static GATE: OnceLock<Mutex<ContractGate>> = OnceLock::new();
+    GATE.get_or_init(|| Mutex::new(ContractGate::default()))
+}
+
+/// Contract verdict for a local window. Called from `HostState::authorize`,
+/// so EVERY module's command guard (login, adapter, shell, prefs, assistant,
+/// features) rejects a window that announced another contract version or
+/// none at all; this module's `guard` is the same path.
+pub(crate) fn contract_check(label: &str) -> Result<(), AppError> {
+    let verdict = contract_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .check(label);
+    if let Err(e) = &verdict {
+        log::warn!("contract: command rejected for {label}: {}", e.code);
+    }
+    verdict
+}
+
 fn guard(state: &HostState, window: &Window, command: &str) -> CmdResult<()> {
     state
         .authorize(window.label(), command)
         .map_err(AppErrorDto::from)
+}
+
+/// First call of every local window: announces the contract version it was
+/// built against. A mismatch rejects the window's commands and logs a
+/// diagnostic (label and two integers only).
+#[tauri::command]
+pub fn contract_hello(window: Window, state: State<'_, HostState>, version: u32) -> CmdResult<()> {
+    state
+        .authorize(window.label(), "contract_hello")
+        .map_err(AppErrorDto::from)?;
+    let verdict = contract_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .hello(window.label(), version);
+    verdict.map_err(|e| {
+        log::warn!(
+            "contract: window {} announced version {version}, host speaks {CONTRACT_VERSION}",
+            window.label()
+        );
+        AppErrorDto::from(e)
+    })
 }
 
 fn source_for(window: &Window) -> CommandSource {

@@ -7,8 +7,9 @@
  *
  * Cadence mirrors the static SDK policy (docs/research/2026-10-30-web-im-transport-and-polling.md §5):
  * - transport `connected`: normal loop, 10 000 ms, and the SDK stops that
- *   loop 300 000 ms after it started (`normalLoopStopAfterMs`, configurable,
- *   finite by default; target-machine recovery acceptance remains pending)
+ *   loop 300 000 ms after it started. Configurable (`normalLoopStopAfterMs`,
+ *   `null` = never); the 300 s default is the static SDK value and NOT
+ *   fault-injection verified, so the production session sets it explicitly
  * - any other transport state: frequent loop, 5 000 ms (half of normal)
  *
  * Every message becomes `MessageFact(source: 'compensation')`; each round
@@ -23,6 +24,16 @@ import type { SoaClient, SoaOutcome } from './soa.ts';
 import { normalizeHttpMessage, normalizeTimeMs, type HttpMessageObject, type MemberRoles, type MsgTypeOverrides } from './facts.ts';
 
 export const OBSERVED_PAGE_SIZE = 100;
+/** Static SDK policy: the normal loop stops 300 s after it started. Unverified by fault injection. */
+export const DEFAULT_NORMAL_LOOP_STOP_AFTER_MS = 300_000;
+
+/** `null` = never stop. Non-finite or non-positive values are configuration errors and fall back to the default. */
+export function resolveNormalLoopStopAfterMs(opts: Pick<CompensationOptions, 'normalLoopStopAfterMs' | 'stopNormalLoopAfterLimit'>): number | null {
+  if (opts.stopNormalLoopAfterLimit === false) return null;
+  const v = opts.normalLoopStopAfterMs;
+  if (v === null) return null;
+  return v !== undefined && Number.isFinite(v) && v > 0 ? v : DEFAULT_NORMAL_LOOP_STOP_AFTER_MS;
+}
 
 export interface RecentMessagesResponse {
   readonly lastMessageTimestamp?: unknown;
@@ -37,8 +48,14 @@ export interface CompensationOptions {
   readonly initialBeginMsgTime: number;
   readonly normalIntervalMs?: number;
   readonly frequentIntervalMs?: number;
-  readonly normalLoopStopAfterMs?: number;
-  /** Mirror the SDK's "stop normal loop after 5 minutes" (unverified); default true. */
+  /**
+   * Stop the normal (connected) loop this long after it started. `null` = never
+   * stop. Omitted = {@link DEFAULT_NORMAL_LOOP_STOP_AFTER_MS}, the static SDK
+   * value, which has NOT been fault-injection verified; the production default
+   * is decided after that test (I-06), so callers choose explicitly.
+   */
+  readonly normalLoopStopAfterMs?: number | null;
+  /** Legacy switch: `false` = never stop (same as `normalLoopStopAfterMs: null`) and wins over it. */
   readonly stopNormalLoopAfterLimit?: boolean;
   readonly pageSize?: number;
   readonly msgTypeOverrides?: MsgTypeOverrides;
@@ -59,20 +76,15 @@ export function recentMessagesBody(deps: AdapterDeps, beginMsgTime: number, page
 }
 
 export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: CompensationOptions): CompensationLoop {
-  const finite = (value: number | undefined, fallback: number, minimum: number): number => typeof value === 'number' && Number.isFinite(value) && value >= minimum ? value : fallback;
-  const normalMs = finite(opts.normalIntervalMs, 10000, 5000);
-  const frequentMs = finite(opts.frequentIntervalMs, 5000, 5000);
-  const stopAfterMs = finite(opts.normalLoopStopAfterMs, 300000, 1);
-  const stopNormal = opts.stopNormalLoopAfterLimit ?? true;
-  const pageSize = Number.isInteger(opts.pageSize) && opts.pageSize! > 0 && opts.pageSize! <= OBSERVED_PAGE_SIZE ? opts.pageSize! : OBSERVED_PAGE_SIZE;
+  const normalMs = opts.normalIntervalMs ?? 10000;
+  const frequentMs = opts.frequentIntervalMs ?? 5000;
+  const stopAfterMs = resolveNormalLoopStopAfterMs(opts);
+  const stopNormal = stopAfterMs !== null;
+  const pageSize = opts.pageSize ?? OBSERVED_PAGE_SIZE;
 
   let running = false;
   let generation = 0;
-  let cursor = Number.isFinite(opts.initialBeginMsgTime) && opts.initialBeginMsgTime >= 0 ? opts.initialBeginMsgTime : 0;
-  let lastAttempt = -Infinity;
-  let inFlight = false;
-  let failures = 0;
-  const seen = new Set<string>();
+  let cursor = opts.initialBeginMsgTime;
   let transport: TransportState = 'disconnected';
   let mode: 'normal' | 'frequent' | 'stopped' = 'stopped';
   let timer: unknown = null;
@@ -90,19 +102,13 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
     timer = deps.setTimeout(() => {
       timer = null;
       void tick(gen);
-    }, Math.min(60000, (mode === 'normal' ? normalMs : frequentMs) * 2 ** Math.min(failures, 4)));
+    }, mode === 'normal' ? normalMs : frequentMs);
   };
 
-  const stopped = (): boolean => mode === 'stopped';
   const tick = async (gen: number): Promise<void> => {
-    if (!running || gen !== generation || stopped()) return;
-    if (inFlight || deps.now() - lastAttempt < 5000) { schedule(gen); return; }
-    lastAttempt = deps.now();
-    inFlight = true;
-    const outcome = await soa.post<RecentMessagesResponse>(Endpoints.RECENT_MESSAGES, recentMessagesBody(deps, cursor, pageSize), { retryNetworkErrors: false });
-    inFlight = false;
-    if (!running || gen !== generation || stopped()) return;
-    failures = outcome.kind === 'success' ? 0 : Math.min(failures + 1, 4);
+    if (!running || gen !== generation || mode === 'stopped') return;
+    const outcome = await soa.post<RecentMessagesResponse>(Endpoints.RECENT_MESSAGES, recentMessagesBody(deps, cursor, pageSize));
+    if (!running || gen !== generation) return;
     opts.onOutcome?.(outcome);
     if (outcome.kind === 'auth_invalid') {
       running = false;
@@ -114,16 +120,10 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
       const rows = Array.isArray(outcome.body.messages) ? (outcome.body.messages as HttpMessageObject[]) : [];
       for (const row of rows) {
         const fact = normalizeHttpMessage(row, { roles: opts.roles, source: 'compensation', ...(opts.msgTypeOverrides ? { msgTypeOverrides: opts.msgTypeOverrides } : {}) });
-        if (fact) {
-          const key = JSON.stringify([fact.gid, fact.message_id]);
-          if (seen.has(key)) continue;
-          seen.add(key);
-          if (seen.size > 4096) seen.delete(seen.values().next().value!);
-          opts.emit({ kind: 'message', fact });
-        }
+        if (fact) opts.emit({ kind: 'message', fact });
       }
       const ts = normalizeTimeMs(outcome.body.lastMessageTimestamp);
-      if (ts !== null) cursor = Math.max(cursor, ts);
+      if (ts !== null) cursor = ts;
       opts.emit({ kind: 'compensation_sync', last_message_timestamp_ms: ts });
     }
     schedule(gen);
@@ -143,7 +143,7 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
             if (timer !== null) deps.clearTimeout(timer);
             timer = null;
           }
-        }, stopAfterMs);
+        }, stopAfterMs ?? 0);
       }
     } else {
       mode = 'frequent';
@@ -155,8 +155,6 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
     start(initial: TransportState): void {
       if (running) return;
       running = true;
-      failures = 0;
-      seen.clear();
       transport = initial;
       restart();
     },

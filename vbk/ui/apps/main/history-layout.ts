@@ -27,7 +27,6 @@ export function observeHistoryLayout<Anchor>(
     if (lastTop > maximum && Math.abs(scroll.scrollTop - maximum) < 1) { historyDiagnostics.record('clamp', { before: lastTop, after: scroll.scrollTop, maximum }, 'observed'); return; }
     historyDiagnostics.record('scroll', { before: lastTop, after: scroll.scrollTop, maximum }, scroll.scrollTop === lastTop ? 'unchanged' : 'observed');
     if (scroll.scrollTop !== lastTop) {
-      delete scroll.dataset['historyAnchorKey'];
       remember();
     }
   };

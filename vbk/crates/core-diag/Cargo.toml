@@ -5,7 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Local-only privacy-first structured diagnostics and bounded file rotation (std-only)."
+description = "Structured, redacting file log (field allow-list, rotation) and the sensitive-content scanner shared with diagnostic export (std-only)."
 
 [lints]
 workspace = true
+
+[dependencies]

@@ -1,0 +1,25 @@
+{
+  "commandsTxt": "# one per line\nping\nsecret_free\nadapter_ready\nadapter_identity\nadapter_push_fact\nadapter_push_display\nadapter_reply\npong\n",
+  "libRs": "tauri::generate_handler![\n    commands::ping,\n    commands::secret_free,\n    commands::adapter_ready,\n    commands::adapter_identity,\n    commands::adapter_push_fact,\n    commands::adapter_push_display,\n    commands::adapter_reply,\n    commands::pong,\n]",
+  "tsCommands": [
+    "ping",
+    "secret_free",
+    "adapter_ready",
+    "adapter_identity",
+    "adapter_push_fact",
+    "adapter_push_display",
+    "adapter_reply",
+    "pong"
+  ],
+  "viewsRs": "pub const MAIN: &str = \"main\";\npub const ALARM: &str = \"alarm\";\npub const PACKAGE_DETAIL_PREFIX: &str = \"package-detail-\";\npub const ACCOUNT_WEBVIEW_PREFIX: &str = \"acct-\";\nconst MAIN_CMDS: &[&str] = &[\"ping\", \"secret_free\", \"pong\"];\nconst ALARM_CMDS: &[&str] = &[\"ping\"];\nconst DETAIL_CMDS: &[&str] = &[\"ping\"];\nconst ADAPTER_CMDS: &[&str] = &[\"adapter_ready\", \"adapter_identity\", \"adapter_push_fact\", \"adapter_push_display\", \"adapter_reply\"];\n",
+  "capabilities": {
+    "main.json": {
+      "permissions": [
+        "core:default",
+        "allow-ping",
+        "allow-secret-free",
+        "allow-pong"
+      ]
+    }
+  }
+}

@@ -6,9 +6,12 @@
 
 import type { AccountContext, AppError, SendDisposition } from '../../packages/ipc/src/contracts.ts';
 import { ErrorCodes, isAppError } from '../../packages/ipc/src/contracts.ts';
-import type { AgentStatus, MarkAction, OrderSearchResult, UiAccount, UiAgentStatus, UiConversation, UiMessage, UiNetStatus, UiOrderSummary } from '../../packages/ipc/src/client.ts';
+import type { AgentStatus, MarkAction, OrderSearchResult, UiAccount, UiAccountSnapshot, UiAgentStatus, UiConversation, UiMessage, UiNetStatus, UiOrderSummary } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { mergeMessageProfile } from './message-profile.ts';
+export { rowId } from './message-window.ts';
+export { personDisplayName } from './person-name.ts';
+import { historyKeyOf, historyKeyString, historyKeysMatch, parseHistoryKey } from './history-key.ts';
 import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { I18nKey } from '../../packages/ui-kit/src/i18n.ts';
@@ -383,6 +386,35 @@ export function agentStatusDesc(s: AgentStatus): string {
   return t(`status.desc.${s}` as I18nKey);
 }
 
+/**
+ * Send barrier mirror (I-04a): true while the host reports a failed durable
+ * write. The host is the real gate (`store.persist_failed` before the journal);
+ * the UI only pauses the composer and shows the status-bar notice. Absent flag
+ * (older host, mock) = not failed.
+ */
+export function persistFailed(snap: Pick<UiAccountSnapshot, 'persist_failed'> | null | undefined): boolean {
+  return snap?.persist_failed === true;
+}
+
+/**
+ * Disposition for a text send whose IPC call failed. Only codes that prove
+ * "nothing was submitted" become a local `rejected` (the user may resend):
+ * the host's permission check and its send barrier (`store.persist_failed`,
+ * refused before the outbound journal). Anything else is `unknown` and is
+ * never auto-resent.
+ */
+export function sendFailureDisposition(e: unknown): SendDisposition {
+  if (!isAppError(e)) return { kind: 'unknown' };
+  if (e.code === ErrorCodes.IM_PERMISSION_DENIED) return { kind: 'rejected', code: e.code, reason: e.message };
+  if (e.code === ErrorCodes.STORE_PERSIST_FAILED) return { kind: 'rejected', code: e.code, reason: t('bar.persistFailed') };
+  return { kind: 'unknown' };
+}
+
+/** Status-bar / composer notice for the send barrier, or null when sending is allowed. */
+export function persistFailedView(snap: Pick<UiAccountSnapshot, 'persist_failed'> | null | undefined): { readonly label: string; readonly title: string } | null {
+  return persistFailed(snap) ? { label: t('bar.persistFailed'), title: t('bar.persistFailedTitle') } : null;
+}
+
 /** Network label from the host read-back only; `null` means nothing was read back yet (「未连接」). */
 export function netView(n: UiNetStatus | null): { readonly label: string; readonly ok: boolean; readonly offline: boolean } {
   if (!n) return { label: t('bar.net.none'), ok: false, offline: false };
@@ -492,6 +524,9 @@ function mergeMessageRecord(existing: UiMessage, incoming: UiMessage): UiMessage
 
 /** A local ID is only a sender-compatible alias, never authority to join known server IDs. */
 export function mergeHistory(earlier: readonly UiMessage[], current: readonly UiMessage[]): UiMessage[] {
+  return registerMergeOutput(mergeCore(earlier, current));
+}
+function mergeCore(earlier: readonly UiMessage[], current: readonly UiMessage[]): UiMessage[] {
   type Group = { message: UiMessage; locals: Set<string> };
   const groups = new Set<Group>();
   const servers = new Map<string, Group>();
@@ -539,6 +574,58 @@ export function mergeHistory(earlier: readonly UiMessage[], current: readonly Ui
   return [...groups].map(group => group.message).sort((a, b) => a.create_time_ms - b.create_time_ms);
 }
 
+// ---- incremental single-message path (I-28b)
+// If merging a list with nothing changes it (a fixpoint), a message that touches no existing identity
+// is just a stable-sort append: insert after every row with create_time_ms <= its own, and the result
+// is again a fixpoint. mergeHistory output is a fixpoint for coherent data but not for every adversarial
+// mix of conflicting senders/aliases, so each full-merge result is verified once (one extra merge) and
+// unverified or failing lists keep the full path. Exact server matches, local aliases and odd
+// timestamps always take the full path.
+interface MergeIndex { list: readonly UiMessage[]; servers: Set<string>; locals: Set<string>; /** Every row has a finite time, so the binary search agrees with the full sort. */ finite: boolean }
+const mergeOutputs = new WeakSet<readonly UiMessage[]>();
+const fixpoints = new WeakSet<readonly UiMessage[]>();
+const mergeIndexes = new WeakMap<readonly UiMessage[], MergeIndex>();
+const identityKey = (gid: string, id: string): string => `${gid}\u0000${id}`;
+function registerMergeOutput(list: UiMessage[]): UiMessage[] { mergeOutputs.add(list); return list; }
+function mergeIndexOf(list: readonly UiMessage[]): MergeIndex {
+  const cached = mergeIndexes.get(list);
+  if (cached?.list === list) return cached;
+  const index: MergeIndex = { list, servers: new Set(), locals: new Set(), finite: true };
+  for (const row of list) {
+    if (row.message_id) index.servers.add(identityKey(row.gid, row.message_id));
+    if (row.local_id) index.locals.add(identityKey(row.gid, row.local_id));
+    if (!Number.isFinite(row.create_time_ms)) index.finite = false;
+  }
+  mergeIndexes.set(list, index);
+  return index;
+}
+/** Same result as `mergeHistory(list, [message])`, in O(log n) lookup plus one array copy when `message` is new. */
+export function mergeHistoryIncremental(list: readonly UiMessage[], message: UiMessage): UiMessage[] {
+  if (!mergeOutputs.has(list) || !Number.isFinite(message.create_time_ms)) return mergeHistory(list, [message]);
+  if (!fixpoints.has(list)) {
+    const again = mergeCore(list, []);
+    if (again.length !== list.length || again.some((row, i) => row !== list[i])) { mergeOutputs.delete(list); return mergeHistory(list, [message]); }
+    fixpoints.add(list);
+  }
+  const index = mergeIndexOf(list);
+  // A NaN time in the list makes the full sort order depend on arrival order; only the full path reproduces it.
+  if (!index.finite || (message.message_id && index.servers.has(identityKey(message.gid, message.message_id))) || (message.local_id && index.locals.has(identityKey(message.gid, message.local_id)))) return mergeHistory(list, [message]);
+  let lo = 0, hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid]!.create_time_ms <= message.create_time_ms) lo = mid + 1; else hi = mid;
+  }
+  const next = registerMergeOutput([...list.slice(0, lo), message, ...list.slice(lo)]);
+  fixpoints.add(next);
+  // Hand the index to the new list; the old list rebuilds lazily if anyone asks again.
+  if (message.message_id) index.servers.add(identityKey(message.gid, message.message_id));
+  if (message.local_id) index.locals.add(identityKey(message.gid, message.local_id));
+  index.list = next;
+  mergeIndexes.set(next, index);
+  mergeIndexes.delete(list);
+  return next;
+}
+
 /** DOM anchor identities carry both IDs so server confirmation can enrich a local row. */
 export function historyScopeKey(account: AccountContext | null, gid: string): string {
   return account ? JSON.stringify([account.environment, account.account_id, account.session_generation, gid]) : '';
@@ -546,54 +633,12 @@ export function historyScopeKey(account: AccountContext | null, gid: string): st
 export function messageHistoryKey(account: AccountContext | null, conv: Pick<UiConversation, 'gid' | 'account'>, message: UiMessage): string {
   const id = message.message_id ?? message.local_id;
   if (!account || !id || message.gid !== conv.gid || !sameAccount(account, conv.account) || account.session_generation !== conv.account.session_generation) return '';
-  return JSON.stringify([historyScopeKey(account, conv.gid), message.message_id || null, message.local_id || null, message.sender_role, message.sender_id?.trim().toLowerCase() || null]);
+  return historyKeyString(historyKeyOf(historyScopeKey(account, conv.gid), message));
 }
 
 /** Sparse enrichment is compatible; explicit sender or server conflicts are never aliases. */
 export function messageHistoryMatches(before: string, after: string): boolean {
-  if (!before || !after) return false;
-  try {
-    const a: unknown = JSON.parse(before), b: unknown = JSON.parse(after);
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== 5 || b.length !== 5 || !a[0] || a[0] !== b[0] || a[3] !== b[3]) return false;
-    if (a[4] && b[4] && a[4] !== b[4]) return false;
-    if (a[1] && b[1]) return a[1] === b[1];
-    return !!a[2] && a[2] === b[2];
-  } catch { return false; }
-}
-
-/** Parse once per row set; indexing IDs keeps anchor work linear in the mounted rows.
- * Compatibility is deliberately identical to messageHistoryMatches, including refusal
- * to choose between explicit sender/server conflicts and ambiguous sparse aliases. */
-export function historyIdentityIndex(keys: readonly string[]): { matches(key: string): number[] } {
-  type Identity = { key: string; scope: string; server: string | null; local: string | null; role: string; sender: string | null };
-  const parsed = new Map<string, Identity | null>();
-  const parse = (key: string): Identity | null => {
-    if (parsed.has(key)) return parsed.get(key)!;
-    let result: Identity | null = null;
-    try {
-      const value: unknown = JSON.parse(key);
-      if (Array.isArray(value) && value.length === 5 && typeof value[0] === 'string' && value[0] && typeof value[3] === 'string' && [value[1], value[2], value[4]].every(item => item === null || typeof item === 'string'))
-        result = { key, scope: value[0], server: value[1], local: value[2], role: value[3], sender: value[4] };
-    } catch { /* System presentation fingerprints are exact matches only. */ }
-    parsed.set(key, result); return result;
-  };
-  const buckets = new Map<string, number[]>();
-  const bucket = (identity: Identity, kind: string, id: string): string => JSON.stringify([identity.scope, identity.role, kind, id]);
-  keys.forEach((key, index) => {
-    const identity = parse(key);
-    const aliases = identity ? [identity.server ? bucket(identity, 'server', identity.server) : '', identity.local ? bucket(identity, 'local', identity.local) : ''].filter(Boolean) : key.startsWith('scroll-system:') ? [key] : [];
-    for (const alias of aliases) { const rows = buckets.get(alias) ?? []; rows.push(index); buckets.set(alias, rows); }
-  });
-  return { matches(key) {
-    const identity = parse(key);
-    if (!identity) return key.startsWith('scroll-system:') ? buckets.get(key) ?? [] : [];
-    const candidates = new Set([...(identity.server ? buckets.get(bucket(identity, 'server', identity.server)) ?? [] : []), ...(identity.local ? buckets.get(bucket(identity, 'local', identity.local)) ?? [] : [])]);
-    return [...candidates].filter(index => {
-      const other = parse(keys[index]!)!;
-      return !(identity.sender && other.sender && identity.sender !== other.sender)
-        && (identity.server && other.server ? identity.server === other.server : !!identity.local && identity.local === other.local);
-    });
-  } };
+  return historyKeysMatch(parseHistoryKey(before), parseHistoryKey(after));
 }
 
 /** Recall notices remain visible while their original content stays hidden across pages. */

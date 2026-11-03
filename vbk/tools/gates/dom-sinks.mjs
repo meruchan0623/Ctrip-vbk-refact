@@ -1,56 +1,114 @@
-import ts from 'typescript';
-import { pathToFileURL } from 'node:url';
+// Gate 4 (I-02): DOM / code-injection sinks, staged.
+// B0: zero hits outside `dom-sinks.allowlist.json`, and every allowlist entry must still
+// match a real hit (a stale entry fails, so the list cannot rot).
+// B1 (I-29 empties the list): strict zero hits, and the list must be an empty array.
 import { join } from 'node:path';
-import { isAssignment, memberName, propertyName, productionFiles, read, relativeFile, root, scanTypescript, stringValue, unwrap, formatHits } from './source.mjs';
+import { isStringValued, tsFacts } from './lib/ts-facts.mjs';
+import { gatesDir, productionFiles, readText, violation, vbkRoot } from './lib/common.mjs';
 
-const html = new Set(['innerHTML', 'outerHTML', 'srcdoc']);
-const urlProperties = new Set(['href', 'src', 'location']);
-const javascript = (node) => /^\s*javascript\s*:/i.test(stringValue(node) ?? '');
-export function scanDom(source, file = 'fixture.ts') {
-  return scanTypescript(source, file, (node, report) => {
-    if (isAssignment(node)) {
-      const name = memberName(node.left);
-      if (html.has(name)) report(node, name);
-      if (urlProperties.has(name) && javascript(node.right)) report(node, 'javascript:');
-    }
-    if (ts.isPropertyAssignment(node) || ts.isJsxAttribute(node)) {
-      const name = propertyName(node.name);
-      if (html.has(name)) report(node, name);
-      if (urlProperties.has(name) && javascript(node.initializer)) report(node, 'javascript:');
-    }
-    if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
-      let callee = unwrap(node.expression);
-      // Indirect eval: (0, eval)(source).
-      if (ts.isBinaryExpression(callee) && callee.operatorToken.kind === ts.SyntaxKind.CommaToken) callee = unwrap(callee.right);
-      const name = memberName(callee), args = node.arguments ?? [];
-      if (name === 'eval' || name === 'Function' || name === 'insertAdjacentHTML') report(node, name);
-      if ((name === 'write' || name === 'writeln') && memberName(callee.expression) === 'document') report(node, 'document.write');
-      if (name === 'setAttribute') {
-        const attr = stringValue(args[0])?.toLowerCase();
-        if (attr === 'srcdoc') report(node, 'srcdoc');
-        if ((attr === 'href' || attr === 'src') && javascript(args[1])) report(node, 'javascript:');
+export const GATE = 'dom-sinks';
+
+const HTML_SINKS = new Set(['innerHTML', 'outerHTML', 'srcdoc']);
+/** Attribute names are case-insensitive in HTML: compared lower-cased. */
+const HTML_ATTRS = new Set(['srcdoc']);
+const HTML_CALLS = new Set(['insertAdjacentHTML', 'document.write', 'document.writeln']);
+/** Last call-path segment that parses HTML / builds code wherever it hangs. */
+const SINK_METHODS = new Set(['insertAdjacentHTML', 'createContextualFragment']);
+const URL_PROPS = new Set(['href', 'src', 'action', 'formaction', 'formAction', 'data', 'location', 'xlink:href']);
+const JS_URL = /^\s*javascript:/i;
+/** Global objects through which `eval` / `Function` are reached indirectly. */
+const GLOBAL_BASES = /^(?:window|globalThis|self|top|parent|frames)$/;
+/** String values that name a sink: `const k = 'innerHTML'; el[k] = x` is the sink one hop away. */
+const SINK_NAMES = new Set(['innerHTML', 'outerHTML', 'srcdoc', 'insertAdjacentHTML', 'createContextualFragment', 'eval', 'Function', 'dangerouslySetInnerHTML']);
+
+const isEvalCallee = (callee) => {
+  const parts = callee.split('.');
+  const last = parts.pop();
+  const base = parts.join('.');
+  return last === 'eval' && (base === '' || GLOBAL_BASES.test(base));
+};
+const isFunctionCallee = (callee) => {
+  if (callee === 'Function.prototype.constructor') return true;
+  const parts = callee.split('.');
+  const last = parts.pop();
+  const base = parts.join('.');
+  return last === 'Function' && (base === '' || GLOBAL_BASES.test(base));
+};
+const isNavCallee = (callee) => /(?:^|\.)location\.(?:assign|replace)$/.test(callee) || /^(?:(?:window|globalThis|self|top|parent)\.)?open$/.test(callee);
+
+/** Hits in one TS/JS file: [{file, line, sink, message}] (the allowlist is applied by the caller). */
+export function scanFile(file, text) {
+  const hits = [];
+  const add = (line, sink, message) => hits.push({ file, line, sink, message });
+  for (const f of tsFacts(text, file)) {
+    if (f.type === 'assign' && HTML_SINKS.has(f.name)) add(f.line, f.name, `assignment to \`${f.name}\``);
+    if (f.type === 'prop' && f.value !== undefined && f.value !== null && HTML_SINKS.has(f.name)) add(f.line, f.name, `object property \`${f.name}\``);
+    if (f.type === 'prop' && f.value !== undefined && f.name === 'dangerouslySetInnerHTML') add(f.line, 'dangerouslySetInnerHTML', 'React `dangerouslySetInnerHTML`');
+    if (f.type === 'call') {
+      const callee = f.callee ?? '';
+      const last = callee.split('.').pop() ?? '';
+      if (HTML_CALLS.has(callee) || SINK_METHODS.has(last)) add(f.line, SINK_METHODS.has(last) ? last : callee, `call \`${callee}\``);
+      if (isEvalCallee(callee)) add(f.line, 'eval', 'call `eval`');
+      if (isFunctionCallee(callee)) add(f.line, 'Function', 'call `Function(…)` builds code from a string');
+      if ((callee === 'setTimeout' || callee === 'setInterval' || /^(?:window|globalThis|self)\.set(?:Timeout|Interval)$/.test(callee)) && isStringValued(f.argNodes[0])) {
+        add(f.line, callee.split('.').pop(), `\`${callee}\` with a string body`);
       }
-      if (name === 'defineProperty' && memberName(callee.expression) === 'Object' && html.has(stringValue(args[1]))) report(node, stringValue(args[1]));
+      if (/(?:^|\.)setAttribute$/.test(callee)) {
+        const attr = (f.args[0] ?? '').toLowerCase();
+        if (HTML_ATTRS.has(attr)) add(f.line, attr, `setAttribute("${f.args[0]}")`);
+        if (/^on[a-z]+$/.test(attr)) add(f.line, attr, `setAttribute("${f.args[0]}") installs an inline event handler from a string`);
+      }
+      if (/(?:^|\.)setAttributeNS$/.test(callee)) {
+        const attr = (f.args[1] ?? '').toLowerCase();
+        if (HTML_ATTRS.has(attr) || /^on[a-z]+$/.test(attr)) add(f.line, attr, `setAttributeNS(…, "${f.args[1]}")`);
+      }
+      if ((callee === 'Reflect.set' || /^(?:Object|Reflect)\.defineProperty$/.test(callee)) && HTML_SINKS.has(f.args[1] ?? '')) {
+        add(f.line, f.args[1], `${callee}(…, "${f.args[1]}", …)`);
+      }
+      if (/(?:^|\.)createElement(?:NS)?$/.test(callee) && f.args.some((a) => (a ?? '').toLowerCase() === 'script')) {
+        add(f.line, 'script', `\`${callee}\` creates a <script> element at runtime`);
+      }
     }
-  });
-}
-export function checkDom(base = root) {
-  const hits = productionFiles(base).filter((f) => !f.endsWith('.rs')).flatMap((f) => scanDom(read(f), relativeFile(f, base)));
-  const allow = JSON.parse(read(join(base, 'tools/gates/dom-sinks.allowlist.json')));
-  if (!Array.isArray(allow)) throw new Error('DOM allowlist must be an array');
-  const key = (h) => `${h.file}:${h.line}:${h.sink}`;
-  const keys = new Set();
-  for (const entry of allow) {
-    if (entry.file !== 'ui/apps/main/companion-card.ts' || entry.sink !== 'innerHTML'
-      || !Number.isInteger(entry.line) || entry.expires !== 'B1/I-29' || keys.has(key(entry))) throw new Error('Invalid or duplicate DOM allowlist entry');
-    keys.add(key(entry));
-    if (!hits.some((hit) => key(hit) === key(entry))) throw new Error(`Stale DOM allowlist entry: ${key(entry)}`);
+    if (f.type === 'new' && isFunctionCallee(f.callee ?? '')) add(f.line, 'new Function', '`new Function(…)` builds code from a string');
+    if (f.type === 'string') {
+      if (SINK_NAMES.has(f.value ?? '') && !(f.feeds?.kind === 'type')) {
+        // a plain prose string ("use innerHTML sparingly") never folds to exactly the name
+        add(f.line, f.value, `sink name "${f.value}" as a string value (indirect property access)`);
+      }
+      if (JS_URL.test(f.prefix ?? '') && f.feeds) {
+        const fd = f.feeds;
+        const viaProp = (fd.kind === 'prop' || fd.kind === 'assign') && URL_PROPS.has(fd.name ?? '');
+        const viaAttr = fd.kind === 'arg' && /(?:^|\.)setAttribute$/.test(fd.callee ?? '') && fd.index === 1 && URL_PROPS.has(fd.first ?? '');
+        const viaNav = fd.kind === 'arg' && isNavCallee(fd.callee ?? '');
+        if (viaProp || viaAttr || viaNav) add(f.line, 'javascript:', '`javascript:` URL used as a navigation / resource target');
+      }
+    }
   }
-  if (allow.length > 1) throw new Error('DOM allowlist may contain at most the single B0 SVG sink');
-  return hits.filter((hit) => !keys.has(key(hit)));
+  return hits;
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const hits = checkDom();
-  if (hits.length) { console.error(formatHits(hits)); process.exitCode = 1; }
-  else console.log('DOM sinks: passed (allowlist is checked for stale entries)');
+
+export function loadAllowlist(path = join(gatesDir, 'dom-sinks.allowlist.json')) {
+  return JSON.parse(readText(path));
+}
+
+/** Pure staging logic over `hits` and an allowlist; used by the real run and the fixtures. */
+export function judge(hits, allowlist) {
+  const out = [];
+  if (!Array.isArray(allowlist)) return [violation(GATE, 'tools/gates/dom-sinks.allowlist.json', 0, 'allowlist must be an array')];
+  const used = new Set();
+  for (const h of hits) {
+    const idx = allowlist.findIndex((a) => a.file === h.file && a.line === h.line && a.sink === h.sink);
+    if (idx >= 0) used.add(idx);
+    else out.push(violation(GATE, h.file, h.line, `${h.message} is not on the allowlist`));
+  }
+  allowlist.forEach((a, idx) => {
+    if (typeof a.expires !== 'string' || a.expires === '') out.push(violation(GATE, 'tools/gates/dom-sinks.allowlist.json', 0, `entry ${a.file}:${a.line} has no \`expires\``));
+    if (!used.has(idx)) out.push(violation(GATE, a.file, a.line, `stale allowlist entry (${a.sink} no longer present): remove it`));
+  });
+  return out;
+}
+
+export function run(root = vbkRoot, allowlist = loadAllowlist()) {
+  const hits = productionFiles(root).filter((f) => /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/.test(f)).flatMap((rel) => scanFile(rel, readText(join(root, rel))));
+  return judge(hits, allowlist);
 }

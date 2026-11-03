@@ -6,6 +6,13 @@
     "main"
   ],
   "permissions": [
+    "allow-contract-hello",
+    "allow-im-send-input-state",
+    "allow-im-recall-message",
+    "allow-im-queue-status",
+    "allow-im-queue-drop-out",
+    "allow-im-draft-load",
+    "allow-im-draft-save",
     "core:default",
     "core:event:allow-listen",
     "core:event:allow-unlisten",

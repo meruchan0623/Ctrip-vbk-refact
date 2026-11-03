@@ -8,23 +8,14 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
-pub const ATTACHMENT_CONTRACT_VERSION: u32 = 1;
-pub const IMAGE_CAP: usize = 10 * 1024 * 1024;
-pub const FILE_CAP: usize = 30 * 1024 * 1024;
-pub const VIDEO_CAP: usize = 300 * 1024 * 1024;
-/// Only direct video upload is evidenced. Larger videos require an unproven protocol.
-pub const VIDEO_DIRECT_CAP: usize = 30 * 1024 * 1024;
-pub const LOCAL_CAP: usize = FILE_CAP;
-pub const MAX_ATTACHMENTS: usize = 10;
+pub use core_im::media_contract::ATTACHMENT_CONTRACT_VERSION;
+use core_im::media_limits::{self, LimitViolation, MediaKind};
 
-pub fn attachment_cap(kind: &str) -> Result<usize, AppError> {
-    match kind {
-        "image" => Ok(IMAGE_CAP),
-        "file" => Ok(FILE_CAP),
-        "video" => Ok(VIDEO_DIRECT_CAP),
-        _ => Err(invalid()),
-    }
-}
+/// Hard bound on bytes the host freezes in memory: the direct-upload ceiling.
+/// Per-kind caps (image 10 MiB, file 30 MiB, video 300 MiB) live in
+/// `core_im::media_limits`; anything above this bound would need the chunked
+/// upload, which is not implemented, and is refused locally.
+pub const LOCAL_CAP: usize = media_limits::DIRECT_UPLOAD_MAX_BYTES as usize;
 pub const CHUNK_CAP: usize = 256 * 1024;
 pub const TTL_MS: i64 = 5 * 60 * 1000;
 
@@ -33,8 +24,10 @@ pub struct AttachmentOwner {
     pub account: AccountContextDto,
     pub gid: String,
 }
+/// Contract name (docs/api/media-attachment-contract.md, v1) of [`AttachmentDto`].
+pub type MediaAttachmentDto = AttachmentDto;
 #[derive(Clone, Serialize)]
-pub struct MediaAttachmentDto {
+pub struct AttachmentDto {
     pub attachment_id: String,
     pub name: String,
     pub kind: String,
@@ -44,9 +37,6 @@ pub struct MediaAttachmentDto {
     pub owner: AttachmentOwner,
     pub supported: bool,
 }
-/// Compatibility name for the existing shell and UI wire contract.
-pub type AttachmentDto = MediaAttachmentDto;
-
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MediaTarget {
     pub target_token: String,
@@ -112,6 +102,20 @@ pub fn invalid() -> AppError {
         "media.invalid_attachment",
         "attachment format, size, scope or lifetime is invalid (nothing submitted)",
     )
+}
+/// Local limit rejection: the contract code, nothing submitted.
+pub fn limit_error(violation: LimitViolation) -> AppError {
+    AppError::new(
+        violation.code(),
+        "attachment exceeds an upload limit (nothing submitted)",
+    )
+}
+/// Size-only admission used when a file is frozen and again by `im_send_media`.
+pub fn check_size(kind: &str, size: u64) -> Result<(), AppError> {
+    let kind = MediaKind::parse(kind).ok_or_else(|| limit_error(LimitViolation::UnknownKind))?;
+    media_limits::check_size(kind, size)
+        .and_then(|_| media_limits::check_staging(size))
+        .map_err(limit_error)
 }
 pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -251,7 +255,6 @@ impl FrozenAttachment {
         gid: &str,
         target: MediaTarget,
     ) -> Result<Self, AppError> {
-        let cap = attachment_cap(kind)?;
         let mut options = std::fs::OpenOptions::new();
         options.read(true);
         #[cfg(windows)]
@@ -261,21 +264,13 @@ impl FrozenAttachment {
         }
         let file = options.open(path).map_err(|_| invalid())?;
         let before = file.metadata().map_err(|_| invalid())?;
-        if kind == "video"
-            && before.len() > VIDEO_DIRECT_CAP as u64
-            && before.len() <= VIDEO_CAP as u64
-        {
-            return Err(AppError::new(
-                "media.video_chunking_unsupported",
-                "video above 30 MiB requires an unverified chunk protocol (nothing submitted)",
-            ));
-        }
-        if !before.is_file() || before.len() == 0 || before.len() > cap as u64 {
+        if !before.is_file() {
             return Err(invalid());
         }
+        check_size(kind, before.len())?;
         let mut bytes = Vec::new();
         (&file)
-            .take(cap as u64 + 1)
+            .take(LOCAL_CAP as u64 + 1)
             .read_to_end(&mut bytes)
             .map_err(|_| invalid())?;
         let after = file.metadata().map_err(|_| invalid())?;
@@ -397,77 +392,6 @@ mod tests {
         }
     }
     #[test]
-    fn attachment_v1_exact_wire_fields_and_kind_limits_are_frozen() {
-        assert_eq!(ATTACHMENT_CONTRACT_VERSION, 1);
-        assert_eq!(IMAGE_CAP, 10 * 1024 * 1024);
-        assert_eq!(FILE_CAP, 30 * 1024 * 1024);
-        assert_eq!(VIDEO_CAP, 300 * 1024 * 1024);
-        assert_eq!(VIDEO_DIRECT_CAP, 30 * 1024 * 1024);
-        assert_eq!(MAX_ATTACHMENTS, 10);
-        let file = LocalFile::new(b"%PDF- synthetic contract");
-        let frozen =
-            FrozenAttachment::read(&file.0, "file", &account(1), "room", target()).unwrap();
-        let value = serde_json::to_value(&frozen.dto).unwrap();
-        let keys: Vec<_> = value
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
-        assert_eq!(
-            keys,
-            [
-                "attachment_id",
-                "content_sha256",
-                "kind",
-                "mime",
-                "name",
-                "owner",
-                "size",
-                "supported"
-            ]
-        );
-        assert_eq!(
-            value["owner"],
-            serde_json::json!({"account": {"environment":"synthetic-env", "account_id":"synthetic-account", "session_generation":1}, "gid":"room"})
-        );
-        assert_eq!(value["supported"], true);
-        assert!(attachment_cap("audio").is_err());
-    }
-
-    #[test]
-    fn file_above_image_limit_is_supported_but_large_video_fails_before_reading_or_uploading() {
-        let mut bytes = vec![0; IMAGE_CAP + 1];
-        bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
-        let file = LocalFile::new(&bytes);
-        assert!(FrozenAttachment::read(&file.0, "image", &account(1), "room", target()).is_err());
-        assert_eq!(
-            FrozenAttachment::read(&file.0, "file", &account(1), "room", target())
-                .unwrap()
-                .dto
-                .size,
-            IMAGE_CAP + 1
-        );
-        let video = LocalFile::new(b"0000ftypisom");
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .open(&video.0)
-            .unwrap();
-        file.set_len(VIDEO_DIRECT_CAP as u64 + 1).unwrap();
-        let error = FrozenAttachment::read(&video.0, "video", &account(1), "room", target())
-            .err()
-            .unwrap();
-        assert!(error.is("media.video_chunking_unsupported"));
-        file.set_len(VIDEO_CAP as u64 + 1).unwrap();
-        assert!(
-            FrozenAttachment::read(&video.0, "video", &account(1), "room", target())
-                .err()
-                .unwrap()
-                .is("media.invalid_attachment")
-        );
-    }
-
-    #[test]
     fn snapshot_sends_selected_bytes_after_source_changes_and_same_name_never_aliases_content() {
         let file = LocalFile::new(b"%PDF- first selected bytes");
         let first = FrozenAttachment::read(&file.0, "file", &account(1), "room", target()).unwrap();
@@ -504,6 +428,31 @@ mod tests {
                 FrozenAttachment::read(&file.0, "file", &account(1), "room", target()).is_err()
             );
         }
+        // Per-kind caps: 10 MiB image / 30 MiB file, each with its own code.
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.resize(media_limits::IMAGE_MAX_BYTES as usize + 1, 0);
+        let file = LocalFile::new(&png);
+        let denied = FrozenAttachment::read(&file.0, "image", &account(1), "room", target())
+            .err()
+            .expect("image over 10 MiB is refused");
+        assert_eq!(denied.code, "media.too_large");
+        png.truncate(media_limits::IMAGE_MAX_BYTES as usize);
+        let file = LocalFile::new(&png);
+        assert!(FrozenAttachment::read(&file.0, "image", &account(1), "room", target()).is_ok());
+        // A file between 10 and 30 MiB is accepted (the old flat cap was 10 MiB).
+        let file = LocalFile::new(&vec![7u8; media_limits::IMAGE_MAX_BYTES as usize + 1]);
+        assert!(FrozenAttachment::read(&file.0, "file", &account(1), "room", target()).is_ok());
+        assert_eq!(
+            check_size("audio", 1).err().unwrap().code,
+            "media.unknown_kind"
+        );
+        assert_eq!(
+            check_size("video", LOCAL_CAP as u64 + 1)
+                .err()
+                .unwrap()
+                .code,
+            "media.chunked_upload_unsupported"
+        );
         let file = LocalFile::new(b"arbitrary bytes named like an image");
         assert!(FrozenAttachment::read(&file.0, "image", &account(1), "room", target()).is_err());
         assert!(FrozenAttachment::read(&file.0, "video", &account(1), "room", target()).is_err());

@@ -1,0 +1,6 @@
+jobs:
+  r:
+    steps:
+      - run: cargo tauri build
+        env:
+          CARGO_FEATURE_DEVTOOLS: "1"

@@ -1,0 +1,4 @@
+[
+  { "name": "--vbk-crash-monitor", "reason": "the host's own re-exec flag for its crash monitor (src-tauri/src/main.rs); not a browser switch" },
+  { "name": "--show", "reason": "the only accepted launch argument: window activation (src-tauri/src/startup_args.rs); every other argument is rejected" }
+]

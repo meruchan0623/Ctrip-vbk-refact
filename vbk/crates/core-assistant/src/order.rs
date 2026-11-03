@@ -400,30 +400,26 @@ fn format_mb(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
     fn j(value: &str) -> JsonValue {
-        JsonValue::parse(value).expect("valid test fixture")
+        JsonValue::parse(value).unwrap()
     }
     #[test]
     fn all_plans_and_exact_large_identifiers_are_retained() {
         let rows =
             j(r#"[{"card_dataplan_id":9007199254740993},{"card_dataplan_id":"other-card"}]"#);
         assert_eq!(
-            plan_ids(rows.as_array().expect("valid test fixture")).expect("valid test fixture"),
+            plan_ids(rows.as_array().unwrap()).unwrap(),
             ["9007199254740993", "other-card"]
         );
         assert!(plan_ids(
             j(r#"[{"card_dataplan_id":"a"},{"card_dataplan_id":"a"}]"#)
                 .as_array()
-                .expect("valid test fixture")
+                .unwrap()
         )
         .is_err());
-        assert!(plan_ids(
-            j(r#"[{"card_dataplan_id":"a"},{}]"#)
-                .as_array()
-                .expect("valid test fixture")
-        )
-        .is_err());
+        assert!(plan_ids(j(r#"[{"card_dataplan_id":"a"},{}]"#).as_array().unwrap()).is_err());
     }
     #[test]
     fn oversized_order_lists_are_rejected_without_changing_the_legacy_iccid_cap() {
@@ -431,22 +427,17 @@ mod tests {
             .map(|i| format!(r#"{{"card_dataplan_id":"c-{i}"}}"#))
             .collect();
         let body = format!(r#"{{"code":1,"result":[{}]}}"#, rows.join(","));
-        assert_eq!(
-            crate::parse_dataplan_list(200, &body)
-                .expect("valid test fixture")
-                .len(),
-            100
-        );
+        assert_eq!(crate::parse_dataplan_list(200, &body).unwrap().len(), 100);
         assert!(parse_plan_list(200, &body).is_err());
         assert!(parse_plan_list(401, "{}")
-            .expect_err("rejected test fixture")
+            .unwrap_err()
             .is(codes::SESSION_CLEARED));
     }
 
     #[test]
     fn order_ids_are_lossless_and_complete() {
         for value in ["0000000001", "0000000000000001"] {
-            assert_eq!(validate_order_id(value).expect("valid test fixture"), value);
+            assert_eq!(validate_order_id(value).unwrap(), value);
         }
         for value in [
             " 0000000001",

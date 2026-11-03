@@ -1,1 +1,0 @@
-{"manifest": "[dependencies]\ntauri = { version = \"2\", features = [\"tray-icon\"] }\n[features]\ndefault = []\ndevtools = [\"tauri/devtools\"]\n", "commands": ["cargo build --release"]}

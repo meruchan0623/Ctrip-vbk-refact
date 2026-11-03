@@ -8,7 +8,7 @@
     "bodyEvidence仅描述旧证据保存形态，不代表完整可调用契约。",
     "HTTP endpoint逐host/path去重；同path已发现host变体时关联对应来源。"
   ],
-  "httpEndpointCount": 91,
+  "httpEndpointCount": 95,
   "endpoints": [
     {
       "host": null,
@@ -563,8 +563,10 @@
       "bodyEvidence": "unknown",
       "evidence": [
         "docs/research/2026-10-30-web-reminders.md",
-        "docs/research/evidence/message-notice-order-live-20261030.json"
-      ]
+        "docs/research/evidence/message-notice-order-live-20261030.json",
+        "docs/research/2026-10-30-web-im-observation.md"
+      ],
+      "note": "通知中心已读，仅静态调用点 {categoryId,categorySubId,msgId}；不同于聊天已读 PutAdviceOfReadByMsgId。 拼写以实机证据 message-notice-order-live-20261030.json 为准（大写 A）。"
     },
     {
       "host": "m.ctrip.com",
@@ -1850,6 +1852,74 @@
       "evidence": [
         "docs/research/evidence/web-message-notice-static-20261030.json"
       ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/28967/reportInjectFnInfo",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": [
+        "Content-Type",
+        "Referer",
+        "User-Agent",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "w-payload-source",
+        "x-ctx-ubt-pageid"
+      ],
+      "headerValuesObserved": false,
+      "bodyEvidence": "field_names_only",
+      "note": "2026-11-02 实机第二轮：请求体 {buildVersion,fnInfo}，响应 data.injectSwitch；疑似远程风控脚本上报被注入函数。仅记录，适配器不得调用；注入前后 fnInfo 对比见改进计划 I-15 第二步。headerNames 为实测可见的部分（受限头不可见）。",
+      "evidence": [
+        "docs/reviews/2026-11-02-desktop-live-capture-verification.md"
+      ]
+    },
+    {
+      "host": "m.ctrip.com",
+      "path": "/restapi/soa2/11679/translateIQMessage",
+      "methods": null,
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "unknown",
+      "note": "通知翻译，仅路径来自静态调用点清单；请求/响应体从未捕获。",
+      "evidence": [
+        "docs/research/2026-10-30-web-im-observation.md",
+        "docs/archive/desktop-baseline/dev/09-assistant.md"
+      ]
+    },
+    {
+      "host": "vbooking.ctrip.com",
+      "path": "/ivbk/accountV2/restapi/ab",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "field_names_only",
+      "note": "2026-11-02 实机第四轮：打开会话时出现，体 {expCode,uid}（A/B 实验位）。页面辅助请求，非业务功能。方法由带请求体推定为 POST。",
+      "evidence": [
+        "docs/reviews/2026-11-02-desktop-live-capture-verification.md"
+      ]
+    },
+    {
+      "host": "vbooking.ctrip.com",
+      "path": "/tour/im/ex-area/qconfig/json",
+      "methods": [
+        "POST"
+      ],
+      "headerNameCount": null,
+      "headerNames": null,
+      "headerValuesObserved": false,
+      "bodyEvidence": "field_names_only",
+      "note": "2026-11-02 实机第四轮：体 {contentType,fileName,property}（远程配置读取）。页面辅助请求，非业务功能。方法由带请求体推定为 POST。",
+      "evidence": [
+        "docs/reviews/2026-11-02-desktop-live-capture-verification.md"
+      ]
     }
   ],
   "transports": [
@@ -1892,5 +1962,43 @@
         "docs/research/2026-10-30-backend-support-matrix.md"
       ]
     }
-  ]
+  ],
+  "liveCaptureAddenda20261102": {
+    "source": "docs/reviews/2026-11-02-desktop-live-capture-verification.md",
+    "rule": "对既有条目的补充只记字段结构与枚举，不改写原条目；值均不含正文、凭据或标识。",
+    "items": [
+      {
+        "path": "/restapi/soa2/12405/getCurrentUserInfo",
+        "note": "官方页打开时 3 次；体含 applicationCode:\"vbk_online_new\"、need* 开关与 businessLineList。字段细节见 docs/api/endpoints/online.ctrip.com-12405-getCurrentUserInfo-post.md。"
+      },
+      {
+        "path": "/restapi/soa2/11679/batchTranslateByMsgIds",
+        "note": "第四轮：请求体新增 chatType，bizType 为数字（实测 1513），target 形如 \"zh-CN\"；响应含 supplier 与 idWithTranslatedMap。适配器 translateBody 已把 chatType 作为可选字段透传。"
+      },
+      {
+        "path": "/restapi/soa2/11679/getMessageTranslate",
+        "note": "输入框实时翻译候选：{sessionId,groupId,messageTxt,source:\"AUTO\",target,appId:\"900004\",bizType,timeoutInSeconds:10}，防抖 500 ms；来自官方客户端静态构造器，未实机捕获。"
+      },
+      {
+        "path": "/restapi/soa2/16037/getMessageList",
+        "note": "conversationType 在同一会话上可为 \"B2C\" 或 \"C2B\"，随会话方向变化，适配器不得写死（history.ts 已按字段透传）。"
+      },
+      {
+        "path": "/restapi/soa2/16037/getRemarkList",
+        "note": "响应多出 isBlock/rolesV2/extPropertys/userJid/status/sortNo/createAt。"
+      },
+      {
+        "path": "/restapi/soa2/15529/queryToken",
+        "note": "响应 tokenMap 多出 saleCityId/extendJson/departureCityId。"
+      },
+      {
+        "path": "/restapi/soa2/11679/recallMessage",
+        "note": "第四轮：体 {messageId,partnerId}（均 19 位字符串），响应 {status:{code,msg},ResponseStatus}；撤回走 HTTP，广播为入站 groupchat（带 ext），无出站 XMPP。"
+      },
+      {
+        "path": "/restapi/soa2/16037/setWorkSheetStar|transferVenMaster|finishConversation",
+        "note": "第六轮：成功判定为 bizResponseStatus.resultCode===\"SUCCESS\"；setWorkSheetStar 的 groupId 为数字，transferVenMaster 的 groupId 为 19 位字符串；finishConversation 体含 conversationKey/conversationType(\"B2C\"|\"C2B\" 由会话行给出)/sessionId/workSheetId(数字)。置顶不上行。"
+      }
+    ]
+  }
 }

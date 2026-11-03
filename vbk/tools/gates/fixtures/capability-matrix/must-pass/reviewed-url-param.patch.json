@@ -1,0 +1,33 @@
+{
+  "rustCommands": [
+    {
+      "name": "ping",
+      "params": []
+    },
+    {
+      "name": "secret_free",
+      "params": [
+        {
+          "name": "account",
+          "type": "AccountContextDto"
+        }
+      ]
+    },
+    {
+      "name": "ping",
+      "params": [
+        {
+          "name": "url",
+          "type": "String"
+        }
+      ]
+    }
+  ],
+  "shapeAllowlist": [
+    {
+      "command": "ping",
+      "param": "url",
+      "reason": "validated by host policy"
+    }
+  ]
+}

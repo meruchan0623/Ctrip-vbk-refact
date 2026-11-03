@@ -263,7 +263,7 @@ function seedAlarm(now: number): AlarmEntry[] {
 function defaultPrefs(): PrefsSnapshot {
   return {
     reminder: { ...DEFAULT_REMINDER_SETTINGS },
-    general: { autostart: true, close_action: 'tray', start_hidden: false, show_msg_time: true, spell_check: true },
+    general: { autostart: false, close_action: 'tray', start_hidden: false, show_msg_time: true, spell_check: true },
     display: { zoom: 100, gpu: true },
     keys: { send_key: 'enter', screenshot: 'Ctrl + Shift + X', toggle_main: 'Ctrl + Alt + V' },
     assistant: { enabled: true, outbound_translation: true, send_mode: 'replace_draft', package_quick_view: true, tsim_logged_in: true, tsim_user: 'tsim-demo' },

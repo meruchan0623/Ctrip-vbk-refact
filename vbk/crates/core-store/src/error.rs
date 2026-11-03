@@ -3,15 +3,17 @@
 use contracts::AppError;
 
 pub mod codes {
-    pub use contracts::codes::{STORE_CORRUPT, STORE_IO};
+    pub use contracts::codes::{STORE_CORRUPT, STORE_IO, STORE_PERSIST_FAILED};
 
     /// The namespace is logout-locked: reads work, writes are refused.
-    pub const STORE_SCHEMA_NEWER: &str = "store.schema_newer";
     pub const STORE_LOCKED: &str = "store.locked";
     /// Compare-and-set failed: the record changed since it was read.
     pub const STORE_CAS_CONFLICT: &str = "store.cas_conflict";
     /// `PendingVerification` was opened without reconciliation evidence.
     pub const STORE_NOT_RECONCILED: &str = "store.not_reconciled";
+    /// The document on disk was written by a newer schema version. It is
+    /// left untouched; the older build refuses to load it.
+    pub const STORE_SCHEMA_TOO_NEW: &str = "store.schema_too_new";
     /// A transaction was committed against a different store / namespace
     /// than it was begun on.
     pub const STORE_TXN_MISMATCH: &str = "store.txn_mismatch";

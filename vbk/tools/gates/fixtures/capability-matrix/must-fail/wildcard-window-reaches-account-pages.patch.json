@@ -1,0 +1,9 @@
+{
+  "capabilities": {
+    "popups.json": {
+      "windows": [
+        "*"
+      ]
+    }
+  }
+}

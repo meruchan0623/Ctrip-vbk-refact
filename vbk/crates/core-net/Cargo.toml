@@ -10,5 +10,10 @@ description = "Endpoint policy registry, SOA response classification and ClockSe
 [lints]
 workspace = true
 
+[features]
+# Development builds only: folds the FAT/UAT/FWS host aliases onto the
+# production endpoint rows. Never enabled by default or by release workflows.
+test-endpoints = []
+
 [dependencies]
 contracts = { path = "../contracts" }

@@ -3,14 +3,17 @@ import type { RpcContext } from './rpc.ts';
 import type { MediaTarget, MediaUploadReply, MediaSendReply } from '../../ipc/src/adapterProtocol.ts';
 import type { MediaRef } from './send.ts';
 import { createMediaSendIntent, mediaMessageJson, submitIntent } from './send.ts';
-import { IMAGE_UPLOAD_CAP, FILE_UPLOAD_CAP, VIDEO_DIRECT_UPLOAD_CAP, uploadFile, uploadImage, uploadVideo, type UploadFailure } from './upload.ts';
+import { uploadFile, uploadImage, uploadVideo, type UploadFailure } from './upload.ts';
+import { DIRECT_UPLOAD_MAX_BYTES, checkMediaAttachment, checkMediaSize, checkStaging } from './media-limits.ts';
 
-export const ATTACHMENT_CONTRACT_VERSION = 1;
-export const MEDIA_LOCAL_CAP = FILE_UPLOAD_CAP;
-export const MEDIA_MAX_ATTACHMENTS = 10;
-export function mediaKindCap(kind: unknown): number {
-  return kind === 'image' ? IMAGE_UPLOAD_CAP : kind === 'file' ? FILE_UPLOAD_CAP : kind === 'video' ? VIDEO_DIRECT_UPLOAD_CAP : 0;
-}
+/**
+ * Largest single staged body: the direct-upload ceiling. Per-kind official caps
+ * (image 10 MiB, file 30 MiB, video 300 MiB) are enforced by `media-limits.ts`;
+ * chunked upload is not implemented, so a body above this is refused.
+ */
+export const MEDIA_LOCAL_CAP = DIRECT_UPLOAD_MAX_BYTES;
+/** Total bytes staged at once on the page (two maximal bodies). */
+export const MEDIA_STAGED_TOTAL_CAP = 2 * MEDIA_LOCAL_CAP;
 export const MEDIA_CHUNK_CAP = 256 * 1024;
 export const MEDIA_TARGET_TTL = 5 * 60 * 1000;
 /** Official installed 1.2.12/ares1.2.17 constant, also observed in evidence44. */
@@ -29,7 +32,6 @@ function safeUrl(value: string): boolean {
   try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443') && ['ctrip.com', 'c-ctrip.com', 'tripcdn.com'].some(d => u.hostname === d || u.hostname.endsWith(`.${d}`)); } catch { return false; }
 }
 function uploadFailure(failure: UploadFailure): MediaUploadReply {
-  if (failure.kind === 'local_rejected') return { kind: 'not_submitted', media: null, body_json: null, error: failure.code };
   const explicit = failure.kind === 'rejected' || (failure.kind === 'token_failed' && ['business_failure', 'auth_invalid'].includes(failure.outcome.kind));
   return { kind: explicit ? 'rejected' : 'unknown', media: null, body_json: null, error: failure.kind === 'token_failed' ? 'upload token acquisition did not complete; no file upload was started; do not retry automatically' : 'file upload did not produce verified resource metadata; do not retry automatically' };
 }
@@ -99,7 +101,7 @@ export function createMediaRpc(ctx: RpcContext) {
       const a = object(args), t = valid(a), id = string(a, 'transfer_id');
       const kind = a['kind'], size = a['size'], name = string(a, 'name'), mime = string(a, 'mime'), hash = string(a, 'sha256');
       const stagedBytes = [...transfers.values()].reduce((n, transfer) => n + transfer.bytes.length, 0);
-      if (!['image', 'file', 'video'].includes(String(kind)) || !Number.isSafeInteger(size) || Number(size) <= 0 || Number(size) > mediaKindCap(kind) || stagedBytes + Number(size) > MEDIA_MAX_ATTACHMENTS * MEDIA_LOCAL_CAP || [...transfers.values()].filter(r => r.bytes.length > 0).length >= MEDIA_MAX_ATTACHMENTS || !/^[a-f0-9]{64}$/.test(hash) || /[\\/\x00-\x1f]/.test(name) || transfers.has(id) || transfers.size >= 128) error();
+      if (!['image', 'file', 'video'].includes(String(kind)) || !Number.isSafeInteger(size) || !checkMediaSize(kind, size).ok || !checkStaging(Number(size)).ok || stagedBytes + Number(size) > MEDIA_STAGED_TOTAL_CAP || !/^[a-f0-9]{64}$/.test(hash) || /[\\/\x00-\x1f]/.test(name) || transfers.has(id) || transfers.size >= 128) error();
       if (kind === 'image' && !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mime)) error();
       if (kind === 'video' && mime !== 'video/mp4') error();
       transfers.set(id, { target: t, token: string(a, 'target_token'), name, kind: kind as Transfer['kind'], mime, sha256: hash, bytes: new Uint8Array(Number(size)), received: 0 });
@@ -125,7 +127,7 @@ export function createMediaRpc(ctx: RpcContext) {
           const dimensions = r.kind === 'file' ? null : await ctx.deps.mediaProbe?.(r.kind, r.mime, r.bytes);
           valid(a);
           if (r.kind !== 'file' && (!dimensions || !Number.isFinite(dimensions.width) || !Number.isFinite(dimensions.height) || dimensions.width <= 0 || dimensions.height <= 0)) return { kind: 'not_submitted', media: null, body_json: null, error: 'local media decoding failed' } as const;
-          if (r.kind === 'video' && (!dimensions || dimensions.duration === null || !Number.isFinite(dimensions.duration) || dimensions.duration <= 0 || dimensions.duration > 180)) return { kind: 'not_submitted', media: null, body_json: null, error: 'video must decode and be at most three minutes' } as const;
+          if (r.kind === 'video' && (!dimensions || !checkMediaAttachment('video', r.bytes.length, dimensions.duration === null ? null : dimensions.duration * 1000).ok)) return { kind: 'not_submitted', media: null, body_json: null, error: 'video must decode and be at most three minutes' } as const;
           started = true;
           const result = r.kind === 'image'
             ? await uploadImage(ctx.deps, ctx.soa, { bytes: r.bytes, mime: r.mime, scene: IMAGE_SCENE, width: dimensions!.width, height: dimensions!.height, ensureCurrent: () => { valid(a); } })

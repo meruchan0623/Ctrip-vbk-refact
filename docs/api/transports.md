@@ -54,3 +54,51 @@ XML 属性与文本由官方 SDK 转义；`msg` 中的引号、换行和 `<>&` �
 用户信息、来源轨迹、权限和跳转入口等位于该文档内联 `__INITIAL_STATE__`；已解析完整脱敏状态与 schema，见 [56](evidence/2026-10-30/56-controlled-sidebar-ssr-state.json)。没有因为读取到 SSR 数据就声称浏览器调用了 `getVBKImUserInfo/getImPlusModuleJump`。这些服务内部接口与浏览器文档请求分别记证据；需要自研侧栏时仍应补独立契约。
 
 侧栏“详情/PC详情”本次出现桌面版引导，不能当作订单详情成功。正式订单路径是订单页按关联订单号查询 → 唯一详情 → 联系人处“IM 联系”；该次 POST `14361/createimchat` 返回 URL 后，首次页面标题与受控客户一致。[动作与恢复边界](validation.md)。
+
+## 请求节奏与可见性（I-06）
+
+来源：[改进计划 I-06](../plan/2026-11-02-reverse-driven-improvement-plan.md) 与[官方桌面实机截获](../reviews/2026-11-02-desktop-live-capture-verification.md)。**以下是适配器的设计契约与单测结论；实机计数验收（30 个桶、A–B–A 对照、隐藏态 10 分钟）属 C 类，尚未执行。**
+
+官方页自身在跑 `startLoopConvList`：约每 5 秒一次 `16037/getConversationList`，`startTime` 恒等于上次响应的 `lastUpdateTime`（增量），不随可见性暂停。适配器若再自行轮询，会对同一端点双倍请求，多账号线性放大。因此：
+
+| 情形 | 适配器行为 |
+| --- | --- |
+| 官方 loop 活跃（**按 URL 变体分别判定**：页内 fetch/XHR 钩子在 30 秒窗口内看到 ≥ 2 次该变体的官方请求，最近一次不超过 15 秒前，**且** 30 秒内读到过该变体的响应体——首个请求 30 秒内尚无响应也算） | **不发任何 `getConversationList`**，只消费钩子旁路读取的官方响应（`Response.clone()`，页面拿到的仍是原 promise 与未读 body；XHR `responseType` 为 `''`/`text` 读 `responseText`，为 `json` 时把 `response` 重新序列化）。官方无 `startTime` 的响应当作全量快照，其余当作增量；适配器启动时先回放缓冲（自最近一次官方全量起，至多 32 条/4M 字符，溢出即丢弃并等待下一次官方全量）。 |
+| 官方请求可见但响应体不可读（其它 `responseType`、`clone()` 失败、只在跑另一 URL 变体） | 超过 30 秒未读到响应体即**不再视为活跃**，退回自跑（下一行）；响应体恢复可读后自动回到只消费。这是计划 I-06 验收 5 规定的回退（钩子捕获不到响应时「仅消费」不可实现），代价是与官方 loop 并行期间该端点双倍请求，但不会出现「零请求且零数据」的静默饿死。 |
+| 官方 loop 活跃，但从未观测到官方全量快照 | 等待 7 秒宽限；仍无则**自拉一次全量**（唯一例外），账本里记为 `bootstrap`，不隐藏。 |
+| 官方 loop 不活跃（页面自身停止、节流或未启动） | 适配器自跑：起始全量，之后 `startTime = 上次 lastUpdateTime`，间隔 ≥ 5 秒；`document.visibilityState === 'hidden'` 时间隔 ×6（30 秒，10 分钟内请求数约为前台的 17%，门槛 ≤ 20%）；失败按 5→10→20→40→60 秒指数退避（抖动只加长，不超上限，故一次失败串内间隔单调不减），成功后恢复 5 秒。 |
+
+注意：隐藏的账号 WebView 的 `visibilityState` 可能恒为 `hidden`，此时自跑会话列表是 30 秒一次；实时消息仍由 SDK 与补偿循环承担。该折衷是否可接受待 C 类实测（WebView2 本身还有定时器节流）。
+
+### 补偿循环的停止时长
+
+`getRecentMessages` 补偿循环（连上时 10 秒、未连上 5 秒）原先硬编码"连上 300 秒后停止"。现为 `normalLoopStopAfterMs`：数值 = 该毫秒后停止，`null` = 不停止，未设置 = 静态 SDK 值 300000。生产会话（`createPageSession`）默认 `null`（隐藏账号长期运行）。**300 秒是否合理、默认值应取多少，需故障注入后决定（未做）。**
+
+### 请求计数口径
+
+页内钩子把每个请求记为 `账号 × 路径 × 1 分钟桶 × 发起者`：
+
+| 路径类别 | 包含 |
+| --- | --- |
+| `conversation_list` | `getConversationList[.json]` |
+| `remark_info` | `getRemarkList`、`getConversationInfoByGidList` |
+| `recent_messages` | `getRecentMessages` |
+| `empathy_phrase` | `getSessionEmpathyPhraseInfo` |
+| `open_session` | `batchTranslateByMsgIds`、`queryToken`、`getOrderDetailsForVbk` |
+| `read_receipt`（另列，不计入总量） | `PutAdviceOfReadByMsgId` |
+| `telemetry`（另列，不计入总量） | `s.c-ctrip.com/bee/collect` |
+
+发起者：`official` = 官方页自己的调用（钩子包装 `window.fetch` 与 `XMLHttpRequest`）；`adapter` = 适配器自己的调用（适配器持有钩子安装前捕获的原生 `fetch`，在该包装里计数）。重试各算一次。账本同时保留带序号的请求/响应事件日志（容量 512），用于核对"请求与响应顺序被 100% 捕获"。
+
+已知边界：经页面 SDK 发出的读回执（`PutAdviceOfReadByMsgId`）走官方页的 XHR/fetch，会记为 `official`，与适配器触发的读回执无法区分；它本就另列、不入总量，不影响 `conversation_list` 的硬指标。账本目前只在页内存在，**尚未接到宿主诊断通道**。
+
+### 已读回执节奏
+
+官方由 IM 子进程以 Node HTTPS 发 `11679/PutAdviceOfReadByMsgId`：按会话只带**最后一条**对方消息的 `msgId`（游标式，非逐条），同一次打开重复发 2 次。适配器经页面 SDK 发同一接口，并保证：
+
+- 目标是会话里最后一条非本人、非系统、有 `msgId` 的消息（`selectReadTarget`；已读则不发）；
+- 同一 SDK 句柄下，同一 `(partnerJid, msgId)` 至多发一次（并发调用共享同一请求）；明确失败可重试，`unknown`（结果未知）不会被自动重发；记忆容量 256。
+
+### 传输监督状态机（I-05b A 类部分，未接入宿主）
+
+`vbk/crates/core-transport` 是纯 std 的监督状态机：心跳超时 → 页内补偿 → 重载官方页 → 重建 WebView 四级升级，指数退避加可注入 RNG 的抖动，熔断计数在实例外部且可序列化（`v1;failures=…;last_delay_ms=…;trips=…;tripped=…`），`KICKED_OFFLINE_BY_OTHER_CLIENT`、`XMPP_AUTH_FAILED`、`CURRENT_TOKEN_UNAVAILABLE`、`AccountsMobileRequestFilterException` 为终态（不计熔断、之后重连恒为 0），`navigator.onLine=false` 冻结计数与计时，`draining → rebuilding → compensating → online` 且 draining 期间拒绝发送（`im.channel_recovering`），补偿起点 `now − 2 分钟`、5 秒频率窗口并清空会话列表 `startTime` 全量拉一次。心跳阈值取官方 SDK 值（20 秒无应答、未连接 60 秒），其余阈值为设计值，未经实机验证。**它没有接入 `adapter.rs` 或 WebView 重建：I-05b 的前置（X11 决策与 `docs/decisions/2026-11-xx-sdk-resource-conflict.md`）未满足。**

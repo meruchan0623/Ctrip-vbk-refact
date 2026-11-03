@@ -25,7 +25,7 @@
  * listener, enforced by `capabilities/adapter.json`).
  */
 
-import { withContractVersion, type AccountContext } from '../../ipc/src/contracts.ts';
+import type { AccountContext } from '../../ipc/src/contracts.ts';
 import { AdapterCommands, AdapterEvents, type AdapterDisplayPayload, type AdapterReadyAck, type AdapterReadyPayload, type AdapterReplyPayload } from '../../ipc/src/adapterProtocol.ts';
 import { ImCommands } from '../../ipc/src/commands.ts';
 import type { AdapterDeps, FetchLike, ImSdkHandle } from './deps.ts';
@@ -33,7 +33,18 @@ import { Endpoints } from './endpoints.ts';
 import { sdkHead } from './heads.ts';
 import { SoaClient } from './soa.ts';
 import { readIdentity } from './identity.ts';
-import { buildPageContext, createContextSniffer, installContextHooks, createPageRequestObserver, type RequestTiming, type ContextSniffer } from './pageContext.ts';
+import {
+  buildPageContext,
+  createContextSniffer,
+  createOfficialConversationFeed,
+  createTrafficLedger,
+  createTrafficTap,
+  installContextHooks,
+  recordAdapterFetch,
+  type ContextSniffer,
+  type TrafficLedger,
+} from './pageContext.ts';
+import type { VisibilityGate } from './conversationList.ts';
 import { createPageSdk, type PageSdk } from './sdkGlue.ts';
 import { createPageSession, type PageSession } from './session.ts';
 import { notReadyReply } from './rpc.ts';
@@ -96,7 +107,7 @@ export function resolveHostBridge(win: unknown): HostBridge | null {
   return {
     invoke: (cmd, args) => {
       try {
-        return Promise.resolve(invoke(cmd, withContractVersion(args)));
+        return Promise.resolve(invoke(cmd, args));
       } catch (e: unknown) {
         return Promise.reject(e);
       }
@@ -129,11 +140,35 @@ export function hostArgs(cmd: string, payload: unknown): Record<string, unknown>
   return cmd === AdapterCommands.PUSH_FACT ? { envelope: payload } : { payload };
 }
 
+// ------------------------------------------------------------- visibility
+
+export interface DocumentLike {
+  readonly cookie?: string;
+  readonly visibilityState?: string;
+  addEventListener?(type: string, cb: () => void): void;
+  removeEventListener?(type: string, cb: () => void): void;
+}
+
+/**
+ * `document.visibilityState` as a gate for the adapter's own conversation-list
+ * requests. Unknown state counts as visible: a missing value must never
+ * silence the loop.
+ */
+export function createVisibilityGate(doc: DocumentLike | undefined): VisibilityGate {
+  return {
+    isVisible: () => doc?.visibilityState !== 'hidden',
+    subscribe(cb) {
+      doc?.addEventListener?.('visibilitychange', cb);
+      return () => doc?.removeEventListener?.('visibilitychange', cb);
+    },
+  };
+}
+
 // ------------------------------------------------------------- boot
 
 export interface BootWindow {
   readonly location: LocationLike & { readonly href: string; readonly origin?: string; readonly search: string };
-  readonly document?: { readonly cookie?: string; readonly visibilityState?: string; addEventListener?(type: string, cb: () => void): void; removeEventListener?(type: string, cb: () => void): void };
+  readonly document?: DocumentLike;
   readonly top?: unknown;
   readonly self?: unknown;
   fetch?: unknown;
@@ -159,15 +194,15 @@ export interface BootOptions {
   readonly identityRetryDelayMs?: number;
   readonly bindAttempts?: number;
   readonly bindDelayMs?: number;
-  readonly onRequestTiming?: (record: RequestTiming) => void;
-  readonly compensationOptions?: import('./index.ts').AdapterOptions['compensationOptions'];
+  /** Compensation normal-loop stop delay; `null`/omitted = never stop (default decided after fault injection). */
+  readonly normalLoopStopAfterMs?: number | null;
 }
 
 export type BootResult =
   | { readonly kind: 'skipped'; readonly reason: 'not_im_page' | 'not_top_frame' | 'already_booted' }
   | { readonly kind: 'no_host' }
   | { readonly kind: 'failed'; readonly step: string }
-  | { readonly kind: 'started'; readonly session: PageSession };
+  | { readonly kind: 'started'; readonly session: PageSession; readonly traffic: TrafficLedger };
 
 function consoleLogger(): BootLogger {
   const c = (globalThis as { console?: { info?: (...a: unknown[]) => void; error?: (...a: unknown[]) => void } }).console;
@@ -251,8 +286,10 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
   }
   const rawFetch = win.fetch;
   const sniffer: ContextSniffer = createContextSniffer();
-  const requests = createPageRequestObserver(now, opts.onRequestTiming);
-  installContextHooks(win, sniffer, requests);
+  // I-06: the hooks also record the page's own traffic (`official`) and feed its conversation-list loop to the pollers.
+  const traffic = createTrafficLedger();
+  const officialFeed = createOfficialConversationFeed();
+  installContextHooks(win, sniffer, createTrafficTap(traffic, officialFeed, now));
 
   // ---- 2. request listener
   const dispatcher = startRequestListener(host, logger);
@@ -276,18 +313,8 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     return { kind: 'failed', step: 'fetch' };
   }
   const fetchImpl = rawFetch as (url: string, init: unknown) => Promise<{ status: number; text(): Promise<string> }>;
-  const fetchLike: FetchLike = async (url, init) => {
-    const request = requests.begin(url, init.body, 'adapter');
-    const response = await fetchImpl.call(win, url, init);
-    if (!request) return response;
-    return { status: response.status, text: async () => {
-      const text = await response.text();
-      let body: unknown;
-      try { body = JSON.parse(text); } catch { body = null; }
-      requests.complete(request, response.status, body);
-      return text;
-    } };
-  };
+  // `rawFetch` was captured before the hooks went in, so only the adapter's own requests pass here: count them as `adapter`.
+  const fetchLike: FetchLike = recordAdapterFetch(traffic, (url, init) => fetchImpl.call(win, url, init), now);
 
   // ---- 3. ready
   const readyPayload: AdapterReadyPayload = { url: pageUrl(win.location), sdk_version: null };
@@ -362,6 +389,7 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     logger.error('host did not bind an account to this webview');
     return { kind: 'failed', step: 'bind' };
   }
+  traffic.setAccount(account.account_id);
   logger.info('identity published, account bound');
 
   // ---- 5. SDK (bounded wait; HTTP loops run even without it)
@@ -377,19 +405,12 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     beginMsgTime: ack.begin_msg_time,
     initialEpoch: ack.initial_epoch,
     sdk,
-    conversationCadence: {
-      officialRequests: requests,
-      visibility: {
-        visible: () => win.document?.visibilityState !== 'hidden',
-        subscribe: cb => {
-          win.document?.addEventListener?.('visibilitychange', cb);
-          return () => win.document?.removeEventListener?.('visibilitychange', cb);
-        },
-      },
-    },
-    ...(opts.compensationOptions ? { compensationOptions: opts.compensationOptions } : {}),
     pushDisplay: (payload: AdapterDisplayPayload) => call(AdapterCommands.PUSH_DISPLAY, payload),
     log: (m) => logger.info(m),
+    officialConversationFeed: officialFeed,
+    conversationVisibility: createVisibilityGate(win.document),
+    onConversationBootstrap: () => traffic.markBootstrap('conversation_list'),
+    ...(opts.normalLoopStopAfterMs !== undefined ? { normalLoopStopAfterMs: opts.normalLoopStopAfterMs } : {}),
   });
   session.start();
   dispatcher.setSession(session);
@@ -398,7 +419,7 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     session.stop();
     sdk.dispose();
   });
-  return { kind: 'started', session };
+  return { kind: 'started', session, traffic };
 }
 
 // ------------------------------------------------------------- auto-run (bundle entry)

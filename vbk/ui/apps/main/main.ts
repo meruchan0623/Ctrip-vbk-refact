@@ -4,8 +4,15 @@ import { createVisibleRead } from './visible-read.ts';
 import { readHistoryPage } from './history-read.ts';
 import { personDisplayName } from './person-name.ts';
 import { startHistoryLayout, stopHistoryLayout } from './history-layout.ts';
-import { createHistoryViewport, historyReadingStore } from './history-viewport.ts';
+import { createMessagePane, PIN_THRESHOLD } from './message-pane.ts';
+import { createDraftBook, createIpcDraftPort } from './draft-book.ts';
+import type { MeasuredPane, PaneGeometry, PaneWindow } from './message-pane.ts';
+import { sameWindow } from './message-pane.ts';
+import type { MessageAnchor } from './message-window.ts';
 import { createComposerInput } from './composer-input.ts';
+import { createMainFeatureRuntime } from './features/registry.ts';
+import { ConfirmController, mountConfirmDialog } from './features/confirm-dialog.ts';
+import { FeatureEvents } from './features/context.ts';
 /**
  * Main window (prototype 02-main): title bar with account tabs, left nav
  * (消息 / 通知 / 订单联系, bottom 设置 / 账号), messages workspace,
@@ -22,7 +29,7 @@ const platform = applyPlatform();
 
 import type { AccountContext, SendDisposition } from '../../packages/ipc/src/contracts.ts';
 import { RED_AFTER_SECONDS, isAppError } from '../../packages/ipc/src/contracts.ts';
-import { AccountCommands, Events, PrefsCommands, WindowLabels } from '../../packages/ipc/src/commands.ts';
+import { AccountCommands, Events, ImCommands, PrefsCommands, WindowLabels } from '../../packages/ipc/src/commands.ts';
 import type {
   AgentStatus,
   OrderSearchResult,
@@ -43,10 +50,10 @@ import type {
   UiMediaSendProgress,
 } from '../../packages/ipc/src/client.ts';
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
-import { MOCK_ORDER_SAMPLES } from '../../packages/ipc/src/mock.ts';
-import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
+import { MOCK_ORDER_SAMPLES } from '../_shared/mock-loader.ts';
+import { appendChildren, h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched, subscribeFrame } from '../../packages/ui-kit/src/store.ts';
-import { t } from '../../packages/ui-kit/src/i18n.ts';
+import { hasKey, t } from '../../packages/ui-kit/src/i18n.ts';
 import { badgeText, formatClock, formatDate, formatDuration, formatRelativeTime } from '../../packages/ui-kit/src/format.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
@@ -104,6 +111,9 @@ import {
   netView,
   nextLocalId,
   orderContactReduce,
+  persistFailed,
+  persistFailedView,
+  sendFailureDisposition,
   orderDetailUrl,
   previewOf,
   peripheralWriteView,
@@ -112,10 +122,10 @@ import {
   roleLabel,
   safeMediaUrl,
   mergeHistory,
+  mergeHistoryIncremental,
   historyScopeKey,
+  rowId,
   messageHistoryKey,
-  messageHistoryMatches,
-  historyIdentityIndex,
   visibleMessages,
   selectedQuoteReference,
   messageQuotePreview,
@@ -171,6 +181,8 @@ interface MainState {
   readonly prefs: PrefsSnapshot | null;
   readonly now: number;
   readonly listWindow?: { scope: string; top: number; height: number };
+  /** Message pane window + reading anchor `{scope,key,offset}`; survives pane rebuilds (I-08). */
+  readonly messageView?: { readonly scope: string; readonly top: number; readonly height: number; readonly anchor: MessageAnchor | null; readonly rev: number };
   // messages
   readonly conversations: readonly UiConversation[];
   readonly business: BusinessTab;
@@ -405,11 +417,17 @@ const ACCOUNT_SCOPED_RESET = {
   agentOperation: null,
 } as const satisfies Partial<MainState>;
 
+/** One persistent polite live region outside the re-rendered tree; the rebuilt root stays aria-live=off. */
+function announce(text: string): void {
+  const region = document.getElementById('live');
+  if (region) region.textContent = text;
+}
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function toast(text: string): void {
+  announce(text);
   store.patch({ toast: text });
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => store.patch({ toast: null }), 2600);
+  toastTimer = setTimeout(() => { announce(''); store.patch({ toast: null }); }, 2600);
 }
 
 /** User-initiated command: a failure is shown. */
@@ -733,7 +751,7 @@ function upsertMessage(m: UiMessage): boolean {
   const s = S();
   const list = s.messages[m.gid];
   if (!list) return false;
-  const next = mergeHistory(list, [m]);
+  const next = mergeHistoryIncremental(list, m);
   const quote = s.quote?.gid === m.gid && !selectedQuoteReference(s.quote, next, m.gid) ? null : s.quote;
   store.patch({ messages: { ...s.messages, [m.gid]: next }, quote });
   return true;
@@ -766,8 +784,9 @@ async function sendText(text: string, original: string | null): Promise<void> {
     upsertMessage({ ...local, disposition: d, message_id: d.kind === 'confirmed' ? d.server_message_id : null });
   } else {
     const e = result.error;
-    // An IPC failure is not a server rejection: the result is unknown and must not be auto-resent.
-    upsertMessage({ ...local, disposition: isAppError(e) && e.code === 'im.permission_denied' ? { kind: 'rejected', code: e.code, reason: e.message } : { kind: 'unknown' } });
+    // An IPC failure is not a server rejection: unless the code proves nothing was
+    // submitted (permission denied, send barrier), the result is unknown and must not be auto-resent.
+    upsertMessage({ ...local, disposition: sendFailureDisposition(e) });
   }
 }
 
@@ -779,6 +798,8 @@ async function handleSend(): Promise<void> {
   const s = S();
   const conv = activeConv(s);
   if (!conv || isDone(conv)) return;
+  // Send barrier (I-04a): keyboard path too (the button is already disabled); the draft is kept.
+  if (persistFailed(s.accounts)) { toast(t('bar.persistFailed')); return; }
   const result = await sendComposer({ draft: s.draft, attachment: s.attachment }, async (text) => {
     if (s.prefs?.assistant.send_mode === 'send_direct' && translationOn(s, conv)) {
       await translateAndSend(text);
@@ -1195,7 +1216,7 @@ function titleBar(s: MainState): HTMLElement {
         role: 'tab',
         'aria-selected': String(on),
         title: t('tab.editRemark'),
-        dataset: { account: a.context.account_id, state: a.state },
+        dataset: { account: a.context.account_id, state: a.state, fid: `acct-tab:${a.context.account_id}` },
         onclick: () => void switchAccount(a),
         ondblclick: (e: Event) => {
           e.preventDefault();
@@ -1274,7 +1295,7 @@ function navBar(s: MainState): HTMLElement {
   const item = (view: View, label: string, d: string, badge: number, extra: HTMLElement | null = null) =>
     h(
       'button',
-      { class: cx('nav-i', { on: s.view === view }), 'aria-label': label, 'aria-current': s.view === view ? 'page' : undefined, dataset: { nav: view }, onclick: () => store.patch({ view, ctxMenu: null, meMenu: false }) },
+      { class: cx('nav-i', { on: s.view === view }), 'aria-label': label, 'aria-current': s.view === view ? 'page' : undefined, dataset: { nav: view, fid: `nav:${view}` }, onclick: () => store.patch({ view, ctxMenu: null, meMenu: false }) },
       icon(d, 20),
       h('span', null, label),
       badge > 0 ? h('span', { class: 'nav-badge' }, badgeText(badge)) : null,
@@ -1288,7 +1309,7 @@ function navBar(s: MainState): HTMLElement {
     item('notifications', t('nav.notifications'), IC.bell, unreadNotice),
     item('order', t('nav.orderContact'), IC.order, 0),
     h('div', { class: 'nav-sp' }),
-    h('button', { class: 'nav-i', 'aria-label': t('nav.settings'), dataset: { nav: 'settings' }, onclick: () => void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }) }, icon(IC.gear, 20), h('span', null, t('nav.settings'))),
+    h('button', { class: 'nav-i', 'aria-label': t('nav.settings'), dataset: { nav: 'settings', fid: 'nav:settings' } , onclick: () => void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }) }, icon(IC.gear, 20), h('span', null, t('nav.settings'))),
     h(
       'button',
       {
@@ -1297,7 +1318,7 @@ function navBar(s: MainState): HTMLElement {
         'aria-label': `${t('nav.account')}：${av.label}`,
         'aria-expanded': String(s.meMenu),
         disabled: !acc,
-        dataset: { nav: 'me' },
+        dataset: { nav: 'me', fid: 'nav:me' } ,
         onclick: (e: Event) => {
           e.stopPropagation();
           store.patch({ meMenu: !s.meMenu, ctxMenu: null });
@@ -1323,7 +1344,7 @@ function meMenu(s: MainState): HTMLElement | null {
     AGENT_STATUS_ORDER.map((st) =>
       h(
         'button',
-        { class: 'mi', role: 'menuitem', dataset: { agentStatus: st }, disabled: s.agentBusy, onclick: () => void setAgentStatus(st) },
+        { class: 'mi', role: 'menuitem', dataset: { agentStatus: st, fid: `agent-status:${st}` }, disabled: s.agentBusy, onclick: () => void setAgentStatus(st) },
         h('span', { class: 'dot', style: { background: `var(${agentStatusColorVar(st)})` } }),
         h('span', { style: { flex: '1' } }, agentStatusLabel(st)),
         h('span', { class: 'muted', style: { 'font-size': '11.5px' } }, agentStatusDesc(st)),
@@ -1335,8 +1356,8 @@ function meMenu(s: MainState): HTMLElement | null {
     h('button', { class: 'mi', role: 'menuitem', onclick: () => { close(); void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); } }, t('me.desktopSettings')),
     h('button', { class: 'mi', role: 'menuitem', onclick: () => { close(); void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.UPDATE }); } }, t('me.checkUpdate')),
     h('div', { class: 'msep' }),
-    h('button', { class: 'mi', role: 'menuitem', dataset: { me: 'suspend' }, onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'suspend' } }) }, t('me.logoutSuspend')),
-    h('button', { class: 'mi dan', role: 'menuitem', dataset: { me: 'logout' }, onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'logout' } }) }, t('me.logoutFull')),
+    h('button', { class: 'mi', role: 'menuitem', dataset: { me: 'suspend', fid: 'me-menu:suspend' } , onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'suspend' } }) }, t('me.logoutSuspend')),
+    h('button', { class: 'mi dan', role: 'menuitem', dataset: { me: 'logout', fid: 'me-menu:logout' } , onclick: () => store.patch({ meMenu: false, logoutDialog: { account: acc, mode: 'logout' } }) }, t('me.logoutFull')),
   );
 }
 
@@ -1394,7 +1415,7 @@ function conversationList(s: MainState): HTMLElement {
         class: cx('conv', { on, top: c.is_top }),
         role: 'button',
         tabindex: '0',
-        dataset: { gid: c.gid },
+        dataset: { gid: c.gid, fid: `conv:${c.gid}` },
         onclick: () => void openConversation(c.gid),
         onkeydown: (e: KeyboardEvent) => {
           if (e.key === 'Enter') void openConversation(c.gid);
@@ -1446,8 +1467,8 @@ function conversationList(s: MainState): HTMLElement {
       h(
         'div',
         { class: 'ftabs', role: 'tablist' },
-        h('button', { class: cx('ftab', { on: s.tab === 'doing' }), role: 'tab', 'aria-selected': String(s.tab === 'doing'), dataset: { tab: 'doing' }, onclick: () => store.patch({ tab: 'doing' }) }, `${t('list.doing')} ${counts.doing}`),
-        h('button', { class: cx('ftab', { on: s.tab === 'done' }), role: 'tab', 'aria-selected': String(s.tab === 'done'), dataset: { tab: 'done' }, onclick: () => store.patch({ tab: 'done' }) }, `${t('list.done')} ${counts.done}`),
+        h('button', { class: cx('ftab', { on: s.tab === 'doing' }), role: 'tab', 'aria-selected': String(s.tab === 'doing'), dataset: { tab: 'doing', fid: 'list-tab:doing' } , onclick: () => store.patch({ tab: 'doing' }) }, `${t('list.doing')} ${counts.doing}`),
+        h('button', { class: cx('ftab', { on: s.tab === 'done' }), role: 'tab', 'aria-selected': String(s.tab === 'done'), dataset: { tab: 'done', fid: 'list-tab:done' } , onclick: () => store.patch({ tab: 'done' }) }, `${t('list.done')} ${counts.done}`),
       ),
     ),
     nv.offline ? h('div', { class: 'netbar' }, h('span', { class: 'spin', style: { 'border-top-color': '#87500A' } }), h('span', { style: { flex: '1' } }, t('list.offline')), h('button', { class: 'link', onclick: () => void loadForActiveAccount() }, t('list.retryNow'))) : null,
@@ -1471,7 +1492,7 @@ function contextMenu(s: MainState): HTMLElement | null {
   return h(
     'div',
     { class: 'menu ctx-menu', role: 'menu', style: { left: `${Math.min(m.x, maxX)}px`, top: `${Math.min(m.y, maxY)}px` }, onmousedown: (e: Event) => e.stopPropagation() },
-    h('button', { class: 'mi', role: 'menuitem', dataset: { ctx: 'top' }, onclick: () => void toggleTop(c) }, icon(IC.pin, 13), items.topLabel),
+    h('button', { class: 'mi', role: 'menuitem', dataset: { ctx: 'top', fid: 'ctx-menu:top' } , onclick: () => void toggleTop(c) }, icon(IC.pin, 13), items.topLabel),
     h('div', { class: 'msep' }),
     h('div', { class: 'mhead' }, t('ctx.markColor')),
     h(
@@ -1483,12 +1504,12 @@ function contextMenu(s: MainState): HTMLElement | null {
           style: { background: `var(${mc.cssVar})` },
           title: t(mc.nameKey),
           'aria-label': t('ctx.markAs', { color: t(mc.nameKey) }),
-          dataset: { mark: String(mc.action) },
+          dataset: { mark: String(mc.action), fid: `mark:${mc.action}` },
           onclick: () => void setMark(c, mc.action),
         }),
       ),
     ),
-    items.showClear ? h('button', { class: 'mi', role: 'menuitem', dataset: { ctx: 'clear' }, onclick: () => void setMark(c, 0) }, t('ctx.clearMark')) : null,
+    items.showClear ? h('button', { class: 'mi', role: 'menuitem', dataset: { ctx: 'clear', fid: 'ctx-menu:clear' } , onclick: () => void setMark(c, 0) }, t('ctx.clearMark')) : null,
   );
 }
 
@@ -1521,6 +1542,11 @@ function richText(text: string): HTMLElement[] {
   );
 }
 
+// Window model of the message pane (I-28a): which rows are mounted, measured heights, the reading anchor.
+const messagePaneModel = createMessagePane();
+// Anchor captured just before a redraw; consumed by messagePane() while that redraw runs.
+let liveAnchor: MessageAnchor | null = null;
+let messageViewPatches = 0;
 /** A card may reveal only its own current order in its original account/session scope. */
 function openMessageOrder(m: UiMessage, rendered: UiConversation, account: UiAccount | null): void {
   if (!account || !sameAccount(rendered.account, account.context) || rendered.account.session_generation !== account.context.session_generation || !stillActive(account.context)) return;
@@ -1540,77 +1566,81 @@ function mediaNodeKey(account: AccountContext | null, conv: UiConversation, mess
   return JSON.stringify([account.environment, account.account_id, account.session_generation, conv.gid, message.message_id ? 'server' : 'local', id]);
 }
 
-/** Scroll-only system fingerprints are exact, scoped matches; never message or receipt IDs. */
-function historyAnchorMatches(before: string, after: string): boolean {
-  if (before.startsWith('scroll-system:') || after.startsWith('scroll-system:')) return !!before && before === after;
-  return messageHistoryMatches(before, after);
+function paneGeometry(scroll: HTMLElement): PaneGeometry {
+  return { scrollTop: scroll.scrollTop, clientHeight: scroll.clientHeight, scrollHeight: scroll.scrollHeight };
+}
+/** Measure the mounted rows: height includes the row's bottom margin, header is whatever precedes row 0. */
+function measureMessagePane(scroll: HTMLElement): MeasuredPane {
+  const rows = [...scroll.querySelectorAll<HTMLElement>('[data-row-id]')];
+  const origin = scroll.querySelector<HTMLElement>('[data-msg-spacer="top"]') ?? rows[0];
+  const header = origin ? origin.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop : 0;
+  return { header, rows: rows.filter(row => row.dataset['rowId']).map(row => ({ id: row.dataset['rowId']!, height: row.getBoundingClientRect().height + (Number.parseFloat(getComputedStyle(row).marginBottom) || 0) })) };
 }
 
-interface MessageAnchor { readonly scope: string; readonly diagnosticId: number; readonly identities: readonly string[]; readonly candidates: readonly { readonly key: string; readonly offset: number; readonly row: number }[] }
+/** Model-based reading anchor `{scope, key, offset}`: no per-row DOM reads or JSON.parse. */
 function captureMessageAnchor(s: MainState): MessageAnchor | null {
   const conv = activeConv(s), account = activeAccount(s)?.context ?? null;
   if (!conv) { historyDiagnostics.record('capture_skip', {}, 'no_conversation'); return null; }
   const scope = historyScopeKey(account, conv.gid);
   const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
-  if (!scope || !scroll || scroll.dataset['historyScope'] !== scope) { historyDiagnostics.record('capture_skip', {}, 'wrong_scope'); return null; }
-  if (scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 48) { historyDiagnostics.record('capture_skip', { scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'pinned'); return null; }
-  const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
-  const identities = historyIdentityIndex(rows.map(row => row.dataset['historyKey'] ?? ''));
-  const top = scroll.getBoundingClientRect().top;
-  const diagnosticId = historyDiagnostics.record('capture', { rows: rows.length, scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight });
-  const candidates: { key: string; offset: number; row: number }[] = [];
-  let visible = 0;
-  for (const [index, row] of rows.entries()) {
-    const key = row.dataset['historyKey'], rect = row.getBoundingClientRect();
-    if (rect.bottom > top && rect.top < top + scroll.clientHeight) {
-      visible++;
-      const matches = key ? identities.matches(key).length : 0;
-      historyDiagnostics.record('candidate', { capture: diagnosticId, row: index, keyType: !key ? 0 : key.startsWith('scroll-system:') ? 1 : 2, top: rect.top - top, bottom: rect.bottom - top, matches }, !key ? 'missing' : matches === 1 ? 'observed' : 'ambiguous');
-      if (key && matches === 1) candidates.push({ key, offset: rect.top - top, row: index });
-    }
+  const geometry = scroll ? paneGeometry(scroll) : null;
+  const result = messagePaneModel.capture(scope && scroll?.dataset['historyScope'] === scope ? scope : null, geometry);
+  if ('skip' in result) {
+    historyDiagnostics.record('capture_skip', geometry ?? {}, result.skip === 'pinned' ? 'pinned' : result.skip === 'no_anchor' ? 'no_candidates' : 'wrong_scope');
+    return null;
   }
-  // A page arrives through several message broadcasts. A newly inserted clipped row
-  // must not replace the row we just restored while that reading row is still visible.
-  // Re-read its current offset on every capture so actual user scrolling still wins.
-  const saved = historyReadingStore.get();
-  const preferred = saved?.scope === scope && saved.top === scroll.scrollTop ? saved.key : '';
-  const preferredRows = preferred ? new Set(identities.matches(preferred)) : new Set<number>();
-  const preferredCandidates = candidates.filter(candidate => preferredRows.has(candidate.row));
-  if (preferredCandidates.length === 1) {
-    const index = candidates.indexOf(preferredCandidates[0]!);
-    candidates.unshift(...candidates.splice(index, 1));
-  }
-  historyDiagnostics.record('capture_done', { capture: diagnosticId, visible, candidates: candidates.length }, candidates.length ? 'observed' : 'no_candidates');
-  const first = candidates[0];
-  if (first) historyReadingStore.set({ scope, key: first.key, offset: first.offset, top: scroll.scrollTop });
-  return first ? { scope, diagnosticId, identities: rows.map(row => row.dataset['historyKey'] ?? '').filter(Boolean), candidates } : null;
+  const diagnosticId = historyDiagnostics.record('capture', { ...(geometry ?? {}), offset: result.anchor.offset });
+  historyDiagnostics.record('capture_done', { capture: diagnosticId, candidates: 1 }, 'observed');
+  return result.anchor;
 }
+/** Put the anchor row back after a redraw or after media changed a row's height. */
 function restoreMessageAnchor(anchor: MessageAnchor | null): void {
-  if (!anchor) { historyDiagnostics.record('restore_skip', {}, 'no_anchor'); return; }
   const current = S(), conv = activeConv(current), account = activeAccount(current)?.context ?? null;
-  if (!conv || historyScopeKey(account, conv.gid) !== anchor.scope) { historyDiagnostics.record('restore_skip', { capture: anchor.diagnosticId }, 'wrong_scope'); return; }
   const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
-  if (!scroll || scroll.dataset['historyScope'] !== anchor.scope) { historyDiagnostics.record('restore_skip', { capture: anchor.diagnosticId }, 'wrong_scope'); return; }
-  const rows = [...scroll.querySelectorAll<HTMLElement>('[data-history-key]')];
-  const index = historyIdentityIndex(rows.map(row => row.dataset['historyKey'] ?? ''));
-  const previousIndex = historyIdentityIndex(anchor.identities);
-  for (const candidate of anchor.candidates) {
-    const matches = index.matches(candidate.key).map(row => rows[row]!);
-    if (matches.length !== 1) { historyDiagnostics.record('match', { capture: anchor.diagnosticId, row: candidate.row, matches: matches.length }, matches.length ? 'ambiguous' : 'missing'); continue; }
-    // A newly sparse row must not arbitrarily select one of several former identities.
-    const reverseMatches = previousIndex.matches(matches[0]!.dataset['historyKey'] ?? '').length;
-    if (reverseMatches !== 1) { historyDiagnostics.record('match', { capture: anchor.diagnosticId, row: candidate.row, matches: 1, reverseMatches }, 'reverse_ambiguous'); continue; }
-    const before = scroll.scrollTop, delta = matches[0]!.getBoundingClientRect().top - scroll.getBoundingClientRect().top - candidate.offset;
-    scroll.scrollTop += delta;
-    historyReadingStore.set({ scope: anchor.scope, key: matches[0]!.dataset['historyKey']!, offset: candidate.offset, top: scroll.scrollTop });
-    historyDiagnostics.record('restore', { capture: anchor.diagnosticId, row: candidate.row, newRow: rows.indexOf(matches[0]!), matches: 1, reverseMatches, offset: candidate.offset, before, after: scroll.scrollTop, delta, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'applied');
-    return;
-  }
+  const scope = conv ? historyScopeKey(account, conv.gid) : '';
+  if (!conv || !scope || !scroll || scroll.dataset['historyScope'] !== scope) { historyDiagnostics.record('restore_skip', {}, 'wrong_scope'); return; }
+  const pinned = scroll.dataset['scrollBottom'] === '1';
+  const view = current.messageView?.scope === scope ? current.messageView : undefined;
+  const target = pinned ? null : anchor ?? view?.anchor ?? null;
+  const result = messagePaneModel.sync(scope, paneGeometry(scroll), measureMessagePane(scroll), target, pinned);
+  if (!result) { historyDiagnostics.record('restore_skip', {}, 'wrong_scope'); return; }
+  if (result.scrollTo !== null) {
+    const before = scroll.scrollTop;
+    scroll.scrollTop = result.scrollTo;
+    historyDiagnostics.record('restore', { offset: target?.offset ?? 0, before, after: scroll.scrollTop, delta: scroll.scrollTop - before, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight }, 'applied');
+  } else if (!target) historyDiagnostics.record('restore_skip', {}, 'no_anchor');
+  // The window moves only when the model says so; a bounded retry keeps measure and render from chasing each other.
+  const stale = !view || view.height !== scroll.clientHeight;
+  if ((result.rerender || stale) && scroll.clientHeight > 0 && messageViewPatches < 4) {
+    messageViewPatches++;
+    persistMessageView(scroll, scope, pinned);
+  } else if (!result.rerender) messageViewPatches = 0;
+}
+/** Persist `{scope, top, height, anchor}` in the store so a rebuilt pane resumes at the same row. */
+function persistMessageView(scroll: HTMLElement, scope: string, pinned: boolean): void {
+  const captured = pinned ? null : messagePaneModel.capture(scope, paneGeometry(scroll));
+  const top = Math.max(0, scroll.scrollTop - messagePaneModel.header());
+  store.patch({ messageView: { scope, top, height: scroll.clientHeight, anchor: captured && 'anchor' in captured ? captured.anchor : null, rev: (S().messageView?.rev ?? 0) + 1 } });
+}
+/** Scrolling needs a new window, or (debounced) a fresh stored anchor. */
+let messageViewTimer: ReturnType<typeof setTimeout> | undefined;
+function onMessageScroll(scroll: HTMLElement): void {
+  messageViewPatches = 0;
+  const conv = activeConv(S()), scope = conv ? historyScopeKey(activeAccount(S())?.context ?? null, conv.gid) : '';
+  if (!scope || scroll.dataset['historyScope'] !== scope) return;
+  const need = messagePaneModel.rangeFor(paneGeometry(scroll));
+  const pinned = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < PIN_THRESHOLD;
+  if (need?.changed) { persistMessageView(scroll, scope, pinned); return; }
+  clearTimeout(messageViewTimer);
+  messageViewTimer = setTimeout(() => {
+    if (scroll.isConnected && scroll.dataset['historyScope'] === scope) persistMessageView(scroll, scope, scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < PIN_THRESHOLD);
+  }, 250);
 }
 function withMessageAnchor(s: MainState, redraw: () => void): void {
   const anchor = captureMessageAnchor(s);
+  liveAnchor = anchor;
   stopHistoryLayout();
-  redraw();
+  try { redraw(); } finally { liveAnchor = null; }
   restoreMessageAnchor(anchor);
   const scroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
   const scope = scroll?.dataset['historyScope'];
@@ -1624,12 +1654,8 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
   const alignment = messageAlignment(m);
   if (alignment.side === 'system') {
     const account = acc?.context ?? null;
-    let key = messageHistoryKey(account, conv, m);
-    if (!key && !m.message_id && !m.local_id && account && m.gid === conv.gid && sameAccount(account, conv.account) && account.session_generation === conv.account.session_generation && Number.isFinite(m.create_time_ms)) {
-      // Presentation fallback only. Duplicate fingerprints are refused in both old and new rows.
-      key = 'scroll-system:' + JSON.stringify([historyScopeKey(account, conv.gid), m.kind, m.sender_role, m.sender_id?.trim().toLowerCase() || null, m.create_time_ms, m.text, (m as QuotedUiMessage).recalled_message_id ?? null]);
-    }
-    return h('div', { class: 'msg-sys', dataset: { historyKey: key } }, h('span', null, `${formatDate(m.create_time_ms)} ${formatClock(m.create_time_ms, true)} ${m.text}`));
+    const key = messageHistoryKey(account, conv, m);
+    return h('div', { class: 'msg-sys', dataset: { historyKey: key, rowId: rowId(m) } }, h('span', null, `${formatDate(m.create_time_ms)} ${formatClock(m.create_time_ms, true)} ${m.text}`));
   }
   const alignRight = alignment.side === 'right';
   const isSelf = alignment.self;
@@ -1666,10 +1692,10 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
     );
   }
   const st = isSelf ? sendStateView(m.disposition) : null;
-  const who = m.sender_name?.trim() || m.sender_id?.trim() || (isSelf ? (acc ? accountLabel(acc) : roleLabel('merchant_self')) : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role));
+  const who = personDisplayName(m.sender_name?.trim() || null, '') || m.sender_id?.trim() || (isSelf ? (acc ? accountLabel(acc) : roleLabel('merchant_self')) : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role));
   return h(
     'div',
-    { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '', historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } },
+    { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '', rowId: rowId(m), historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } },
     h('div', { class: 'ava sm', style: { background: isSelf ? (acc?.color ?? '#5B6676') : conv.color } }, renderMessageAvatar(document, who, m.sender_avatar)),
     h(
       'div',
@@ -1715,8 +1741,8 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
       icon(IC.alert, 14, { style: 'color: var(--c-alert)' }),
       h('span', { style: { color: 'var(--c-alert-text)' } }, `${t('tr.failed')}：${tr.error ?? ''}`),
       h('span', { class: 'sp' }),
-      h('button', { class: 'btn sm', dataset: { tr: 'send-original' }, onclick: () => { if (applies()) void sendText(S().draft.trim(), null); } }, t('tr.sendOriginal')),
-      h('button', { class: 'btn sm pri', dataset: { tr: 'retry' }, onclick: () => { if (applies()) { if (direct) void translateAndSend(S().draft.trim()); else void runPreviewTranslation(); } } }, t('tr.retry')),
+      h('button', { class: 'btn sm', dataset: { tr: 'send-original', fid: 'tr:send-original' } , onclick: () => { if (applies()) void sendText(S().draft.trim(), null); } }, t('tr.sendOriginal')),
+      h('button', { class: 'btn sm pri', dataset: { tr: 'retry', fid: 'tr:retry' } , onclick: () => { if (applies()) { if (direct) void translateAndSend(S().draft.trim()); else void runPreviewTranslation(); } } }, t('tr.retry')),
     );
   } else if (direct) {
     bodyEl = h('div', { class: 'trprev wait', dataset: { trState: tr.status } }, tr.status === 'busy' ? h('span', { class: 'spin' }) : null, tr.status === 'busy' ? t('tr.busy') : t('composer.directMode'));
@@ -1732,8 +1758,8 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
         { class: 'trrow' },
         h('span', { class: 'sp' }),
         h('button', { class: 'btn sm', onclick: () => copyText(tr.text) }, t('tr.copy')),
-        h('button', { class: 'btn sm', dataset: { tr: 'replace' }, onclick: () => { if (applies()) store.patch({ draft: tr.text, drafts: { ...S().drafts, [conv.gid]: tr.text }, draftVersion: S().draftVersion + 1, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target } }); } }, t('tr.replace')),
-        h('button', { class: 'btn sm pri', dataset: { tr: 'send' }, onclick: () => { if (applies()) void sendText(tr.text, S().draft.trim()); } }, t('tr.sendTranslated')),
+        h('button', { class: 'btn sm', dataset: { tr: 'replace', fid: 'tr:replace' } , onclick: () => { if (applies()) store.patch({ draft: tr.text, drafts: { ...S().drafts, [conv.gid]: tr.text }, draftVersion: S().draftVersion + 1, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target } }); } }, t('tr.replace')),
+        h('button', { class: 'btn sm pri', dataset: { tr: 'send', fid: 'tr:send' } , onclick: () => { if (applies()) void sendText(tr.text, S().draft.trim()); } }, t('tr.sendTranslated')),
       ),
     );
   } else {
@@ -1775,6 +1801,8 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
   const media = s.attachment && isRegisteredMediaAttachment(s.attachment) ? s.attachment : null;
   const operation = s.mediaOperation?.attachment === s.attachment ? s.mediaOperation : null;
   const mediaLocked = !!operation && operation.status !== 'not_submitted';
+  // Send barrier (I-04a): the host refuses sends while persistence is failed; the composer mirrors it.
+  const saveBlocked = persistFailed(s.accounts);
   const mediaLabel = operation?.status === 'busy' ? ({ prepare: '正在准备附件…', upload: '正在上传附件…', send: '正在提交附件消息…' } as const)[operation.stage]
     : operation?.error ?? (media ? '仅发送附件，文字/引用保留。' : s.attachment ? ATTACHMENT_SEND_UNAVAILABLE : '');
   const trOn = translationOn(s, conv);
@@ -1789,21 +1817,21 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
     h(
       'div',
       { class: 'chips' },
-      h('button', { class: 'chipbtn', dataset: { chip: 'phrases' }, onclick: () => openPeripheral('scripts') }, icon(IC.chat, 13), t('composer.phrases')),
+      h('button', { class: 'chipbtn', dataset: { chip: 'phrases', fid: 'chip:phrases' } , onclick: () => openPeripheral('scripts') }, icon(IC.chat, 13), t('composer.phrases')),
       chip(t('composer.recommend'), IC.box, 'recommend'),
-      h('button', { class: cx('chipbtn', { on: s.hideInboundTr }), dataset: { chip: 'hide-tr' }, title: s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr'), onclick: () => store.patch({ hideInboundTr: !S().hideInboundTr }) }, icon(IC.translate, 13), s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr')),
+      h('button', { class: cx('chipbtn', { on: s.hideInboundTr }), dataset: { chip: 'hide-tr', fid: 'chip:hide-tr' } , title: s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr'), onclick: () => store.patch({ hideInboundTr: !S().hideInboundTr }) }, icon(IC.translate, 13), s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr')),
     ),
     h(
       'div',
       { class: 'ctools' },
-      h('button', { class: cx('ibtn', { on: s.emoOpen }), 'aria-label': t('composer.emoji'), title: t('composer.emoji'), disabled: finished, dataset: { tool: 'emoji' }, onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen }); } }, icon(IC.smile, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.screenshot'), title: shotKey ? `${t('composer.screenshot')} ${shotKey}` : t('composer.screenshot'), disabled: finished || mediaLocked, dataset: { tool: 'screenshot' }, onclick: () => void attach('screenshot') }, icon(IC.scissors, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.image'), title: t('composer.image'), disabled: finished || mediaLocked, dataset: { tool: 'image' }, onclick: () => void attach('image') }, icon(IC.image, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.file'), title: t('composer.file'), disabled: finished || mediaLocked, dataset: { tool: 'file' }, onclick: () => void attach('file') }, icon(IC.file, 18)),
-      h('button', { class: 'ibtn', 'aria-label': '视频', title: '视频', disabled: finished || mediaLocked, dataset: { tool: 'video' }, onclick: () => void attach('video') }, icon(IC.file, 18)),
-      h('button', { class: 'ibtn', 'aria-label': t('composer.phrases'), dataset: { tool: 'phrases' }, onclick: () => openPeripheral('scripts') }, icon(IC.chat, 18)),
+      h('button', { class: cx('ibtn', { on: s.emoOpen }), 'aria-label': t('composer.emoji'), title: t('composer.emoji'), disabled: finished, dataset: { tool: 'emoji', fid: 'tool:emoji' } , onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen }); } }, icon(IC.smile, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.screenshot'), title: shotKey ? `${t('composer.screenshot')} ${shotKey}` : t('composer.screenshot'), disabled: finished || mediaLocked, dataset: { tool: 'screenshot', fid: 'tool:screenshot' } , onclick: () => void attach('screenshot') }, icon(IC.scissors, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.image'), title: t('composer.image'), disabled: finished || mediaLocked, dataset: { tool: 'image', fid: 'tool:image' } , onclick: () => void attach('image') }, icon(IC.image, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.file'), title: t('composer.file'), disabled: finished || mediaLocked, dataset: { tool: 'file', fid: 'tool:file' } , onclick: () => void attach('file') }, icon(IC.file, 18)),
+      h('button', { class: 'ibtn', 'aria-label': '视频', title: '视频', disabled: finished || mediaLocked, dataset: { tool: 'video', fid: 'tool:video' } , onclick: () => void attach('video') }, icon(IC.file, 18)),
+      h('button', { class: 'ibtn', 'aria-label': t('composer.phrases'), dataset: { tool: 'phrases', fid: 'tool:phrases' } , onclick: () => openPeripheral('scripts') }, icon(IC.chat, 18)),
       conv.lang !== 'zh' && s.prefs?.assistant.enabled && s.prefs.assistant.outbound_translation
-        ? h('button', { class: cx('ibtn', { on: !s.trBarOff }), 'aria-label': t('composer.trToggle'), title: t('composer.trToggleTitle'), dataset: { tool: 'translate' }, onclick: () => store.patch({ trBarOff: !S().trBarOff }) }, icon(IC.translate, 18))
+        ? h('button', { class: cx('ibtn', { on: !s.trBarOff }), 'aria-label': t('composer.trToggle'), title: t('composer.trToggleTitle'), dataset: { tool: 'translate', fid: 'tool:translate' } , onclick: () => store.patch({ trBarOff: !S().trBarOff }) }, icon(IC.translate, 18))
         : null,
       h('span', { class: 'hint', style: { 'margin-left': 'auto', 'padding-right': '6px' } }, '本客户端：单附件≤10MiB，视频≤3分钟。'),
     ),
@@ -1826,7 +1854,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
         }
       },
     }),
-    h('div', { class: 'cfoot' }, h('span', { class: 'hint' }, media ? '仅发送附件，文字/引用保留；结果未知时请先核对，勿重复发送。' : direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished || mediaLocked, onclick: () => { if (!composerInput.active()) void handleSend(); } }, icon(IC.send, 14), media ? '发送附件' : t('composer.send'))),
+    h('div', { class: 'cfoot' }, h('span', { class: cx('hint', { 'hint-bad': saveBlocked }), ...(saveBlocked ? { role: 'status', dataset: { persistFailed: '1' } } : {}) }, saveBlocked ? t('composer.persistFailed') : media ? '仅发送附件，文字/引用保留；结果未知时请先核对，勿重复发送。' : direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished || mediaLocked || saveBlocked, onclick: () => { if (!composerInput.active()) void handleSend(); } }, icon(IC.send, 14), media ? '发送附件' : t('composer.send'))),
   );
 }
 
@@ -1905,47 +1933,30 @@ function sidePanel(s: MainState, conv: UiConversation): HTMLElement {
 
 // Retain the expensive message subtree across draft, sidebar and unrelated updates.
 // Only one active pane is retained, so old accounts/rooms do not accumulate DOM caches.
-let messagePaneCache: { deps: readonly unknown[]; node: HTMLElement; scope: string; measured: Map<string, number>; viewport?: ReturnType<typeof createHistoryViewport> | undefined } | undefined;
+let messagePaneCache: { deps: readonly unknown[]; msgs: readonly UiMessage[]; win: PaneWindow; node: HTMLElement } | undefined;
 function messagePane(s: MainState, conv: UiConversation, acc: UiAccount | null, pinned: boolean): HTMLElement {
   const deps = [s.messages[conv.gid], s.history[conv.gid], conv, acc, s.prefs, s.hideInboundTr, s.tsimStatus];
-  if (messagePaneCache && deps.every((value, i) => value === messagePaneCache!.deps[i])) {
-    messagePaneCache.node.dataset['scrollBottom'] = pinned ? '1' : '0';
-    return messagePaneCache.node;
-  }
-  const msgs = visibleMessages(s.messages[conv.gid] ?? []);
+  const sameInputs = !!messagePaneCache && deps.every((value, i) => value === messagePaneCache!.deps[i]);
   const scope = historyScopeKey(acc?.context ?? null, conv.gid);
-  const previous = messagePaneCache;
-  previous?.viewport?.dispose();
-  const measured = previous?.scope === scope ? previous.measured : new Map<string, number>();
-  const old = previous?.scope === scope ? previous.node : null;
+  const msgs = sameInputs ? messagePaneCache!.msgs : visibleMessages(s.messages[conv.gid] ?? []);
+  const view = s.messageView?.scope === scope ? s.messageView : undefined;
+  // The window is planned on every render (cheap: the layout is cached) so the model always describes the
+  // mounted pane; the rows are rebuilt only when the inputs or the window itself changed, not on every
+  // persisted `{top, anchor}` of the same window.
+  const win = messagePaneModel.plan({ scope, list: msgs, view, pinned, anchor: liveAnchor ?? view?.anchor ?? null });
+  if (sameInputs && sameWindow(win, messagePaneCache!.win)) {
+    messagePaneCache!.node.dataset['scrollBottom'] = pinned ? '1' : '0';
+    return messagePaneCache!.node;
+  }
+  const spacer = (kind: 'top' | 'bottom', height: number): HTMLElement => h('div', { class: 'msgs-spacer', 'aria-hidden': 'true', dataset: { msgSpacer: kind }, style: { height: `${height}px`, flex: 'none' } });
   const node = h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: scope, readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
       s.history[conv.gid]?.firstPage === 'loading' ? h('div', { class: 'history-more', role: 'status' }, '正在读取聊天记录…') : null,
-      s.history[conv.gid]?.firstPage === 'error' ? h('button', { class: 'history-more', dataset: { fid: 'history-retry' }, onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
-      s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', dataset: { fid: 'history-earlier' }, disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null,
-      msgs.length <= 80 ? msgs.map(message => messageRow(s, message, conv, acc)) : null);
-  // Small threads retain the simple path. Long threads mount a measured window;
-  // no global render or store update is needed when only that window scrolls.
-  let viewport: ReturnType<typeof createHistoryViewport> | undefined;
-  if (msgs.length > 80) {
-    const content = h('div', { dataset: { historyViewport: '1' }, style: { 'flex-shrink': '0', 'min-width': '0' } });
-    node.appendChild(content);
-    const keys = msgs.map(message => messageHistoryKey(acc?.context ?? null, conv, message));
-    const saved = historyReadingStore.get(), matches = saved?.scope === scope ? historyIdentityIndex(keys).matches(saved.key) : [];
-    // A bare estimate is only the initial layout; measured heights replace it as
-    // rows enter the viewport. Never use ambiguous IDs as measurement cache keys.
-    const initialTop = pinned ? Number.MAX_SAFE_INTEGER : old?.scrollTop ?? 0;
-    viewport = createHistoryViewport({ scroll: node, content, keys, measured,
-      render: index => messageRow(s, msgs[index]!, conv, acc), initialTop,
-      initialHeight: old?.clientHeight || 600,
-      initialAnchor: !pinned && saved && matches.length === 1 ? { index: matches[0]!, offset: saved.offset } : undefined,
-      changed: () => { captureMessageAnchor(S()); visibleReads.afterRender(); },
-      current: () => node.isConnected && messagePaneCache?.node === node,
-    });
-    queueMicrotask(() => viewport?.mount());
-  }
-  // Retain measured keys only while the source row still exists.
-  if (measured.size > msgs.length * 2 + 80) measured.clear();
-  messagePaneCache = { deps, node, scope, measured, viewport };
+      s.history[conv.gid]?.firstPage === 'error' ? h('button', { class: 'history-more', onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
+      s.history[conv.gid]?.hasMore ? h('button', { class: 'history-more', disabled: s.history[conv.gid]?.busy, onclick: () => void loadEarlier(conv) }, s.history[conv.gid]?.busy ? '加载中…' : s.history[conv.gid]?.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null,
+      win.range.start > 0 ? spacer('top', win.topSpacer) : null,
+      msgs.slice(win.range.start, win.range.end).map((m) => messageRow(s, m, conv, acc)),
+      win.range.end < msgs.length ? spacer('bottom', win.bottomSpacer) : null);
+  messagePaneCache = { deps, msgs, win, node };
   return node;
 }
 
@@ -1954,7 +1965,9 @@ function chatPane(s: MainState): HTMLElement {
   const acc = activeAccount(s);
   if (!conv) return h('div', { class: 'chat-empty' }, icon(IC.chat, 40), h('div', null, t('chat.empty')));
   const previousScroll = document.querySelector<HTMLElement>('[data-keep-scroll="msgs"]');
-  const pinned = previousScroll?.dataset['historyScope'] !== historyScopeKey(acc?.context ?? null, conv.gid) || previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < 48;
+  const scope = historyScopeKey(acc?.context ?? null, conv.gid);
+  // A pane rebuilt for a scope with a stored reading anchor resumes there instead of jumping to the bottom.
+  const pinned = previousScroll?.dataset['historyScope'] === scope ? previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < PIN_THRESHOLD : !(s.messageView?.scope === scope && s.messageView.anchor);
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
   const sub = [conv.vendor_name, isDone(conv) ? t('chat.finished') : waiting ? t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) }) : ''].filter(Boolean).join(' · ');
   const type = /^[A-Za-z][A-Za-z0-9]{0,5}$/.test(conv.service_type) ? `${conv.service_type} · ${conv.biz}` : conv.biz;
@@ -1966,14 +1979,16 @@ function chatPane(s: MainState): HTMLElement {
       { class: 'chat-h' },
       h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)),
       h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, conv.title, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null, h('span', { class: 'chip chip-biz' }, type)), sub ? h('div', { class: 'chat-sub', dataset: { chatWaitingGid: conv.gid } }, sub) : null),
-      h('button', { class: 'ibtn', 'aria-label': t('chat.transfer'), disabled: isDone(conv), dataset: { chatAct: 'transfer' }, onclick: () => openPeripheral('transfer') }, icon(IC.swap, 17)),
-      h('button', { class: 'ibtn', 'aria-label': t('chat.invite'), disabled: isDone(conv), dataset: { chatAct: 'invite' }, onclick: () => openPeripheral('invite') }, icon(IC.userPlus, 17)),
-      h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end' }, onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),
-      h('button', { class: 'ibtn', 'aria-label': '会话成员', title: '会话成员', dataset: { chatAct: 'members' }, onclick: () => openPeripheral('members') }, icon(IC.userPlus, 17)),
-      h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side' }, onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
+      h('button', { class: 'ibtn', 'aria-label': t('chat.transfer'), disabled: isDone(conv), dataset: { chatAct: 'transfer', fid: 'chat-act:transfer' } , onclick: () => openPeripheral('transfer') }, icon(IC.swap, 17)),
+      h('button', { class: 'ibtn', 'aria-label': t('chat.invite'), disabled: isDone(conv), dataset: { chatAct: 'invite', fid: 'chat-act:invite' } , onclick: () => openPeripheral('invite') }, icon(IC.userPlus, 17)),
+      h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end', fid: 'chat-act:end' } , onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),
+      h('button', { class: 'ibtn', 'aria-label': '会话成员', title: '会话成员', dataset: { chatAct: 'members', fid: 'chat-act:members' } , onclick: () => openPeripheral('members') }, icon(IC.userPlus, 17)),
+      h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side', fid: 'chat-act:side' } , onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     ),
     netView(s.net).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
+    h('div', { dataset: { featureSlot: 'conversation-banner' } }),
     messagePane(s, conv, acc, pinned),
+    h('div', { dataset: { featureSlot: 'composer-hint' } }),
     composer(s, conv),
     emojiPicker(s),
   );
@@ -2152,6 +2167,7 @@ let clockEl: HTMLElement | null = null;
 function statusBar(s: MainState): HTMLElement {
   const av = agentView(s.agent);
   const nv = netView(s.net);
+  const pf = persistFailedView(s.accounts);
   const hasAccount = !!activeAccount(s);
   clockEl = h('span', { class: 'sb-clock' }, `${formatDate(s.now)} ${formatClock(s.now, true)}`);
   return h(
@@ -2160,6 +2176,8 @@ function statusBar(s: MainState): HTMLElement {
     hasAccount ? h('span', { class: 'sb-item', dataset: { sb: 'agent', known: String(av.known) } }, h('span', { class: 'dot', style: { background: `var(${av.colorVar})` } }), av.label, av.known ? h('span', { class: 'muted' }, ` · ${t('status.readback')}`) : null) : null,
     h('span', { class: cx('sb-item', { 'sb-bad': nv.offline, 'sb-muted': !nv.ok && !nv.offline }), dataset: { sb: 'net' } }, icon(nv.ok ? IC.wifi : IC.wifiOff, 13), nv.label),
     s.alarmCount > 0 ? h('span', { class: 'sb-item sb-alarm', dataset: { sb: 'alarm' } }, icon(IC.clock, 13), t('bar.alarmCount', { n: s.alarmCount })) : null,
+    // Send barrier (I-04a): host-reported, cleared by the host when a retry lands.
+    pf ? h('span', { class: 'sb-item sb-bad', role: 'alert', title: pf.title, dataset: { sb: 'persist-failed' } }, icon(IC.alert, 13), pf.label) : null,
     h('button', { class: 'link sb-diagnostics', disabled: !hasAccount, dataset: { action: 'unknown-outbound' }, onclick: openUnknownOutbound }, '未知发送核验'),
     h('button', { class: 'link sb-diagnostics', dataset: { action: 'receive-diagnostics' }, onclick: () => void receiveDiagnostics.open() }, '接收诊断'),
     h('span', { class: 'sp' }),
@@ -2339,6 +2357,38 @@ const visibleReads = createVisibleRead({
   invoke: args => ipc.invoke(UiCommands.IM_MARK_READ, args),
 });
 
+// ---- drafts per (account, conversation) (I-09)
+// The state map is per account generation and is reset on every account switch; the book remembers each
+// persistent account's drafts and stores them through the host's `im_draft_load/save` (core-store DraftBook).
+const draftBook = createDraftBook(createIpcDraftPort(
+  (command, payload) => ipc.invoke(command, payload),
+  { load: ImCommands.DRAFT_LOAD, save: ImCommands.DRAFT_SAVE },
+  owner => S().accounts?.accounts.find(a => a.context.account_id === owner.account_id && a.context.environment === owner.environment)?.context ?? null,
+));
+async function restoreDrafts(context: AccountContext): Promise<void> {
+  const stored = await draftBook.restore(context);
+  if (!stillActive(context)) return;
+  const s = S();
+  const drafts = { ...s.drafts };
+  let changed = false;
+  for (const [gid, text] of Object.entries(stored)) if (drafts[gid] === undefined) { drafts[gid] = text; changed = true; }
+  if (!changed) return;
+  const active = s.activeGid;
+  // Never overwrite what the agent has typed since the account became active.
+  const fill = !!active && s.draft === '' && s.drafts[active] === undefined && drafts[active] !== undefined;
+  store.patch({ drafts, ...(fill ? { draft: drafts[active]!, draftVersion: s.draftVersion + 1 } : {}) });
+}
+store.subscribe((s, prev) => {
+  const a = activeAccount(s)?.context ?? null, b = activeAccount(prev)?.context ?? null;
+  if (!a) return;
+  if (!b || !sameAccount(a, b) || a.session_generation !== b.session_generation) { void restoreDrafts(a); return; }
+  if (s.drafts === prev.drafts) return;
+  for (const [gid, text] of Object.entries(s.drafts)) if (prev.drafts[gid] !== text) draftBook.write(a, gid, text);
+  for (const gid of Object.keys(prev.drafts)) if (!(gid in s.drafts)) draftBook.write(a, gid, '');
+});
+window.addEventListener('pagehide', () => void draftBook.flush());
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') void draftBook.flush(); });
+
 function syncConversationViewport(): void {
   const pane = root?.querySelector<HTMLElement>('[data-list-scope]');
   const scope = pane?.dataset['listScope'];
@@ -2354,6 +2404,42 @@ function fillHistoryViewport(): void {
   const conv = activeConv(S());
   if (pane && conv && pane.clientHeight > 0 && pane.scrollHeight <= pane.clientHeight + 1 && !S().history[conv.gid]?.pageError) void loadEarlier(conv);
 }
+
+// Feature plug-ins (plan I-23/I-30): the only wiring main.ts owns is this block, the two slot calls in
+// chatPane and the fact listener below. Features reach the window solely through `FeatureContext`.
+let featureClock: { readonly serverMs: number; readonly perfMs: number } | null = null;
+const featureConfirm = new ConfirmController();
+mountConfirmDialog(featureConfirm, document.body);
+const featureRuntime = createMainFeatureRuntime({
+  t: (key, vars) => (hasKey(key) ? t(key, vars) : null),
+  nowMs: () => Date.now(),
+  serverNowMs: () => (featureClock ? featureClock.serverMs + (performance.now() - featureClock.perfMs) : null),
+  scope: () => {
+    const acc = activeAccount();
+    return acc?.state === 'online' ? { account: acc.context, gid: S().activeGid } : null;
+  },
+  isCurrent: (account) => stillActive(account),
+  messages: (gid) => S().messages[gid] ?? [],
+  draft: () => ({ gid: S().activeGid, text: S().draft, version: S().draftVersion }),
+  invoke: (command, payload) => ipc.invoke(command, payload),
+  confirm: (request) => featureConfirm.request(request),
+  toast,
+  requestRender: () => store.patch({}),
+  subscribe: (listener) => subscribeBatched(store, () => listener()),
+  visible: () => document.visibilityState === 'visible',
+  setTimeout: (callback, ms) => setTimeout(callback, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+});
+featureRuntime.start();
+/** Slots are empty placeholders in `render` (it is a full re-render); features paint into them right after each render. */
+const fillFeatureSlots = (): void => {
+  for (const el of root.querySelectorAll<HTMLElement>('[data-feature-slot]')) {
+    const name = el.dataset['featureSlot'];
+    if (name !== 'conversation-banner' && name !== 'composer-hint') continue;
+    el.replaceChildren();
+    appendChildren(el, featureRuntime.renderSlot(name));
+  }
+};
 
 subscribeFrame(store, (s) => {
   if (composerInput.deferRender()) return;
@@ -2375,10 +2461,14 @@ subscribeFrame(store, (s) => {
   syncConversationViewport();
 });
 rerender(root, () => render(S()));
+// Registered after the render subscriber (same frame, later callback), outside the render wiring itself.
+fillFeatureSlots();
+subscribeFrame(store, () => fillFeatureSlots());
 // Scrolling into view and returning focus must re-check the live scope and mounted rows.
 root.addEventListener('scroll', (event) => {
   visibleReads.afterRender();
   const pane = event.target as HTMLElement;
+  if (pane.isConnected && pane.dataset?.['keepScroll'] === 'msgs') onMessageScroll(pane);
   if (!pane.isConnected || pane.dataset?.['keepScroll'] !== 'msgs' || pane.scrollTop > 120) return;
   const s = S(), conv = activeConv(s);
   if (conv && pane.dataset['historyScope'] === historyScopeKey(activeAccount(s)?.context ?? null, conv.gid) && !s.history[conv.gid]?.pageError) void loadEarlier(conv);
@@ -2428,6 +2518,9 @@ subscribeBatched(store, () => autoQueryPackage());
 ipc.listen<unknown>(HostEvents.LOCATE, guarded(HostEvents.LOCATE, isLocatePayload, (p) => void locateConversation(p.account, p.gid)));
 ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, (p) => store.patch({ prefs: p })));
 ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => store.patch({ clockTrusted: c.quality.kind === 'anchored' })));
+// Anchored server time for feature windows (recall); anything but `anchored` clears it.
+ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => { featureClock = c.quality.kind === 'anchored' ? { serverMs: c.server_now_ms, perfMs: performance.now() } : null; }));
+ipc.listen<unknown>(FeatureEvents.FACT, (fact) => featureRuntime.onFact(fact));
 ipc.listen<unknown>(
   Events.ALARM_SNAPSHOT,
   guarded(Events.ALARM_SNAPSHOT, isAlarmSnapshot, (snap) => {

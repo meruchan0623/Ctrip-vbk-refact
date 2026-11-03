@@ -25,6 +25,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use contracts::{codes, AccountContext, AppError};
+use core_im::feature_rules::{validate_feature_fact, FeatureFactRateLimiter};
 use core_im::RoundState;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -35,7 +36,8 @@ use tokio::sync::oneshot;
 
 use crate::commands::IngestReportDto;
 use crate::dto::{
-    AccountContextDto, AdapterFactDto, AdapterFactEnvelopeDto, AppErrorDto, SendDispositionDto,
+    AccountContextDto, AdapterFactDto, AdapterFactEnvelopeDto, AppErrorDto, FeatureFactDto,
+    FeatureFactEventDto, SendDispositionDto,
 };
 use crate::events;
 use crate::login;
@@ -294,6 +296,10 @@ pub struct AdapterState {
     /// Account the main shell last addressed (proxy for the active account).
     focus: Mutex<Option<AccountContext>>,
     receive: Mutex<HostReceiveBook>,
+    /// `feature://fact` admission per (account, gid, kind); see `forward_feature_fact`.
+    feature_rate: Mutex<FeatureFactRateLimiter>,
+    /// Feature facts refused by validation (count only; the payload is never logged).
+    feature_rejected: AtomicU64,
 }
 
 impl AdapterState {
@@ -307,8 +313,59 @@ impl AdapterState {
             epoch: AtomicU64::new(0),
             focus: Mutex::new(None),
             receive: Mutex::new(HostReceiveBook::default()),
+            feature_rate: Mutex::new(FeatureFactRateLimiter::new()),
+            feature_rejected: AtomicU64::new(0),
         }
     }
+}
+
+/// Validated page feature fact → main window (`feature://fact`). The fact
+/// never enters the IM core and is never persisted; `IngestReport` fields
+/// therefore read `applied: false` with `dropped` naming the outcome
+/// (`ForwardedToMain` or `FeatureRateLimited`). Validation failures are
+/// `adapter.invalid_payload`, counted on `feature_rejected`; the fact body
+/// is not logged.
+fn forward_feature_fact(
+    app: &AppHandle,
+    m: &AdapterState,
+    ctx: &AccountContext,
+    now_ms: i64,
+    fact: FeatureFactDto,
+) -> Result<IngestReportDto, AppError> {
+    let fact = validate_feature_fact(fact.into(), now_ms).map_err(|e| {
+        m.feature_rejected.fetch_add(1, Ordering::Relaxed);
+        log::warn!("feature fact rejected: {}", e.code);
+        e
+    })?;
+    let account_key = format!(
+        "{}|{}|{}",
+        ctx.environment.as_str(),
+        ctx.account_id.as_str(),
+        ctx.session_generation
+    );
+    let admitted = lock(&m.feature_rate).admit(&account_key, fact.gid(), fact.kind(), now_ms);
+    if !admitted {
+        return Ok(IngestReportDto {
+            applied: false,
+            dropped: Some("FeatureRateLimited".to_string()),
+            needs_resync: None,
+            auth_invalid: false,
+        });
+    }
+    events::to_main(
+        app,
+        events::FEATURE_FACT,
+        FeatureFactEventDto {
+            fact: fact.into(),
+            account: AccountContextDto::from(ctx),
+        },
+    );
+    Ok(IngestReportDto {
+        applied: false,
+        dropped: Some("ForwardedToMain".to_string()),
+        needs_resync: None,
+        auth_invalid: false,
+    })
 }
 
 #[derive(Default)]
@@ -754,7 +811,6 @@ pub async fn im_send_media(
 ) -> CmdResult<MediaSendResult> {
     guard(&state, webview.label(), "im_send_media")?;
     let ctx = read_account(&state, account)?;
-    state.ensure_persistence_healthy(&ctx).map_err(e2dto)?;
     if gid.is_empty() || local_id.is_empty() {
         return Err(e2dto(media_outbound::invalid()));
     }
@@ -775,6 +831,16 @@ pub async fn im_send_media(
         result.replay_only = !verified;
         return Ok(result);
     }
+    // Send barrier (I-04a): a replay of an existing intent is read-only and
+    // still answered above; a new one is refused before anything is staged,
+    // uploaded or journaled ("not_submitted", code `store.persist_failed`).
+    if let Err(barrier) = state.persist_barrier() {
+        return Ok(MediaSendResult::blocked(
+            "prepare",
+            false,
+            &format!("{}: {}", barrier.code, barrier.message),
+        ));
+    }
     let frozen = match selected {
         Ok(frozen) if frozen.validate(&ctx, &gid).is_ok() => frozen,
         _ => {
@@ -785,6 +851,15 @@ pub async fn im_send_media(
             ))
         }
     };
+    // Official limits (contract v1) are re-checked here, before anything is
+    // staged, uploaded or journaled: a violation is always "nothing submitted".
+    if let Err(violation) = media_outbound::check_size(&frozen.dto.kind, frozen.dto.size as u64) {
+        return Ok(MediaSendResult::blocked(
+            "prepare",
+            false,
+            &format!("{}: {}", violation.code, violation.message),
+        ));
+    }
     if validate_media_target(&app, &ctx, &gid, &frozen.target)
         .await
         .is_err()
@@ -872,12 +947,10 @@ pub async fn im_send_media(
                 code: "media.upload_rejected".into(),
                 reason: "media upload was rejected or failed local validation".into(),
             };
-            if let Err(error) = lock(journal)
+            if lock(journal)
                 .finish_media(&ctx, &local_id, &payload, disposition.clone())
+                .is_err()
             {
-                if error.code == "im.journal_durability_barrier" {
-                    return Err(e2dto(error));
-                }
                 return Ok(MediaSendResult::blocked(
                     "upload",
                     true,
@@ -923,12 +996,10 @@ pub async fn im_send_media(
             ))
         }
     };
-    if let Err(error) = lock(journal)
+    if lock(journal)
         .advance_media(&ctx, &local_id, &payload, &body, false)
+        .is_err()
     {
-        if error.code == "im.journal_durability_barrier" {
-            return Err(e2dto(error));
-        }
         return Ok(MediaSendResult::blocked(
             "upload",
             true,
@@ -945,12 +1016,10 @@ pub async fn im_send_media(
             "target changed after upload; no SDK submission was admitted",
         ));
     }
-    if let Err(error) = lock(journal)
+    if lock(journal)
         .advance_media(&ctx, &local_id, &payload, &body, true)
+        .is_err()
     {
-        if error.code == "im.journal_durability_barrier" {
-            return Err(e2dto(error));
-        }
         return Ok(MediaSendResult::blocked(
             "upload",
             true,
@@ -979,11 +1048,9 @@ pub async fn im_send_media(
         .as_ref()
         .map(|r| r.disposition.clone())
         .unwrap_or(SendDispositionDto::Unknown);
-    let disposition = match lock(journal).finish_media(&ctx, &local_id, &payload, observed) {
-        Ok(disposition) => disposition,
-        Err(error) if error.code == "im.journal_durability_barrier" => return Err(e2dto(error)),
-        Err(_) => SendDispositionDto::Unknown,
-    };
+    let disposition = lock(journal)
+        .finish_media(&ctx, &local_id, &payload, observed)
+        .unwrap_or(SendDispositionDto::Unknown);
     let mut result = MediaSendResult::replay("send".into(), true, disposition.clone());
     if let Some(mut reply) = reply {
         reply.message.disposition = Some(disposition);
@@ -1091,6 +1158,13 @@ pub fn adapter_push_fact(
         )));
     }
     envelope.account = (&ctx).into();
+    if let AdapterFactDto::Feature { fact } = &envelope.fact {
+        // Not a core fact: validated, rate-limited and forwarded to the main
+        // window only (no ingest, no persistence, no IngestReport count).
+        let m = module(&app).map_err(e2dto)?;
+        return forward_feature_fact(&app, &m, &ctx, state.clock.wall_ms(), fact.clone())
+            .map_err(e2dto);
+    }
     let gid = match &envelope.fact {
         AdapterFactDto::Message { fact } => Some(fact.gid.clone()),
         AdapterFactDto::Conversation { fact } => Some(fact.gid.clone()),
@@ -1377,7 +1451,6 @@ pub async fn im_send_text(
 ) -> CmdResult<SendDispositionDto> {
     guard(&state, webview.label(), "im_send_text")?;
     let ctx = ui_account(&app, &state, account)?;
-    state.ensure_persistence_healthy(&ctx).map_err(e2dto)?;
     if gid.is_empty() || local_id.is_empty() || text.trim().is_empty() {
         return Err(e2dto(AppError::new(
             "im.invalid_send",
@@ -1394,6 +1467,10 @@ pub async fn im_send_text(
             "durable outbound storage is unavailable (nothing sent)",
         ))
     })?;
+    // Send barrier (I-04a): while a durable write is failed nothing is
+    // journaled or sent. `store.persist_failed` before `reserve`, so the
+    // refusal is "nothing submitted" and the UI shows it as a local reject.
+    state.persist_barrier().map_err(e2dto)?;
     let payload = outbound_journal::SendPayload {
         gid,
         text,

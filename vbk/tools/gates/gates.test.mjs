@@ -1,81 +1,63 @@
+// node:test wrapper (run by `npm test` and CI): fixtures self-test + real tree must be clean.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { filesBelow, read, root, rustProduction } from './source.mjs';
-import { scanDom, checkDom } from './dom-sinks.mjs';
-import { scanSecurity, checkSecurity } from './source-security.mjs';
-import { validateCsp, validateRelease, validateStoreSchema } from './configuration.mjs';
-import { registeredLabels, validateCapabilities } from './capability-matrix.mjs';
+import { readFileSync } from 'node:fs';
+import { formatViolation } from './lib/common.mjs';
+import { selfTest } from './lib/selftest.mjs';
+import { gates } from './run.mjs';
+import * as dom from './dom-sinks.mjs';
+import * as dev from './devtools-launch.mjs';
+import * as csp from './csp.mjs';
+import { tauriCommands, rustTokens } from './lib/rust-lex.mjs';
 
-const gates = {
-  'dom-sinks': (file) => assert.deepEqual(scanDom(read(file), file), []),
-  'source-security': (file) => assert.deepEqual(scanSecurity(read(file), file), []),
-  csp: (file) => validateCsp(JSON.parse(read(file)).csp),
-  'release-features': (file) => { const f = JSON.parse(read(file)); validateRelease(f.manifest, f.commands); },
-  capabilities: (file) => { const f = JSON.parse(read(file)); validateCapabilities(f.capabilities, f.labels, f.commands); },
-  'store-schema': (file) => validateStoreSchema(read(file)),
-};
-for (const [gate, validate] of Object.entries(gates)) {
-  for (const group of ['must-fail', 'must-pass']) {
-    const fixtures = filesBelow(join(root, 'tools/gates/fixtures', gate, group));
-    test(`${gate}: ${group} has at least three independent fixtures`, () => assert.ok(fixtures.length >= 3));
-    for (const file of fixtures) test(`${gate}: ${group}/${file.split('/').at(-1)}`, () => {
-      if (group === 'must-fail') assert.throws(() => validate(file), `missed forbidden fixture ${file}`);
-      else validate(file);
-    });
-  }
+test('gate fixtures: must-fail are flagged, must-pass stay clean, at least 3 of each per gate', () => {
+  const { problems } = selfTest();
+  assert.deepEqual(problems, []);
+});
+
+for (const g of gates) {
+  test(`gate ${g.GATE}: zero violations on the real tree`, () => {
+    assert.deepEqual(g.run().map(formatViolation), []);
+  });
 }
 
-test('production traversal rejects injected sinks and excludes test files and cfg(test) items', () => {
-  const base = mkdtempSync(join(tmpdir(), 'vbk-source-gates-'));
-  try {
-    for (const dir of ['crates/sample', 'src-tauri/src', 'ui/packages', 'ui/apps', 'tools/gates']) mkdirSync(join(base, dir), { recursive: true });
-    writeFileSync(join(base, 'tools/gates/dom-sinks.allowlist.json'), '[]');
-    writeFileSync(join(base, 'ui/apps/probe.test.ts'), 'new Function(source); options.rejectUnauthorized = false;');
-    writeFileSync(join(base, 'crates/sample/probe_tests.rs'), 'fn bad() { builder.danger_accept_invalid_certs(true); }');
-    writeFileSync(join(base, 'crates/sample/probe.rs'), '#[cfg(test)] mod tests { fn bad() { builder.danger_accept_invalid_certs(true); } }');
-    assert.deepEqual(checkDom(base), []); assert.deepEqual(checkSecurity(base), []);
-    writeFileSync(join(base, 'ui/apps/probe.ts'), 'element["inner"+"HTML"] = source; Object.defineProperty(navigator,"webdriver",{});');
-    writeFileSync(join(base, 'crates/sample/probe.rs'), 'fn bad() { builder.danger_accept_invalid_certs(\n true); }');
-    assert.equal(checkDom(base).length, 1);
-    assert.equal(checkSecurity(base).length, 2);
-  } finally { rmSync(base, { recursive: true, force: true }); }
+test('dom-sinks B1 state (I-29 merged): allowlist is empty, strict zero hits', () => {
+  assert.deepEqual(dom.loadAllowlist(), []);
 });
 
-test('DOM exceptions fail when stale, duplicated or broadened', () => {
-  const base = mkdtempSync(join(tmpdir(), 'vbk-dom-allowlist-'));
-  try {
-    for (const dir of ['crates', 'src-tauri/src', 'ui/packages', 'ui/apps/main', 'tools/gates']) mkdirSync(join(base, dir), { recursive: true });
-    const entry = { file: 'ui/apps/main/companion-card.ts', line: 1, sink: 'innerHTML', expires: 'B1/I-29' };
-    writeFileSync(join(base, entry.file), 'element.innerHTML = source;');
-    const allowlist = join(base, 'tools/gates/dom-sinks.allowlist.json');
-    writeFileSync(allowlist, JSON.stringify([entry]));
-    assert.deepEqual(checkDom(base), []);
-    writeFileSync(join(base, entry.file), 'element.textContent = source;');
-    assert.throws(() => checkDom(base), /Stale/);
-    writeFileSync(allowlist, JSON.stringify([entry, entry]));
-    assert.throws(() => checkDom(base));
-    writeFileSync(allowlist, JSON.stringify([{ ...entry, file: 'ui/apps/main/other.ts' }]));
-    assert.throws(() => checkDom(base), /Invalid/);
-    writeFileSync(allowlist, '[]');
-    assert.deepEqual(checkDom(base), []);
-  } finally { rmSync(base, { recursive: true, force: true }); }
+test('devtools-launch: a renamed feature that enables tauri/devtools is an alias for the build-command check', () => {
+  const toml = '[features]\ndefault = []\ninspect = ["tauri/devtools"]\nbundle = ["inspect"]\n';
+  assert.deepEqual(dev.devtoolsFeatures(toml).sort(), ['bundle', 'devtools', 'inspect']);
+  const wf = 'jobs:\n  r:\n    steps:\n      - run: cargo tauri build --features bundle\n';
+  assert.equal(dev.scanBuildCommands('w.yml', wf, dev.devtoolsFeatures(toml)).length, 1, 'alias flagged');
+  assert.equal(dev.scanBuildCommands('w.yml', wf, ['devtools']).length, 0, 'unknown without the manifest');
+  // the real manifest: only `devtools` itself enables tauri/devtools
+  assert.deepEqual(dev.devtoolsFeatures(readVbk('src-tauri/Cargo.toml')), ['devtools']);
 });
 
-test('Rust lexer preserves lifetimes and offsets, skips nested comments, raw strings and test blocks', () => {
-  const source = `fn ordinary<'a>(s: &'a str) { let unicode = "💬"; builder.danger_accept_invalid_certs(true); }
-/* outer /* danger_accept_invalid_certs */ inner */
-#[cfg(test)] mod synthetic { fn test() { let text = r##"}"##; rejectUnauthorized(); } }
-fn production() { rejectUnauthorized(); }`;
-  const code = rustProduction(source);
-  assert.equal(code.length, source.length);
-  const hits = scanSecurity(source, 'fixture.rs');
-  assert.deepEqual(hits.map((h) => h.line), [1, 4]);
-  assert.ok(code.includes("ordinary<'a>"));
+test('rust lexer: bare #[command] is a command; cfg(test) never swallows a neighbouring field or arm; cfg_attr/any/not keep the item', () => {
+  const bare = tauriCommands('use tauri::command;\n#[command]\npub fn x(window: Window, path: String) {}');
+  assert.deepEqual(bare.map((c) => c.name), ['x']);
+  const ids = (src) => rustTokens(src).filter((t) => t.t === 'id').map((t) => t.v);
+  assert.ok(ids('struct S {\n #[cfg(test)]\n a: u8,\n danger: u8,\n}').includes('danger'));
+  assert.ok(!ids('#[cfg(test)]\nmod t { fn a() { if x { y } } }\nfn keep() {}').includes('y'));
+  assert.ok(ids('#[cfg_attr(test, allow(dead_code))]\nfn keep() {}').includes('keep'));
+  assert.ok(ids('#[cfg(any(test, feature = "x"))]\nfn keep() {}').includes('keep'));
+  assert.ok(ids('#[cfg(not(test))]\nfn keep() {}').includes('keep'));
+  assert.ok(!ids('#[test]\nfn gone() {}\nfn keep() {}').includes('gone'));
+  assert.deepEqual(rustTokens('const A: &str = concat!("--ignore-", "certificate-errors");').filter((t) => t.synthetic).map((t) => t.v), ['--ignore-certificate-errors']);
+  assert.deepEqual(rustTokens('const A: &str = "--ignore-\\\n    certificate-errors";').filter((t) => t.t === 'str').map((t) => t.v), ['--ignore-certificate-errors']);
 });
 
-test('view labels are derived from production constants including dynamic prefixes', () => {
-  assert.deepEqual(registeredLabels('pub const MAIN: &str = "main";\npub const ACCOUNT_WEBVIEW_PREFIX: &str = "acct-";\n// pub const EVIL: &str = "*";'), ['main', 'acct-*']);
+test('csp: every tauri*.conf.json overlay is in the snapshot set and directive names are case-insensitive', () => {
+  assert.ok(csp.confFiles().includes('src-tauri/tauri.conf.json'));
+  assert.ok(csp.confFiles().every((f) => /^src-tauri\/tauri(?:\.[a-z0-9-]+)?\.conf\.json$/.test(f)));
+  const d = csp.parseCsp("Default-Src 'self'; SCRIPT-SRC 'self'; script-src 'none'");
+  assert.deepEqual(d['default-src'], ["'self'"]);
+  assert.deepEqual(d['script-src'], ["'self'"], 'first occurrence wins, as in browsers');
+  assert.deepEqual(d.duplicates, ['script-src']);
 });
+
+function readVbk(rel) {
+  return readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
+}

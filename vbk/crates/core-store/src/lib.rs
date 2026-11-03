@@ -18,7 +18,7 @@
 //!   unlocks it: drafts, unknown intents and rounds survive a logout.
 //! * [`FileStore`] writes a namespace document through a temp file plus
 //!   rename. A document that cannot be decoded is quarantined
-//!   (`state.json.corrupt-<unix_ms>`) and reported as `store.corrupt`; it is
+//!   (`quarantine/state.json.corrupt-<unix_ms>`) and reported as `store.corrupt`; it is
 //!   never silently wiped. IO failures are `store.io`.
 //! * Repositories are plain functions over `&dyn Store` (reads) and
 //!   `&mut Txn` (writes): [`ReminderStateRepo`], [`SendIntentRepo`],
@@ -29,22 +29,30 @@
 //! builds. Customer message bodies are not stored either (drafts are the
 //! agent's own unsent text).
 
+pub mod drafts;
 pub mod error;
 pub mod file;
+pub mod hooks;
+pub mod lock_order;
 pub mod memory;
 pub mod queue;
 pub mod repo;
+pub mod schema;
 pub mod store;
 
+pub use drafts::DraftBook;
 pub use error::codes;
-pub use file::FileStore;
+pub use file::{write_atomic, FileStore};
 pub use memory::MemoryStore;
-pub use queue::{PersistJob, PersistQueue, PersistReceipt};
+pub use queue::{
+    JobPayload, PersistJob, PersistQueue, PersistTracker, Receipt, ReceiptOutcome, PERSIST_THREAD,
+};
 pub use repo::draft::{DraftRecord, DraftRepo};
 pub use repo::pinned::PinnedRepo;
 pub use repo::reminder::{PendingVerification, ReconcileEvidence, ReminderStateRepo, RoundRecord};
 pub use repo::send_intent::{SendIntentRecord, SendIntentRepo};
 pub use repo::sync::{HistoryWatermark, SyncWatermarkRepo};
+pub use schema::CURRENT_SCHEMA_VERSION;
 pub use store::{CommitFact, Namespace, Store, Txn};
 
 /// Upstream message scope used in a record dedup key. A local display

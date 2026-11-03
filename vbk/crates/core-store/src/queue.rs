@@ -1,238 +1,1225 @@
-//! Bounded nonblocking handoff to the sole `vbk-persist` snapshot writer.
+//! Persistence queue (I-04a): durable writes leave the caller's thread.
 //!
-//! Jobs are complete namespace snapshots, so keeping only the greatest seq
-//! cannot drop a compensation update when a rounds update overtakes it.
-use std::collections::HashMap;
-use std::sync::{mpsc, Mutex};
-use std::thread;
+//! Problem: every inbound fact used to run `begin -> commit` (two `fsync`s
+//! per namespace) while the host held its global `Cores` mutex on the main
+//! thread. Disk latency therefore stalled the 1 Hz scheduler and every other
+//! command.
+//!
+//! Design (std-only):
+//!
+//! * One dedicated thread, named [`PERSIST_THREAD`], owns all queued writes.
+//!   Callers hand it a [`PersistJob`] through a **bounded**
+//!   `std::sync::mpsc::sync_channel`; enqueueing is `try_send`, so a caller
+//!   never waits for the disk. A full queue hands the job back
+//!   ([`EnqueueError::Full`]); the caller parks it in a [`PersistTracker`] and
+//!   retries on a later tick.
+//! * `seq` is allocated by [`PersistQueue::next_seq`] (an `AtomicU64`)
+//!   while the caller still holds its own lock, so it orders snapshots by the
+//!   order in which they were taken. The worker never writes a job whose
+//!   `seq` is not greater than the last one it wrote for the same
+//!   `(namespace, kind)`; an out-of-order older snapshot cannot overwrite a
+//!   newer one.
+//! * **Coalescing**: the worker drains everything that is queued, keeps only
+//!   the newest job per `(namespace, kind)`, and commits one transaction per
+//!   namespace (rounds and compensation cursor together: one `fsync` pair
+//!   instead of two). A snapshot identical to the last one written is not
+//!   written again.
+//! * Every job is acknowledged on a receipt channel ([`Receipt`]): written,
+//!   skipped (logout-locked), superseded (a newer snapshot already landed)
+//!   or failed. A failed commit, including one whose store code panicked,
+//!   returns the unwritten jobs inside the receipt so the
+//!   [`PersistTracker`] can retry them; the tracker also owns the
+//!   `persist_failed` state the UI and the send barrier read.
+//! * [`PersistQueue::flush`] is a barrier: when it returns `Ok`, every job
+//!   enqueued before it has been committed (or failed and reported).
+//! * `LogoutLock` is a job too, so the lock's `fsync` is also off the
+//!   caller's thread and stays ordered with respect to earlier writes.
+//!
+//! The worker records one `persist_meta/seq` document per namespace
+//! (`rounds`, `compensation` = last written `seq` of this process) so tests
+//! and diagnostics can read back what was last committed.
+
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use contracts::{json::JsonValue, AppError};
+use contracts::json::JsonValue;
+use contracts::AppError;
 
-use crate::{codes, FileStore, Namespace, ReminderStateRepo, RoundRecord, Store, SyncWatermarkRepo};
+use crate::error::codes;
+use crate::repo::reminder::{ReminderStateRepo, RoundRecord};
+use crate::repo::sync::SyncWatermarkRepo;
+use crate::store::{Namespace, Store};
 
+/// Name of the persistence thread (asserted by the fsync probe in tests).
+pub const PERSIST_THREAD: &str = "vbk-persist";
+/// Default queue capacity in jobs.
 pub const QUEUE_CAPACITY: usize = 256;
+/// Retries of a commit that lost a `base_revision` race with another writer.
+const CAS_RETRIES: usize = 5;
 
-#[derive(Debug, Clone)]
+/// Collection and key of the last-written-`seq` record.
+pub const META_COLLECTION: &str = "persist_meta";
+pub const META_KEY: &str = "seq";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobPayload {
+    /// Full snapshot of the persistable waiting rounds of the namespace.
+    /// Records are upserted; an older snapshot is superseded by a newer one.
+    Rounds(Vec<RoundRecord>),
+    /// Compensation watermark (`beginMsgTime`, Unix ms).
+    Compensation(i64),
+    /// Makes the namespace read-only until re-auth. Never coalesced.
+    LogoutLock,
+    /// Lifts a `LogoutLock` after the same identity logged in again. Same
+    /// kind as the lock, so the two stay ordered with each other (by `seq`)
+    /// and act as barriers for the data jobs around them. Idempotent on a
+    /// namespace that is not locked.
+    Unlock,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PersistJob {
     pub ns: Namespace,
     pub seq: u64,
-    pub rounds: Option<Vec<RoundRecord>>,
-    pub compensation_cursor_ms: Option<i64>,
-    /// Commit the final snapshot before making the namespace read-only.
-    pub logout_lock: bool,
-    /// Only set following verified reauthentication.
-    pub unlock_before_write: bool,
+    pub payload: JobPayload,
 }
 
-#[derive(Debug, Clone)]
-pub struct PersistReceipt {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Kind {
+    Rounds,
+    Compensation,
+    Lock,
+}
+
+impl JobPayload {
+    fn kind(&self) -> Kind {
+        match self {
+            JobPayload::Rounds(_) => Kind::Rounds,
+            JobPayload::Compensation(_) => Kind::Compensation,
+            JobPayload::LogoutLock | JobPayload::Unlock => Kind::Lock,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReceiptOutcome {
+    /// Committed (or identical to what is already on disk).
+    Written,
+    /// The namespace is logout-locked: the write was intentionally dropped.
+    Skipped,
+    /// A newer snapshot of the same `(namespace, kind)` was already written;
+    /// this older one was dropped. For the caller it is done (retrying it
+    /// can never land), so the tracker treats it like `Written`.
+    Superseded,
+    /// Not written. `unwritten` are the jobs to retry.
+    Failed {
+        error: AppError,
+        unwritten: Vec<PersistJob>,
+    },
+}
+
+/// `(namespace, seq, outcome)`: `seq` is the highest `seq` the commit covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Receipt {
     pub ns: Namespace,
     pub seq: u64,
-    pub result: Result<(), AppError>,
+    pub outcome: ReceiptOutcome,
 }
 
-enum Message {
-    Snapshot(PersistJob),
-    Flush(mpsc::Sender<Result<(), AppError>>),
+#[derive(Debug)]
+pub enum EnqueueError {
+    /// Queue full: nothing was blocked, the job is returned.
+    Full(PersistJob),
+    /// The worker is gone.
+    Closed(PersistJob),
 }
 
-/// Single consumer; producers never wait for filesystem IO. When full the
-/// caller retains the returned job in its per-namespace pending map.
+impl EnqueueError {
+    pub fn into_job(self) -> PersistJob {
+        match self {
+            EnqueueError::Full(j) | EnqueueError::Closed(j) => j,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlushError {
+    Timeout,
+    Closed,
+}
+
+/// Counters, mostly for tests and the baseline report.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct QueueStats {
+    /// Transactions committed.
+    pub commits: u64,
+    /// Jobs replaced by a newer job of the same `(namespace, kind)`.
+    pub coalesced: u64,
+    /// Jobs dropped because a newer `seq` had already been written.
+    pub stale_dropped: u64,
+    /// Snapshots not written because they equal the last written one.
+    pub unchanged: u64,
+    /// Namespace writes whose processing panicked (the worker survives and
+    /// reports the jobs as `Failed`).
+    pub panics: u64,
+}
+
+#[derive(Debug, Default)]
+struct Counters {
+    commits: AtomicU64,
+    coalesced: AtomicU64,
+    stale_dropped: AtomicU64,
+    unchanged: AtomicU64,
+    panics: AtomicU64,
+}
+
+enum Msg {
+    Job(PersistJob),
+    Flush(mpsc::Sender<()>),
+}
+
+type SharedStore = Arc<dyn Store + Send + Sync>;
+
 pub struct PersistQueue {
-    sender: mpsc::SyncSender<Message>,
-    receipts: Mutex<mpsc::Receiver<PersistReceipt>>,
+    tx: SyncSender<Msg>,
+    seq: AtomicU64,
+    receipts: Mutex<Receiver<Receipt>>,
+    counters: Arc<Counters>,
+    handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl std::fmt::Debug for PersistQueue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PersistQueue").finish_non_exhaustive()
+        f.debug_struct("PersistQueue")
+            .field("next_seq", &self.seq.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
     }
 }
 
 impl PersistQueue {
-    pub fn new(store: FileStore) -> Result<Self, AppError> {
-        Self::spawn(QUEUE_CAPACITY, move |job| write_snapshot(&store, job))
+    pub fn spawn(store: SharedStore) -> std::io::Result<Self> {
+        Self::spawn_with_capacity(store, QUEUE_CAPACITY)
     }
 
-    fn spawn(
-        capacity: usize,
-        mut write: impl FnMut(&PersistJob) -> Result<(), AppError> + Send + 'static,
-    ) -> Result<Self, AppError> {
-        let (sender, receiver) = mpsc::sync_channel(capacity);
-        let (status, receipts) = mpsc::channel();
-        thread::Builder::new().name("vbk-persist".into()).spawn(move || {
-            let mut written: HashMap<Namespace, u64> = HashMap::new();
-            let mut attempted: HashMap<Namespace, u64> = HashMap::new();
-            let mut failures: HashMap<Namespace, AppError> = HashMap::new();
-            while let Ok(first) = receiver.recv() {
-                let mut pending: HashMap<Namespace, PersistJob> = HashMap::new();
-                let mut barrier = None;
-                let mut next = Some(first);
-                while let Some(message) = next {
-                    match message {
-                        Message::Snapshot(job) => coalesce(&mut pending, job),
-                        Message::Flush(ack) => { barrier = Some(ack); break; }
-                    }
-                    next = receiver.try_recv().ok();
-                }
-                for (_, job) in pending {
-                    if attempted.get(&job.ns).is_some_and(|seq| *seq > job.seq)
-                        || written.get(&job.ns).is_some_and(|seq| *seq >= job.seq) {
-                        continue;
-                    }
-                    attempted.insert(job.ns.clone(), job.seq);
-                    let result = write(&job);
-                    if let Err(error) = &result {
-                        failures.insert(job.ns.clone(), error.clone());
-                    } else {
-                        written.insert(job.ns.clone(), job.seq);
-                        failures.remove(&job.ns);
-                    }
-                    let _ = status.send(PersistReceipt { ns: job.ns, seq: job.seq, result });
-                }
-                if let Some(ack) = barrier {
-                    let _ = ack.send(failures.values().next().cloned().map_or(Ok(()), Err));
-                }
-            }
-        }).map_err(|e| AppError::new(codes::STORE_IO, format!("start persistence worker: {e}")))?;
-        Ok(Self { sender, receipts: Mutex::new(receipts) })
+    pub fn spawn_with_capacity(store: SharedStore, capacity: usize) -> std::io::Result<Self> {
+        let (tx, rx) = mpsc::sync_channel::<Msg>(capacity.max(1));
+        let (rtx, rrx) = mpsc::channel::<Receipt>();
+        let counters = Arc::new(Counters::default());
+        let worker = Worker {
+            store,
+            rx,
+            receipts: rtx,
+            counters: Arc::clone(&counters),
+            last_seq: HashMap::new(),
+            last_payload: HashMap::new(),
+        };
+        let handle = std::thread::Builder::new()
+            .name(PERSIST_THREAD.to_string())
+            .spawn(move || worker.run())?;
+        Ok(Self {
+            tx,
+            seq: AtomicU64::new(1),
+            receipts: Mutex::new(rrx),
+            counters,
+            handle: Mutex::new(Some(handle)),
+        })
     }
 
-    #[allow(clippy::result_large_err)]
-    pub fn try_enqueue(&self, job: PersistJob) -> Result<(), PersistJob> {
-        match self.sender.try_send(Message::Snapshot(job)) {
+    /// Next snapshot sequence number. Call it **while the lock that guards
+    /// the snapshotted state is still held**, so `seq` follows snapshot order.
+    pub fn next_seq(&self) -> u64 {
+        self.seq.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Non-blocking enqueue.
+    pub fn try_enqueue(&self, job: PersistJob) -> Result<(), EnqueueError> {
+        match self.tx.try_send(Msg::Job(job)) {
             Ok(()) => Ok(()),
-            Err(mpsc::TrySendError::Full(Message::Snapshot(job)) |
-                mpsc::TrySendError::Disconnected(Message::Snapshot(job))) => Err(job),
-            _ => unreachable!("only snapshots are submitted here"),
+            Err(TrySendError::Full(m)) => Err(EnqueueError::Full(job_of(m))),
+            Err(TrySendError::Disconnected(m)) => Err(EnqueueError::Closed(job_of(m))),
         }
     }
 
-    pub fn drain_receipts(&self) -> Vec<PersistReceipt> {
-        self.receipts.lock().unwrap_or_else(|p| p.into_inner()).try_iter().collect()
+    /// Enqueues as many jobs as fit; returns the ones that did not.
+    pub fn submit(&self, jobs: Vec<PersistJob>) -> Vec<PersistJob> {
+        jobs.into_iter()
+            .filter_map(|j| self.try_enqueue(j).err().map(EnqueueError::into_job))
+            .collect()
     }
 
-    /// Waits only on explicit shutdown / maintenance paths. The deadline also
-    /// covers obtaining space for the barrier; never hold a cores lock here.
-    pub fn flush(&self, timeout: Duration) -> Result<(), AppError> {
+    /// Receipts produced since the last call. Never blocks on the worker.
+    pub fn drain_receipts(&self) -> Vec<Receipt> {
+        let rx = self.receipts.lock().unwrap_or_else(|p| p.into_inner());
+        rx.try_iter().collect()
+    }
+
+    /// Barrier: returns once every job enqueued before this call has been
+    /// processed. Waits up to `timeout` in total (enqueue and processing).
+    pub fn flush(&self, timeout: Duration) -> Result<(), FlushError> {
         let deadline = Instant::now() + timeout;
-        let (ack, result) = mpsc::channel();
-        let mut message = Message::Flush(ack);
+        let (ack_tx, ack_rx) = mpsc::channel();
+        let mut msg = Msg::Flush(ack_tx);
         loop {
-            match self.sender.try_send(message) {
+            match self.tx.try_send(msg) {
                 Ok(()) => break,
-                Err(mpsc::TrySendError::Disconnected(_)) => return Err(worker_unavailable()),
-                Err(mpsc::TrySendError::Full(returned)) => message = returned,
+                Err(TrySendError::Full(m)) => {
+                    if Instant::now() >= deadline {
+                        return Err(FlushError::Timeout);
+                    }
+                    msg = m;
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(TrySendError::Disconnected(_)) => return Err(FlushError::Closed),
             }
-            if Instant::now() >= deadline { return Err(flush_timeout()); }
-            thread::sleep(Duration::from_millis(1));
         }
-        result.recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .map_err(|_| flush_timeout())?
+        match ack_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(()) => Ok(()),
+            Err(RecvTimeoutError::Timeout) => Err(FlushError::Timeout),
+            Err(RecvTimeoutError::Disconnected) => Err(FlushError::Closed),
+        }
+    }
+
+    pub fn stats(&self) -> QueueStats {
+        QueueStats {
+            commits: self.counters.commits.load(Ordering::Relaxed),
+            coalesced: self.counters.coalesced.load(Ordering::Relaxed),
+            stale_dropped: self.counters.stale_dropped.load(Ordering::Relaxed),
+            unchanged: self.counters.unchanged.load(Ordering::Relaxed),
+            panics: self.counters.panics.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Last `(rounds, compensation)` `seq` committed for `ns` by this or a
+    /// previous run of the queue (`None` = never written).
+    pub fn persisted_seq(
+        store: &dyn Store,
+        ns: &Namespace,
+    ) -> Result<(Option<u64>, Option<u64>), AppError> {
+        let Some(v) = store.get(ns, META_COLLECTION, META_KEY)? else {
+            return Ok((None, None));
+        };
+        let field = |name: &str| v.get(name).and_then(JsonValue::as_i64).map(|n| n as u64);
+        Ok((field("rounds"), field("compensation")))
     }
 }
 
-pub fn coalesce(pending: &mut HashMap<Namespace, PersistJob>, job: PersistJob) {
-    if pending.get(&job.ns).map_or(true, |old| job.seq > old.seq) {
-        pending.insert(job.ns.clone(), job);
+impl Drop for PersistQueue {
+    fn drop(&mut self) {
+        // The worker finishes whatever is queued, then sees the channel
+        // closed and exits. Not joined: dropping must never wait for a disk.
+        let _ = self.handle.lock().unwrap_or_else(|p| p.into_inner()).take();
     }
 }
 
-fn worker_unavailable() -> AppError {
-    AppError::new("store.worker_unavailable", "local persistence worker stopped")
-}
-fn flush_timeout() -> AppError {
-    AppError::new("store.flush_timeout", "local persistence flush deadline exceeded")
+/// Only `Msg::Job` is ever sent through `try_enqueue`.
+fn job_of(m: Msg) -> PersistJob {
+    match m {
+        Msg::Job(j) => j,
+        Msg::Flush(_) => unreachable!("try_enqueue only sends jobs"),
+    }
 }
 
-fn write_snapshot(store: &FileStore, job: &PersistJob) -> Result<(), AppError> {
-    // A separate feature transaction can race between begin and commit.
-    // Rebuild only on an explicit CAS failure, never retry unknown IO outcomes.
-    if job.unlock_before_write { store.unlock_after_reauth(&job.ns)?; }
-    for _ in 0..8 {
-        let mut txn = store.begin(&job.ns)?;
-        if let Some(rounds) = &job.rounds {
-            for (key, _) in store.list(&job.ns, crate::repo::reminder::COLLECTION)? {
-                txn.delete(crate::repo::reminder::COLLECTION, &key);
+struct Worker {
+    store: SharedStore,
+    rx: Receiver<Msg>,
+    receipts: mpsc::Sender<Receipt>,
+    counters: Arc<Counters>,
+    last_seq: HashMap<(Namespace, Kind), u64>,
+    last_payload: HashMap<(Namespace, Kind), JobPayload>,
+}
+
+impl Worker {
+    fn run(mut self) {
+        while let Ok(first) = self.rx.recv() {
+            let mut jobs = Vec::new();
+            let mut flushes = Vec::new();
+            let mut msg = Some(first);
+            while let Some(m) = msg.take() {
+                match m {
+                    Msg::Job(j) => {
+                        jobs.push(j);
+                        msg = self.rx.try_recv().ok();
+                    }
+                    // Everything enqueued before the flush is in `jobs`;
+                    // anything after it waits for the next round.
+                    Msg::Flush(ack) => flushes.push(ack),
+                }
             }
-            for record in rounds { ReminderStateRepo::put(&mut txn, record); }
-        }
-        if let Some(ms) = job.compensation_cursor_ms {
-            SyncWatermarkRepo::set_compensation_cursor(&mut txn, ms);
-        }
-        txn.put("persistence", "snapshot_seq", JsonValue::number_from_i64(job.seq as i64));
-        match store.commit(txn) {
-            Err(error) if error.is(codes::STORE_CAS_CONFLICT) => continue,
-            result => { result?; if job.logout_lock { store.logout_lock(&job.ns)?; } return Ok(()); }
+            // Panics are caught per namespace inside `process` (so every job
+            // still gets a receipt); this outer guard only keeps the thread
+            // alive if the bookkeeping itself ever panics.
+            let batch = catch_unwind(AssertUnwindSafe(|| self.process(jobs)));
+            if batch.is_err() {
+                self.counters.panics.fetch_add(1, Ordering::Relaxed);
+            }
+            for ack in flushes {
+                let _ = ack.send(());
+            }
         }
     }
-    Err(AppError::new(codes::STORE_CAS_CONFLICT, "snapshot writer contention"))
+
+    fn process(&mut self, jobs: Vec<PersistJob>) {
+        // Data jobs are grouped between lock/unlock jobs, which act as
+        // ordered barriers: writes queued before a lock land before it, and
+        // writes queued after an unlock are not skipped as locked.
+        let mut group: Vec<PersistJob> = Vec::new();
+        for job in jobs {
+            if job.payload.kind() == Kind::Lock {
+                self.write_group(std::mem::take(&mut group));
+                self.apply_lock(job);
+            } else {
+                group.push(job);
+            }
+        }
+        self.write_group(group);
+    }
+
+    /// Runs one store operation, turning a panic inside the store into a
+    /// `Failed` outcome that hands the jobs back for a retry. Without this a
+    /// panicking `commit` would drop the batch with no receipt at all, and
+    /// the host would neither retry nor show "本地保存失败".
+    fn guarded<R>(
+        &self,
+        jobs: &[PersistJob],
+        f: impl FnOnce() -> Result<R, AppError>,
+    ) -> Result<R, ReceiptOutcome> {
+        match catch_unwind(AssertUnwindSafe(f)) {
+            Ok(Ok(r)) => Ok(r),
+            Ok(Err(e)) => Err(ReceiptOutcome::Failed {
+                error: e,
+                unwritten: jobs.to_vec(),
+            }),
+            Err(_) => {
+                self.counters.panics.fetch_add(1, Ordering::Relaxed);
+                Err(ReceiptOutcome::Failed {
+                    error: AppError::new(codes::STORE_IO, "persistence worker panicked"),
+                    unwritten: jobs.to_vec(),
+                })
+            }
+        }
+    }
+
+    /// Applies a `LogoutLock` or `Unlock`. Lock-kind jobs are ordered by
+    /// `seq` like data jobs: one older than the last applied lock-kind job
+    /// for the namespace is dropped as `Superseded` (a late `Unlock` from
+    /// before a newer `LogoutLock` must not reopen the namespace).
+    fn apply_lock(&mut self, job: PersistJob) {
+        let key = (job.ns.clone(), Kind::Lock);
+        if self.last_seq.get(&key).is_some_and(|&done| job.seq <= done) {
+            self.counters.stale_dropped.fetch_add(1, Ordering::Relaxed);
+            self.receive(Receipt {
+                ns: job.ns,
+                seq: job.seq,
+                outcome: ReceiptOutcome::Superseded,
+            });
+            return;
+        }
+        let result = self.guarded(std::slice::from_ref(&job), || match job.payload {
+            JobPayload::Unlock => self.store.unlock_after_reauth(&job.ns),
+            _ => self.store.logout_lock(&job.ns),
+        });
+        // Snapshots written before the lock state changed are no longer a
+        // reason to skip an identical one: after a lock they were dropped,
+        // after an unlock the namespace must be brought up to date again.
+        self.last_payload.retain(|(ns, _), _| *ns != job.ns);
+        let outcome = match result {
+            Ok(()) => {
+                self.last_seq.insert(key, job.seq);
+                ReceiptOutcome::Written
+            }
+            Err(failed) => failed,
+        };
+        self.counters.commits.fetch_add(1, Ordering::Relaxed);
+        self.receive(Receipt {
+            ns: job.ns,
+            seq: job.seq,
+            outcome,
+        });
+    }
+
+    fn write_group(&mut self, group: Vec<PersistJob>) {
+        // Newest job per (namespace, kind); older ones are coalesced away.
+        let mut best: BTreeMap<Namespace, BTreeMap<Kind, PersistJob>> = BTreeMap::new();
+        for job in group {
+            let key = (job.ns.clone(), job.payload.kind());
+            if self.last_seq.get(&key).is_some_and(|&done| job.seq <= done) {
+                self.counters.stale_dropped.fetch_add(1, Ordering::Relaxed);
+                // Acknowledged, not silently dropped: the caller may have
+                // parked this job after a failure and would otherwise keep
+                // `persist_failed` set for a retry that can never land.
+                self.receive(Receipt {
+                    ns: job.ns,
+                    seq: job.seq,
+                    outcome: ReceiptOutcome::Superseded,
+                });
+                continue;
+            }
+            let slot = best.entry(job.ns.clone()).or_default();
+            match slot.get(&job.payload.kind()) {
+                Some(kept) if kept.seq >= job.seq => {
+                    self.counters.coalesced.fetch_add(1, Ordering::Relaxed);
+                }
+                Some(_) => {
+                    self.counters.coalesced.fetch_add(1, Ordering::Relaxed);
+                    slot.insert(job.payload.kind(), job);
+                }
+                None => {
+                    slot.insert(job.payload.kind(), job);
+                }
+            }
+        }
+        for (ns, jobs) in best {
+            self.write_namespace(ns, jobs.into_values().collect());
+        }
+    }
+
+    fn write_namespace(&mut self, ns: Namespace, jobs: Vec<PersistJob>) {
+        let top_seq = jobs.iter().map(|j| j.seq).max().unwrap_or(0);
+        let changed: Vec<PersistJob> = jobs
+            .iter()
+            .filter(|j| self.last_payload.get(&(ns.clone(), j.payload.kind())) != Some(&j.payload))
+            .cloned()
+            .collect();
+        if changed.is_empty() {
+            self.counters
+                .unchanged
+                .fetch_add(jobs.len() as u64, Ordering::Relaxed);
+            for j in &jobs {
+                self.last_seq.insert((ns.clone(), j.payload.kind()), j.seq);
+            }
+            self.receive(Receipt {
+                ns,
+                seq: top_seq,
+                outcome: ReceiptOutcome::Written,
+            });
+            return;
+        }
+        let outcome = match self.guarded(&jobs, || self.commit(&ns, &jobs)) {
+            Ok(()) => {
+                for j in &jobs {
+                    let key = (ns.clone(), j.payload.kind());
+                    self.last_seq.insert(key.clone(), j.seq);
+                    self.last_payload.insert(key, j.payload.clone());
+                }
+                ReceiptOutcome::Written
+            }
+            Err(ReceiptOutcome::Failed { error, .. }) if error.is(codes::STORE_LOCKED) => {
+                ReceiptOutcome::Skipped
+            }
+            Err(failed) => failed,
+        };
+        self.receive(Receipt {
+            ns,
+            seq: top_seq,
+            outcome,
+        });
+    }
+
+    fn commit(&self, ns: &Namespace, jobs: &[PersistJob]) -> Result<(), AppError> {
+        let mut attempt = 0;
+        loop {
+            let mut txn = self.store.begin(ns)?;
+            let mut meta = JsonValue::object();
+            // Carry over the other kind's last seq so one field never erases
+            // the other.
+            let (prev_r, prev_c) = match self.store.get(ns, META_COLLECTION, META_KEY)? {
+                Some(v) => (
+                    v.get("rounds").and_then(JsonValue::as_i64),
+                    v.get("compensation").and_then(JsonValue::as_i64),
+                ),
+                None => (None, None),
+            };
+            let (mut rounds_seq, mut comp_seq) = (prev_r, prev_c);
+            for job in jobs {
+                match &job.payload {
+                    JobPayload::Rounds(records) => {
+                        for rec in records {
+                            ReminderStateRepo::put(&mut txn, rec);
+                        }
+                        rounds_seq = Some(job.seq as i64);
+                    }
+                    JobPayload::Compensation(ms) => {
+                        SyncWatermarkRepo::set_compensation_cursor(&mut txn, *ms);
+                        comp_seq = Some(job.seq as i64);
+                    }
+                    JobPayload::LogoutLock | JobPayload::Unlock => {}
+                }
+            }
+            if let Some(n) = rounds_seq {
+                meta.insert("rounds", JsonValue::number_from_i64(n));
+            }
+            if let Some(n) = comp_seq {
+                meta.insert("compensation", JsonValue::number_from_i64(n));
+            }
+            txn.put(META_COLLECTION, META_KEY, meta);
+            match self.store.commit(txn) {
+                Ok(_) => {
+                    self.counters.commits.fetch_add(1, Ordering::Relaxed);
+                    return Ok(());
+                }
+                Err(e) if e.is(codes::STORE_CAS_CONFLICT) && attempt < CAS_RETRIES => {
+                    attempt += 1;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    fn receive(&self, receipt: Receipt) {
+        let _ = self.receipts.send(receipt);
+    }
+}
+
+/// Caller-side bookkeeping that lives next to the caller's own state (the
+/// host keeps one inside its `Cores`): jobs that did not fit into the queue
+/// or failed to write, and the namespaces currently in `persist_failed`.
+#[derive(Debug, Default)]
+pub struct PersistTracker {
+    pending: BTreeMap<(Namespace, Kind), PersistJob>,
+    failed: BTreeSet<Namespace>,
+    last_error: Option<String>,
+}
+
+impl PersistTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Parks a job for a later retry. Per `(namespace, kind)` only the job
+    /// with the highest `seq` is kept.
+    pub fn stash(&mut self, job: PersistJob) {
+        let key = (job.ns.clone(), job.payload.kind());
+        match self.pending.get(&key) {
+            Some(kept) if kept.seq >= job.seq => {}
+            _ => {
+                self.pending.insert(key, job);
+            }
+        }
+    }
+
+    pub fn stash_all(&mut self, jobs: impl IntoIterator<Item = PersistJob>) {
+        for j in jobs {
+            self.stash(j);
+        }
+    }
+
+    /// Takes every parked job, oldest `seq` first.
+    pub fn take_pending(&mut self) -> Vec<PersistJob> {
+        let mut jobs: Vec<PersistJob> = std::mem::take(&mut self.pending).into_values().collect();
+        jobs.sort_by_key(|j| j.seq);
+        jobs
+    }
+
+    pub fn pending_len(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Consumes receipts: a failure marks the namespace `persist_failed` and
+    /// parks the unwritten jobs; a success (written, skipped because locked,
+    /// or superseded by a newer snapshot) clears the mark unless something
+    /// for the namespace is still parked.
+    pub fn apply_receipts(&mut self, receipts: Vec<Receipt>) {
+        for r in receipts {
+            match r.outcome {
+                ReceiptOutcome::Written | ReceiptOutcome::Skipped | ReceiptOutcome::Superseded => {
+                    if !self.pending.keys().any(|(ns, _)| *ns == r.ns) {
+                        self.failed.remove(&r.ns);
+                        if self.failed.is_empty() {
+                            self.last_error = None;
+                        }
+                    }
+                }
+                ReceiptOutcome::Failed { error, unwritten } => {
+                    self.last_error = Some(error.code.clone());
+                    self.failed.insert(r.ns);
+                    self.stash_all(unwritten);
+                }
+            }
+        }
+    }
+
+    /// True while any namespace could not be persisted ("本地保存失败").
+    pub fn persist_failed(&self) -> bool {
+        !self.failed.is_empty()
+    }
+
+    /// Send barrier (I-04a): while a write is failed nothing new may be
+    /// submitted, because the outbound journal and the state behind it can
+    /// no longer be trusted to land. `Err(store.persist_failed)` is the
+    /// error the host returns before it touches the journal or the page;
+    /// it carries the latest store error code as `detail`, never a path.
+    pub fn send_barrier(&self) -> Result<(), AppError> {
+        if !self.persist_failed() {
+            return Ok(());
+        }
+        let err = AppError::new(
+            codes::STORE_PERSIST_FAILED,
+            "local persistence failed; sending is paused until a retry succeeds",
+        )
+        .retryable();
+        Err(match self.last_error.as_deref() {
+            Some(code) => err.with_detail(format!("cause={code}")),
+            None => err,
+        })
+    }
+
+    pub fn failed_namespaces(&self) -> Vec<Namespace> {
+        self.failed.iter().cloned().collect()
+    }
+
+    /// Error code of the latest failure (`store.io`, ...); never a path.
+    pub fn last_error_code(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
+    use crate::{FileStore, MemoryStore};
     use contracts::{AccountId, Environment};
-    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Condvar;
 
-    fn job(account: &str, seq: u64) -> PersistJob {
-        PersistJob { ns: Namespace::new(Environment::named("test"), AccountId::new(account)),
-            seq, rounds: Some(Vec::new()), compensation_cursor_ms: Some(seq as i64), logout_lock: false, unlock_before_write: false }
+    fn ns(a: &str) -> Namespace {
+        Namespace::new(Environment::named("t"), AccountId::new(a))
     }
 
-    #[test]
-    fn bounded_handoff_returns_newest_job_without_waiting_for_disk() {
-        let (entered, waiting) = mpsc::channel();
-        let (resume, blocked) = mpsc::channel();
-        let queue = PersistQueue::spawn(1, move |_| {
-            entered.send(()).expect("signal"); blocked.recv().expect("resume"); Ok(())
-        }).expect("worker");
-        queue.try_enqueue(job("a", 1)).expect("first");
-        waiting.recv_timeout(Duration::from_secs(2)).expect("writing");
-        queue.try_enqueue(job("a", 2)).expect("queued");
-        assert_eq!(queue.try_enqueue(job("a", 3)).expect_err("full").seq, 3);
-        resume.send(()).expect("resume first");
-        waiting.recv_timeout(Duration::from_secs(2)).expect("second writing");
-        resume.send(()).expect("resume second");
-        queue.flush(Duration::from_secs(2)).expect("flush");
+    fn round(gid: &str, version: u64) -> RoundRecord {
+        RoundRecord {
+            gid: gid.into(),
+            round_id: "r".into(),
+            version,
+            start_message_id: None,
+            start_time_ms: Some(1),
+            start_confirmed: true,
+            reminded_version: version,
+            hidden_version: 0,
+            snoozed_until_ms: None,
+        }
     }
 
-    #[test]
-    fn two_namespaces_10000_reordered_jobs_never_regress_and_write_off_thread() {
-        let observed = Arc::new(Mutex::new(HashMap::<Namespace, u64>::new()));
-        let writes = observed.clone();
-        let queue = PersistQueue::spawn(256, move |job| {
-            assert_eq!(thread::current().name(), Some("vbk-persist"));
-            let mut written = writes.lock().expect("observations");
-            assert!(written.get(&job.ns).map_or(true, |seq| *seq < job.seq));
-            written.insert(job.ns.clone(), job.seq); Ok(())
-        }).expect("worker");
-        let mut pending = HashMap::new();
-        for seq in (1..=5000).rev() {
-            for account in ["a", "b"] {
-                if let Err(job) = queue.try_enqueue(job(account, seq)) { coalesce(&mut pending, job); }
+    fn job(q: &PersistQueue, n: &Namespace, payload: JobPayload) -> PersistJob {
+        PersistJob {
+            ns: n.clone(),
+            seq: q.next_seq(),
+            payload,
+        }
+    }
+
+    /// Store wrapper whose `commit` blocks until opened.
+    struct Gated {
+        inner: MemoryStore,
+        open: Mutex<bool>,
+        cv: Condvar,
+        commits: AtomicU64,
+        fail: AtomicBool,
+        /// `commit` panics once (a store bug), then behaves again.
+        panic_once: AtomicBool,
+    }
+
+    impl Gated {
+        fn new(open: bool) -> Arc<Self> {
+            Arc::new(Self {
+                inner: MemoryStore::new(),
+                open: Mutex::new(open),
+                cv: Condvar::new(),
+                commits: AtomicU64::new(0),
+                fail: AtomicBool::new(false),
+                panic_once: AtomicBool::new(false),
+            })
+        }
+        fn open(&self) {
+            *self.open.lock().unwrap() = true;
+            self.cv.notify_all();
+        }
+    }
+
+    impl Store for Gated {
+        fn begin(&self, ns: &Namespace) -> Result<crate::Txn, AppError> {
+            self.inner.begin(ns)
+        }
+        fn commit(&self, txn: crate::Txn) -> Result<crate::CommitFact, AppError> {
+            let mut g = self.open.lock().unwrap();
+            while !*g {
+                g = self.cv.wait(g).unwrap();
             }
+            drop(g);
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(AppError::new(codes::STORE_IO, "injected"));
+            }
+            if self.panic_once.swap(false, Ordering::SeqCst) {
+                panic!("injected store panic");
+            }
+            self.commits.fetch_add(1, Ordering::SeqCst);
+            self.inner.commit(txn)
         }
-        for (_, mut job) in pending {
-            loop { match queue.try_enqueue(job) { Ok(()) => break, Err(returned) => job = returned }; thread::yield_now(); }
+        fn get(&self, ns: &Namespace, c: &str, k: &str) -> Result<Option<JsonValue>, AppError> {
+            self.inner.get(ns, c, k)
         }
-        queue.flush(Duration::from_secs(3)).expect("flush");
-        let written = observed.lock().expect("observations");
-        assert_eq!(written[&job("a", 0).ns], 5000);
-        assert_eq!(written[&job("b", 0).ns], 5000);
+        fn list(&self, ns: &Namespace, c: &str) -> Result<Vec<(String, JsonValue)>, AppError> {
+            self.inner.list(ns, c)
+        }
+        fn last_commit(&self, ns: &Namespace) -> Result<Option<crate::CommitFact>, AppError> {
+            self.inner.last_commit(ns)
+        }
+        fn logout_lock(&self, ns: &Namespace) -> Result<(), AppError> {
+            self.inner.logout_lock(ns)
+        }
+        fn unlock_after_reauth(&self, ns: &Namespace) -> Result<(), AppError> {
+            self.inner.unlock_after_reauth(ns)
+        }
+        fn is_locked(&self, ns: &Namespace) -> Result<bool, AppError> {
+            self.inner.is_locked(ns)
+        }
     }
 
     #[test]
-    fn failures_reach_receipts_and_flush_and_next_success_recovers() {
-        let queue = PersistQueue::spawn(4, |job| {
-            if job.seq == 1 { Err(AppError::new(codes::STORE_IO, "injected ENOSPC")) } else { Ok(()) }
-        }).expect("worker");
-        queue.try_enqueue(job("a", 1)).expect("enqueue");
-        assert!(queue.flush(Duration::from_secs(2)).expect_err("failed").is(codes::STORE_IO));
-        assert!(queue.drain_receipts()[0].result.is_err());
-        queue.try_enqueue(job("a", 2)).expect("enqueue recovery");
-        queue.flush(Duration::from_secs(2)).expect("recovered");
-        assert!(queue.drain_receipts()[0].result.is_ok());
+    fn full_queue_returns_job_without_blocking_and_coalesces_after() {
+        let store = Gated::new(false);
+        let q = PersistQueue::spawn_with_capacity(store.clone(), 2).unwrap();
+        let a = ns("a");
+        // The worker takes the first job and blocks inside commit; two more
+        // fit in the channel, the next is refused immediately.
+        let mut rejected = Vec::new();
+        let started = Instant::now();
+        for v in 1..=8 {
+            let j = job(&q, &a, JobPayload::Rounds(vec![round("g", v)]));
+            if let Err(e) = q.try_enqueue(j) {
+                assert!(matches!(e, EnqueueError::Full(_)));
+                rejected.push(e.into_job());
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(started.elapsed() < Duration::from_secs(2), "must not block");
+        assert!(!rejected.is_empty());
+
+        let mut tracker = PersistTracker::new();
+        tracker.stash_all(rejected);
+        assert_eq!(tracker.pending_len(), 1, "stash merges per ns+kind");
+
+        store.open();
+        q.flush(Duration::from_secs(5)).unwrap();
+        // Retry the parked (newest of the rejected) job.
+        assert!(q.submit(tracker.take_pending()).is_empty());
+        q.flush(Duration::from_secs(5)).unwrap();
+        let (r, _) = PersistQueue::persisted_seq(&store.inner, &a).unwrap();
+        assert_eq!(r, Some(8), "newest snapshot is the one on disk");
+        let recs = ReminderStateRepo::load_all(&store.inner, &a).unwrap();
+        let recs = recs
+            .reconcile(crate::ReconcileEvidence::complete())
+            .unwrap();
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].version, 8);
+    }
+
+    #[test]
+    fn out_of_order_seq_never_overwrites_newer() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let jobs: Vec<_> = (1..=5)
+            .map(|v| job(&q, &a, JobPayload::Rounds(vec![round("g", v)])))
+            .collect();
+        // Newest first, then the older ones, flushing between to defeat batching.
+        for j in jobs.iter().rev() {
+            q.try_enqueue(j.clone()).unwrap();
+            q.flush(Duration::from_secs(5)).unwrap();
+        }
+        let (r, _) = PersistQueue::persisted_seq(&store.inner, &a).unwrap();
+        assert_eq!(r, Some(5));
+        let s = q.stats();
+        assert_eq!(s.stale_dropped, 4);
+        assert_eq!(s.commits, 1);
+    }
+
+    #[test]
+    fn rounds_and_compensation_share_one_commit_per_namespace() {
+        let store = Gated::new(false);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let (a, b) = (ns("a"), ns("b"));
+        // First job keeps the worker busy so the rest batch together.
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(1)))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        for v in 1..=3 {
+            q.try_enqueue(job(&q, &b, JobPayload::Rounds(vec![round("g", v)])))
+                .unwrap();
+        }
+        q.try_enqueue(job(&q, &b, JobPayload::Compensation(99)))
+            .unwrap();
+        store.open();
+        q.flush(Duration::from_secs(5)).unwrap();
+        // a: 1 commit, b: 1 commit for 4 jobs.
+        assert_eq!(store.commits.load(Ordering::SeqCst), 2);
+        assert_eq!(q.stats().coalesced, 2);
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &b).unwrap(),
+            Some(99)
+        );
+        let (r, c) = PersistQueue::persisted_seq(&store.inner, &b).unwrap();
+        assert!(r.is_some() && c.is_some());
+    }
+
+    #[test]
+    fn unchanged_snapshot_is_not_rewritten() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        for _ in 0..3 {
+            q.try_enqueue(job(&q, &a, JobPayload::Rounds(vec![round("g", 1)])))
+                .unwrap();
+            q.flush(Duration::from_secs(5)).unwrap();
+        }
+        assert_eq!(store.commits.load(Ordering::SeqCst), 1);
+        assert_eq!(q.stats().unchanged, 2);
+    }
+
+    #[test]
+    fn failure_sets_flag_then_recovers_on_retry() {
+        let store = Gated::new(true);
+        store.fail.store(true, Ordering::SeqCst);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let mut tracker = PersistTracker::new();
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(7)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(tracker.persist_failed());
+        assert_eq!(tracker.last_error_code(), Some(codes::STORE_IO));
+        assert_eq!(tracker.pending_len(), 1, "unwritten job parked for retry");
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            None,
+            "old document untouched"
+        );
+
+        // Fault cleared: the retry succeeds and the flag drops.
+        store.fail.store(false, Ordering::SeqCst);
+        assert!(q.submit(tracker.take_pending()).is_empty());
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(!tracker.persist_failed());
+        assert_eq!(tracker.last_error_code(), None);
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            Some(7)
+        );
+    }
+
+    /// Counter-example for the retry path: a job fails, a newer snapshot of
+    /// the same kind is written before the host retries the parked one, and
+    /// the retry is stale-dropped. The data on disk is correct, so the
+    /// tracker must leave `persist_failed`; a dropped job therefore needs a
+    /// receipt, or the flag would stick until an unrelated later write.
+    #[test]
+    fn stale_retry_after_a_newer_write_still_clears_persist_failed() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let mut tracker = PersistTracker::new();
+
+        store.fail.store(true, Ordering::SeqCst);
+        q.try_enqueue(job(&q, &a, JobPayload::Rounds(vec![round("g", 1)])))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        store.fail.store(false, Ordering::SeqCst);
+        // Newer snapshot lands before the tick looks at the receipts.
+        q.try_enqueue(job(&q, &a, JobPayload::Rounds(vec![round("g", 2)])))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+
+        // Tick 1: sees [Failed(seq1), Written(seq2)], parks seq1, retries it.
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(tracker.persist_failed(), "the failure is reported");
+        let retry = tracker.take_pending();
+        assert_eq!(retry.len(), 1);
+        assert!(q.submit(retry).is_empty());
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert_eq!(q.stats().stale_dropped, 1, "the old snapshot is dropped");
+
+        // Tick 2: the drop must be acknowledged so the flag clears.
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(
+            !tracker.persist_failed(),
+            "disk holds the newer snapshot; persist_failed must not stick"
+        );
+        assert_eq!(tracker.pending_len(), 0);
+        let recs = ReminderStateRepo::load_all(&store.inner, &a)
+            .unwrap()
+            .reconcile(crate::ReconcileEvidence::complete())
+            .unwrap();
+        assert_eq!(
+            recs[0].version, 2,
+            "older snapshot never overwrote the newer one"
+        );
+    }
+
+    /// Counter-example for the panic path: a store bug that panics inside
+    /// `commit` must not lose the jobs silently. The worker survives, the
+    /// jobs come back as `Failed` so the tracker retries them, and the next
+    /// batch is processed normally.
+    #[test]
+    fn a_panicking_commit_yields_a_failed_receipt_and_the_worker_survives() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let (a, b) = (ns("a"), ns("b"));
+        let mut tracker = PersistTracker::new();
+        store.panic_once.store(true, Ordering::SeqCst);
+        // Both namespaces are in one batch; only the first commit panics.
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(1)))
+            .unwrap();
+        q.try_enqueue(job(&q, &b, JobPayload::Compensation(2)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert_eq!(q.stats().panics, 1);
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(tracker.persist_failed(), "a panicked write is a failure");
+        assert_eq!(tracker.pending_len(), 1, "the panicked job is parked");
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &b).unwrap(),
+            Some(2),
+            "the other namespace of the batch is still written"
+        );
+        assert!(q.submit(tracker.take_pending()).is_empty());
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(!tracker.persist_failed());
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            Some(1)
+        );
+    }
+
+    /// Rounds and compensation of one namespace share a commit: when it
+    /// fails, **both** are parked and both land on the retry.
+    #[test]
+    fn one_failed_commit_parks_both_kinds_and_the_retry_lands_both() {
+        let store = Gated::new(false);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let mut tracker = PersistTracker::new();
+        store.fail.store(true, Ordering::SeqCst);
+        q.try_enqueue(job(&q, &a, JobPayload::Rounds(vec![round("g", 3)])))
+            .unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(30)))
+            .unwrap();
+        store.open();
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(tracker.persist_failed());
+        assert_eq!(tracker.pending_len(), 2, "rounds and compensation parked");
+        store.fail.store(false, Ordering::SeqCst);
+        let retry = tracker.take_pending();
+        assert!(
+            retry.windows(2).all(|w| w[0].seq < w[1].seq),
+            "oldest first"
+        );
+        assert!(q.submit(retry).is_empty());
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(!tracker.persist_failed());
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            Some(30)
+        );
+        let recs = ReminderStateRepo::load_all(&store.inner, &a)
+            .unwrap()
+            .reconcile(crate::ReconcileEvidence::complete())
+            .unwrap();
+        assert_eq!(recs[0].version, 3);
+        assert_eq!(
+            store.commits.load(Ordering::SeqCst),
+            1,
+            "one commit for both"
+        );
+    }
+
+    #[test]
+    fn logout_lock_is_ordered_and_later_writes_are_skipped_not_failed() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        q.try_enqueue(job(&q, &a, JobPayload::LogoutLock)).unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::Rounds(vec![round("g", 1)])))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        let mut tracker = PersistTracker::new();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(store.is_locked(&a).unwrap());
+        assert!(
+            !tracker.persist_failed(),
+            "locked namespace is not a failure"
+        );
+    }
+
+    #[test]
+    fn writes_before_a_lock_land_before_it() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(5)))
+            .unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::LogoutLock)).unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            Some(5)
+        );
+        assert!(store.is_locked(&a).unwrap());
+    }
+
+    /// Re-login after logout: `LogoutLock` → `Unlock` → the next snapshot
+    /// is written again (the namespace is not read-only for the rest of
+    /// the process, review §3.1 `unlock_after_reauth`).
+    #[test]
+    fn unlock_after_logout_lock_lets_later_writes_land() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let mut tracker = PersistTracker::new();
+        q.try_enqueue(job(&q, &a, JobPayload::LogoutLock)).unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(1)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert!(store.is_locked(&a).unwrap());
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            None,
+            "write after the lock is skipped"
+        );
+        q.try_enqueue(job(&q, &a, JobPayload::Unlock)).unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(2)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(!store.is_locked(&a).unwrap());
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            Some(2),
+            "write after the unlock lands"
+        );
+        assert!(!tracker.persist_failed());
+        assert!(tracker.send_barrier().is_ok());
+    }
+
+    /// `Unlock` on a namespace that was never locked is a no-op with a
+    /// `Written` receipt: the login path may always enqueue it.
+    #[test]
+    fn unlock_is_idempotent_on_an_unlocked_namespace() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        q.try_enqueue(job(&q, &a, JobPayload::Unlock)).unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::Unlock)).unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        let receipts = q.drain_receipts();
+        assert_eq!(receipts.len(), 2);
+        assert!(receipts
+            .iter()
+            .all(|r| r.outcome == ReceiptOutcome::Written));
+        assert!(!store.is_locked(&a).unwrap());
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(3)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            SyncWatermarkRepo::compensation_cursor(&store.inner, &a).unwrap(),
+            Some(3)
+        );
+    }
+
+    /// Lock-kind jobs follow `seq`, not arrival: an `Unlock` taken before a
+    /// newer `LogoutLock` (and vice versa) cannot undo it even when the
+    /// caller threads enqueue them out of order. The dropped job is still
+    /// acknowledged.
+    #[test]
+    fn lock_and_unlock_are_ordered_by_seq_when_enqueued_out_of_order() {
+        let store = Gated::new(true);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        // seq: unlock < lock, arrival: lock first → stays locked.
+        let unlock = job(&q, &a, JobPayload::Unlock);
+        let lock = job(&q, &a, JobPayload::LogoutLock);
+        assert!(unlock.seq < lock.seq);
+        q.try_enqueue(lock).unwrap();
+        q.try_enqueue(unlock).unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert!(store.is_locked(&a).unwrap(), "older unlock must not reopen");
+        let receipts = q.drain_receipts();
+        assert_eq!(receipts.len(), 2);
+        assert!(receipts
+            .iter()
+            .any(|r| r.outcome == ReceiptOutcome::Superseded));
+        assert_eq!(q.stats().stale_dropped, 1);
+
+        // seq: lock < unlock, arrival: unlock first → ends unlocked.
+        let lock = job(&q, &a, JobPayload::LogoutLock);
+        let unlock = job(&q, &a, JobPayload::Unlock);
+        q.try_enqueue(unlock).unwrap();
+        q.try_enqueue(lock).unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert!(!store.is_locked(&a).unwrap(), "older lock must not re-lock");
+        assert_eq!(q.stats().stale_dropped, 2);
+        let mut tracker = PersistTracker::new();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(!tracker.persist_failed());
+    }
+
+    /// The send barrier is the tracker's `persist_failed` state as an
+    /// error: closed with `store.persist_failed` (cause in `detail`), open
+    /// again once the retry lands.
+    #[test]
+    fn send_barrier_closes_on_failure_and_reopens_after_retry() {
+        let store = Gated::new(true);
+        store.fail.store(true, Ordering::SeqCst);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let mut tracker = PersistTracker::new();
+        assert!(tracker.send_barrier().is_ok(), "open before any failure");
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(7)))
+            .unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        let err = tracker.send_barrier().unwrap_err();
+        assert!(err.is(codes::STORE_PERSIST_FAILED));
+        assert!(err.retryable);
+        assert_eq!(err.detail.as_deref(), Some("cause=store.io"));
+        store.fail.store(false, Ordering::SeqCst);
+        assert!(q.submit(tracker.take_pending()).is_empty());
+        q.flush(Duration::from_secs(5)).unwrap();
+        tracker.apply_receipts(q.drain_receipts());
+        assert!(tracker.send_barrier().is_ok());
+    }
+
+    #[test]
+    fn commits_run_on_the_persist_thread_only() {
+        let dir = std::env::temp_dir().join(format!("core-store-queue-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = Arc::new(FileStore::open(&dir).unwrap());
+        let probe = crate::hooks::FsyncProbe::start(&dir);
+        let q = PersistQueue::spawn(store.clone()).unwrap();
+        let a = ns("a");
+        let before = probe.count();
+        q.try_enqueue(job(&q, &a, JobPayload::Compensation(1)))
+            .unwrap();
+        q.try_enqueue(job(&q, &a, JobPayload::LogoutLock)).unwrap();
+        q.flush(Duration::from_secs(5)).unwrap();
+        assert!(probe.count() > before);
+        // Everything after the queue started is on vbk-persist.
+        let off: Vec<_> = probe
+            .events()
+            .into_iter()
+            .filter(|e| e.thread != PERSIST_THREAD)
+            .collect();
+        assert!(off.is_empty(), "fsync off the persist thread: {off:?}");
+        drop(q);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,4 +1,5 @@
 //! Store invariants through the public API (DAT-01 / DAT-02 / 05-store).
+#![allow(clippy::unwrap_used)]
 
 use std::fs;
 use std::path::PathBuf;
@@ -202,10 +203,10 @@ fn durable_namespace_barrier_covers_new_parent_chain_and_replacement_after_reope
     reopened
         .sync_namespace(&namespace)
         .expect("strict replacement barrier");
-    assert!(PinnedRepo::is_pinned(&reopened, &namespace, "g1").expect("read g1"));
-    assert!(PinnedRepo::is_pinned(&reopened, &namespace, "g2").expect("read g2"));
+    assert!(PinnedRepo::is_pinned(&reopened, &namespace, "g1").unwrap());
+    assert!(PinnedRepo::is_pinned(&reopened, &namespace, "g2").unwrap());
     assert_eq!(
-        reopened.last_commit(&namespace).expect("read fact").expect("committed fact").revision,
+        reopened.last_commit(&namespace).unwrap().unwrap().revision,
         2
     );
 }

@@ -228,10 +228,10 @@ fn ui_state(kind: AccountStateKind, validating: bool) -> &'static str {
 
 /// `UiAccountSnapshot`.
 fn snapshot(app: &AppHandle) -> serde_json::Value {
-    let rows: Vec<(core_account::AccountSummary, u64)> = {
+    let (rows, persist_failed) = {
         let host = app.state::<HostState>();
         let cores = host.lock();
-        cores
+        let rows: Vec<(core_account::AccountSummary, u64)> = cores
             .accounts
             .account_snapshot()
             .data
@@ -246,7 +246,10 @@ fn snapshot(app: &AppHandle) -> serde_json::Value {
                     .unwrap_or(0);
                 (s, last)
             })
-            .collect()
+            .collect();
+        // Tracker state as of the last receipt drain (scheduler tick / send
+        // barrier); the scheduler re-emits this snapshot when it flips.
+        (rows, cores.persist.persist_failed())
     };
     let ls = login_state(app);
     let inner = ls.lock();
@@ -295,6 +298,7 @@ fn snapshot(app: &AppHandle) -> serde_json::Value {
         "accounts": accounts,
         "active_account_id": active,
         "max_accounts": MAX_ACCOUNTS,
+        "persist_failed": persist_failed,
     })
 }
 
@@ -314,7 +318,7 @@ pub(crate) fn active_context(app: &AppHandle) -> Option<AccountContext> {
     Some(context)
 }
 
-fn emit_changed(app: &AppHandle) {
+pub(crate) fn emit_changed(app: &AppHandle) {
     events::to_local_windows(app, events::ACCOUNT_CHANGED, snapshot(app));
 }
 
@@ -1301,7 +1305,11 @@ pub fn on_identity(
                 commit_profile_marker(&mut cores.accounts, &outcome.ctx, &profile_id);
                 outcome
             };
-            host.unlock_persistence_after_reauth(&outcome.ctx)?;
+            // The identity is online again: lift the logout lock of its
+            // namespace (I-13; `Namespace` is per identity, so a re-login of
+            // the same account reopens what `HostState::logout` locked).
+            // Outside the `Cores` lock: it only enqueues.
+            host.unlock_namespace(&outcome.ctx);
             let id = outcome.ctx.account_id.as_str().to_string();
             let old_profile = {
                 let ls = login_state(app);
@@ -1353,6 +1361,7 @@ pub fn on_identity(
         }
         Binding::Account(id) => {
             let account_id = AccountId::new(id.clone());
+            let mut resumed = false;
             let ctx =
                 {
                     let mut cores = host.lock();
@@ -1377,6 +1386,7 @@ pub fn on_identity(
                             if let Some(old) = old {
                                 crate::adapter::on_account_removed(app, &old);
                             }
+                            resumed = true;
                             ctx
                         }
                         _ => {
@@ -1387,7 +1397,11 @@ pub fn on_identity(
                         }
                     }
                 };
-            host.unlock_persistence_after_reauth(&ctx)?;
+            if resumed {
+                // Quick login of a suspended/invalid account: its namespace
+                // was locked by the earlier `exit_account`; reopen it.
+                host.unlock_namespace(&ctx);
+            }
             {
                 let ls = login_state(app);
                 let mut inner = ls.lock();

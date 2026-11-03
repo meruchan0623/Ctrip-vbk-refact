@@ -112,6 +112,7 @@ pub fn parse_session_ref(status: u16, body: &str) -> Result<String, AppError> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
     #[test]
     fn import_accepts_only_server_active_state_and_never_infers_a_reference_from_jwt_claims() {
@@ -120,7 +121,7 @@ mod tests {
                 200,
                 r#"{"success":true,"data":{"state":"active","session_ref":"server-reference"}}"#
             )
-            .expect("valid test fixture"),
+            .unwrap(),
             "server-reference"
         );
         for state in ["expired", "invalid", "revoked", "inactive", "ACTIVE", ""] {
@@ -137,7 +138,7 @@ mod tests {
     #[test]
     fn import_requests_are_fixed_origin_read_only_and_secret_debug_is_redacted() {
         let token = "SYNTHETIC_IMPORT_TOKEN";
-        let request = status_request(token).expect("valid test fixture");
+        let request = status_request(token).unwrap();
         assert_eq!(
             request.url,
             "https://csapi.tsim.tech/agent/auth/session-status"
@@ -150,7 +151,7 @@ mod tests {
         assert!(!request.follow_redirects);
         assert!(!format!("{request:?}").contains(token));
         assert_eq!(
-            profile_request(token).expect("valid test fixture").url,
+            profile_request(token).unwrap().url,
             "https://csapi.tsim.tech/agent/profile"
         );
         for invalid in [
@@ -167,12 +168,7 @@ mod tests {
     #[test]
     fn imported_profile_requires_authoritative_username_active_identity_and_real_permission() {
         let body = r#"{"success":true,"data":{"id":7,"username":"server-user","is_active":true,"permissions":["complaint_records"]}}"#;
-        assert_eq!(
-            parse_profile(200, body)
-                .expect("valid test fixture")
-                .username,
-            "server-user"
-        );
+        assert_eq!(parse_profile(200, body).unwrap().username, "server-user");
         for bad in [
             body.replace("server-user", ""),
             body.replace(r#""is_active":true"#, r#""is_active":false"#),

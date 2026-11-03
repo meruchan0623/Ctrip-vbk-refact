@@ -11,6 +11,9 @@
 //! * [`conversations`] — conversation registry (increment vs. full snapshot);
 //! * [`watermarks`] — list / compensation cursors and per-conversation
 //!   history windows with a proof-only complete watermark;
+//! * [`media_contract`] / [`media_limits`] / [`retention`] — media attachment
+//!   contract v1, official upload limits and completed-record retention (I-14);
+//! * [`rows`] — stable history row identity for the windowed message pane;
 //! * [`outbox`] — immutable `SendIntent`s and `confirmed/rejected/unknown`
 //!   without any resend path;
 //! * [`rounds`] — waiting-round engine and first T1 deadline;
@@ -19,14 +22,19 @@
 
 pub mod conversations;
 pub mod dedup;
+pub mod feature_rules;
 pub mod im_core;
 pub mod ingest;
+pub mod media_contract;
+pub mod media_limits;
 pub mod outbox;
+pub mod retention;
 pub mod rounds;
+pub mod rows;
 pub mod watermarks;
 
 pub use conversations::{ConversationChange, ConversationEntry, ConversationRegistry, Presence};
-pub use dedup::{MergeOutcome, MessageIndex, MessageRecord};
+pub use dedup::{IndexLimits, MergeOutcome, MessageIndex, MessageRecord};
 pub use im_core::{ImCore, ImCores, PersistedImState};
 pub use ingest::{DropReason, Fact, FactEnvelope, IngestReport, StreamId, TransportState};
 pub use outbox::{Outbox, OutboxEntry, ReconcileOutcome, SendIntent, SendState};
@@ -34,6 +42,7 @@ pub use rounds::{
     first_t1_deadline, mask_label, BusinessLineRule, BusinessLineRules, Deadline, Eligibility,
     PersistedRound, Round, RoundState,
 };
+pub use rows::{HistoryRow, HistoryRowIndex, PageKind, RowId, RowInput};
 pub use watermarks::{HistoryWindow, SyncStateSnapshot, SyncWatermarks};
 
 /// Error codes private to this crate (prefix convention `im.*`).
