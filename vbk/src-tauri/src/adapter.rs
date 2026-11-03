@@ -1048,10 +1048,23 @@ pub async fn im_send_media(
         .as_ref()
         .map(|r| r.disposition.clone())
         .unwrap_or(SendDispositionDto::Unknown);
-    let disposition = lock(journal)
-        .finish_media(&ctx, &local_id, &payload, observed)
-        .unwrap_or(SendDispositionDto::Unknown);
+    // Same rule as `outbound_journal::send_once`: a committed outcome whose
+    // durability barrier then failed keeps the real observed outcome (never a
+    // fabricated Unknown) and carries the barrier error to the caller. Any
+    // other failure (nothing committed) stays Unknown.
+    let held = outbound_journal::normalize(observed.clone());
+    let (disposition, barrier_error) =
+        match lock(journal).finish_media(&ctx, &local_id, &payload, observed) {
+            Ok(saved) => (saved, None),
+            Err(error)
+                if error.code == core_im::media_contract::codes::IM_JOURNAL_BARRIER_FAILED =>
+            {
+                (held, Some(error.message))
+            }
+            Err(_) => (SendDispositionDto::Unknown, None),
+        };
     let mut result = MediaSendResult::replay("send".into(), true, disposition.clone());
+    result.error = barrier_error;
     if let Some(mut reply) = reply {
         reply.message.disposition = Some(disposition);
         result.message = Some(reply.message);

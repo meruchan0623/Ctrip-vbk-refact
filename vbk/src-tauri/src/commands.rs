@@ -47,6 +47,18 @@ pub(crate) fn contract_check(label: &str) -> Result<(), AppError> {
     verdict
 }
 
+/// Drops the handshake verdict of `label` (I-03). Called by the host when a
+/// window is destroyed (its label may be reused by a recreated window) and
+/// when a local window starts loading a new document (reload/navigation):
+/// the new page must announce its version again, and an earlier rejection
+/// does not outlive the page that earned it.
+pub(crate) fn contract_forget(label: &str) {
+    contract_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .forget(label);
+}
+
 fn guard(state: &HostState, window: &Window, command: &str) -> CmdResult<()> {
     state
         .authorize(window.label(), command)

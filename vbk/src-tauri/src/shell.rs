@@ -104,7 +104,7 @@ async fn register_attachment(
         .values()
         .filter(|item| !item.frozen.bytes.is_empty())
         .count()
-        >= 4
+        >= core_im::media_limits::MAX_FILES_PER_SEND
         || items.len() >= 128
     {
         return Err(invalid_argument(

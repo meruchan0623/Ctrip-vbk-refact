@@ -1030,16 +1030,16 @@ impl PinnedTable {
     }
 }
 
+/// Durable replace through `core_store::write_atomic` (unique temp file,
+/// file `fsync`, rename, directory `fsync`): a crash leaves the old or the
+/// new table, never a prefix, and concurrent saves never share a temp name.
 fn write_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), AppError> {
-    let io = |e: std::io::Error| AppError::new(codes::STORE_IO, format!("pinned table: {e}"));
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(io)?;
-    }
+    let bad_path = || AppError::new(codes::STORE_IO, "pinned table: path has no file name");
+    let dir = path.parent().ok_or_else(bad_path)?;
+    let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(bad_path)?;
     let bytes = serde_json::to_vec(value)
         .map_err(|e| AppError::new(codes::STORE_IO, format!("pinned table: {e}")))?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, bytes).map_err(io)?;
-    std::fs::rename(&tmp, path).map_err(io)
+    core_store::write_atomic(dir, name, &bytes)
 }
 
 // ------------------------------------------------------------------ tests

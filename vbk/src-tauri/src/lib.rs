@@ -58,6 +58,27 @@ pub fn run() {
                 windows::show_main(app);
             }
         }))
+        // Contract handshake lifetime (I-03): a destroyed window's label may
+        // be reused, and a reloaded/navigated local window is a new page;
+        // both must announce their contract version afresh.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                commands::contract_forget(window.label());
+            }
+        })
+        .on_page_load(|webview, payload| {
+            if payload.event() != tauri::webview::PageLoadEvent::Started {
+                return;
+            }
+            // Only a local window's own document: a remote `acct-*` adapter
+            // webview takes no handshake, and a child webview navigating must
+            // not reset its host window's verdict.
+            let label = webview.label();
+            let local = !matches!(views::Role::for_label(label), None | Some(views::Role::Adapter));
+            if local && webview.window().label() == label {
+                commands::contract_forget(label);
+            }
+        })
         .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
             diag_bridge::install(data_dir.join("logs"));
@@ -194,13 +215,22 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building the VBooking host")
         .run(|app, event| {
+            // Every exit path (tray quit, close-quits, OS shutdown, app.exit
+            // from anywhere) drains the persist queue; after `request_quit`
+            // this second flush finds nothing outstanding.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<HostState>() {
+                    if !state.flush_persist(std::time::Duration::from_secs(5)) {
+                        log::warn!("exit: persistence did not fully flush within 5 s");
+                    }
+                }
+                log::logger().flush();
+            }
             // macOS: closing main only hides it (tray behaviour), so a click
             // on the Dock icon must bring it back.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 windows::show_main(app);
             }
-            #[cfg(not(target_os = "macos"))]
-            let _ = (app, event);
         });
 }

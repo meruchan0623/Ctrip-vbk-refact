@@ -128,7 +128,7 @@ enum Reservation {
 
 /// A confirmation without a server id or a rejection without a code is not
 /// evidence of either: it is `Unknown`.
-fn normalize(disposition: SendDispositionDto) -> SendDispositionDto {
+pub(crate) fn normalize(disposition: SendDispositionDto) -> SendDispositionDto {
     match disposition {
         SendDispositionDto::Confirmed {
             ref server_message_id,
