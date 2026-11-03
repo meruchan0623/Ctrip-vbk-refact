@@ -115,3 +115,23 @@ test('scroll/draft rerenders reuse sorting but replaced snapshots and filters in
   const updated = rows.map(c => ({ ...c, status: 'finished' as const }));
   assert.deepEqual(vm.filterConversations(updated, 'doing', ''), []);
 });
+
+test('an unrelated re-render hands back the same row nodes; only rows whose inputs changed are rebuilt', () => {
+  const f = fixture();
+  const rows = (tree: unknown) => new Map(nodes(tree).filter(n => n.props.dataset?.gid).map(n => [n.props.dataset.gid as string, n]));
+  const first = rows(f.tree());
+  f.store.patch({ now: 2000, toast: 'synthetic' });
+  const second = rows(f.tree());
+  assert.ok(first.size > 1);
+  for (const [gid, node] of first) assert.equal(second.get(gid), node, `${gid} reused`);
+  f.store.patch({ activeGid: 'customer-status-unknown' });
+  const third = rows(f.tree());
+  assert.notEqual(third.get('customer'), first.get('customer'), 'selection change rebuilds the old selected row');
+  const changed = [...third.keys()].find(gid => gid !== 'customer' && gid !== 'customer-status-unknown')!;
+  const other = [...third.keys()].find(gid => gid !== 'customer' && gid !== 'customer-status-unknown' && gid !== changed);
+  const conversations = f.store.get().conversations.map((c: BusinessRow) => (c.gid === changed ? { ...c, preview: 'changed' } : c));
+  f.store.patch({ conversations });
+  const fourth = rows(f.tree());
+  assert.notEqual(fourth.get(changed), third.get(changed), 'a changed conversation rebuilds its row');
+  if (other) assert.equal(fourth.get(other), third.get(other), 'an untouched conversation keeps its row');
+});

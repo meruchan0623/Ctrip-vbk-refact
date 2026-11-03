@@ -181,7 +181,12 @@ export function previewOf(m: UiMessage): string {
 
 export const ICCID_RE = /\b(89\d{17,18})\b/g;
 
+// 消息列表在 store 里不可变：按数组身份缓存。套餐预览每次 store 变化、侧栏每次渲染都会调用，
+// 长对话串里逐条跑正则曾是滚动时的主要脚本开销。
+const iccidCache = new WeakMap<readonly UiMessage[], readonly string[]>();
 export function findIccids(messages: readonly UiMessage[]): string[] {
+  const cached = iccidCache.get(messages);
+  if (cached) return [...cached];
   const out = new Set<string>();
   for (const m of messages) {
     if (m.kind !== 'text') continue;
@@ -190,7 +195,9 @@ export function findIccids(messages: readonly UiMessage[]): string[] {
       if (id) out.add(id);
     }
   }
-  return Array.from(out);
+  const ids = Array.from(out);
+  iccidCache.set(messages, ids);
+  return [...ids];
 }
 
 // ------------------------------------------------------------ translation

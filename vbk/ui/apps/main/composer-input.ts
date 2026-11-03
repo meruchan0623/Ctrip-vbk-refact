@@ -29,6 +29,9 @@ export function createComposerInput(options: {
 }) {
   let session: { node: HTMLTextAreaElement; context: ComposerInputContext } | null = null;
   const revoked = new WeakSet<HTMLTextAreaElement>();
+  // 作废一个编辑器节点后递增：渲染把它写进 textarea 的 data-key，增量 morph 因而换上新节点，而不是复用已作废的那个。
+  let revision = 0;
+  const revoke = (node: HTMLTextAreaElement): void => { revoked.add(node); revision++; };
   const matches = (context: ComposerInputContext): boolean => {
     const now = options.context();
     return !!now && now.scope === context.scope && now.version === context.version;
@@ -36,6 +39,7 @@ export function createComposerInput(options: {
   const active = (): boolean => !!session && session.node.isConnected && matches(session.context);
   return {
     active,
+    revision: (): number => revision,
     // State still advances while rendering waits. A changed owner/version renders immediately.
     deferRender: active,
     bind(scope: string | null) {
@@ -60,7 +64,7 @@ export function createComposerInput(options: {
           const valid = usable(node) && matches(ended.context);
           session = null;
           if (valid) options.commit(node.value);
-          else revoked.add(node);
+          else revoke(node);
           options.refresh();
         },
         onblur(event: Event): void {
@@ -68,7 +72,7 @@ export function createComposerInput(options: {
           if (session?.node !== node) return;
           // If the platform did not deliver compositionend, don't publish unfinished preedit.
           session = null;
-          revoked.add(node);
+          revoke(node);
           options.refresh();
         },
       };

@@ -80,3 +80,14 @@ test('account, generation, room, view and newer draft changes reject late compos
     assert.notEqual(f.store.get().draft, 'OLD PREEDIT', change); assert.equal(f.translations(), 0, change);
   }
 });
+test('a revoked editor node is never reused by the incremental render: the textarea key moves with each revocation', () => {
+  const context = { scope: 'synthetic-scope', version: 1 };
+  const input = createComposerInput({ context: () => context, invalidateTranslation() {}, commit() {}, refresh() {} });
+  const node = { value: '', isConnected: true } as unknown as HTMLTextAreaElement;
+  const on = input.bind('synthetic-scope');
+  const before = input.revision();
+  on.oncompositionstart({ currentTarget: node } as unknown as Event);
+  on.onblur({ currentTarget: node } as unknown as Event);
+  assert.equal(input.revision(), before + 1);
+  assert.match(current, /dataset: \{ fid: 'draft', key: `draft:\$\{composerInput\.revision\(\)\}` \}/);
+});
