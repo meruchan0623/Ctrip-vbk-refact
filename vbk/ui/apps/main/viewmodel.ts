@@ -149,6 +149,45 @@ export function sendStateView(disposition: SendDisposition | null): SendStateVie
   }
 }
 
+/** 消息下方可见的发送状态：成功确认态不再显示文字（仅保留行级 data 标记），
+ * 发送中、结果未知、发送失败仍逐条显示，确认/拒绝/未知三态保持分开。 */
+export function visibleSendState(disposition: SendDisposition | null): SendStateView | null {
+  const view = sendStateView(disposition);
+  return view.cls === 'ok' ? null : view;
+}
+
+// ------------------------------------------------------------ order card
+
+export interface OrderCardRow {
+  readonly label: string;
+  readonly value: string;
+}
+
+export interface OrderCardView {
+  readonly title: string;
+  /** 卡片自带的来源描述；未回传则为 null，不补默认文案。 */
+  readonly subtitle: string | null;
+  readonly rows: readonly OrderCardRow[];
+}
+
+/** 对话串内订单咨询卡片的展示字段。仅当摘要与卡片订单号完全一致时才取其补充字段；
+ * 缺失字段整行省略，不编造。 */
+export function orderCardView(m: Pick<UiMessage, 'order_id' | 'text'>, order: UiOrderSummary | null): OrderCardView {
+  const o = order && m.order_id && order.order_id === m.order_id ? order : null;
+  const clean = (value: string | null | undefined): string => (typeof value === 'string' ? value.trim() : '');
+  const rows: OrderCardRow[] = [];
+  const push = (key: I18nKey, value: string | null | undefined): void => {
+    const v = clean(value);
+    if (v) rows.push({ label: t(key), value: v });
+  };
+  push('chat.order.channel', o?.source_channel);
+  push('chat.order.id', m.order_id);
+  push('chat.order.product', clean(o?.product) || m.text);
+  push('chat.order.useDate', o?.use_date);
+  push('chat.order.amount', o?.total_amount);
+  return { title: clean(o?.source_title) || t('chat.orderCardTitle'), subtitle: clean(o?.source_description) || null, rows };
+}
+
 export function isOutbound(m: UiMessage): boolean {
   return m.sender_role === 'merchant_self';
 }

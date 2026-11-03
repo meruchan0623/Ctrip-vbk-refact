@@ -132,6 +132,8 @@ import {
   mergeQuoteReference,
   sameAccount,
   sendStateView,
+  visibleSendState,
+  orderCardView,
   shouldShowTranslationBar,
   tabCounts,
   unreadTotal,
@@ -1663,13 +1665,15 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
   const showTime = s.prefs?.general.show_msg_time ?? true;
   let body: HTMLElement;
   if (m.kind === 'order_card') {
-    const o = conv.order && conv.order.order_id === m.order_id ? conv.order : null;
+    // 订单咨询通知卡片：字段只取与卡片订单号一致的摘要，缺失则省略整行。
+    const card = orderCardView(m, conv.order);
     body = h(
       'div',
-      { class: 'card' },
-      h('div', { class: 'card-h' }, icon(IC.order, 14), t('chat.orderCard'), h('span', { class: 'mono', style: { 'margin-left': 'auto' } }, m.order_id ?? '')),
-      h('div', { class: 'card-b' }, h('div', { class: 'card-t' }, o?.product ?? m.text), o ? h('div', { class: 'kv' }, h('span', { class: 'k' }, t('side.useDate')), h('span', null, o.use_date)) : null, o ? h('div', { class: 'kv' }, h('span', { class: 'k' }, t('side.quantity')), h('span', null, o.quantity)) : null),
-      h('div', { class: 'card-f' }, o ? h('span', { class: 'chip chip-info', style: { 'margin-right': 'auto' } }, o.status) : null, h('button', { class: 'link', onclick: () => openMessageOrder(m, conv, acc) }, t('chat.viewOrder'))),
+      { class: 'ocard' },
+      h('div', { class: 'ocard-t' }, card.title),
+      card.subtitle ? h('div', { class: 'ocard-s' }, card.subtitle) : null,
+      h('dl', { class: 'ocard-b' }, card.rows.map((row) => h('div', { class: 'ocard-r' }, h('dt', null, `${row.label}：`), h('dd', null, row.value)))),
+      h('button', { type: 'button', class: 'ocard-link', dataset: { orderAction: 'open' }, 'aria-label': t('chat.viewOrder'), title: t('chat.viewOrder'), onclick: () => openMessageOrder(m, conv, acc) }, t('chat.orderLink'), icon(IC.chevRight, 12)),
     );
   } else if (m.kind === 'image' || m.kind === 'video' || m.kind === 'file') {
     const url = safeMediaUrl(m.media_url ?? (m.kind !== 'file' ? m.text : null));
@@ -1691,11 +1695,13 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
       m.original ? h('div', { class: 'btr' }, h('span', { class: 'trtag' }, t('chat.original')), h('span', null, m.original)) : null,
     );
   }
-  const st = isSelf ? sendStateView(m.disposition) : null;
+  // 成功确认态不显示文字，只在行上保留 data-send-outcome 供核对；其余状态照常显示。
+  const outcome = isSelf ? sendStateView(m.disposition).cls : null;
+  const st = isSelf ? visibleSendState(m.disposition) : null;
   const who = personDisplayName(m.sender_name?.trim() || null, '') || m.sender_id?.trim() || (isSelf ? (acc ? accountLabel(acc) : roleLabel('merchant_self')) : m.sender_role === 'customer' ? conv.title : roleLabel(m.sender_role));
   return h(
     'div',
-    { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '', rowId: rowId(m), historyKey: messageHistoryKey(acc?.context ?? null, conv, m) } },
+    { class: cx('msg', { mine: alignRight }), dataset: { mid: m.local_id ?? m.message_id ?? '', rowId: rowId(m), historyKey: messageHistoryKey(acc?.context ?? null, conv, m), ...(outcome ? { sendOutcome: outcome } : {}) } },
     h('div', { class: 'ava sm', style: { background: isSelf ? (acc?.color ?? '#5B6676') : conv.color } }, renderMessageAvatar(document, who, m.sender_avatar)),
     h(
       'div',
@@ -1714,7 +1720,12 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
           )
         : null,
     ),
-    h('div', { class: 'macts' }, h('button', { onclick: () => store.patch({ quote: m }) }, t('chat.quote')), h('button', { onclick: () => copyText(m.text) }, t('chat.copy')), h('button', { onclick: () => toast(m.message_id ? `服务端消息ID：${m.message_id}` : '尚无服务端消息ID，请核对发送结果'), 'aria-label': '查看服务端消息ID' }, '消息ID')),
+    h(
+      'div',
+      { class: 'macts' },
+      h('button', { type: 'button', dataset: { msgAction: 'quote' }, 'aria-label': t('chat.quote'), title: t('chat.quote'), onclick: () => store.patch({ quote: m }) }, icon(IC.quote, 14)),
+      h('button', { type: 'button', dataset: { msgAction: 'copy' }, 'aria-label': t('chat.copy'), title: t('chat.copy'), onclick: () => copyText(m.text) }, icon(IC.copy, 14)),
+    ),
   );
 }
 

@@ -284,7 +284,7 @@ async function testMain(context, base) {
   }
   check((await page.$('[data-chat-act="side"].on')) !== null, 'side panel toggle is on');
   check((await text(page, '.btr .trtag')) === '译', 'inbound platform translation shown under original');
-  check((await page.$('.msg .card')) !== null, 'order card message rendered');
+  check((await page.$('.msg .ocard')) !== null, 'order card message rendered');
   check((await text(page, '.hl[data-hl="order"]')) === '3051228766', 'order number inside a message is clickable');
   check((await page.$('.side .source-info')) !== null && ((await page.$$eval('.side .info-grid .iv', (els) => els.map((e) => e.textContent))) ?? []).includes('3051228766'), 'right panel 咨询来源 card with order');
   check((await text(page, '.side .companion-card .title')) === '套餐速览', 'package quick-view card');
@@ -331,8 +331,8 @@ async function testMain(context, base) {
   check((await page.$('[data-tr="send-original"]')) !== null && (await page.$('[data-tr="retry"]')) !== null, 'failure prompt 发送原文 / 重试');
   await page.fill('textarea.ta', '示例回复');
   await page.click('[data-action="send"]');
-  await page.waitForSelector('[data-send-state="ok"]', { timeout: 8000 });
-  check((await text(page, '[data-send-state="ok"]')) === '已确认', 'sent message confirmed');
+  await page.waitForSelector('.msg[data-send-outcome="ok"]', { timeout: 8000 });
+  check((await page.$('.msg[data-send-outcome="ok"] .mst')) === null, 'sent message confirmed without 已确认 label');
 
   // context menu: pin + colour
   await page.click('.conv[data-gid="g-demo-3"]', { button: 'right' });

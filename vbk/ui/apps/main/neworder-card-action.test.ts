@@ -22,7 +22,7 @@ function fixture(sideOrder = orderB, cardOrder: string | null = orderA) {
   if (source.includes('function openMessageOrder(')) env['openMessageOrder'] = actual('openMessageOrder', 'messageRow');
   const m = { gid: conv.gid, message_id: 'synthetic-card', local_id: null, sender_role: 'customer', kind: 'order_card', text: 'SYNTHETIC CARD', order_id: cardOrder, disposition: null, quote: null, create_time_ms: 1800000000000 };
   const tree = actual('messageRow', 'translationBar')(state, m, conv, account);
-  const action = nodes(tree).find(n => n.tag === 'button' && n.children.includes('chat.viewOrder'));
+  const action = nodes(tree).find(n => n.tag === 'button' && (n.props['dataset'] as Record<string, string> | undefined)?.orderAction === 'open');
   assert.ok(action); const click = action.props['onclick'] as () => void;
   return { click, patches, notices, outbound, switchAccount: (next: typeof context) => { account = { ...account, context: next }; }, changeOrder: (id: string) => { conv = { ...conv, order: { ...conv.order, order_id: id } }; }, changeRoom: () => { state.activeGid = 'synthetic-other-room'; } };
 }
