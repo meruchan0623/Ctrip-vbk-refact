@@ -42,6 +42,7 @@ use tauri::{
     Window,
 };
 
+use crate::data_guard::IndexLoad;
 use crate::dto::{AccountContextDto, AppErrorDto};
 use crate::events;
 use crate::state::HostState;
@@ -182,7 +183,7 @@ fn persist(app: &AppHandle) {
     let doc = {
         let inner = ls.lock();
         PersistDoc {
-            version: 1,
+            version: PERSIST_VERSION,
             active_account_id: inner.active.clone(),
             accounts: inner.meta.clone(),
             registry,
@@ -203,13 +204,37 @@ fn write_atomic(path: &Path, doc: &PersistDoc) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
-fn load_doc(path: &Path) -> Option<PersistDoc> {
-    let text = std::fs::read_to_string(path).ok()?;
-    match serde_json::from_str(&text) {
-        Ok(d) => Some(d),
+/// Highest `PersistDoc::version` this build writes and understands.
+const PERSIST_VERSION: u32 = 1;
+
+/// 读取账号索引。读不出、解析失败或版本更新时返回 `Untrusted` 并先把原文件
+/// 留底：之后的 `persist` 会重写 `accounts.json`，备份保证旧索引还能找回；
+/// 调用方据此跳过孤儿 profile 清理（见 `data_guard::may_purge_orphans`）。
+fn load_doc(path: &Path) -> (IndexLoad, Option<PersistDoc>) {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (IndexLoad::Absent, None),
+        Err(e) => {
+            log::error!("{}: account index not readable: {e}", path.display());
+            crate::data_guard::preserve_unreadable(path);
+            return (IndexLoad::Untrusted, None);
+        }
+    };
+    match serde_json::from_str::<PersistDoc>(&text) {
+        Ok(d) if d.version <= PERSIST_VERSION => (IndexLoad::Restored, Some(d)),
+        Ok(d) => {
+            log::error!(
+                "{}: account index version {} is newer than {PERSIST_VERSION}; preserved, not restored",
+                path.display(),
+                d.version
+            );
+            crate::data_guard::preserve_unreadable(path);
+            (IndexLoad::Untrusted, None)
+        }
         Err(e) => {
             log::error!("{}: unreadable account index: {e}", path.display());
-            None
+            crate::data_guard::preserve_unreadable(path);
+            (IndexLoad::Untrusted, None)
         }
     }
 }
@@ -496,35 +521,8 @@ fn open_login_window(app: &AppHandle, attempt_id: &str, profile_id: &str) -> tau
 /// Login page reached a non-login vbooking page: open the hidden candidate
 /// account webview in the same profile and hide the login window.
 fn on_login_candidate(app: &AppHandle, attempt_id: &str) {
-    let ls = login_state(app);
-    let profile_id = {
-        let mut inner = ls.lock();
-        let Some(rec) = inner.attempts.get_mut(attempt_id) else {
-            return;
-        };
-        if rec.candidate {
-            return;
-        }
-        rec.candidate = true;
-        let profile_id = rec.profile_id.clone();
-        inner.bindings.insert(
-            profiles::account_label(&profile_id),
-            Binding::Attempt(attempt_id.to_string()),
-        );
-        profile_id
-    };
-    let label = profiles::account_label(&profile_id);
-    if app.get_webview_window(&label).is_none() {
-        if let Err(e) = open_account_webview(app, &profile_id) {
-            log::error!("attempt {attempt_id}: account webview not created: {e}");
-            if let Some(rec) = ls.lock().attempts.get_mut(attempt_id) {
-                rec.candidate = false;
-            }
-            return;
-        }
-    }
-    if let Some(w) = login_window(app) {
-        let _ = w.hide();
+    if !begin_candidate(app, attempt_id) {
+        return;
     }
     log::info!("attempt {attempt_id}: login page left, waiting for identity");
     let app = app.clone();
@@ -545,6 +543,45 @@ fn on_login_candidate(app: &AppHandle, attempt_id: &str) {
             events::toast(&app, "登录确认超时，请重试或取消");
         }
     });
+}
+
+/// Opens the hidden candidate account webview of an attempt (same profile)
+/// and hides the login window. Returns false when the attempt is gone, a
+/// candidate is already pending, or the webview could not be created. The
+/// identity (or a fall-back to the login page) then arrives through the
+/// adapter exactly as after a manual login.
+fn begin_candidate(app: &AppHandle, attempt_id: &str) -> bool {
+    let ls = login_state(app);
+    let profile_id = {
+        let mut inner = ls.lock();
+        let Some(rec) = inner.attempts.get_mut(attempt_id) else {
+            return false;
+        };
+        if rec.candidate {
+            return false;
+        }
+        rec.candidate = true;
+        let profile_id = rec.profile_id.clone();
+        inner.bindings.insert(
+            profiles::account_label(&profile_id),
+            Binding::Attempt(attempt_id.to_string()),
+        );
+        profile_id
+    };
+    let label = profiles::account_label(&profile_id);
+    if app.get_webview_window(&label).is_none() {
+        if let Err(e) = open_account_webview(app, &profile_id) {
+            log::error!("attempt {attempt_id}: account webview not created: {e}");
+            if let Some(rec) = ls.lock().attempts.get_mut(attempt_id) {
+                rec.candidate = false;
+            }
+            return false;
+        }
+    }
+    if let Some(w) = login_window(app) {
+        let _ = w.hide();
+    }
+    true
 }
 
 /// Hidden `acct-<profile>` window on the official IM page with the adapter
@@ -732,35 +769,46 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             }
         });
     }
-    let doc = load_doc(&path);
+    let (mut load, doc) = load_doc(&path);
     // Keychain reads may block (or prompt) — never on the main thread.
     let app = app.clone();
     std::thread::Builder::new()
         .name("vbk-account-restore".into())
         .spawn(move || {
             if let Some(doc) = doc {
-                restore(&app, doc);
+                if !restore(&app, doc) {
+                    crate::data_guard::preserve_unreadable(&path);
+                    load = IndexLoad::Untrusted;
+                }
             }
-            purge_orphan_profiles(&app);
+            // 索引不可信时不清理：否则一次读失败（升级后 schema 不认、半截写入）
+            // 会把所有账号的 WebView 登录态当孤儿删掉。
+            if crate::data_guard::may_purge_orphans(load) {
+                purge_orphan_profiles(&app);
+            } else {
+                log::warn!("account index {load:?}: orphan profile cleanup skipped");
+            }
         })
         .map_err(tauri::Error::Io)?;
     Ok(())
 }
 
-fn restore(app: &AppHandle, doc: PersistDoc) {
+/// Returns whether the in-memory account set now mirrors the index on disk
+/// (only then may unreferenced profiles be treated as orphans).
+fn restore(app: &AppHandle, doc: PersistDoc) -> bool {
     let boot_epoch = app.state::<HostState>().lock().accounts.boot_epoch();
     let registry_doc = match contracts::json::JsonValue::parse(&doc.registry.to_string()) {
         Ok(v) => v,
         Err(e) => {
             log::error!("account index unreadable: {e:?}");
-            return;
+            return false;
         }
     };
     let mut registry = match AccountRegistry::restore(&registry_doc, boot_epoch) {
         Ok(r) => r,
         Err(e) => {
             log::error!("account index not restored: {} {}", e.code, e.message);
-            return;
+            return false;
         }
     };
     let report = registry.recover_credentials(&mut KeychainStore::new());
@@ -778,7 +826,7 @@ fn restore(app: &AppHandle, doc: PersistDoc) {
         let mut cores = host.lock();
         if !cores.accounts.account_ids().is_empty() {
             log::warn!("account index restore skipped: accounts already present");
-            return;
+            return false;
         }
         let resumable = registry
             .account_ids()
@@ -821,6 +869,7 @@ fn restore(app: &AppHandle, doc: PersistDoc) {
         }
     }
     persist_and_emit(app);
+    true
 }
 
 /// Profile ids still in use (published accounts and running attempts).
@@ -866,7 +915,7 @@ fn purge_orphan_profiles(app: &AppHandle) {
     let known = known_profiles(app);
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with("p_") && !known.contains(&name) {
+        if crate::data_guard::is_profile_dir_name(&name) && !known.contains(&name) {
             if let Err(e) = std::fs::remove_dir_all(entry.path()) {
                 log::warn!("orphan profile directory {name} not removed: {e}");
             }

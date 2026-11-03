@@ -369,8 +369,11 @@ fn load(path: &PathBuf) -> PrefsFile {
         Ok(bytes) => match serde_json::from_slice::<PrefsFile>(&bytes) {
             Ok(f) => f,
             Err(e) => {
-                log::warn!("prefs: {FILE_NAME} unreadable ({e}); using defaults");
-                PrefsFile::default()
+                // 跨版本时（新版新增/旧版删掉的字段、枚举新值）整份严格解析会失败；
+                // 先留底，再逐项保留本版本认得的字段，不能整份退回默认值。
+                log::warn!("prefs: {FILE_NAME} not fully readable ({e}); salvaging known fields");
+                crate::data_guard::preserve_unreadable(path);
+                salvage(&bytes).unwrap_or_default()
             }
         },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => PrefsFile::default(),
@@ -379,6 +382,36 @@ fn load(path: &PathBuf) -> PrefsFile {
             PrefsFile::default()
         }
     }
+}
+
+/// 宽松读取：逐个 `section.key` 试着套进默认值，类型或取值不合本版本的项
+/// 丢弃（原文件已由调用方留底），其余全部保留。不是 JSON 对象时返回 `None`。
+fn salvage(bytes: &[u8]) -> Option<PrefsFile> {
+    let root: Value = serde_json::from_slice(bytes).ok()?;
+    let saved = root.as_object()?;
+    let mut tree = serde_json::to_value(LocalPrefs::default()).ok()?;
+    let sections: Vec<String> = tree.as_object()?.keys().cloned().collect();
+    for section in sections {
+        let Some(fields) = saved.get(&section).and_then(Value::as_object) else {
+            continue;
+        };
+        for (key, value) in fields {
+            if tree.get(&section).and_then(|s| s.get(key)).is_none() {
+                continue;
+            }
+            let mut candidate = tree.clone();
+            candidate[section.as_str()][key.as_str()] = value.clone();
+            if serde_json::from_value::<LocalPrefs>(candidate.clone()).is_ok() {
+                tree = candidate;
+            }
+        }
+    }
+    let local: LocalPrefs = serde_json::from_value(tree).ok()?;
+    let reminder = saved
+        .get("reminder")
+        .and_then(|v| serde_json::from_value::<Option<ReminderSettingsDto>>(v.clone()).ok())
+        .flatten();
+    Some(PrefsFile { reminder, local })
 }
 
 /// Replaces the notify core settings; returns the effects to execute.
@@ -646,6 +679,27 @@ mod tests {
         let f: PrefsFile =
             serde_json::from_value(json!({ "general": { "start_hidden": true } })).unwrap();
         assert!(!f.local.general.autostart);
+    }
+
+    #[test]
+    fn cross_version_file_keeps_every_known_field() {
+        // 新版多写了字段、旧版删掉了字段或枚举出现新值：严格解析失败，
+        // 但其余设置必须保留，不能整份退回默认值。
+        let text = serde_json::to_vec(&json!({
+            "general": { "start_hidden": true, "close_action": "minimize_to_moon", "future_flag": 1 },
+            "keys": { "send_key": "ctrl_enter" },
+            "display": "not-an-object",
+            "future_section": { "x": 1 },
+        }))
+        .unwrap();
+        assert!(serde_json::from_slice::<PrefsFile>(&text).is_err());
+        let f = salvage(&text).expect("salvaged");
+        assert!(f.local.general.start_hidden);
+        assert_eq!(f.local.general.close_action, CloseAction::Tray);
+        assert_eq!(f.local.keys.send_key, SendKey::CtrlEnter);
+        assert_eq!(f.local.display, DisplayPrefs::default());
+        assert!(salvage(b"{not json").is_none());
+        assert!(salvage(b"[1,2]").is_none());
     }
 
     #[test]
