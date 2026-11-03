@@ -785,6 +785,9 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             // 会把所有账号的 WebView 登录态当孤儿删掉。
             if crate::data_guard::may_purge_orphans(load) {
                 purge_orphan_profiles(&app);
+            } else if load == IndexLoad::Absent {
+                // 首次启动没有索引是正常情况，不告警。
+                log::info!("account index Absent: orphan profile cleanup skipped");
             } else {
                 log::warn!("account index {load:?}: orphan profile cleanup skipped");
             }
