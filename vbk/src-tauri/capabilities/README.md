@@ -13,3 +13,5 @@
 2026-10-30 起：各文件由 `views.rs` 中的角色命令表生成，三处必须一致（`ui/apps/_shared/contract-consistency.test.ts` 检查）。新增 `adapter.json`：只授予官方 HTTPS 来源上、标签为 `acct-*` 的账号网页 WebView 五条 `adapter_*` 窄命令和事件监听；宿主再按 WebView 标签核对账号与代次，不信任页面自报身份。官方登录页（`login-remote-*`）仍无任何权限。
 
 2026-10-31：`tauri.conf.json` 的 `freezePrototype` 改为 false。它会作用于所有 WebView，包括官方登录页和账号 IM 页；冻结 `Object.prototype` 后官方页面脚本启动即抛 “Attempted to assign to readonly property”，导致登录按钮、协议勾选和二维码全部失效。本地窗口仍靠严格 CSP、无远程内容和按窗口命令白名单约束。
+
+2026-11-03：新增 TSim 订单查询窗 `tsim-order-*`（`assistant_tsim_order_open`，见 `src/assistant/tsim_order.rs`）。它是远程页 `https://csagent.tsim.tech/embed/operator`，同样不出现在任何 capability 与 `views.rs` 里，没有 IPC；地址由宿主拼出（订单号仅 10/16 位纯数字，经 URL 编码），顶层导航只允许 `csagent.tsim.tech`，`window.open` 一律拒绝；Web 数据按 TSim 身份隔离，身份退出或代次变化时关闭。宿主的 TSim Bearer 不交给该页面。

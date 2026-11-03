@@ -169,6 +169,9 @@ export const UiCommands = {
   ASSIST_ORDER_SUMMARY: 'assistant_order_summary',
   ASSIST_PACKAGE_DETAIL_OPEN: 'assistant_package_detail_open',
   ASSIST_PACKAGE_DETAIL: 'assistant_package_detail',
+  // {account, gid, order_id, context_revision, session_epoch} → null; host builds the fixed TSim operator URL
+  // (https://csagent.tsim.tech/embed/operator) and opens it in a remote window with no IPC capability.
+  ASSIST_TSIM_ORDER_OPEN: 'assistant_tsim_order_open',
   ASSIST_PACKAGE: 'assistant_package_quick_view', // {iccid} → UiPackageInfo
 } as const;
 

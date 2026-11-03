@@ -70,6 +70,7 @@
     "allow-assistant-translate",
     "allow-assistant-package-quick-view",
     "allow-assistant-order-summary",
-    "allow-assistant-package-detail-open"
+    "allow-assistant-package-detail-open",
+    "allow-assistant-tsim-order-open"
   ]
 }

@@ -39,13 +39,13 @@ fn instance_label(_detail_handle: &str, existing: Option<&str>) -> String {
         .map(str::to_string)
         .unwrap_or_else(|| format!("{DETAIL_PREFIX}{}", uuid::Uuid::new_v4()))
 }
-fn invalid() -> AppError {
+pub(super) fn invalid() -> AppError {
     AppError::new(
         codes::HOST_VIEW_UNAUTHORIZED,
         "package query or local view is no longer current",
     )
 }
-fn capture(state: &HostState, window: &Window, command: &str) -> Result<ViewContext, AppError> {
+pub(super) fn capture(state: &HostState, window: &Window, command: &str) -> Result<ViewContext, AppError> {
     // Role ACL plus the contract handshake (I-03) first, exactly like every
     // other module's guard; then the generation-bound context for the reply.
     state.authorize(window.label(), command)?;
@@ -65,7 +65,7 @@ fn current(app: &AppHandle, view: &ViewContext) -> Result<(), AppError> {
     }
     Ok(())
 }
-async fn validate(app: &AppHandle, view: &ViewContext, scope: &OrderScope) -> Result<(), AppError> {
+pub(super) async fn validate(app: &AppHandle, view: &ViewContext, scope: &OrderScope) -> Result<(), AppError> {
     current(app, view)?;
     if !owner_is_current(&scope.account, crate::login::active_context(app).as_ref()) {
         return Err(invalid());

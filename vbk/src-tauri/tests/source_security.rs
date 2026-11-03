@@ -90,6 +90,7 @@ fn remote_webview_cannot_invoke_any_registered_non_adapter_command() {
     for label in [
         "login-remote-fixture",
         "webview-security-fixture",
+        "tsim-order-security-fixture",
         "https://vbooking.ctrip.com",
     ] {
         registry.register(label);
