@@ -136,6 +136,11 @@ import {
   visibleSendState,
   orderCardView,
   shouldShowTranslationBar,
+  composerLocked,
+  customerLanguage,
+  needsOutboundTranslation,
+  outboundTarget,
+  OUTBOUND_TARGETS,
   tabCounts,
   unreadTotal,
 } from './viewmodel.ts';
@@ -151,7 +156,7 @@ const HostEvents = {
 
 const PERSONAL_SETTINGS_URL = 'https://vbooking.ctrip.com/vbk/im/main';
 const EMOJI = ['😀', '😊', '😂', '🙏', '👍', '👌', '👏', '🎉', '❤️', '😅', '🤔', '😢', '🌹', '☀️', '✈️', '🏨', '🎫', '🚌', '📍', '⏰', '✅', '❗', '💡', '🙂'];
-const TR_TARGETS = ['en', 'ja', 'ko', 'th', 'vi', 'id', 'ms', 'es', 'fr', 'de', 'ru', 'ar', 'zh-TW', 'pt', 'it', 'tr'];
+const TR_TARGETS = OUTBOUND_TARGETS;
 
 type View = 'messages' | 'notifications' | 'order';
 
@@ -771,12 +776,13 @@ async function sendText(text: string, original: string | null): Promise<void> {
   if (attachmentSendUnavailable(S().attachment)) { toast(ATTACHMENT_SEND_UNAVAILABLE); return; }
   const acc = activeAccount();
   const conv = activeConv();
-  if (!acc || !conv || isDone(conv)) return;
+  // 已结束的会话照常发送：适配器在提交前重新开启会话（evidence 49）；只有转出的会话锁定。
+  if (!acc || !conv || composerLocked(conv)) return;
   const s = S();
   const localId = nextLocalId(Date.now());
   const quote = selectedQuoteReference(s.quote, s.messages[conv.gid] ?? [], conv.gid);
   const local: QuotedUiMessage = { gid: conv.gid, message_id: null, local_id: localId, create_time_ms: Date.now(), sender_role: 'merchant_self', kind: 'text', text, translation: null, original, quote: quote?.target_id ?? null, quote_target_id: quote?.target_id ?? null, order_id: null, disposition: null };
-  store.patch({ messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] }, drafts: { ...s.drafts, [conv.gid]: '' }, draft: '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: { ...TRANSLATION_IDLE, target: s.translation.target } });
+  store.patch({ messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] }, drafts: { ...s.drafts, [conv.gid]: '' }, draft: '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: { ...TRANSLATION_IDLE, gid: s.translation.gid, target: s.translation.target } });
   const result = await settleAccountSend(acc.context,
     () => ipc.invoke<SendDisposition>(UiCommands.IM_SEND_TEXT, { account: acc.context, gid: conv.gid, local_id: localId, text, original: original ?? undefined, quote_id: quote?.target_id }),
     () => activeAccount()?.context ?? null);
@@ -793,20 +799,29 @@ async function sendText(text: string, original: string | null): Promise<void> {
   }
 }
 
+/** 有效客户语言（customerLanguage）：行上的 languageInfo/locale 常为 zh_HK 或缺失，按客户消息书写脚本补识别。 */
 function translationOn(s: MainState, conv: UiConversation): boolean {
-  return !s.trBarOff && shouldShowTranslationBar(conv, !!s.prefs?.assistant.enabled, !!s.prefs?.assistant.outbound_translation);
+  return !s.trBarOff && shouldShowTranslationBar(conv, !!s.prefs?.assistant.enabled, !!s.prefs?.assistant.outbound_translation, customerLanguage(conv, s.messages[conv.gid] ?? []));
 }
 
 async function handleSend(): Promise<void> {
   const s = S();
   const conv = activeConv(s);
-  if (!conv || isDone(conv)) return;
+  if (!conv || composerLocked(conv)) return;
   // Send barrier (I-04a): keyboard path too (the button is already disabled); the draft is kept.
   if (persistFailed(s.accounts)) { toast(t('bar.persistFailed')); return; }
   const result = await sendComposer({ draft: s.draft, attachment: s.attachment }, async (text) => {
-    if (s.prefs?.assistant.send_mode === 'send_direct' && translationOn(s, conv)) {
-      await translateAndSend(text);
-      return;
+    // 翻译栏开启时发送键发出译文（原文随消息保留），不静默发出中文原文。
+    // 「直接发送」：一律现译现发。「替换草稿」：只翻译含中文的草稿（已「替换」成外文的照原样发），
+    // 预览已对应当前草稿版本则直接复用，否则现译现发。
+    if (translationOn(s, conv)) {
+      if (s.prefs?.assistant.send_mode === 'send_direct') { await translateAndSend(text); return; }
+      if (needsOutboundTranslation(text)) {
+        const now = S(), tr = now.translation;
+        if (tr.status === 'done' && tr.gid === conv.gid && tr.draftVersion === now.draftVersion && tr.text.trim()) await sendText(tr.text, text);
+        else await translateAndSend(text);
+        return;
+      }
     }
     await sendText(text, null);
   }, (attachment) => sendMediaAttachment(attachment));
@@ -824,6 +839,7 @@ function mediaOperationCurrent(operation: MediaOperation): boolean {
 
 async function sendMediaAttachment(attachment: UiAttachment): Promise<void> {
   const s = S(), account = activeAccount(s)?.context, conv = activeConv(s);
+  if (conv && isDone(conv)) { toast('会话已结束：请先发送文字消息重新激活会话，再发送附件。'); return; }
   if (!account || !conv || isDone(conv) || s.attachment !== attachment || !ownedAttachment(attachment, account, conv.gid)) { toast('附件不属于当前会话，请重新选择。'); return; }
   if (s.mediaOperation && s.mediaOperation.status !== 'not_submitted') return;
   const attemptKey = JSON.stringify([account.environment, account.account_id, account.session_generation, conv.gid, attachment.attachment_id]);
@@ -887,8 +903,9 @@ function receiveMediaProgress(value: unknown): void {
   store.patch({ mediaOperation: { ...operation, stage: p.stage! } });
 }
 
+/** 本会话手选/已用的目标语言优先；否则按有效客户语言，且只取 TSim 支持的目标。 */
 function translationTarget(s: MainState, conv: UiConversation): string {
-  return s.translation.gid === conv.gid || s.translation.target !== 'en' ? s.translation.target : conv.lang === 'zh' ? 'en' : conv.lang;
+  return s.translation.gid === conv.gid ? s.translation.target : outboundTarget(customerLanguage(conv, s.messages[conv.gid] ?? []));
 }
 
 async function translateAndSend(text: string): Promise<void> {
@@ -904,6 +921,7 @@ async function translateAndSend(text: string): Promise<void> {
   try {
     const r = await ipc.invoke<{ draft_version: number; text: string }>(UiCommands.ASSIST_TRANSLATE, { account: acc.context, gid: conv.gid, draft_version: version, text, target });
     if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || S().translation !== request || r.draft_version !== version) return; // account, room, draft or translation request changed
+    if (typeof r.text !== 'string' || !r.text.trim()) throw new Error('empty translation');
     await sendText(r.text, text);
   } catch (e) {
     if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || S().translation !== request) return;
@@ -926,8 +944,9 @@ const composerInput = createComposerInput({
 });
 function composerInputContext(s: MainState): { scope: string; version: number } | null {
   const account = activeAccount(s), conv = activeConv(s);
-  if (s.view !== 'messages' || account?.state !== 'online' || !conv || isDone(conv) || !sameAccount(account.context, conv.account) || account.context.session_generation !== conv.account.session_generation) return null;
-  return { scope: historyScopeKey(account.context, conv.gid), version: s.draftVersion };
+  if (s.view !== 'messages' || account?.state !== 'online' || !conv || composerLocked(conv) || !sameAccount(account.context, conv.account) || account.context.session_generation !== conv.account.session_generation) return null;
+  // 会话结束/重开会改变 scope：状态切换前开始的输入法组合不得改写新状态下的草稿。
+  return { scope: `${historyScopeKey(account.context, conv.gid)}${isDone(conv) ? '#done' : ''}`, version: s.draftVersion };
 }
 function scheduleTranslation(): void {
   if (trTimer) clearTimeout(trTimer);
@@ -936,7 +955,7 @@ function scheduleTranslation(): void {
   if (!conv || !s.prefs || !translationOn(s, conv)) return;
   if (s.prefs.assistant.send_mode !== 'replace_draft') return;
   const text = s.draft.trim();
-  if (!text) {
+  if (!text || !needsOutboundTranslation(text)) {
     store.patch({ translation: { ...TRANSLATION_IDLE, gid: conv.gid, target: translationTarget(s, conv) } });
     return;
   }
@@ -1815,6 +1834,8 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
 function composer(s: MainState, conv: UiConversation): HTMLElement {
   const quote = selectedQuoteReference(s.quote, s.messages[conv.gid] ?? [], conv.gid);
   const finished = isDone(conv);
+  // 已结束仍可输入、发送文字（发送会重新开启会话）；附件等待会话恢复后再发。转出锁定全部输入。
+  const locked = composerLocked(conv);
   const media = s.attachment && isRegisteredMediaAttachment(s.attachment) ? s.attachment : null;
   const operation = s.mediaOperation?.attachment === s.attachment ? s.mediaOperation : null;
   const mediaLocked = !!operation && operation.status !== 'not_submitted';
@@ -1841,13 +1862,13 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
     h(
       'div',
       { class: 'ctools' },
-      h('button', { class: cx('ibtn', { on: s.emoOpen }), 'aria-label': t('composer.emoji'), title: t('composer.emoji'), disabled: finished, dataset: { tool: 'emoji', fid: 'tool:emoji' } , onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen }); } }, icon(IC.smile, 18)),
+      h('button', { class: cx('ibtn', { on: s.emoOpen }), 'aria-label': t('composer.emoji'), title: t('composer.emoji'), disabled: locked, dataset: { tool: 'emoji', fid: 'tool:emoji' } , onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen }); } }, icon(IC.smile, 18)),
       h('button', { class: 'ibtn', 'aria-label': t('composer.screenshot'), title: shotKey ? `${t('composer.screenshot')} ${shotKey}` : t('composer.screenshot'), disabled: finished || mediaLocked, dataset: { tool: 'screenshot', fid: 'tool:screenshot' } , onclick: () => void attach('screenshot') }, icon(IC.scissors, 18)),
       h('button', { class: 'ibtn', 'aria-label': t('composer.image'), title: t('composer.image'), disabled: finished || mediaLocked, dataset: { tool: 'image', fid: 'tool:image' } , onclick: () => void attach('image') }, icon(IC.image, 18)),
       h('button', { class: 'ibtn', 'aria-label': t('composer.file'), title: t('composer.file'), disabled: finished || mediaLocked, dataset: { tool: 'file', fid: 'tool:file' } , onclick: () => void attach('file') }, icon(IC.file, 18)),
       h('button', { class: 'ibtn', 'aria-label': '视频', title: '视频', disabled: finished || mediaLocked, dataset: { tool: 'video', fid: 'tool:video' } , onclick: () => void attach('video') }, icon(IC.file, 18)),
       h('button', { class: 'ibtn', 'aria-label': t('composer.phrases'), dataset: { tool: 'phrases', fid: 'tool:phrases' } , onclick: () => openPeripheral('scripts') }, icon(IC.chat, 18)),
-      conv.lang !== 'zh' && s.prefs?.assistant.enabled && s.prefs.assistant.outbound_translation
+      !locked && customerLanguage(conv, s.messages[conv.gid] ?? []) !== 'zh' && s.prefs?.assistant.enabled && s.prefs.assistant.outbound_translation
         ? h('button', { class: cx('ibtn', { on: !s.trBarOff }), 'aria-label': t('composer.trToggle'), title: t('composer.trToggleTitle'), dataset: { tool: 'translate', fid: 'tool:translate' } , onclick: () => store.patch({ trBarOff: !S().trBarOff }) }, icon(IC.translate, 18))
         : null,
       h('span', { class: 'hint', style: { 'margin-left': 'auto', 'padding-right': '6px' } }, '本客户端：单附件≤10MiB，视频≤3分钟。'),
@@ -1856,10 +1877,10 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
     s.attachment ? h('div', { class: 'attach', title: mediaLabel, dataset: { mediaStatus: operation?.status ?? (media ? 'ready' : 'unsupported') } }, operation?.status === 'busy' ? h('span', { class: 'spin' }) : null, h('span', { style: { 'font-size': '12px' }, role: 'status', 'aria-live': 'polite' }, `${s.attachment.name} · ${mediaLabel}`), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), title: operation && operation.status !== 'not_submitted' ? '仅移除本地选择，不会撤回已上传或提交的消息。' : '移除本地附件', disabled: operation?.status === 'busy', onclick: () => void removeAttachment(s.attachment!) }, icon(IC.close, 12))) : null,
     h('textarea', {
       class: 'ta',
-      placeholder: finished ? t('composer.placeholderFinished') : t('composer.placeholder'),
+      placeholder: locked ? t('composer.placeholderLocked') : finished ? t('composer.placeholderFinished') : t('composer.placeholder'),
       'aria-label': '输入消息',
       value: s.draft,
-      disabled: finished,
+      disabled: locked,
       dataset: { fid: 'draft' },
       ...composerInput.bind(composerInputContext(s)?.scope ?? null),
       onkeydown: (e: KeyboardEvent) => {
@@ -1871,7 +1892,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
         }
       },
     }),
-    h('div', { class: 'cfoot' }, h('span', { class: cx('hint', { 'hint-bad': saveBlocked }), ...(saveBlocked ? { role: 'status', dataset: { persistFailed: '1' } } : {}) }, saveBlocked ? t('composer.persistFailed') : media ? '仅发送附件，文字/引用保留；结果未知时请先核对，勿重复发送。' : direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: finished || mediaLocked || saveBlocked, onclick: () => { if (!composerInput.active()) void handleSend(); } }, icon(IC.send, 14), media ? '发送附件' : t('composer.send'))),
+    h('div', { class: 'cfoot' }, h('span', { class: cx('hint', { 'hint-bad': saveBlocked }), ...(saveBlocked ? { role: 'status', dataset: { persistFailed: '1' } } : {}) }, saveBlocked ? t('composer.persistFailed') : media ? '仅发送附件，文字/引用保留；结果未知时请先核对，勿重复发送。' : direct ? t('composer.directMode') : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: locked || (finished && !!s.attachment) || mediaLocked || saveBlocked, onclick: () => { if (!composerInput.active()) void handleSend(); } }, icon(IC.send, 14), media ? '发送附件' : t('composer.send'))),
   );
 }
 

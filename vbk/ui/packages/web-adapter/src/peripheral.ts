@@ -256,12 +256,80 @@ export async function searchConversations(deps: AdapterDeps, soa: SoaClient, req
   return { kind: 'success', value: hits };
 }
 
-export interface LatestConversationState { readonly gid: string; readonly sessionId: string; readonly status: number; readonly inGroup: number }
-export async function getLatestConversationState(deps: AdapterDeps, soa: SoaClient, gid: string): Promise<PeripheralReadResult<LatestConversationState>> {
-  const outcome = await soa.post<unknown>(endpoint('getLatestConversationByGid', M, '16037/getLatestConversationByGid', 'read'), { head: businessHead(deps.context), gid });
+export const LATEST_CONVERSATION: EndpointSpec = endpoint('getLatestConversationByGid', M, '16037/getLatestConversationByGid', 'read');
+/** 服务端当前会话行（只读）。gid 不符即视为畸形，不拿别的会话行做后续决定。 */
+async function readLatestConversation(deps: AdapterDeps, soa: SoaClient, gid: string): Promise<PeripheralReadResult<Record<string, unknown>>> {
+  const outcome = await soa.post<unknown>(LATEST_CONVERSATION, { head: businessHead(deps.context), gid });
   if (outcome.kind !== 'success') return failed(outcome);
   if (!isBizSuccess(outcome.body)) return { kind: 'biz_failure', outcome };
   const row = recordOrNull(recordOrNull(outcome.body)?.['conversation']);
-  if (!row || row['gid'] !== gid || !nonempty(row['sessionId']) || typeof row['status'] !== 'number' || typeof row['inGroup'] !== 'number') return malformed('missing matching conversation read-back');
+  if (!row || row['gid'] !== gid) return malformed('missing matching conversation read-back');
+  return { kind: 'success', value: row };
+}
+
+export interface LatestConversationState { readonly gid: string; readonly sessionId: string; readonly status: number; readonly inGroup: number }
+export async function getLatestConversationState(deps: AdapterDeps, soa: SoaClient, gid: string): Promise<PeripheralReadResult<LatestConversationState>> {
+  const read = await readLatestConversation(deps, soa, gid);
+  if (read.kind !== 'success') return read;
+  const row = read.value;
+  if (!nonempty(row['sessionId']) || typeof row['status'] !== 'number' || typeof row['inGroup'] !== 'number') return malformed('missing matching conversation read-back');
   return { kind: 'success', value: { gid, sessionId: row['sessionId'], status: row['status'], inGroup: row['inGroup'] } };
+}
+
+// ------------------------------------------------------------- reopen by send
+
+/** 官方 FINISH 状态值（CONVERSATION_STATUS_TABLE 中唯一映射 finished 的数字）。 */
+export const FINISHED_STATUS = 4;
+
+/**
+ * `startChatB2C` 重开体。字段名来自官方网页 builder（web-message-notice-static：
+ * `{serviceType, vendorRefId, role, threadId, orderNo, extParams, customerUid, sessionId, groupId,
+ * languageInfo:{lang, customerSource, terminalChannel}}`）与「结束后发送」实测体（evidence 49：
+ * 无 orderNo、无 sessionId，role="VBK"，extParams 与会话行 `ext` 同键）。取值映射
+ * refId→vendorRefId、vendorRole→role、ext→extParams、uid→customerUid 由同名结构推定，
+ * 证据已脱敏，未做逐值核对；缺任何一项即拒绝构造，不猜默认值。
+ */
+export function reopenChatBody(gid: string, row: Record<string, unknown>): Record<string, unknown> | PeripheralFailure {
+  const st = row['serviceType'];
+  const serviceType = typeof st === 'string' ? st : typeof st === 'number' && Number.isSafeInteger(st) ? String(st) : '';
+  const ext = recordOrNull(row['ext']);
+  const lang = recordOrNull(row['languageInfo']);
+  const missing = [
+    ...(serviceType === '' ? ['serviceType'] : []),
+    ...(nonempty(row['uid']) ? [] : ['uid']),
+    ...(nonempty(row['refId']) ? [] : ['refId']),
+    ...(nonempty(row['vendorRole']) ? [] : ['vendorRole']),
+    ...(typeof row['threadId'] === 'string' ? [] : ['threadId']),
+    ...(ext ? [] : ['ext']),
+  ];
+  if (missing.length) return { kind: 'unsupported', missing };
+  const text = (v: unknown): string => (typeof v === 'string' ? v : '');
+  return {
+    serviceType, vendorRefId: row['refId'], role: row['vendorRole'], threadId: row['threadId'],
+    extParams: ext, customerUid: row['uid'], groupId: gid,
+    languageInfo: { lang: text(lang?.['lang']), customerSource: text(lang?.['customerSource']), terminalChannel: text(lang?.['terminalChannel']) },
+  };
+}
+
+export type ReopenResult = { readonly kind: 'already_open' } | PeripheralWriteResult;
+
+/**
+ * 已结束会话发送前的重开（官方网页：结束后发送消息触发 `startChatB2C` 并重新开启，
+ * docs/research/2026-10-30-browser-api-validation.md「会话搜索与重新开启」、evidence 49）。
+ * 先独立读回服务端当前状态：不是 FINISH 就不写（他人已重开 / 本机上一次结果未知但已生效），
+ * 因此一次「结果未知」后的再次发送不会盲目重复 startChatB2C。写入只提交一次，不重试；
+ * 只有 SUCCESS 且回读同一 groupId 与数字 workSheetId 才算已重开。
+ */
+export async function reopenConversationForSend(deps: AdapterDeps, soa: SoaClient, gid: string): Promise<ReopenResult> {
+  if (!nonempty(gid)) return { kind: 'invalid', field: 'gid' };
+  const read = await readLatestConversation(deps, soa, gid);
+  if (read.kind !== 'success') return read.kind === 'unknown' ? { kind: 'failed', outcome: read.outcome } : read;
+  if (typeof read.value['status'] !== 'number') return malformed('missing conversation status');
+  if (read.value['status'] !== FINISHED_STATUS) return { kind: 'already_open' };
+  const body = reopenChatBody(gid, read.value);
+  if ('kind' in body) return body as PeripheralFailure;
+  return submit(deps, soa, Endpoints.START_CHAT_B2C, body, (b) => {
+    const r = recordOrNull(b);
+    return !!r && isBizSuccess(r) && r['groupId'] === gid && worksheet(r['workSheetId']);
+  });
 }

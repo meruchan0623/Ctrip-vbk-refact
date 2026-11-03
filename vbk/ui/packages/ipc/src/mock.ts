@@ -579,11 +579,13 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       const ctx = checkAccount(p);
       const { gid, local_id, text, original, quote_id } = p as { gid: string; local_id: string; text: string; original?: string; quote_id?: string };
       const conv = convFor(ctx, gid);
-      if (conv.status === 'finished') throw appError(ErrorCodes.IM_PERMISSION_DENIED, '会话已结束');
+      if (conv.status === 'transferred_out') throw appError(ErrorCodes.IM_PERMISSION_DENIED, '会话已转出');
       if (!st.net.online) {
         return { kind: 'unknown' } satisfies SendDisposition;
       }
       await delay(latency * 3);
+      // 已结束会话：真实适配器先 startChatB2C 重开再提交（evidence 49），演示直接置为处理中。
+      if (conv.status === 'finished') updateConv(gid, (c) => ({ ...c, status: 'active' }));
       let disposition: SendDisposition;
       if (text.includes('未知')) disposition = { kind: 'unknown' };
       else if (text.includes('拒绝')) disposition = { kind: 'rejected', code: ErrorCodes.IM_PERMISSION_DENIED, reason: '示例：服务端拒绝' };
