@@ -23,7 +23,8 @@ import { Endpoints } from './endpoints.ts';
 import { businessHead } from './heads.ts';
 import { isBizSuccess, recordOrNull, type SoaClient } from './soa.ts';
 import type { HttpMessageObject, MemberRoles } from './facts.ts';
-import { jidLocal, normalizeTimeMs } from './facts.ts';
+import { jidLocal, jidSender, normalizeTimeMs } from './facts.ts';
+import { selectReadTarget } from './markRead.ts';
 import { rowView, type ConversationRowView } from './display.ts';
 
 function norm(uid: string): string {
@@ -56,6 +57,8 @@ export class ConversationStore {
   readonly #rows = new Map<string, ConversationListItem>();
   readonly #views = new Map<string, ConversationRowView>();
   readonly #latest = new Map<string, LatestMessage>();
+  /** Read-receipt cursor: only advanced by row last messages the customer (peer) sent. */
+  readonly #readTargets = new Map<string, LatestMessage>();
   readonly #assistantRevisions = new Map<string, { signature: string; token: string }>();
   readonly #orders = new Map<string, { context: string; revision: number; time: number; order: UiOrderSummary }>();
   // Independent of order evidence: a service may change before any card arrives.
@@ -81,9 +84,12 @@ export class ConversationStore {
       this.#views.set(view.gid, view);
       gids.push(view.gid);
       // A reused gid is not a message identity. Drop even a higher-time old target.
-      if (!previous || previous.context !== context) this.#latest.delete(view.gid);
+      if (!previous || previous.context !== context) { this.#latest.delete(view.gid); this.#readTargets.delete(view.gid); }
       const lm = view.lastMessage;
-      if (lm) this.#rememberMessage(view.gid, lm.msgId, lm.createTime);
+      if (lm) {
+        this.#rememberMessage(view.gid, lm.msgId, lm.createTime);
+        this.#rememberPeerMessage(view.gid, view.customerUid, lm);
+      }
     }
     if (gids.length > 0) for (const w of [...this.#watchers]) w(gids);
     return gids;
@@ -140,6 +146,27 @@ export class ConversationStore {
 
   latestMessage(gid: string): LatestMessage | null {
     return this.#latest.get(gid) ?? null;
+  }
+
+  // The receipt cursor targets the newest counterpart message (I-06): the
+  // agent's own or another merchant's row last message never moves it.
+  #rememberPeerMessage(gid: string, customerUid: string | null, lm: HttpMessageObject): void {
+    const customer = customerUid ? norm(customerUid) : '';
+    const sender = typeof lm.fromJid === 'string' ? norm(jidSender(lm.fromJid)) : '';
+    if (customer === '' || sender !== customer) return;
+    const id = idStr(lm.msgId), t = normalizeTimeMs(lm.createTime);
+    if (id === null || t === null) return;
+    const cur = this.#readTargets.get(gid);
+    const target = selectReadTarget([
+      ...(cur ? [{ msgId: cur.msgId, createTimeMs: cur.createTime, fromSelf: false }] : []),
+      { msgId: id, createTimeMs: t, fromSelf: false },
+    ]);
+    if (target === id) this.#readTargets.set(gid, { msgId: id, createTime: t });
+  }
+
+  /** Newest peer-sent message id known from authoritative rows of the current context, or `null`. */
+  readTarget(gid: string): LatestMessage | null {
+    return this.#readTargets.get(gid) ?? null;
   }
 
   noteOrder(gid: string, order: UiOrderSummary, time: number): void {

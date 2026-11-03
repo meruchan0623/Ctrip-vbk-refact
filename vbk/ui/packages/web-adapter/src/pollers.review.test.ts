@@ -202,16 +202,18 @@ test('review/pollers: a compensation response arriving after a transport-driven 
   const loop = createCompensationLoop(deps, new SoaClient(deps), { emit: (f) => facts.push(f), roles: UNKNOWN_ROLES, initialBeginMsgTime: 1 });
   loop.start('connected');
   await deps.clock.advance(0);
-  loop.setTransport('disconnected'); // restart → generation bump → second request
+  loop.setTransport('disconnected'); // restart → generation bump; single flight: no second request yet
   await deps.clock.advance(0);
-  assert.equal(deps.fakeFetch.calls.length, 2);
-  assert.equal(loop.cursor, 1700000002000);
+  assert.equal(deps.fakeFetch.calls.length, 1);
   d.resolve(jsonResponse({ ResponseStatus: OK_STATUS, messages: [msg('OLD', 1700000009000)], lastMessageTimestamp: 1700000009000 }));
   await flush();
   await deps.clock.advance(0);
   assert.equal(facts.some((f) => f.kind === 'message'), false);
-  assert.equal(loop.cursor, 1700000002000);
+  assert.equal(loop.cursor, 1, 'dropped response does not move the cursor');
   assert.equal(loop.mode, 'frequent');
+  await deps.clock.advance(5000);
+  assert.equal(deps.fakeFetch.calls.length, 2, 'the new generation runs once the floor allows');
+  assert.equal(loop.cursor, 1700000002000);
   await deps.clock.advance(5000);
   assert.equal(deps.fakeFetch.calls.length, 3);
   loop.stop();

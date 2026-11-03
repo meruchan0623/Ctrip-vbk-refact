@@ -53,6 +53,35 @@ test('classification: five counted groups, two separate classes, variants, every
   assert.equal(classifyTrafficPath('https://example.invalid/getConversationList'), null);
   assert.equal(classifyTrafficPath({ url: soa('11679/getRecentMessages') }), 'recent_messages');
   assert.equal(classifyTrafficPath(42), null);
+});
+
+test('classification: strict scheme / host / port check; lookalike origins are not official traffic', () => {
+  const list = '/restapi/soa2/16037/getConversationList';
+  for (const url of [
+    `https://m.ctrip.com.evil${list}`,
+    `https://evil.com${list}`,
+    `https://evil.com/x${list}`,
+    `https://xm.ctrip.com${list}`,
+    `http://m.ctrip.com${list}`,
+    `https://m.ctrip.com:8443${list}`,
+    `https://user:pw@m.ctrip.com${list}`,
+    `wss://m.ctrip.com${list}`,
+    'https://s.c-ctrip.com.evil/bee/collect',
+    'http://s.c-ctrip.com/bee/collect',
+    'https://m.ctrip.com/bee/collect',
+    'https://s.c-ctrip.com/x/bee/collect',
+  ]) {
+    assert.equal(classifyTrafficPath(url), null, url);
+    assert.equal(conversationListVariantOf(url), null, url);
+  }
+  assert.equal(classifyTrafficPath(`https://m.ctrip.com:443${list}`), 'conversation_list');
+  assert.equal(classifyTrafficPath(`https://M.CTRIP.COM${list}`), 'conversation_list', 'host is case-insensitive');
+  assert.equal(classifyTrafficPath(`https://vbooking.ctrip.com${list}.json`), 'conversation_list');
+  assert.equal(classifyTrafficPath(`https://imvendor.ctrip.com${list}`), 'conversation_list');
+  assert.equal(classifyTrafficPath(`${list}?x=1`), 'conversation_list', 'relative URL is the page origin');
+  assert.equal(classifyTrafficPath(`//m.ctrip.com.evil${list}`), null, 'protocol-relative lookalike');
+  // variants
+  const soa = (p: string) => `https://m.ctrip.com/restapi/soa2/${p}?_fxpcqlniredt=x`;
   assert.equal(conversationListVariantOf(soa('16037/getConversationList.json')), 'json');
   assert.equal(conversationListVariantOf(soa('16037/getConversationList')), 'plain');
   assert.equal(conversationListVariantOf(soa('11679/getRecentMessages')), null);

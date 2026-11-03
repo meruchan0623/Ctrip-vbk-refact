@@ -27,6 +27,7 @@
  */
 
 import type { FetchLike, PageContext } from './deps.ts';
+import { M, ONLINE, SEC_M } from './endpoints.ts';
 
 // ------------------------------------------------------------- traffic classification
 
@@ -53,18 +54,41 @@ function pathOf(url: string): string {
   return cut >= 0 ? url.slice(0, cut) : url;
 }
 
+/** Hosts whose `/restapi/soa2/` traffic belongs to the pacing contract (endpoints.ts hosts + the IM page origins). */
+const SOA_HOSTS: ReadonlySet<string> = new Set([M, SEC_M, ONLINE, 'vbooking.ctrip.com', 'imvendor.ctrip.com']);
+const TELEMETRY_HOST = 's.c-ctrip.com';
+/** Relative URLs are the official page's own; the adapter only boots on this origin (boot.ts). */
+const PAGE_BASE = 'https://vbooking.ctrip.com/';
+
+/**
+ * Exact `https:` + allow-listed host + default port, or `null`. Lookalike
+ * hosts (`m.ctrip.com.evil`), plain `http:` and non-default ports are not
+ * official traffic and must never be counted or fed to the adapter.
+ */
+function officialUrl(url: string): URL | null {
+  let u: URL;
+  try {
+    u = new URL(url, PAGE_BASE);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== 'https:' || (u.port !== '' && u.port !== '443') || u.username !== '' || u.password !== '') return null;
+  return u;
+}
+
 /** Category of one request URL, or `null` when it is not part of the pacing contract. */
 export function classifyTrafficPath(rawUrl: unknown): TrafficCategory | null {
   const url = urlString(rawUrl);
   if (url === null) return null;
-  const path = pathOf(url);
-  const soa = path.indexOf('/restapi/soa2/');
-  if (soa >= 0) {
-    const rest = path.slice(soa + '/restapi/soa2/'.length).split('/');
+  const u = officialUrl(url);
+  if (u === null) return null;
+  const path = u.pathname;
+  if (SOA_HOSTS.has(u.hostname) && path.startsWith('/restapi/soa2/')) {
+    const rest = path.slice('/restapi/soa2/'.length).split('/');
     const name = (rest[rest.length - 1] ?? '').replace(/\.json$/, '');
     return Object.prototype.hasOwnProperty.call(SOA_NAME_TO_CATEGORY, name) ? (SOA_NAME_TO_CATEGORY[name] ?? null) : null;
   }
-  return /\/bee\/collect$/.test(path) ? 'telemetry' : null;
+  return u.hostname === TELEMETRY_HOST && path === '/bee/collect' ? 'telemetry' : null;
 }
 
 /** `.json` entry vs the plain vbooking entry of `getConversationList`; `null` for other URLs. */

@@ -527,3 +527,32 @@ test('rpc: server_now_ms is only honoured as a positive safe integer; anything e
   }
   assert.equal(base.fakeFetch.calls.length, 0);
 });
+
+test('rpc: im.mark_read targets only the newest peer-sent message, never the agent\'s own row message', async () => {
+  const { sdk, rpc, store, ctx } = setup();
+  const own = (id: string, from: string, t: number) => sampleRow(GID, { lastMessageJsonString: JSON.stringify({ msgId: id, fromJid: from, toJid: `${GID}@conf.x`, createTime: t, msgtype: 0 }) });
+  store.update([own('agent-reply', 'me@im.x', 1700000000800)]);
+  assert.equal(store.latestMessage(GID)?.msgId, 'agent-reply', 'preview frontier still follows any sender');
+  assert.equal(store.readTarget(GID)?.msgId, `m-${GID}`, 'own message never becomes the read target');
+  assert.equal(err(await rpc.handle({ req_id: 'own', op: 'im.mark_read', args: { gid: GID, expected_context_revision: readRevision(ctx), expected_message_id: 'agent-reply' } })), 'adapter.failed');
+  store.update([own('other-merchant', `${GID}@conf.x/merchant-2`, 1700000000900)]);
+  assert.equal(store.readTarget(GID)?.msgId, `m-${GID}`, 'another merchant is not the peer');
+  assert.equal(sdk.readReceipts.length, 0);
+  assert.equal(ok(await rpc.handle({ req_id: 'peer', op: 'im.mark_read', args: { gid: GID, expected_context_revision: readRevision(ctx), expected_message_id: `m-${GID}` } })), null);
+  store.update([own('peer-new', `${GID}@conf.x/CUST-${GID}`, 1700000001000)]);
+  assert.equal(store.readTarget(GID)?.msgId, 'peer-new', 'room-resource jid and case are normalized');
+  store.update([own('peer-older', `cust-${GID}@im.x`, 1700000000950)]);
+  assert.equal(store.readTarget(GID)?.msgId, 'peer-new', 'cursor never moves backwards');
+  assert.deepEqual(sdk.readReceipts.map(r => r.msgId), [`m-${GID}`]);
+});
+
+test('store: read target resets with the service context and needs a known customer', () => {
+  const store = new ConversationStore();
+  const r = (uid: string | null, id: string, from: string) => sampleRow(GID, { uid, sessionId: `s-${uid}`, lastMessageJsonString: JSON.stringify({ msgId: id, fromJid: from, toJid: `${GID}@conf.x`, createTime: 1700000000500, msgtype: 0 }) });
+  store.update([r('A', 'a1', 'A@im.x')]);
+  assert.equal(store.readTarget(GID)?.msgId, 'a1');
+  store.update([r('B', 'b-own', 'me@im.x')]);
+  assert.equal(store.readTarget(GID), null, 'new customer context drops the old target');
+  store.update([r(null, 'x', '@im.x')]);
+  assert.equal(store.readTarget(GID), null);
+});

@@ -390,7 +390,7 @@ const imMarkRead: Handler<'im.mark_read'> = async (ctx, args) => {
   const expectedRevision = requireString(args, 'expected_context_revision');
   requireConversation(ctx, gid);
   const partnerJid = partnerJidOf(ctx, gid);
-  const latest = ctx.store.latestMessage(gid);
+  const latest = ctx.store.readTarget(gid);
   if (!partnerJid || !latest) fail(ErrorCodes.ADAPTER_NOT_READY, 'no message / target jid known for this conversation yet', true);
   const authoritativeRoom = roomJidFromMessage(gid, ctx.store.view(gid)?.lastMessage ?? null);
   if (!authoritativeRoom || authoritativeRoom !== partnerJid) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation read target has not been verified');

@@ -103,7 +103,8 @@ interface RawPost {
 }
 
 async function rawPost(deps: AdapterDeps, url: string, headers: Record<string, string>, body: Uint8Array | string, timeoutMs: number): Promise<RawPost | UploadFailure> {
-  const init: FetchInit = { method: 'POST', headers, body, credentials: 'include' };
+  // Upload hosts are fixed; a redirect could carry the page cookies and the bytes elsewhere.
+  const init: FetchInit = { method: 'POST', headers, body, credentials: 'include', redirect: 'error' };
   const exchange = (async (): Promise<RawPost | UploadFailure> => {
     let status: number;
     let text: string;

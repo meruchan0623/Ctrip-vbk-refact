@@ -48,6 +48,7 @@ test('uploadImage: token → raw bytes with auth + MD5 + mime; gated on Code 200
   const up = deps.fakeFetch.calls[1];
   assert.ok(up);
   assert.equal(up.init.body, bytes); // raw bytes, not multipart/JSON
+  assert.equal(up.init.redirect, 'error', 'upload never follows a redirect');
   assert.equal(up.init.headers['Content-Type'], 'image/png');
   assert.equal(up.init.headers['Content-MD5'], md5Hex(bytes));
   assert.match(up.init.headers['Authorization'] ?? '', /^Nephele [ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678]{32}\/\d{12}\/im_business\/dG9rZW46e3t0b2tlbn19$/);
@@ -77,6 +78,7 @@ test('uploadFile: no token, no auth, no MD5, public=1', async () => {
   assert.ok(c);
   assert.equal(c.url, 'https://nephele.ctrip.com/file/v1/api/upload?channel=im&public=1');
   assert.equal(c.init.body, bytes);
+  assert.equal(c.init.redirect, 'error');
   assert.equal('Authorization' in c.init.headers, false);
   assert.equal('Content-MD5' in c.init.headers, false);
   assert.equal(c.init.headers['Content-Type'], 'application/pdf');
