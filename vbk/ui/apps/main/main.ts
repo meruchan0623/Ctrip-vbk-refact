@@ -1746,7 +1746,18 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
       { class: 'mcol' },
       h('div', { class: 'mmeta' }, who),
       quotePreview ? h('div', { class: 'quote-in' }, t('chat.quotePrefix'), quotePreview) : null,
-      body,
+      // 操作条贴着气泡：.bline 宽度随气泡收缩，操作条绝对定位在气泡外侧。
+      h(
+        'div',
+        { class: 'bline' },
+        body,
+        h(
+          'div',
+          { class: 'macts' },
+          h('button', { type: 'button', dataset: { msgAction: 'quote' }, 'aria-label': t('chat.quote'), title: t('chat.quote'), onclick: () => store.patch({ quote: m }) }, icon(IC.quote, 14)),
+          h('button', { type: 'button', dataset: { msgAction: 'copy' }, 'aria-label': t('chat.copy'), title: t('chat.copy'), onclick: () => copyText(m.text) }, icon(IC.copy, 14)),
+        ),
+      ),
       showTime ? h('div', { class: 'message-time' }, isSelf && m.read_status && m.read_status !== 'unknown' ? h('span', { class: m.read_status === 'unread' ? 'receipt-unread' : 'receipt-read' }, m.read_status === 'unread' ? '未读' : '已读') : null, `${formatDate(m.create_time_ms)} ${formatClock(m.create_time_ms, true)}`) : null,
       st
         ? h(
@@ -1757,12 +1768,6 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
             st.canRetry && m.kind === 'text' ? h('button', { class: 'act', onclick: () => void resend(m) }, t('send.retry')) : null,
           )
         : null,
-    ),
-    h(
-      'div',
-      { class: 'macts' },
-      h('button', { type: 'button', dataset: { msgAction: 'quote' }, 'aria-label': t('chat.quote'), title: t('chat.quote'), onclick: () => store.patch({ quote: m }) }, icon(IC.quote, 14)),
-      h('button', { type: 'button', dataset: { msgAction: 'copy' }, 'aria-label': t('chat.copy'), title: t('chat.copy'), onclick: () => copyText(m.text) }, icon(IC.copy, 14)),
     ),
   );
 }

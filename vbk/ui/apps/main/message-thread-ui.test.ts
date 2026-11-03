@@ -83,6 +83,17 @@ test('hover action bar has exactly two labelled icon buttons: quote and copy', (
   assert.deepEqual(calls.toasts, []);
 });
 
+test('action bar sits beside the bubble inside .bline, not on the full-width row', () => {
+  const { tree } = renderRow(msg({ text: '2' }));
+  const line = nodes(tree).find((n) => hasClass(n, 'bline'));
+  assert.ok(line, 'bubble wrapped in .bline');
+  const kids = (line.children as unknown[]).filter((n): n is Node => !!n && typeof n === 'object');
+  assert.ok(kids.some((n) => hasClass(n, 'bubble')), 'bubble is a direct child of .bline');
+  assert.ok(kids.some((n) => hasClass(n, 'macts')), 'action bar is anchored to the bubble line');
+  const row = (tree as Node).children as unknown[];
+  assert.ok(!row.some((n) => !!n && typeof n === 'object' && hasClass(n as Node, 'macts')), 'not a direct child of the row');
+});
+
 const fullOrder: UiOrderSummary = { order_id: '1359049237198786', product: 'eSIM 中国大陆 1-30天', use_date: '2026/10/28', quantity: '', status: '', contact: '', source_channel: 'Trip-App', total_amount: '15.48', source_title: '订单咨询通知', source_description: '我来自玩乐订单详情页' };
 
 test('orderCardView lists only the fields the matching card summary provides', () => {
