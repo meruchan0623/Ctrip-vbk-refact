@@ -1,5 +1,5 @@
 //! Outbound translation through TSim (external-tsim.md "出站翻译", plan
-//! AST-02 / AST-04, final review F12): request builder with exactly the six
+//! AST-02 / AST-04, final review F12): request builder with exactly the seven
 //! documented fields, echo-checked response parsing, result binding,
 //! the send-mode state machine and a per-account cache.
 
@@ -21,6 +21,8 @@ pub const MAX_TRANSLATED_CHARS: usize = 50_000;
 pub const MAX_COMPOSER_VERSION_CHARS: usize = 25_000;
 pub const SOURCE_LANG: &str = "zh";
 pub const PURPOSE: &str = "outbound";
+/// TSim usage attribution, shown there as 旅游商家助手.
+pub const CLIENT_SOURCE: &str = "travel_merchant_companion";
 
 fn invalid(msg: &str) -> AppError {
     AppError::new(codes::INVALID_INPUT, msg)
@@ -55,7 +57,7 @@ pub struct TranslateParams {
 
 /// Builds `POST /agent/translate` with exactly
 /// `text, target_lang, source_lang:"zh", purpose:"outbound",
-/// draft_request_id, composer_content_version`.
+/// draft_request_id, composer_content_version, client_source`.
 pub fn translate_request(
     session: &TsimSession,
     text: &str,
@@ -89,6 +91,7 @@ pub fn translate_request(
         "composer_content_version",
         JsonValue::string(composer_content_version),
     );
+    body.insert("client_source", JsonValue::string(CLIENT_SOURCE));
     let req = TsimRequest::post_json(
         "/agent/translate",
         session.access_token.expose(),
@@ -470,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn body_has_exactly_six_keys() {
+    fn body_has_exactly_seven_keys() {
         let s = session();
         let (req, params) = translate_request(&s, "你好", "en", "draft-1", "v1").expect("req");
         assert_eq!(req.url, "https://csapi.tsim.tech/agent/translate");
@@ -493,10 +496,15 @@ mod tests {
             "purpose",
             "draft_request_id",
             "composer_content_version",
+            "client_source",
         ]
         .into_iter()
         .collect();
         assert_eq!(keys, expected);
+        assert_eq!(
+            doc.get("client_source").and_then(JsonValue::as_str),
+            Some("travel_merchant_companion")
+        );
         assert_eq!(
             doc.get("source_lang").and_then(JsonValue::as_str),
             Some("zh")

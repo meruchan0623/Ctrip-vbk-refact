@@ -1,6 +1,6 @@
 //! Q12 — net / assistant: `validate_official_im_url` rejects look-alike
 //! origins, userinfo, http, non-default ports and traversal; the translate
-//! request has exactly six keys; a stale translation binding is rejected;
+//! request has exactly seven keys; a stale translation binding is rejected;
 //! 403 is not a logout; offline never maps to `ticket_expired`
 //! (06-net, 09-assistant, F12, F14).
 #![allow(clippy::unwrap_used)]
@@ -94,7 +94,7 @@ fn session() -> TsimSession {
 }
 
 #[test]
-fn translate_request_has_exactly_six_keys_and_echo_is_verified() {
+fn translate_request_has_exactly_seven_keys_and_echo_is_verified() {
     let s = session();
     let (req, params) = translate_request(&s, "你好", "en", "draft-1", "v7").unwrap();
     let core_assistant::Body::Json(json) = &req.body else {
@@ -102,12 +102,13 @@ fn translate_request_has_exactly_six_keys_and_echo_is_verified() {
     };
     let doc = JsonValue::parse(json).unwrap();
     let obj = doc.as_object().unwrap();
-    assert_eq!(obj.len(), 6);
+    assert_eq!(obj.len(), 7);
     let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
     keys.sort_unstable();
     assert_eq!(
         keys,
         [
+            "client_source",
             "composer_content_version",
             "draft_request_id",
             "purpose",
