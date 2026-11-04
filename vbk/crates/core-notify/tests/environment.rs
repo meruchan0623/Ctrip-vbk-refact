@@ -79,6 +79,48 @@ fn dnd_without_timeout_exception_holds_l3_until_dnd_ends() {
 }
 
 #[test]
+fn ambient_dnd_from_settings_acts_like_tray_dnd_and_applies_at_once() {
+    let mut core = NotifyCore::new();
+    let a = acc("a", 1);
+    let base = t0();
+    core.set_settings(
+        ReminderSettings {
+            alert_during_dnd: false,
+            ..ReminderSettings::default()
+        },
+        &base,
+    )
+    .expect("valid");
+    let quiet = SystemState {
+        ambient_dnd: true,
+        ..unfocused()
+    };
+    let _ = core.set_system_state(quiet.clone(), &base);
+    assert!(core.dnd_active(&base));
+    assert!(
+        core.on_new_message(&a, "g1", true, &base).is_empty(),
+        "no flash, banner or sound inside the quiet window"
+    );
+    open_round(&mut core, &a, "g1", &base);
+    assert!(drive(&mut core, &base, 0, 40).is_empty());
+
+    // Leaving the window raises what was held; entering hides it again.
+    let later = base.plus_ms(41_000);
+    let fx = core.set_system_state(unfocused(), &later);
+    assert_eq!(raises(&fx), 1);
+    assert_eq!(sounds(&fx, Sound::Timeout), 1);
+    let fx = core.set_system_state(quiet, &later.plus_ms(1_000));
+    assert_eq!(
+        fx,
+        vec![
+            Effect::TrayFlash(false),
+            Effect::HideAlarm,
+            Effect::StopSound
+        ]
+    );
+}
+
+#[test]
 fn fullscreen_turns_banner_into_system_toast_and_respects_alert_setting() {
     let mut core = NotifyCore::new();
     let a = acc("a", 1);

@@ -21,6 +21,11 @@ pub const DND_ONE_HOUR_MS: i64 = 60 * 60 * 1000;
 /// Local hour at which "直到明天" ends.
 pub const DND_TOMORROW_HOUR: i64 = 8;
 
+/// Settings "勿扰时段 22:00 – 08:00": first quiet local hour.
+pub const QUIET_HOURS_START: i64 = 22;
+/// First local hour after the quiet window.
+pub const QUIET_HOURS_END: i64 = 8;
+
 const DAY_MS: i64 = 86_400_000;
 
 /// Next local `hour`:00 strictly after `now_ms`, as an absolute UTC epoch
@@ -44,6 +49,14 @@ pub fn next_local_hour_ms(now_ms: i64, utc_offset_minutes: i32, hour: i64) -> i6
 /// Expiry for the tray's "直到明天": the next local 08:00.
 pub fn dnd_until_tomorrow_ms(now_ms: i64, utc_offset_minutes: i32) -> i64 {
     next_local_hour_ms(now_ms, utc_offset_minutes, DND_TOMORROW_HOUR)
+}
+
+/// Whether `now_ms` falls in the local quiet window (start inclusive, end
+/// exclusive). `utc_offset_minutes` as in [`next_local_hour_ms`].
+pub fn in_quiet_hours(now_ms: i64, utc_offset_minutes: i32) -> bool {
+    let offset_ms = i64::from(utc_offset_minutes) * 60_000;
+    let hour = now_ms.saturating_add(offset_ms).rem_euclid(DAY_MS) / 3_600_000;
+    !(QUIET_HOURS_END..QUIET_HOURS_START).contains(&hour)
 }
 
 impl DndMode {
@@ -122,5 +135,21 @@ mod tests {
     #[test]
     fn pre_epoch_floor_division() {
         assert_eq!(next_local_hour_ms(-1, 0, 8), 8 * H);
+    }
+
+    #[test]
+    fn quiet_hours_cover_22_to_08_local_with_half_open_edges() {
+        // 1970-01-01T00:00Z shifted so that local wall time reads directly.
+        let at =
+            |hour: i64, minute: i64, offset: i32| (hour * 60 + minute - i64::from(offset)) * 60_000;
+        for offset in [480, 0, -300] {
+            assert!(!in_quiet_hours(at(21, 59, offset), offset));
+            assert!(in_quiet_hours(at(22, 0, offset), offset));
+            assert!(in_quiet_hours(at(23, 59, offset), offset));
+            assert!(in_quiet_hours(at(0, 0, offset), offset));
+            assert!(in_quiet_hours(at(7, 59, offset), offset));
+            assert!(!in_quiet_hours(at(8, 0, offset), offset));
+            assert!(!in_quiet_hours(at(12, 0, offset), offset));
+        }
     }
 }

@@ -52,6 +52,9 @@ pub struct SystemState {
     pub presentation: bool,
     pub locked: bool,
     pub focus_assist: bool,
+    /// Do-not-disturb the host derives from the settings: the quiet-hours
+    /// window, or the OS focus state when "跟随系统勿扰" is on.
+    pub ambient_dnd: bool,
 }
 
 /// Local-only options with no frozen contract field yet.
@@ -260,7 +263,7 @@ impl NotifyCore {
     }
 
     pub fn dnd_active(&self, now: &Now) -> bool {
-        self.dnd.is_active(now.server_now_ms)
+        self.system.ambient_dnd || self.dnd.is_active(now.server_now_ms)
     }
 
     pub fn reconcile_state(&self) -> ReconcileState {
@@ -309,7 +312,7 @@ impl NotifyCore {
         let previous = std::mem::replace(&mut self.system, state);
         let mut out = Vec::new();
 
-        if self.system.main_window_focused && self.tray_flashing {
+        if (self.system.main_window_focused || self.system.ambient_dnd) && self.tray_flashing {
             self.tray_flashing = false;
             self.flash_sources.clear();
             out.push(Effect::TrayFlash(false));
@@ -826,6 +829,11 @@ impl NotifyCore {
         !self.dnd_active(now) && !self.system.presentation && !self.system.focus_assist
     }
 
+    /// DND and the system quiet states, for banners that are not new messages.
+    pub fn banner_allowed(&self, now: &Now) -> bool {
+        self.l2_allowed(now)
+    }
+
     fn banner_effect(&self, account: AccountContext, gid: String, count: u32) -> Effect {
         if self.system.fullscreen_app {
             Effect::SystemToast {
@@ -871,7 +879,7 @@ impl NotifyCore {
             settings: &settings,
             system: &self.system,
             barrier: self.barrier_active(),
-            dnd_active: self.dnd.is_active(now.server_now_ms),
+            dnd_active: self.dnd_active(now),
             ring_while_locked: self.options.ring_while_locked,
         });
 
