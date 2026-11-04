@@ -360,10 +360,10 @@ impl MessageIndex {
                 if let Some(mut rec) = self.records.remove(lkey) {
                     rec.absorb(fact);
                     rec.message_id = Some(mid.clone());
-                    self.replace_key(&fact.gid, lkey, &server_key);
+                    self.remove_ordered_key(&fact.gid, lkey);
                     self.aliases.insert(lkey.clone(), server_key.clone());
                     self.records.insert(server_key.clone(), rec);
-                    self.resort(&fact.gid);
+                    self.insert_ordered_key(&fact.gid, server_key.clone());
                     return Ok(MergeOutcome::Linked {
                         local_key: lkey.clone(),
                         server_key,
@@ -384,12 +384,19 @@ impl MessageIndex {
     }
 
     fn absorb_into(&mut self, key: &str, fact: &MessageFact) -> MergeOutcome {
-        let (changed, gid) = match self.records.get_mut(key) {
-            Some(rec) => (rec.absorb(fact), rec.gid.clone()),
+        let (changed, time_changed, gid) = match self.records.get_mut(key) {
+            Some(rec) => {
+                let old_time = rec.create_time_ms;
+                let changed = rec.absorb(fact);
+                (changed, old_time != rec.create_time_ms, rec.gid.clone())
+            }
             None => return MergeOutcome::Duplicate,
         };
         if changed {
-            self.resort(&gid);
+            if time_changed {
+                self.remove_ordered_key(&gid, key);
+                self.insert_ordered_key(&gid, key.to_string());
+            }
             MergeOutcome::Updated
         } else {
             MergeOutcome::Duplicate
@@ -402,8 +409,7 @@ impl MessageIndex {
         }
         self.records
             .insert(key.clone(), MessageRecord::from_fact(fact));
-        self.by_gid.entry(fact.gid.clone()).or_default().push(key);
-        self.resort(&fact.gid);
+        self.insert_ordered_key(&fact.gid, key);
         self.enforce_gid_limit(&fact.gid);
     }
 
@@ -457,26 +463,40 @@ impl MessageIndex {
             .retain(|_, target| records.contains_key(target));
     }
 
-    fn replace_key(&mut self, gid: &str, old: &str, new: &str) {
+    fn remove_ordered_key(&mut self, gid: &str, key: &str) {
         if let Some(keys) = self.by_gid.get_mut(gid) {
-            for k in keys.iter_mut() {
-                if k == old {
-                    *k = new.to_string();
-                }
+            if let Some(pos) = keys.iter().position(|k| k == key) {
+                keys.remove(pos);
             }
         }
     }
 
-    fn resort(&mut self, gid: &str) {
-        let Some(keys) = self.by_gid.get_mut(gid) else {
-            return;
-        };
+    /// Preserve exactly the old `(server time, dedup key)` order. Live
+    /// arrivals usually append; older arrivals move only the affected tail.
+    fn insert_ordered_key(&mut self, gid: &str, key: String) {
         let records = &self.records;
-        keys.sort_by(|a, b| {
-            let ta = records.get(a).map_or(i64::MIN, |r| r.create_time_ms);
-            let tb = records.get(b).map_or(i64::MIN, |r| r.create_time_ms);
-            ta.cmp(&tb).then_with(|| a.cmp(b))
-        });
+        let time = records.get(&key).map_or(i64::MIN, |r| r.create_time_ms);
+        let compare = |other: &String| {
+            records
+                .get(other)
+                .map_or(i64::MIN, |r| r.create_time_ms)
+                .cmp(&time)
+                .then_with(|| other.cmp(&key))
+        };
+        let keys = self.by_gid.entry(gid.to_string()).or_default();
+        let pos = ordered_insert_position(keys, compare);
+        keys.insert(pos, key);
+    }
+}
+
+fn ordered_insert_position<T>(
+    items: &[T],
+    mut compare: impl FnMut(&T) -> std::cmp::Ordering,
+) -> usize {
+    if items.last().map_or(true, |last| compare(last).is_lt()) {
+        items.len()
+    } else {
+        items.binary_search_by(compare).unwrap_or_else(|pos| pos)
     }
 }
 
@@ -496,6 +516,82 @@ mod tests {
             kind: MsgKind::Business,
             source: src,
             disposition: None,
+        }
+    }
+
+    #[test]
+    fn ordering_search_is_constant_for_append_and_logarithmic_for_history() {
+        let items: Vec<_> = (0..2048).collect();
+        let mut comparisons = 0;
+        let pos = ordered_insert_position(&items, |n| {
+            comparisons += 1;
+            n.cmp(&2048)
+        });
+        assert_eq!(pos, 2048);
+        assert_eq!(comparisons, 1);
+        comparisons = 0;
+        let pos = ordered_insert_position(&items, |n| {
+            comparisons += 1;
+            n.cmp(&-1)
+        });
+        assert_eq!(pos, 0);
+        assert!(
+            comparisons <= 14,
+            "binary search comparisons: {comparisons}"
+        );
+    }
+
+    #[test]
+    fn incremental_order_matches_full_sort_after_links_updates_and_eviction() {
+        let mut idx = MessageIndex::with_limits(IndexLimits {
+            max_per_gid: 40,
+            max_gids: 3,
+        });
+        for i in 0..300 {
+            let lid = format!("local{i}");
+            let mid = format!("server{i}");
+            let gid = format!("g{}", (i / 50) % 4);
+            let mut local = fact(
+                None,
+                Some(&lid),
+                (i * 17 % 23) as i64,
+                MessageSource::Realtime,
+            );
+            local.gid = gid.clone();
+            local.sender_role = SenderRole::Unknown;
+            let mut linked = local.clone();
+            linked.message_id = Some(mid.clone());
+            linked.create_time_ms = (i * 11 % 19) as i64;
+            let mut ack = linked.clone();
+            ack.disposition = Some(SendDisposition::Confirmed {
+                server_message_id: mid,
+                server_time_ms: (i * 7 % 29) as i64,
+            });
+            // Includes semantic changes that leave the ordering unchanged.
+            let mut resolved = ack.clone();
+            resolved.sender_role = SenderRole::MerchantSelf;
+            for input in [local, linked, ack, resolved] {
+                idx.merge(&input).unwrap();
+                for (gid, actual) in &idx.by_gid {
+                    let mut expected: Vec<_> = idx
+                        .records
+                        .iter()
+                        .filter(|(_, record)| &record.gid == gid)
+                        .map(|(key, _)| key.clone())
+                        .collect();
+                    expected.sort_by(|a, b| {
+                        idx.records[a]
+                            .create_time_ms
+                            .cmp(&idx.records[b].create_time_ms)
+                            .then_with(|| a.cmp(b))
+                    });
+                    assert_eq!(actual, &expected);
+                }
+                assert!(idx
+                    .aliases
+                    .values()
+                    .all(|key| idx.records.contains_key(key)));
+            }
         }
     }
 
