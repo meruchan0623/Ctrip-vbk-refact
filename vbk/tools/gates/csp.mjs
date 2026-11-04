@@ -65,7 +65,9 @@ export function checkPolicy(csp) {
     if (d[name] !== undefined && !exactly(d[name], ["'self'", "'none'"])) msgs.push(`\`${name}\` overrides script-src and must be exactly 'self' or 'none' (got ${d[name].join(' ') || 'none'})`);
   }
   if (d['base-uri'] !== undefined && !exactly(d['base-uri'], ["'self'", "'none'"])) msgs.push(`\`base-uri\` must be 'self' or 'none' (got ${d['base-uri'].join(' ')})`);
-  if (!(d['frame-src']?.length === 1 && d['frame-src'][0] === "'none'")) msgs.push("frame-src must be 'none'");
+  // The operator iframe has one fixed production origin. No wildcard, 'self',
+  // data/blob source or additional frame host is permitted.
+  if (!(d['frame-src']?.length === 1 && ["'none'", 'https://csagent.tsim.tech'].includes(d['frame-src'][0]))) msgs.push("frame-src must be 'none' or exactly https://csagent.tsim.tech");
   if (!(d['object-src']?.length === 1 && d['object-src'][0] === "'none'")) msgs.push("object-src must be 'none'");
   return msgs;
 }

@@ -29,7 +29,7 @@
       "http://ipc.localhost"
     ],
     "frame-src": [
-      "'none'"
+      "https://csagent.tsim.tech"
     ],
     "object-src": [
       "'none'"
