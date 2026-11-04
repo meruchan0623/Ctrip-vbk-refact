@@ -88,3 +88,27 @@ SDK 的该 wrapper 没有返回 Promise；void 返回不代表成功。glue 等�
 单聊地址依据同SDK `parseFromJid` 字符偏移32157：显式当前selfUid决定对端，不使用可覆盖的role标签来猜自己。入站peer→self取peer为gid，出站self→peer仍取peer；普通设备resource不能冒充发送者。事实与显示共用 `resolveSdkAddress`，缺self身份时单聊保守不投影。新增chat/sys_mam双向合成回归，旧实现2通过/3失败（self误作gid、device误作发送者），修复后5项通过。群聊继续以room/resource分别识别房间与发送者，裸room不是客户身份。
 
 完整独立index暴露既有facts.review把type=groupchat的裸from误作发送者（289项中1失败）；依据已核实群聊room/resource规则精确迁移为裸身份空值，并新增带resource的正例，未删测试或减少判据。
+
+## 输入状态 facade（2026-11-03 静态复核）
+
+公开 SDK 本地证据 `/tmp/vbk-web-imsdk-static-20261103.js`：198094 bytes，SHA256 `5d2aacf7a265835f5cea40ae5888e97f4126b4400eecb51c32e61a8873179bb1`，与本页 2026-10-31 的实际网页 SDK 哈希一致。本轮只解析文本，未执行下载脚本或向真实客户发送输入状态。
+
+Unicode 字符偏移：UMD @0 与 IMClient 导出 @70710；初始化模块 55 的配置引用 @121668、传输引用 @121675，`init` @121730、`connect` @122861；公共 `sendInputState` wrapper @129522，底层 socket 方法 @142477。公开签名为 `IMClient.sendInputState(request, onSuccess, onFailure)`，没有 Promise 返回契约。它与已经登录的同一 `window.IMClient` 共用配置和 socket，无需另建实例、init 或 connect。
+
+公共 request 使用裸 `partnerJid` 和 `conversationType:'groupchat'`；wrapper 自行生成 `gid@muc.<serviceName>/<selfUid>`，from 来自当前 SDK UID，`isGroup=1`。正文来自 `{status:request.status || 0}`。本轮省略 status，保留 SDK 的已证实默认值 0；未取得 0/1 的业务枚举证据，不推断停止输入或新增 status=1。
+
+底层生成 `<message type="input_state" id="<GUID>" from="..." to="..." isGroup="1"><body>{"status":0}</body></message>`。只有内部 socket 为 `online` 时才调用 `socket.send`，然后立即执行无参数成功回调；socket.send 的后续 Promise 拒绝只记日志。因此成功仅表示交给 socket，**不是服务端 ACK 或客户已收到**。离线执行 failure(`"websocket not connected"`)，同步异常执行 failure(error)；此方法无 HTTP 兜底、无主动连接。
+
+适配器暴露可选 PageSdk 能力，必须命中现有缓存的 gid/JID 对账；交给公共 facade 的仍是裸 gid，不能再次拼域。生产 RPC 注入该能力并捕获 session guard。调用前拒绝 disposed/4、6、8 终态/离线/缺缓存；回调后复核 facade、emitter、binding generation、session 与会话行身份。void 返回不算成功；失败或 15 秒无回调返回 false，旧回调不能改判，不增加 HTTP、自动连接或重试。等待调用最多 256 项。
+
+`typing.send` 的既有 `{sent:true}` 仅保持 socket handoff 语义。主窗 `OutboundTyping.settle` 仅更新能力／退避状态，没有成功 toast、消息送达状态或由此生成的对方输入提示；对方输入提示仅由入站 typing fact 驱动。
+
+离线组合回归 `sdk-typing-facade.test.ts` 直接使用 `createPageSdk → createRpc → typing.send`，覆盖公共模型、缺能力、未知会话、缺 JID、离线、抛错、失败、无回调／超时、节流和 disposed／终态／绑定／session 代次／会话替换。测试使用可控 facade，不执行 vendor 源码；实际客户侧输入提示效果尚未实机验证。
+
+## 2026-11-03 Web SDK 音频类型静态补证
+
+对与前述哈希一致的公开 SDK（198,094 bytes，SHA256 `5d2aacf7a265835f5cea40ae5888e97f4126b4400eecb51c32e61a8873179bb1`）做静态检查，未执行 SDK 或发送消息。Unicode 字符偏移：约 1685 为 `MessageType.AudioMessage = 4`；约 32870–33360 的校验要求 url、duration；约 50710–50927 的模型/解析器含 filename、url、duration、size、secret；约 55860 的 buildAudioBody 生成 title/ext/btype 与 audio 子对象；约 59100 按 AudioMessage 分派解析。
+
+此证据来自 Web SDK，不使用桌面 wire 推断。它证明 SDK 模型，不证明 HTTP 历史和线上入站 messageBody 必然采用同一封装；duration 单位/类型、URL 域名/鉴权/编码、secret 的实际用途及可播放性仍需网页入站样本。当前 voice parser 的禁用状态不能据此直接改成已验收。另需防止已知类型 4 在 UI mapper 中被静默丢弃，后续实现必须保留消息存在性并对未识别/不可播放内容明确呈现，不能将缺渲染误认为没有消息。
+
+补充精读：`buildAudioBody` 的 btype 来自 messageType，因此 SDK AudioMessage 对应 btype=4；字段原样赋值，不证明 duration/size 的单位。其 required 字段校验仅拒 null/undefined，不能当作 URL、编码或时长安全校验。后续 parser 应严格识别该 Web SDK 模型，不沿用未获证据的顶层 url/voice.url 别名；非空或类型未知的 secret 不应直接当作可播放明文资源。

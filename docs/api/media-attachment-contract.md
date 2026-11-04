@@ -124,3 +124,18 @@ Rust 类型 `media_outbound::AttachmentDto`（别名 `MediaAttachmentDto`），T
 - 文本 200 条 `confirmed` 与官方一致、`send_result` 时延基线（验收 ④⑤）；本项不改文本传输。
 - 分片上传（> 30 MiB 的视频）未实现，见 §3。
 - 视频上传鉴权模型未经官方桌面版截获印证。
+
+## 2026-11-03 持久草稿扩展（第六批实现中）
+
+此扩展保留媒体协议 v1 的现有字段与发送路径。`MediaAttachmentDto` 增加可选 `lease_id`：它是账号与会话隔离的本地持久引用，不是页面 token，也不能单独授权读取或发送。`attachment_id` 仍是当前登录代次、当前目标绑定下的短期句柄。
+
+- `im_draft_load` 保留原 `gid/text/version`，增加 `attachment_version` 及最多一个 `attachments` 条目。条目包含 `lease_id/name/kind/mime/size/content_sha256/state`；状态为 `ready/missing/corrupt/pending`。`pending` 说明该资源仍有关联的未决发送，不能以新 local_id 再发。列表中的 `ready` 仅表示路径和长度快筛可进入恢复，不是内容校验或发送授权；恢复与发送预留仍完整验证摘要与长度。
+- `im_draft_save` 仅更新文字，保留附件。文字版本与附件版本分别进行 CAS。
+- `im_draft_attachment_save {account,gid,attachment_id|null,expected_version}` 仅更新附件引用，返回 `{attachment_version,attachments}`。非空句柄须属于当前账号代次与会话；空值是显式移除。附件变更成功提交后 UI 才发布新选择；冲突不能自动重放旧附件意图。
+- `im_draft_attachment_restore {account,gid,lease_id}` 只恢复当前持久引用，并重新取得官方页面当前会话目标，校验本地内容长度、摘要、资源状态后发新短期句柄。缺件、损坏或未决发送均阻止恢复为可发附件。
+
+文件先在账号隔离区域持久落定，再由同一 outbound store 事务更新草稿/租约引用；发送预留与 outbox 引用也共同提交。旧 unknown 账本留在原位置，不迁移或重发。发送确认时，仅原草稿仍匹配预留的租约与附件版本才清附件引用；后续新编辑与文字不受影响。未知发送保留引用，移除草稿不能解除 unknown 账本屏障。
+
+旧文字草稿从主 store 一次性导入；目标记录和迁移标记共同提交，源保留且不双写。锁定、损坏或导入失败不得当作空草稿完成迁移。降级版本仍会看到旧源快照，不能把这一行为称为跨版本双向同步。
+
+本节描述目标与当前接线契约，最终真实文件系统、浏览器与平台验收结果见第六批审查记录，不能仅凭契约文字认定功能已通过。
