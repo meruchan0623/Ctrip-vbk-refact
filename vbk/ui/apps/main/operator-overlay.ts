@@ -96,7 +96,7 @@ export function createOperatorOverlay(document: Document): OperatorOverlay {
     status = document.createElement('div'); status.id = 'tsim-operator-loading';
     status.style.cssText = 'position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:1001;display:flex;align-items:center;gap:12px;padding:8px 12px;background:white;border:1px solid #ddd;border-radius:8px;color:#333;font:13px sans-serif;max-width:calc(100vw - 32px)';
     message = document.createElement('span'); message.setAttribute('role', 'status');
-    const button = document.createElement('button'); button.type = 'button'; button.textContent = '关闭订单'; button.addEventListener('click', close);
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'btn'; button.style.cssText = 'flex-shrink:0;padding:6px 12px;min-height:32px;border:1px solid #b8bec8;border-radius:6px;background:#f3f4f6;color:#222;font:inherit;cursor:pointer'; button.textContent = '关闭订单'; button.addEventListener('click', close);
     status.append(message, button); document.body.append(status);
     text('正在打开 TSIM 订单页…'); layout();
   }
@@ -121,7 +121,7 @@ export function createOperatorOverlay(document: Document): OperatorOverlay {
       view.clearTimeout(timer); timer = undefined;
       frame.contentWindow?.postMessage({ type: canHandoff ? 'TSIM_OPERATOR_SESSION' : 'TSIM_OPERATOR_SESSION_UNAVAILABLE', version: 2, identifier: grant.identifier, requestId: grant.request_id,
         ...(canHandoff ? { accessToken: grant.access_token, sessionRef: grant.session_ref } : {}) }, OPERATOR_ORIGIN);
-      text(canHandoff ? '正在使用 TSIM 登录态打开订单…' : '请在 TSIM 页面内完成登录。');
+      text(canHandoff ? '正在使用 TSIM 登录态打开订单…第一次打开可能较慢，请等待' : '请在 TSIM 页面内完成登录。');
     } else if (m.type === 'TSIM_OPERATOR_BOUNDS') {
       const rect = operatorRect(m.rect, view.innerWidth, view.innerHeight);
       if (rect) { bounds = rect; layout(); }
