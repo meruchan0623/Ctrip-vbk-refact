@@ -119,7 +119,7 @@ fn translate_request_has_exactly_seven_keys_and_echo_is_verified() {
     );
     assert_eq!(
         doc.get("source_lang").and_then(JsonValue::as_str),
-        Some("zh")
+        Some("auto")
     );
     assert_eq!(
         doc.get("purpose").and_then(JsonValue::as_str),
