@@ -480,12 +480,10 @@ impl Worker {
 
     fn write_namespace(&mut self, ns: Namespace, jobs: Vec<PersistJob>) {
         let top_seq = jobs.iter().map(|j| j.seq).max().unwrap_or(0);
-        let changed: Vec<PersistJob> = jobs
+        let changed = jobs
             .iter()
-            .filter(|j| self.last_payload.get(&(ns.clone(), j.payload.kind())) != Some(&j.payload))
-            .cloned()
-            .collect();
-        if changed.is_empty() {
+            .any(|j| self.last_payload.get(&(ns.clone(), j.payload.kind())) != Some(&j.payload));
+        if !changed {
             self.counters
                 .unchanged
                 .fetch_add(jobs.len() as u64, Ordering::Relaxed);
