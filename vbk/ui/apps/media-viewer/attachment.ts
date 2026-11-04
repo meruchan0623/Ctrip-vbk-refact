@@ -27,6 +27,8 @@ export function isViewerGallery(value: unknown): value is UiViewerGallery {
 
 /** Cards stay mounted a little beyond the visible peeks: neighbours are preloaded and rapid moves stay animated. */
 const CAROUSEL_REACH = 3;
+/** 滚轮每格的缩放倍率；按钮与键盘仍按 1.25 一档。 */
+export const WHEEL_ZOOM_STEP = 1.05;
 export function carouselSlots(count: number, index: number): { item: number; offset: number }[] {
   const slots: { item: number; offset: number }[] = [];
   for (let item = Math.max(0, index - CAROUSEL_REACH); item <= Math.min(count - 1, index + CAROUSEL_REACH); item++) slots.push({ item, offset: item - index });
@@ -150,7 +152,7 @@ export function renderViewer(gallery: UiViewerGallery, host: ViewerHost): Viewer
     if (items.length > 1) { tools.append(count); stage.append(previous, next); }
     tools.append(button('缩小', '−', () => resize(1 / 1.25)), zoom, button('放大', '+', () => resize(1.25)), button('旋转图片', '旋转 ↻', rotate));
     const onMain = (target: EventTarget | null) => !!(target as Element | null)?.closest?.('.viewer-card[data-pos="main"]');
-    stage.addEventListener('wheel', e => { e.preventDefault(); resize(e.deltaY < 0 ? 1.1 : 1 / 1.1); }, { passive: false });
+    stage.addEventListener('wheel', e => { e.preventDefault(); resize(e.deltaY < 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP); }, { passive: false });
     stage.addEventListener('dblclick', e => { if (!onMain(e.target)) return; scale = scale === 1 ? 2 : 1; x = y = 0; applyZoom(); });
     let drag: { id: number; x: number; y: number } | null = null;
     // Only the main card pans: capturing a press on a peek would swallow its click.

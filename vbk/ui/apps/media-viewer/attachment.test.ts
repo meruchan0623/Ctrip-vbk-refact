@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { attachmentInfo, carouselSlots, isViewerAttachment, isViewerGallery, slotPosition } from './attachment.ts';
+import { WHEEL_ZOOM_STEP, attachmentInfo, carouselSlots, isViewerAttachment, isViewerGallery, slotPosition } from './attachment.ts';
 
 test('file messages use media preview for known formats, including signed URL paths', () => {
   for (const [name, kind] of [['photo.JPG', 'image'], ['clip.mp4', 'video'], ['recording.m4a', 'audio'], ['report.pdf', 'file'], ['archive.zip', 'file'], ['page.html', 'file'], ['image.svg', 'file']]) {
@@ -41,4 +41,8 @@ test('carousel keeps neighbours mounted around the current image and stops at bo
 
 test('only direct neighbours are visible peeks; further ones wait hidden on their side', () => {
   assert.deepEqual([-3, -2, -1, 0, 1, 2, 3].map(slotPosition), ['before', 'before', 'prev', 'main', 'next', 'after', 'after']);
+});
+
+test('wheel zoom moves 5% per notch, half the earlier 10%', () => {
+  assert.equal(WHEEL_ZOOM_STEP, 1.05);
 });
