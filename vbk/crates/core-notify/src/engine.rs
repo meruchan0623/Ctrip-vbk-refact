@@ -215,6 +215,24 @@ impl NotifyCore {
     /// Recheck queued effects just before host execution. A permission may
     /// have expired or been revoked since the effect was produced.
     pub fn effect_is_current(&self, effect: &Effect, now: &Now) -> bool {
+        // A queued notification may cross the local quiet-window boundary
+        // before the host executes it. Recheck DND even in ungated core tests.
+        if self.dnd_active(now) {
+            match effect {
+                Effect::Banner { .. }
+                | Effect::SystemToast { .. }
+                | Effect::PlaySound(Sound::NewMessage) => return false,
+                Effect::ShowAlarm { .. } | Effect::PlaySound(Sound::Timeout | Sound::Loop)
+                    if !self.settings.alert_during_dnd =>
+                {
+                    return false
+                }
+                _ => {}
+            }
+        }
+        if matches!(effect, Effect::TrayFlash(true)) && !self.tray_flashing {
+            return false;
+        }
         if self.account_permissions.is_none() {
             return true;
         }

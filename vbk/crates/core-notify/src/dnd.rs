@@ -1,14 +1,17 @@
 //! Application-level do-not-disturb (strong-alert §2 "勿扰").
 //!
 //! The tray offers "勿扰 1 小时 / 直到明天"; the host converts both into an
-//! absolute server-time expiry so the core stays clock-free. A scheduled
-//! quiet window (e.g. 22:00–08:00) is expressed the same way by the host.
+//! absolute server-time expiry so the core stays clock-free. Scheduled quiet
+//! windows are evaluated by the host against local wall time (including DST),
+//! independently of server clock calibration.
 
 /// Do-not-disturb mode selected from the tray.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DndMode {
     #[default]
     Off,
+    /// Active local quiet window; the host re-evaluates local wall time at every input/tick.
+    Scheduled,
     /// "勿扰 1 小时": active until `until_ms` (server time).
     OneHour { until_ms: i64 },
     /// "直到明天": active until `until_ms` (server time, next morning).
@@ -20,11 +23,6 @@ pub const DND_ONE_HOUR_MS: i64 = 60 * 60 * 1000;
 
 /// Local hour at which "直到明天" ends.
 pub const DND_TOMORROW_HOUR: i64 = 8;
-
-/// Settings "勿扰时段 22:00 – 08:00": first quiet local hour.
-pub const QUIET_HOURS_START: i64 = 22;
-/// First local hour after the quiet window.
-pub const QUIET_HOURS_END: i64 = 8;
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -51,19 +49,11 @@ pub fn dnd_until_tomorrow_ms(now_ms: i64, utc_offset_minutes: i32) -> i64 {
     next_local_hour_ms(now_ms, utc_offset_minutes, DND_TOMORROW_HOUR)
 }
 
-/// Whether `now_ms` falls in the local quiet window (start inclusive, end
-/// exclusive). `utc_offset_minutes` as in [`next_local_hour_ms`].
-pub fn in_quiet_hours(now_ms: i64, utc_offset_minutes: i32) -> bool {
-    let offset_ms = i64::from(utc_offset_minutes) * 60_000;
-    let hour = now_ms.saturating_add(offset_ms).rem_euclid(DAY_MS) / 3_600_000;
-    !(QUIET_HOURS_END..QUIET_HOURS_START).contains(&hour)
-}
-
 impl DndMode {
-    /// Expiry in server milliseconds, if any.
+    /// Expiry in server milliseconds, if any. Scheduled windows are host-controlled.
     pub fn until_ms(&self) -> Option<i64> {
         match self {
-            DndMode::Off => None,
+            DndMode::Off | DndMode::Scheduled => None,
             DndMode::OneHour { until_ms } | DndMode::UntilTomorrow { until_ms } => Some(*until_ms),
         }
     }
@@ -71,7 +61,7 @@ impl DndMode {
     /// Whether DND is in force at `server_now_ms`. An expired mode is
     /// simply inactive; the host may replace it with `Off` at its leisure.
     pub fn is_active(&self, server_now_ms: i64) -> bool {
-        self.until_ms().is_some_and(|until| until > server_now_ms)
+        *self == DndMode::Scheduled || self.until_ms().is_some_and(|until| until > server_now_ms)
     }
 }
 
@@ -135,21 +125,5 @@ mod tests {
     #[test]
     fn pre_epoch_floor_division() {
         assert_eq!(next_local_hour_ms(-1, 0, 8), 8 * H);
-    }
-
-    #[test]
-    fn quiet_hours_cover_22_to_08_local_with_half_open_edges() {
-        // 1970-01-01T00:00Z shifted so that local wall time reads directly.
-        let at =
-            |hour: i64, minute: i64, offset: i32| (hour * 60 + minute - i64::from(offset)) * 60_000;
-        for offset in [480, 0, -300] {
-            assert!(!in_quiet_hours(at(21, 59, offset), offset));
-            assert!(in_quiet_hours(at(22, 0, offset), offset));
-            assert!(in_quiet_hours(at(23, 59, offset), offset));
-            assert!(in_quiet_hours(at(0, 0, offset), offset));
-            assert!(in_quiet_hours(at(7, 59, offset), offset));
-            assert!(!in_quiet_hours(at(8, 0, offset), offset));
-            assert!(!in_quiet_hours(at(12, 0, offset), offset));
-        }
     }
 }

@@ -344,3 +344,73 @@ fn sound_setting_off_mutes_timeout_and_loop() {
     assert_eq!(sounds(&fx, Sound::Timeout), 0);
     assert_eq!(sounds(&fx, Sound::Loop), 0);
 }
+
+#[test]
+fn scheduled_dnd_rechecks_queued_new_message_effects_and_does_not_replay_them() {
+    for gated in [false, true] {
+        let mut core = if gated {
+            NotifyCore::with_account_gating()
+        } else {
+            NotifyCore::new()
+        };
+        let a = acc("scheduled", 1);
+        let now = t0();
+        core.set_account_notifications(&a, true, &now);
+        let before = core.on_new_message(&a, "g1", true, &now);
+        assert!(before.iter().any(|e| matches!(e, Effect::Banner { .. })));
+        core.set_dnd(DndMode::Scheduled, &now.plus_ms(1));
+        assert!(
+            before
+                .iter()
+                .all(|e| !core.effect_is_current(e, &now.plus_ms(1))),
+            "queued L1/L2 must not escape: {before:?}"
+        );
+        assert!(core
+            .on_new_message(&a, "g2", true, &now.plus_ms(2))
+            .is_empty());
+        let resumed = core.set_dnd(DndMode::Off, &now.plus_ms(3));
+        assert!(!resumed.iter().any(|e| matches!(
+            e,
+            Effect::Banner { .. }
+                | Effect::SystemToast { .. }
+                | Effect::PlaySound(Sound::NewMessage)
+        )));
+    }
+}
+
+#[test]
+fn scheduled_dnd_preserves_default_timeout_exception_and_blocks_queued_alerts_when_disabled() {
+    let mut core = NotifyCore::new();
+    let a = acc("scheduled", 1);
+    let now = t0();
+    core.set_dnd(DndMode::Scheduled, &now);
+    assert!(core.settings().alert_during_dnd);
+    open_round(&mut core, &a, "g1", &now);
+    let fx = drive(&mut core, &now, 0, 40);
+    assert_eq!(raises(&fx), 1);
+    assert_eq!(sounds(&fx, Sound::Timeout), 1);
+    let queued = [
+        Effect::ShowAlarm { raise: true },
+        Effect::PlaySound(Sound::Timeout),
+        Effect::PlaySound(Sound::Loop),
+    ];
+    assert!(queued
+        .iter()
+        .all(|e| core.effect_is_current(e, &now.plus_ms(40_000))));
+    core.set_settings(
+        ReminderSettings {
+            alert_during_dnd: false,
+            ..ReminderSettings::default()
+        },
+        &now.plus_ms(41_000),
+    )
+    .expect("valid DND reminder settings");
+    assert!(queued
+        .iter()
+        .all(|e| !core.effect_is_current(e, &now.plus_ms(41_000))));
+    assert_eq!(
+        core.snapshot(&now.plus_ms(41_000)).entries.len(),
+        1,
+        "quieting never completes the business round"
+    );
+}
