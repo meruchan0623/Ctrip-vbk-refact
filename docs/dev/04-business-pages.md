@@ -16,3 +16,5 @@
 2026-10-30 落盘：`vbk/ui/packages/web-adapter/src/order.ts`（`searchorderlist` 以字符串 `ttdOrderId` 精确查询并要求唯一结果，`createimchat` 只在 Ack Success 且有 url 时成功，超时记 `unknown_may_have_created` 不重放，返回 URL 精确来源/路径校验并保留未知参数）；`vbk/crates/core-net/src/url.rs` 为宿主侧同等校验（`order_validate_im_url` 命令）；`vbk/ui/apps/main` 订单联系视图按上述两个按钮与四种失败状态实现，多结果需先“选择此订单”。审查发现并修正：订单接口曾误用 IM 业务 head，样本显示为平台 head（`cver 1.0`、无 `appId`）；`x-req-src` 来源未知，未发送。无权限判定依赖 `errorMsg` 文本，未经 14361 实测。
 
 方法、参数、网页版本与证据边界以[实测调查](../research/2026-10-30-web-order-conversation.md)为准。旧业务页 bridge/保活方案见[归档](../archive/desktop-baseline/dev/04-business-pages.md)，不作为开发要求。
+
+2026-11-03：已按官方“全部”页精确查询请求接通 order.search（page="0"、sort=orderDate desc），补充完整响应身份校验与查询失败文案。桌面逆向、真实代码查询和原生验收边界见 [查询修复记录](../research/2026-11-03-order-contact-query.md)。
