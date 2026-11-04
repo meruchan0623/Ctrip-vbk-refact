@@ -15,6 +15,10 @@ name: vbk release
 #   APPLE_CERTIFICATE_PASSWORD
 #   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: NAME (TEAMID)"
 #   APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID   notarization (app-specific pw)
+#   MAC_DEV_CERTIFICATE          base64 .p12 of the shared "VBK Dev Signing" test
+#   MAC_DEV_CERTIFICATE_PASSWORD   identity (vbk/tools/mac-dev-signing.sh create);
+#                                used when sign=false so every test build keeps
+#                                the same designated requirement (keychain access)
 #   WINDOWS_CERTIFICATE          base64 .pfx (Authenticode)
 #   WINDOWS_CERTIFICATE_PASSWORD
 #   MINISIGN_SECRET_KEY / MINISIGN_PASSWORD     update signing (I-19), unused here
@@ -100,6 +104,28 @@ jobs:
         # `--runner` is spawned as ONE executable (no shell split): the cargo-auditable binary, not "cargo auditable".
         run: cargo tauri build --runner cargo-auditable --target ${{ matrix.target }} --bundles app,dmg
 
+      # sign=false: re-sign with the shared test identity (Tauri only accepts
+      # trusted identities, so this cannot go through APPLE_CERTIFICATE) and
+      # rebuild the dmg around the re-signed app.
+      - name: Test signing (VBK Dev Signing)
+        if: env.SIGN != 'true'
+        working-directory: vbk
+        env:
+          MAC_DEV_CERTIFICATE: ${{ secrets.MAC_DEV_CERTIFICATE }}
+          VBK_DEV_P12_PASSWORD: ${{ secrets.MAC_DEV_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$MAC_DEV_CERTIFICATE" ]; then
+            echo "::warning::MAC_DEV_CERTIFICATE missing - ad-hoc build, keychain logins will not survive upgrades"
+            exit 0
+          fi
+          p12="$RUNNER_TEMP/dev.p12"
+          echo "$MAC_DEV_CERTIFICATE" | base64 --decode > "$p12"
+          out="src-tauri/target/${{ matrix.target }}/release/bundle"
+          app="$(ls -d "$out"/macos/*.app | head -n1)"
+          tools/mac-dev-signing.sh sign "$p12" "$app"
+          rm -f "$p12" "$out"/dmg/*.dmg
+          tools/mac-dev-signing.sh dmg "$app" "$out/dmg/$(basename "$app" .app)_test_${{ matrix.arch }}.dmg"
+
       - name: Architecture check (lipo -archs)
         run: |
           app="$(ls -d vbk/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app | head -n1)"
@@ -129,7 +155,19 @@ jobs:
 
       - name: Unsigned build notice
         if: env.SIGN != 'true'
-        run: echo "::warning::unsigned build - codesign/spctl/stapler checks SKIPPED"
+        env:
+          HAS_DEV_CERT: ${{ secrets.MAC_DEV_CERTIFICATE != '' }}
+        run: |
+          app="$(ls -d vbk/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app | head -n1)"
+          codesign -dr - "$app" 2>&1 | tee /dev/stderr
+          if [ "$HAS_DEV_CERT" = "true" ]; then
+            # Keychain access survives upgrades only with this fixed requirement.
+            codesign -dr - "$app" 2>&1 | grep -q 'identifier "tech.tsim.vbk.client" and certificate leaf' \
+              || { echo "::error::test build not signed with the shared VBK Dev Signing identity"; exit 1; }
+            echo "::warning::test-signed build (VBK Dev Signing) - spctl/stapler checks SKIPPED"
+          else
+            echo "::warning::ad-hoc build - designated requirement changes per build, keychain logins will not survive upgrades"
+          fi
 
       - name: Release-artifact string scan + size record
         run: |

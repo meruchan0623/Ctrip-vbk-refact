@@ -7,7 +7,7 @@
     com.apple.security.cs.disable-library-validation
     com.apple.security.cs.allow-dyld-environment-variables
   Add an entry only with a measured need, and record why in the PR.
-  The release workflow asserts `codesign -d --entitlements` stays empty.
+  The release workflow asserts the signed entitlements stay empty.
 -->
 <plist version="1.0">
 <dict/>
