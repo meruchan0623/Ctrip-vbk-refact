@@ -45,10 +45,31 @@ const TOO_NEW_MARK: &str = "schema_too_new:";
 static TAG: AtomicU64 = AtomicU64::new(1 << 32);
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+/// Optional host-provided namespace filesystem capability. Core remains std-only;
+/// hosts can bind every operation to no-follow OS directory handles without
+/// changing the persisted layout or the transaction/retention semantics.
+/// Implementations must reject untrusted derived directory redirections.
+pub trait NamespaceIo: std::fmt::Debug + Send + Sync {
+    fn directory(&self, path: &Path, create: bool) -> io::Result<Box<dyn NamespaceDirectory>>;
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
+}
+
+/// An already-bound directory. All names are single path components, and
+/// operations must remain bound to this directory even if its path is replaced.
+pub trait NamespaceDirectory {
+    fn open_file(&self, name: &str, writable: bool) -> io::Result<fs::File>;
+    fn create_new(&self, name: &str) -> io::Result<fs::File>;
+    fn rename(&self, from: &str, to: &str) -> io::Result<()>;
+    fn remove(&self, name: &str) -> io::Result<()>;
+    fn names(&self) -> io::Result<Vec<String>>;
+    fn sync(&self) -> io::Result<()>;
+}
+
 #[derive(Debug)]
 pub struct FileStore {
     tag: u64,
     root: PathBuf,
+    namespace_io: Option<Arc<dyn NamespaceIo>>,
     /// In-process write lock per namespace: `commit` is load -> apply -> save
     /// and must not interleave with another commit of the same namespace.
     commit_locks: Mutex<BTreeMap<Namespace, Arc<Mutex<()>>>>,
@@ -62,12 +83,75 @@ impl FileStore {
         Ok(Self {
             tag: TAG.fetch_add(1, Ordering::Relaxed),
             root,
+            namespace_io: None,
             commit_locks: Mutex::new(BTreeMap::new()),
         })
     }
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Configure before publishing the store. Root creation stays in `open`;
+    /// every subsequent namespace access uses this capability provider.
+    pub fn with_namespace_io(mut self, provider: Arc<dyn NamespaceIo>) -> Self {
+        self.namespace_io = Some(provider);
+        self
+    }
+
+    fn read_text(&self, path: &Path) -> io::Result<String> {
+        if let Some(provider) = &self.namespace_io {
+            use std::io::Read;
+            let (dir, name) = split_file(path)?;
+            let mut text = String::new();
+            provider
+                .directory(dir, false)?
+                .open_file(name, false)?
+                .read_to_string(&mut text)?;
+            Ok(text)
+        } else {
+            fs::read_to_string(path)
+        }
+    }
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        if let Some(provider) = &self.namespace_io {
+            let (dir, name) = split_file(path)?;
+            provider.directory(dir, false)?.remove(name)
+        } else {
+            fs::remove_file(path)
+        }
+    }
+    fn list_prefixed(&self, dir: &Path, prefix: &str) -> Result<Vec<String>, AppError> {
+        if let Some(provider) = &self.namespace_io {
+            match provider.directory(dir, false).and_then(|dir| dir.names()) {
+                Ok(names) => Ok(names
+                    .into_iter()
+                    .filter(|name| name.starts_with(prefix))
+                    .collect()),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+                Err(e) => Err(io_err("list namespace", &e)),
+            }
+        } else {
+            list_prefixed(dir, prefix)
+        }
+    }
+    fn sync_dir(&self, path: &Path) -> io::Result<()> {
+        if let Some(provider) = &self.namespace_io {
+            hooks::record_fsync(path, FsyncKind::Directory);
+            provider.directory(path, false)?.sync()
+        } else {
+            sync_directory(path)
+        }
+    }
+    fn write(&self, dir: &Path, name: &str, bytes: &[u8]) -> Result<(), AppError> {
+        if let Some(provider) = &self.namespace_io {
+            let capability = provider
+                .directory(dir, true)
+                .map_err(|e| io_err("bind namespace", &e))?;
+            write_atomic_bound(capability.as_ref(), dir, name, bytes)
+        } else {
+            write_atomic(dir, name, bytes)
+        }
     }
 
     /// Revalidates the committed file and its directory before a host admits
@@ -84,11 +168,25 @@ impl FileStore {
         options.write(true);
         let state_path = dir.join(STATE_FILE);
         hooks::record_fsync(&state_path, FsyncKind::File);
-        options
-            .open(&state_path)
-            .and_then(|file| file.sync_all())
-            .map_err(|e| io_err("sync state", &e))?;
-        sync_directory(&dir).map_err(|e| io_err("sync namespace dir", &e))
+        if let Some(provider) = &self.namespace_io {
+            let capability = provider
+                .directory(&dir, false)
+                .map_err(|e| io_err("bind namespace", &e))?;
+            capability
+                .open_file(STATE_FILE, true)
+                .and_then(|file| file.sync_all())
+                .map_err(|e| io_err("sync state", &e))?;
+            hooks::record_fsync(&dir, FsyncKind::Directory);
+            capability
+                .sync()
+                .map_err(|e| io_err("sync namespace dir", &e))
+        } else {
+            options
+                .open(&state_path)
+                .and_then(|file| file.sync_all())
+                .map_err(|e| io_err("sync state", &e))?;
+            sync_directory(&dir).map_err(|e| io_err("sync namespace dir", &e))
+        }
     }
 
     /// Directory of a namespace (exists only after the first commit/lock).
@@ -105,7 +203,7 @@ impl FileStore {
         let dir = self.namespace_dir(ns);
         let mut found: Vec<(String, PathBuf)> = Vec::new();
         for base in [dir.clone(), dir.join(QUARANTINE_DIR)] {
-            for name in list_prefixed(&base, CORRUPT_PREFIX)? {
+            for name in self.list_prefixed(&base, CORRUPT_PREFIX)? {
                 let path = base.join(&name);
                 found.push((name, path));
             }
@@ -127,12 +225,12 @@ impl FileStore {
             }
         }
         let doc = JsonValue::Array(acked.iter().map(JsonValue::string).collect());
-        write_atomic(&dir, ACK_FILE, doc.to_json().as_bytes())?;
+        self.write(&dir, ACK_FILE, doc.to_json().as_bytes())?;
         Ok(files)
     }
 
     fn acknowledged(&self, dir: &Path) -> Result<BTreeSet<String>, AppError> {
-        match fs::read_to_string(dir.join(ACK_FILE)) {
+        match self.read_text(&dir.join(ACK_FILE)) {
             Ok(text) => Ok(JsonValue::parse(&text)
                 .ok()
                 .and_then(|v| v.as_array().cloned())
@@ -169,7 +267,7 @@ impl FileStore {
         }
         let dir = self.namespace_dir(ns);
         let path = dir.join(STATE_FILE);
-        let text = match fs::read_to_string(&path) {
+        let text = match self.read_text(&path) {
             Ok(t) => t,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(NsState::default()),
             Err(e) => return Err(io_err("read state", &e)),
@@ -194,11 +292,19 @@ impl FileStore {
             .with_detail(reason.trim_start_matches(TOO_NEW_MARK).to_string())),
             Err(reason) => {
                 let qdir = dir.join(QUARANTINE_DIR);
-                create_durable_dir_all(&qdir).map_err(|e| io_err("create quarantine", &e))?;
                 let quarantine = qdir.join(format!("{CORRUPT_PREFIX}{}", now_ms()));
-                fs::rename(&path, &quarantine).map_err(|e| io_err("quarantine", &e))?;
-                sync_directory(&dir).map_err(|e| io_err("sync quarantine", &e))?;
-                sync_directory(&qdir).map_err(|e| io_err("sync quarantine", &e))?;
+                if let Some(provider) = &self.namespace_io {
+                    provider
+                        .rename(&path, &quarantine)
+                        .map_err(|e| io_err("quarantine", &e))?;
+                } else {
+                    create_durable_dir_all(&qdir).map_err(|e| io_err("create quarantine", &e))?;
+                    fs::rename(&path, &quarantine).map_err(|e| io_err("quarantine", &e))?;
+                }
+                self.sync_dir(&dir)
+                    .map_err(|e| io_err("sync quarantine", &e))?;
+                self.sync_dir(&qdir)
+                    .map_err(|e| io_err("sync quarantine", &e))?;
                 Err(err(
                     codes::STORE_CORRUPT,
                     "state document could not be decoded; quarantined",
@@ -216,10 +322,10 @@ impl FileStore {
 
     fn save(&self, ns: &Namespace, state: &NsState) -> Result<(), AppError> {
         let dir = self.namespace_dir(ns);
-        write_atomic(&dir, STATE_FILE, state.to_json(ns).to_json().as_bytes())?;
+        self.write(&dir, STATE_FILE, state.to_json(ns).to_json().as_bytes())?;
         // Best effort: drop temp files left by an interrupted earlier write.
-        for stale in list_prefixed(&dir, TMP_PREFIX)? {
-            let _ = fs::remove_file(dir.join(stale));
+        for stale in self.list_prefixed(&dir, TMP_PREFIX)? {
+            let _ = self.remove_file(&dir.join(stale));
         }
         Ok(())
     }
@@ -284,11 +390,11 @@ impl Store for FileStore {
 
     fn logout_lock(&self, ns: &Namespace) -> Result<(), AppError> {
         let dir = self.namespace_dir(ns);
-        write_atomic(&dir, LOCK_FILE, b"logout-locked\n")
+        self.write(&dir, LOCK_FILE, b"logout-locked\n")
     }
 
     fn unlock_after_reauth(&self, ns: &Namespace) -> Result<(), AppError> {
-        match fs::remove_file(self.lock_path(ns)) {
+        match self.remove_file(&self.lock_path(ns)) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(io_err("remove lock", &e)),
@@ -296,8 +402,64 @@ impl Store for FileStore {
     }
 
     fn is_locked(&self, ns: &Namespace) -> Result<bool, AppError> {
-        Ok(self.lock_path(ns).exists())
+        if let Some(provider) = &self.namespace_io {
+            let path = self.lock_path(ns);
+            let (dir, name) = split_file(&path).map_err(|e| io_err("lock path", &e))?;
+            match provider
+                .directory(dir, false)
+                .and_then(|dir| dir.open_file(name, false))
+            {
+                Ok(_) => Ok(true),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+                Err(e) => Err(io_err("read lock", &e)),
+            }
+        } else {
+            Ok(self.lock_path(ns).exists())
+        }
     }
+}
+
+fn split_file(path: &Path) -> io::Result<(&Path, &str)> {
+    path.parent()
+        .zip(path.file_name().and_then(|name| name.to_str()))
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid namespace filename"))
+}
+
+/// Uses the same fault boundaries and durability probes as the default writer,
+/// but all actual I/O stays on the capability acquired before the first write.
+fn write_atomic_bound(
+    dir: &dyn NamespaceDirectory,
+    path: &Path,
+    name: &str,
+    bytes: &[u8],
+) -> Result<(), AppError> {
+    let temporary = format!(
+        "{TMP_PREFIX}{:x}-{:x}",
+        std::process::id(),
+        TMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let result = (|| -> io::Result<()> {
+        hooks::check(path, FailPoint::BeforeCreate)?;
+        let mut file = dir.create_new(&temporary)?;
+        hooks::check(path, FailPoint::BeforeWrite)?;
+        file.write_all(bytes)?;
+        hooks::check(path, FailPoint::BeforeSyncAll)?;
+        hooks::record_fsync(&path.join(&temporary), FsyncKind::File);
+        file.sync_all()?;
+        drop(file);
+        hooks::check(path, FailPoint::BeforeRename)?;
+        dir.rename(&temporary, name)?;
+        hooks::check(path, FailPoint::BeforeSyncDir)?;
+        hooks::record_fsync(path, FsyncKind::Directory);
+        dir.sync()
+    })();
+    if let Err(error) = result {
+        if !hooks::is_injected_crash(&error) {
+            let _ = dir.remove(&temporary);
+        }
+        return Err(io_err("atomic write", &error));
+    }
+    Ok(())
 }
 
 /// Writes `bytes` to `dir/name` through a temp file, `fsync`, rename and a

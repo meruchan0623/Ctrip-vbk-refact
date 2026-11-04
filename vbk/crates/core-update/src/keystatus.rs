@@ -40,8 +40,9 @@ pub struct KeyStatus {
     pub min_client_version: Version,
 }
 
-/// A status that passed verification, plus when we verified it (persisted
-/// by the host between runs).
+/// A status that passed verification, plus the highest verification time
+/// observed (persisted by the host between runs). Tolerated small clock steps
+/// never lower this watermark.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CachedKeyStatus {
     pub status: KeyStatus,
@@ -66,8 +67,14 @@ pub enum StatusError {
         cached: u64,
         fetched: u64,
     },
+    /// An already accepted sequence was reused for different policy content.
+    VersionConflict {
+        version: u64,
+    },
     Expired,
     IssuedInFuture,
+    /// Local time is behind the existing trusted verification watermark.
+    ClockRollback,
 }
 
 /// Verify and accept a freshly fetched file. `parse` is only called with
@@ -83,6 +90,9 @@ pub fn accept_fetched(
     if !root.verify(payload, signature) {
         return Err(StatusError::BadRootSignature);
     }
+    if cache.is_some_and(|c| clock_rolled_back(now, c.verified_at)) {
+        return Err(StatusError::ClockRollback);
+    }
     let status = parse(payload).ok_or(StatusError::Malformed)?;
     if status.expires_at <= status.issued_at {
         return Err(StatusError::InvalidWindow);
@@ -94,6 +104,11 @@ pub fn accept_fetched(
                 fetched: status.version,
             });
         }
+        if status.version == c.status.version && status != c.status {
+            return Err(StatusError::VersionConflict {
+                version: status.version,
+            });
+        }
     }
     if status.issued_at > now.saturating_add(MAX_ISSUED_SKEW_SECS) {
         return Err(StatusError::IssuedInFuture);
@@ -103,7 +118,7 @@ pub fn accept_fetched(
     }
     Ok(CachedKeyStatus {
         status,
-        verified_at: now,
+        verified_at: cache.map_or(now, |c| now.max(c.verified_at)),
     })
 }
 
@@ -136,13 +151,30 @@ pub fn effective_status(
     cache: Option<&CachedKeyStatus>,
     now: u64,
 ) -> Result<(CachedKeyStatus, Trust), Refusal> {
-    if let Fetch::Fresh(c) = fetch {
-        return Ok((c, Trust::Fresh));
-    }
-    let c = cache.ok_or(Refusal::NoKeyStatus)?;
-    if now.saturating_add(CLOCK_TOLERANCE_SECS) < c.verified_at {
+    // Check the existing high-water mark before selecting Fresh. A concurrent
+    // refresh or a restored cache may be newer than the refresh's input cache.
+    if cache.is_some_and(|c| clock_rolled_back(now, c.verified_at)) {
         return Err(Refusal::ClockRollback);
     }
+    if let Fetch::Fresh(mut c) = fetch {
+        if clock_rolled_back(now, c.verified_at) {
+            return Err(Refusal::ClockRollback);
+        }
+        // Verification may have used an older cache than the one now held
+        // by the caller. Neither a lower sequence nor conflicting reuse of
+        // a sequence can replace the currently trusted revocations/limits.
+        // Treat it exactly like a rejected refresh: only the current cache,
+        // with its original expiry/grace, remains eligible below.
+        let conflicts = cache.is_some_and(|old| {
+            c.status.version < old.status.version
+                || (c.status.version == old.status.version && c.status != old.status)
+        });
+        if !conflicts {
+            c.verified_at = cache.map_or(c.verified_at, |old| c.verified_at.max(old.verified_at));
+            return Ok((c, Trust::Fresh));
+        }
+    }
+    let c = cache.ok_or(Refusal::NoKeyStatus)?;
     let exp = c.status.expires_at;
     if now < exp {
         return Ok((c.clone(), Trust::CachedValid));
@@ -157,6 +189,10 @@ pub fn effective_status(
         ));
     }
     Err(Refusal::KeyStatusStale)
+}
+
+fn clock_rolled_back(now: u64, verified_at: u64) -> bool {
+    now.saturating_add(CLOCK_TOLERANCE_SECS) < verified_at
 }
 
 #[cfg(test)]
@@ -305,6 +341,183 @@ mod tests {
         assert_eq!(
             effective_status(Fetch::Offline, None, 5),
             Err(Refusal::NoKeyStatus)
+        );
+    }
+
+    #[test]
+    fn fresh_clock_rollback_cannot_reauthenticate_and_lower_trusted_time() {
+        let previous = cached(1, 100_000, 900_000);
+        let now = previous.verified_at - CLOCK_TOLERANCE_SECS - 1;
+        // The root signature and sequence are valid. Re-fetching the same
+        // still-valid policy must not turn a clock rollback into Fresh.
+        let refreshed = accept(true, Some(previous.status.clone()), Some(&previous), now);
+        assert_eq!(
+            refreshed,
+            Err(StatusError::ClockRollback),
+            "valid root signature must not reset the trusted time"
+        );
+    }
+
+    #[test]
+    fn fresh_clock_selection_rechecks_high_water_after_concurrent_refresh() {
+        let previous = cached(1, 100_000, 900_000);
+        let now = previous.verified_at - CLOCK_TOLERANCE_SECS - 1;
+        // Accepted before another task restored the higher persistent watermark.
+        let fresh = cached(2, now, 900_000);
+        assert_eq!(
+            effective_status(Fetch::Fresh(fresh), Some(&previous), now),
+            Err(Refusal::ClockRollback)
+        );
+    }
+
+    #[test]
+    fn fresh_clock_small_steps_cannot_ratchet_watermark_backwards() {
+        let previous = cached(1, 100_000, 900_000);
+        let now = previous.verified_at - CLOCK_TOLERANCE_SECS;
+        let fresh = accept(true, Some(previous.status.clone()), Some(&previous), now)
+            .expect("tolerated small step");
+        assert_eq!(fresh.verified_at, previous.verified_at);
+    }
+
+    #[test]
+    fn trusted_time_guard_preserves_first_fetch_rotation_and_existing_rejections() {
+        let first = accept(true, Some(st(1, 900, 5000)), None, 1000)
+            .expect("first fetch has no prior watermark");
+        let mut rotated = st(2, 2000, 9000);
+        rotated.active_keys = vec!["K2".into()];
+        rotated.revoked_keys = vec!["K1".into()];
+        let next = accept(true, Some(rotated.clone()), Some(&first), 5000)
+            .expect("rotation can refresh an expired cache");
+        assert_eq!(next.status, rotated);
+        assert_eq!(next.verified_at, 5000);
+        assert_eq!(
+            accept(true, Some(st(1, 2000, 9000)), Some(&next), 5000),
+            Err(StatusError::VersionRollback {
+                cached: 2,
+                fetched: 1
+            })
+        );
+        assert_eq!(
+            accept(true, Some(st(3, 2000, 5000)), Some(&next), 5000),
+            Err(StatusError::Expired)
+        );
+        assert_eq!(
+            accept(
+                true,
+                Some(st(3, 5000 + MAX_ISSUED_SKEW_SECS + 1, 1_000_000)),
+                Some(&next),
+                5000
+            ),
+            Err(StatusError::IssuedInFuture)
+        );
+        assert_eq!(
+            accept(false, Some(rotated), Some(&next), 0),
+            Err(StatusError::BadRootSignature),
+            "signature check remains first"
+        );
+    }
+
+    #[test]
+    fn fresh_clock_selection_keeps_high_water_and_rejects_rollback_after_verification() {
+        let previous = cached(1, 100_000, 900_000);
+        let fresh = cached(2, 100_000 - CLOCK_TOLERANCE_SECS, 900_000);
+        let (selected, trust) = effective_status(
+            Fetch::Fresh(fresh),
+            Some(&previous),
+            100_000 - CLOCK_TOLERANCE_SECS,
+        )
+        .expect("boundary tolerated");
+        assert_eq!(trust, Trust::Fresh);
+        assert_eq!(selected.verified_at, 100_000);
+        assert_eq!(
+            accept(
+                true,
+                Some(selected.status.clone()),
+                Some(&selected),
+                100_000 - 2 * CLOCK_TOLERANCE_SECS
+            ),
+            Err(StatusError::ClockRollback)
+        );
+        assert_eq!(
+            effective_status(Fetch::Fresh(previous), None, 0),
+            Err(Refusal::ClockRollback),
+            "time can roll back between verification and selection"
+        );
+        let near_max = cached(1, u64::MAX - 1, u64::MAX);
+        assert!(
+            effective_status(Fetch::Fresh(near_max), None, u64::MAX - 2).is_ok(),
+            "tolerance addition cannot overflow"
+        );
+    }
+
+    #[test]
+    fn delayed_fresh_cannot_roll_back_concurrently_updated_revocations() {
+        let fresh = cached(1, 1000, 9000);
+        let mut current = cached(2, 1000, 9000);
+        current.status.revoked_keys = vec!["K1".into()];
+        current.status.active_keys = vec!["K2".into()];
+        let (selected, trust) = effective_status(Fetch::Fresh(fresh), Some(&current), 1000)
+            .expect("current cache remains usable");
+        assert_eq!(selected, current);
+        assert_eq!(
+            trust,
+            Trust::CachedValid,
+            "delayed validation cannot claim fresh trust"
+        );
+    }
+
+    #[test]
+    fn same_sequence_different_revocations_is_rejected_and_keeps_current_cache() {
+        let mut current = cached(2, 1000, 9000);
+        current.status.revoked_keys = vec!["K1".into()];
+        current.status.active_keys = vec!["K2".into()];
+        let mut conflicting = current.clone();
+        conflicting.status.revoked_keys.clear();
+        conflicting.status.active_keys = vec!["K1".into(), "K2".into()];
+        conflicting.status.expires_at = 1_000_000;
+        assert_eq!(
+            accept(true, Some(conflicting.status.clone()), Some(&current), 1000),
+            Err(StatusError::VersionConflict { version: 2 })
+        );
+        let (selected, trust) =
+            effective_status(Fetch::Fresh(conflicting.clone()), Some(&current), 1000)
+                .expect("use existing signed cache only");
+        assert_eq!(selected, current);
+        assert_eq!(trust, Trust::CachedValid);
+        assert_eq!(
+            effective_status(
+                Fetch::Fresh(conflicting),
+                Some(&current),
+                9000 + GRACE_SECS + 1
+            ),
+            Err(Refusal::KeyStatusStale),
+            "conflicting expiry cannot extend the cached policy"
+        );
+    }
+
+    #[test]
+    fn delayed_fresh_uses_the_same_grace_and_time_guards_as_rejected_fetch() {
+        let current = cached(2, 1000, 9000);
+        let mut delayed = cached(1, 1000, 1_000_000);
+        delayed.status.active_keys.push("NEW-UNAUTHORIZED".into());
+        for now in [1000, 9000, 9000 + GRACE_SECS, 9000 + GRACE_SECS + 1] {
+            assert_eq!(
+                effective_status(Fetch::Fresh(delayed.clone()), Some(&current), now),
+                effective_status(
+                    Fetch::Rejected(StatusError::BadRootSignature),
+                    Some(&current),
+                    now
+                )
+            );
+        }
+        let current = cached(2, 100_000, 900_000);
+        assert_eq!(
+            effective_status(
+                Fetch::Fresh(delayed),
+                Some(&current),
+                100_000 - CLOCK_TOLERANCE_SECS - 1
+            ),
+            Err(Refusal::ClockRollback)
         );
     }
 

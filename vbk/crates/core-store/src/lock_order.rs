@@ -12,11 +12,14 @@
 //!
 //!    | rank | lock | where |
 //!    | ---- | ---- | ----- |
-//!    | 10 | [`LockId::Login`] | `login.rs` `LoginState.inner` |
+//!    | 5 | [`LockId::LoginLifecycle`] | login identity settlement / revocation |
+//!    | 7 | [`LockId::OutboundJournal`] | outbound transactions and namespace lifecycle |
+//!    | 15 | [`LockId::PrefsReminderSync`] | reminder preference sampling and persistence |
 //!    | 20 | [`LockId::Cores`] | `state.rs` `HostState.cores` (includes the `PersistTracker`) |
+//!    | 21 | [`LockId::Login`] | `login.rs` `LoginState.inner` |
 //!    | 30 | [`LockId::Prefs`] | `prefs.rs` `Inner` and `pending` |
 //!    | 40 | [`LockId::AdapterTables`] | `adapter.rs` display / pending / pinned / focus / receive |
-//!    | 50 | [`LockId::Journals`] | outbound / peripheral journals |
+//!    | 50 | [`LockId::Journals`] | peripheral journals |
 //!    | 60 | [`LockId::Peripheral`] | clock anchors, shell attachments |
 //!    | 70 | [`LockId::StoreCommit`] | `FileStore` per-namespace commit lock |
 //!    | 80 | [`LockId::QueueInternal`] | `PersistQueue` receipt channel |
@@ -40,7 +43,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum LockId {
+    LoginLifecycle,
+    OutboundJournal,
     Login,
+    PrefsReminderSync,
     Cores,
     Prefs,
     AdapterTables,
@@ -51,9 +57,12 @@ pub enum LockId {
 }
 
 impl LockId {
-    pub const ALL: [LockId; 8] = [
-        LockId::Login,
+    pub const ALL: [LockId; 11] = [
+        LockId::LoginLifecycle,
+        LockId::OutboundJournal,
+        LockId::PrefsReminderSync,
         LockId::Cores,
+        LockId::Login,
         LockId::Prefs,
         LockId::AdapterTables,
         LockId::Journals,
@@ -64,7 +73,10 @@ impl LockId {
 
     pub fn rank(self) -> u8 {
         match self {
-            LockId::Login => 10,
+            LockId::LoginLifecycle => 5,
+            LockId::OutboundJournal => 7,
+            LockId::Login => 21,
+            LockId::PrefsReminderSync => 15,
             LockId::Cores => 20,
             LockId::Prefs => 30,
             LockId::AdapterTables => 40,
@@ -256,7 +268,7 @@ mod tests {
 
     #[test]
     fn full_chain_is_legal_and_inversion_is_reported() {
-        assert!(check_acquire(&[LockId::Login, LockId::Cores], LockId::StoreCommit).is_ok());
+        assert!(check_acquire(&[LockId::Cores, LockId::Login], LockId::StoreCommit).is_ok());
         assert_eq!(
             check_acquire(&[LockId::StoreCommit], LockId::Cores),
             Err(Violation::Order {
@@ -264,6 +276,44 @@ mod tests {
                 acquiring: LockId::Cores
             })
         );
+    }
+
+    #[test]
+    fn outbound_lifecycle_rechecks_cores_then_releases_it_before_io() {
+        let held = [LockId::LoginLifecycle, LockId::OutboundJournal];
+        assert!(check_acquire(&held, LockId::Cores).is_ok());
+        assert!(check_acquire(&[LockId::Cores], LockId::OutboundJournal).is_err());
+        assert!(check_acquire(&[LockId::OutboundJournal], LockId::LoginLifecycle).is_err());
+        assert!(check_blocking(&held, BlockingOp::DiskSync).is_ok());
+        assert!(check_blocking(
+            &[
+                LockId::LoginLifecycle,
+                LockId::OutboundJournal,
+                LockId::Cores
+            ],
+            BlockingOp::DiskSync
+        )
+        .is_err());
+        assert!(check_blocking(&held, BlockingOp::Emit).is_err());
+        assert_eq!(LockId::Journals.rank(), 50); // Peripheral ordering unchanged.
+    }
+
+    #[test]
+    fn reminder_sync_serializes_sampling_and_persistence() {
+        let held = [LockId::PrefsReminderSync];
+        assert!(check_acquire(&held, LockId::Cores).is_ok());
+        assert!(check_acquire(&held, LockId::Prefs).is_ok());
+        assert!(check_acquire(&[LockId::Cores], LockId::PrefsReminderSync).is_err());
+        assert!(check_blocking(&held, BlockingOp::DiskSync).is_ok());
+        assert!(check_blocking(&held, BlockingOp::Emit).is_err());
+        assert_eq!(LockId::Prefs.rank(), 30);
+    }
+
+    #[test]
+    fn account_snapshot_and_ready_lease_use_cores_then_login_inner() {
+        assert!(check_acquire(&[LockId::Cores], LockId::Login).is_ok());
+        assert!(check_acquire(&[LockId::Login], LockId::Cores).is_err());
+        assert!(check_blocking(&[LockId::Cores, LockId::Login], BlockingOp::DiskSync).is_err());
     }
 
     #[test]
@@ -292,7 +342,10 @@ mod tests {
         let cores = enter(LockId::Cores).unwrap();
         assert_eq!(held_now(), vec![LockId::Cores]);
         assert!(assert_may_block(BlockingOp::DiskSync).is_err());
-        assert!(enter(LockId::Login).is_err(), "inversion rejected");
+        assert!(
+            enter(LockId::OutboundJournal).is_err(),
+            "inversion rejected"
+        );
         assert_eq!(
             held_now(),
             vec![LockId::Cores],

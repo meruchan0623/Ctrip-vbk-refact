@@ -15,8 +15,9 @@
 //!   anti-rollback, expiry with a 7 day cache grace, clock-rollback guard.
 //! * [`manifest`]  - https-only URLs, monotonic versions, `min_client_version`,
 //!   dual-key (current / next) selection, embedded + online revocation.
-//! * [`flow`]      - download -> minisign -> platform signature -> install,
-//!   enforced as a state machine; failures delete the download.
+//! * [`flow`]      - download -> minisign -> platform signature -> installer handoff;
+//!   enforced as a state machine; pre-launch rejection attempts best-effort
+//!   download cleanup; uncertain launch retains the artifact.
 //! * [`deeplink`]  - own-scheme deep link whitelist parser and the
 //!   second-instance argument plan.
 

@@ -1,13 +1,16 @@
 //! Durable safety boundary for peripheral writes; never a retry queue.
 use std::collections::BTreeMap;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::future::Future;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use contracts::json::JsonValue;
 use contracts::{AccountContext, AppError};
-use core_store::{FileStore, Namespace, Store};
+use core_store::{
+    file::{NamespaceDirectory, NamespaceIo},
+    FileStore, Namespace, Store,
+};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -36,6 +39,7 @@ pub struct Intent {
 
 pub struct PeripheralJournal {
     store: FileStore,
+    namespace_io: Arc<crate::attachment_leases::SafeNamespaceIo>,
 }
 const COLLECTION: &str = "peripheral_attempts";
 const MAX_RELEASED_INTENTS: usize = 4096;
@@ -80,10 +84,14 @@ enum Reservation {
     New(Ticket),
     Existing(Outcome),
 }
-struct WriterLock(File);
+struct WriterLock {
+    file: File,
+    // Keep checked ancestors pinned for the entire lock lifetime on Windows.
+    _directory: Box<dyn NamespaceDirectory>,
+}
 impl Drop for WriterLock {
     fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.0);
+        let _ = FileExt::unlock(&self.file);
     }
 }
 fn storage_error() -> AppError {
@@ -178,24 +186,56 @@ impl std::fmt::Debug for PeripheralJournal {
 }
 impl PeripheralJournal {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, AppError> {
-        Ok(Self {
-            store: FileStore::open(root)?,
-        })
+        let bound = crate::durable_store::open(root)?;
+        let journal = Self {
+            store: bound.store,
+            namespace_io: bound.namespace_io,
+        };
+        // Initialize before publishing the journal. Never truncate a preexisting
+        // lock or follow its link. This trusted-root protocol does not defend
+        // against a same-user actor arbitrarily unlinking regular lock inodes.
+        let directory = journal
+            .namespace_io
+            .directory(journal.store.root(), false)
+            .map_err(|_| storage_error())?;
+        match directory.open_file(".writer.lock", false) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match directory.create_new(".writer.lock") {
+                    Ok(file) => {
+                        file.sync_all().map_err(|_| storage_error())?;
+                        directory.sync().map_err(|_| storage_error())?;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(_) => return Err(storage_error()),
+                }
+                // Check the published entry again after the creation handle
+                // closes; providers reject links and non-regular files.
+                directory
+                    .open_file(".writer.lock", false)
+                    .map_err(|_| storage_error())?;
+            }
+            Err(_) => return Err(storage_error()),
+        }
+        Ok(journal)
     }
 
     fn writer_lock(&self) -> Result<WriterLock, AppError> {
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let file = options
-            .open(self.store.root().join(".writer.lock"))
+        let directory = self
+            .namespace_io
+            .directory(self.store.root(), false)
+            .map_err(|_| storage_error())?;
+        // LockFileEx accepts GENERIC_READ or GENERIC_WRITE; no data write is
+        // needed. Read handles permit other safe readers to open and block on
+        // the OS lock rather than failing Windows share-mode checks.
+        let file = directory
+            .open_file(".writer.lock", false)
             .map_err(|_| storage_error())?;
         FileExt::lock_exclusive(&file).map_err(|_| storage_error())?;
-        Ok(WriterLock(file))
+        Ok(WriterLock {
+            file,
+            _directory: directory,
+        })
     }
 
     fn durability_barrier(&self, ns: &Namespace) -> Result<(), AppError> {
@@ -1097,5 +1137,155 @@ mod tests {
             assert!(result.kind == Kind::Confirmed);
         }
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+    #[test]
+    fn legacy_file_store_barrier_and_existing_writer_lock_are_preserved() {
+        let root = TempDir::new();
+        let account = account(1);
+        let intent = intent("legacy-token");
+        let legacy = FileStore::open(&root.0).unwrap();
+        let ns = Namespace::from_context(&account);
+        let (key, intent_hash) = identity(&intent).unwrap();
+        let record = Record {
+            schema: 1,
+            identity_sha256: key.clone(),
+            gid: intent.gid.clone(),
+            action: intent.action.clone(),
+            attempt_id: uuid::Uuid::new_v4().to_string(),
+            intent_sha256: intent_hash,
+            creation_generation: 1,
+            phase: Phase::Unknown,
+            released: BTreeMap::new(),
+            blocked: BTreeMap::new(),
+        };
+        let mut txn = legacy.begin(&ns).unwrap();
+        txn.put(COLLECTION, &key, PeripheralJournal::value(&record).unwrap());
+        legacy.commit(txn).unwrap();
+        std::fs::write(root.0.join(".writer.lock"), b"existing lock evidence").unwrap();
+        drop(legacy);
+        let journal = open(&root);
+        let calls = AtomicUsize::new(0);
+        let result = run(dispatch_once(&journal, &account, &intent, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(outcome(Kind::Confirmed))
+        }))
+        .unwrap();
+        assert!(result.kind == Kind::Unknown);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            std::fs::read(root.0.join(".writer.lock")).unwrap(),
+            b"existing lock evidence"
+        );
+    }
+    #[test]
+    fn safe_writer_handles_block_a_second_instance_until_release() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let root = TempDir::new();
+        let first = PeripheralJournal::open(&root.0).unwrap();
+        let second = PeripheralJournal::open(&root.0).unwrap();
+        let held = first.writer_lock().unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        let contender = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let _held = second.writer_lock().unwrap();
+            acquired_tx.send(()).unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(matches!(
+            acquired_rx.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        drop(held);
+        acquired_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        contender.join().unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn peripheral_redirected_namespace_state_quarantine_and_lock_never_dispatch() {
+        use std::os::unix::fs::symlink;
+        for kind in ["namespace", "state", "quarantine", "writer_lock"] {
+            let root = TempDir::new();
+            let outside = TempDir::new();
+            std::fs::create_dir_all(&outside.0).unwrap();
+            let target = outside.0.join("evidence");
+            std::fs::write(&target, b"untouched external data").unwrap();
+            let journal = open(&root);
+            let ns = Namespace::from_context(&account(1));
+            let dir = journal.lock().unwrap().store.namespace_dir(&ns);
+            if kind == "namespace" {
+                std::fs::create_dir_all(dir.parent().unwrap()).unwrap();
+                symlink(&outside.0, &dir).unwrap();
+            } else if kind == "writer_lock" {
+                std::fs::remove_file(root.0.join(".writer.lock")).unwrap();
+                symlink(&target, root.0.join(".writer.lock")).unwrap();
+            } else {
+                let guard = journal.lock().unwrap();
+                let mut txn = guard.store.begin(&ns).unwrap();
+                txn.put("synthetic", "probe", JsonValue::string("retained"));
+                guard.store.commit(txn).unwrap();
+                drop(guard);
+                if kind == "state" {
+                    std::fs::remove_file(dir.join("state.json")).unwrap();
+                    symlink(&target, dir.join("state.json")).unwrap();
+                } else {
+                    std::fs::write(dir.join("state.json"), b"{corrupt evidence").unwrap();
+                    symlink(&outside.0, dir.join("quarantine")).unwrap();
+                }
+            }
+            let calls = AtomicUsize::new(0);
+            assert!(
+                run(dispatch_once(
+                    &journal,
+                    &account(1),
+                    &intent("blocked"),
+                    || async {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(outcome(Kind::Confirmed))
+                    }
+                ))
+                .is_err(),
+                "{kind}"
+            );
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            assert_eq!(std::fs::read(&target).unwrap(), b"untouched external data");
+            assert_eq!(std::fs::read_dir(&outside.0).unwrap().count(), 1);
+            if kind == "quarantine" {
+                assert_eq!(
+                    std::fs::read(dir.join("state.json")).unwrap(),
+                    b"{corrupt evidence"
+                );
+            }
+            if kind == "writer_lock" {
+                assert!(PeripheralJournal::open(&root.0).is_err());
+            }
+        }
+    }
+    #[cfg(unix)]
+    #[test]
+    fn new_peripheral_lock_and_state_files_are_mode_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = TempDir::new();
+        let journal = open(&root);
+        run(dispatch_once(
+            &journal,
+            &account(1),
+            &intent("private"),
+            || async { Ok(outcome(Kind::Unknown)) },
+        ))
+        .unwrap();
+        let state = journal
+            .lock()
+            .unwrap()
+            .store
+            .namespace_dir(&Namespace::from_context(&account(1)))
+            .join("state.json");
+        for path in [root.0.join(".writer.lock"), state] {
+            assert_eq!(
+                std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
     }
 }

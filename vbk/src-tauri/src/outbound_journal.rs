@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use contracts::json::JsonValue;
 use contracts::{AccountContext, AppError};
 use core_im::retention::{prune_keys, RetentionEntry, RetentionPolicy};
+use core_store::file::NamespaceIo;
 use core_store::{FileStore, Namespace, Store};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,10 @@ enum Phase {
 struct Attempt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     media_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attachment_lease_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attachment_draft_version: Option<u64>,
     #[serde(default)]
     send_started: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -75,8 +80,9 @@ pub struct UnknownAttemptMetadata {
 }
 
 pub struct OutboundJournal {
-    store: FileStore,
+    pub(crate) store: FileStore,
     retention: RetentionPolicy,
+    namespace_io: std::sync::Arc<crate::attachment_leases::SafeNamespaceIo>,
 }
 
 impl std::fmt::Debug for OutboundJournal {
@@ -114,7 +120,7 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-struct WriterLock(File);
+pub(crate) struct WriterLock(File);
 impl Drop for WriterLock {
     fn drop(&mut self) {
         let _ = FileExt::unlock(&self.0);
@@ -150,13 +156,40 @@ fn payload_hash(payload: &SendPayload) -> Result<String, AppError> {
 
 impl OutboundJournal {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, AppError> {
+        let store = FileStore::open(root)?;
+        let provider = std::sync::Arc::new(crate::attachment_leases::SafeNamespaceIo::new(
+            store.root(),
+        )?);
         Ok(Self {
-            store: FileStore::open(root)?,
+            store: store.with_namespace_io(provider.clone()),
+            namespace_io: provider,
             retention: RetentionPolicy::default(),
         })
     }
 
-    fn writer_lock(&self) -> Result<WriterLock, AppError> {
+    /// Called with the host outbound mutex held, after registry revocation.
+    /// Never changes or replays an attempt; unknown media references stay pinned.
+    pub(crate) fn logout_lock(&self, account: &AccountContext) -> Result<(), AppError> {
+        let _writer = self.writer_lock()?;
+        let ns = Namespace::from_context(account);
+        self.store.logout_lock(&ns)
+    }
+
+    /// A current identity must be published under the same host mutex first.
+    pub(crate) fn unlock_after_reauth(&self, account: &AccountContext) -> Result<(), AppError> {
+        let _writer = self.writer_lock()?;
+        let ns = Namespace::from_context(account);
+        // A fresh account may have no state.json. Sync the anchored directory,
+        // not the attempt-state barrier which requires an existing state file.
+        let directory = self
+            .namespace_io
+            .directory(&self.store.namespace_dir(&ns), true)
+            .map_err(|_| io_error())?;
+        self.store.unlock_after_reauth(&ns)?;
+        directory.sync().map_err(|_| io_error())
+    }
+
+    pub(crate) fn writer_lock(&self) -> Result<WriterLock, AppError> {
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
         #[cfg(unix)]
@@ -179,7 +212,7 @@ impl OutboundJournal {
 
     /// Barrier for a row that is already committed (or already on disk): a
     /// failure is `im.journal_barrier_failed`, never a fabricated `Unknown`.
-    fn committed_barrier(&self, ns: &Namespace) -> Result<(), AppError> {
+    pub(crate) fn committed_barrier(&self, ns: &Namespace) -> Result<(), AppError> {
         self.store.sync_namespace(ns).map_err(|_| barrier_failed())
     }
 
@@ -281,7 +314,7 @@ impl OutboundJournal {
         local_id: &str,
         payload: &SendPayload,
     ) -> Result<Reservation, AppError> {
-        self.reserve_at(account, local_id, payload, None)
+        self.reserve_at(account, local_id, payload, None, None, None)
     }
 
     fn reserve_at(
@@ -290,6 +323,8 @@ impl OutboundJournal {
         local_id: &str,
         payload: &SendPayload,
         media_kind: Option<String>,
+        attachment: Option<&crate::media_outbound::FrozenAttachment>,
+        captured_draft_version: Option<u64>,
     ) -> Result<Reservation, AppError> {
         if local_id.is_empty() || payload.gid.is_empty() || payload.text.trim().is_empty() {
             return Err(AppError::new(
@@ -327,6 +362,8 @@ impl OutboundJournal {
             },
             send_started: media_kind.is_none(),
             media_kind,
+            attachment_lease_id: attachment.and_then(|a| a.dto.lease_id.clone()),
+            attachment_draft_version: captured_draft_version,
             message_sha256: None,
             schema: 1,
             environment: account.environment.as_str().into(),
@@ -341,6 +378,15 @@ impl OutboundJournal {
         };
         let mut tx = self.store.begin(&ns)?;
         tx.expect_unchanged(COLLECTION, local_id, None);
+        if let Some(attachment) = attachment {
+            crate::attachment_leases::reserve_reference(
+                &self.store,
+                &mut tx,
+                account,
+                local_id,
+                attachment,
+            )?;
+        }
         tx.put(COLLECTION, local_id, Self::value(&row)?);
         self.store.commit(tx)?;
         // The row is committed here. A barrier failure must not be reported as
@@ -352,6 +398,7 @@ impl OutboundJournal {
 
     /// Shares the exact text local_id/CAS/OS-lock namespace. Payload is a
     /// canonical body-free manifest; it is hashed and never written verbatim.
+    #[cfg(test)]
     pub fn reserve_media(
         &self,
         account: &AccountContext,
@@ -363,9 +410,53 @@ impl OutboundJournal {
             return Err(corrupt());
         }
         Ok(matches!(
-            self.reserve_at(account, local_id, payload, Some(kind.into()))?,
+            self.reserve_at(account, local_id, payload, Some(kind.into()), None, None)?,
             Reservation::New
         ))
+    }
+
+    /// Capture synchronously before the send command's first network await.
+    pub fn capture_media_draft_version(
+        &self,
+        account: &AccountContext,
+        attachment: &crate::media_outbound::FrozenAttachment,
+    ) -> Result<Option<u64>, AppError> {
+        let _writer = self.writer_lock()?;
+        crate::attachment_leases::capture_draft_version(&self.store, account, attachment)
+    }
+
+    /// Production reservation uses the command-start snapshot, never a draft
+    /// revision observed after asynchronous upload preparation.
+    pub fn reserve_media_attachment_captured(
+        &self,
+        account: &AccountContext,
+        local_id: &str,
+        attachment: &crate::media_outbound::FrozenAttachment,
+        draft_version: Option<u64>,
+    ) -> Result<bool, AppError> {
+        attachment.validate(account, &attachment.dto.owner.gid)?;
+        Ok(matches!(
+            self.reserve_at(
+                account,
+                local_id,
+                &attachment.payload(),
+                Some(attachment.dto.kind.clone()),
+                Some(attachment),
+                draft_version
+            )?,
+            Reservation::New
+        ))
+    }
+
+    #[cfg(test)]
+    pub fn reserve_media_attachment(
+        &self,
+        account: &AccountContext,
+        local_id: &str,
+        attachment: &crate::media_outbound::FrozenAttachment,
+    ) -> Result<bool, AppError> {
+        let baseline = self.capture_media_draft_version(account, attachment)?;
+        self.reserve_media_attachment_captured(account, local_id, attachment, baseline)
     }
 
     pub fn media_status(
@@ -524,6 +615,22 @@ impl OutboundJournal {
         let mut tx = self.store.begin(&ns)?;
         tx.expect_unchanged(COLLECTION, local_id, Some(current));
         tx.put(COLLECTION, local_id, Self::value(&row)?);
+        if row.phase == Phase::Completed {
+            if let Some(lease_id) = &row.attachment_lease_id {
+                crate::attachment_leases::release_outbox_reference(
+                    &self.store,
+                    &mut tx,
+                    account,
+                    local_id,
+                    lease_id,
+                    if matches!(row.disposition, SendDispositionDto::Confirmed { .. }) {
+                        row.attachment_draft_version
+                    } else {
+                        None
+                    },
+                )?;
+            }
+        }
         self.store.commit(tx)?;
         self.committed_barrier(&ns)?;
         if row.phase == Phase::Completed {
@@ -564,33 +671,52 @@ impl OutboundJournal {
     }
 }
 
+/// Authorization is checked after waiting for the namespace gate, and the
+/// same gate remains held through writer-lock acquisition and the transaction.
+pub(crate) fn with_authorized<T>(
+    journal: &Mutex<OutboundJournal>,
+    authorize: impl FnOnce() -> Result<(), AppError>,
+    operation: impl FnOnce(&OutboundJournal) -> Result<T, AppError>,
+) -> Result<T, AppError> {
+    let journal = journal.lock().unwrap_or_else(|p| p.into_inner());
+    authorize()?;
+    operation(&journal)
+}
+
+pub(crate) fn with_transition<T>(
+    journal: Option<&Mutex<OutboundJournal>>,
+    operation: impl FnOnce(Option<&OutboundJournal>) -> T,
+) -> T {
+    let guard = journal.map(|j| j.lock().unwrap_or_else(|p| p.into_inner()));
+    operation(guard.as_deref())
+}
+
 /// Actual host helper. Neither the host mutex nor the OS writer lock is held
 /// across dispatch.await. Only the durable New reservation admits this closure.
-pub async fn send_once<F, Fut>(
+pub async fn send_once_authorized<F, Fut>(
     journal: &Mutex<OutboundJournal>,
     account: &AccountContext,
     local_id: &str,
     payload: &SendPayload,
+    authorize: impl Fn() -> Result<(), AppError>,
     dispatch: F,
 ) -> Result<SendDispositionDto, AppError>
 where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<SendDispositionDto, AppError>>,
 {
-    let reservation = journal
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .reserve(account, local_id, payload)?;
+    let reservation = with_authorized(journal, &authorize, |j| {
+        j.reserve(account, local_id, payload)
+    })?;
     if let Reservation::Existing(saved) = reservation {
         return Ok(saved);
     }
     let observed = dispatch().await.unwrap_or(SendDispositionDto::Unknown);
     // A failed completion cannot erase the durable write_started safety fence.
     let held = normalize(observed.clone());
-    let finished = journal
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .finish(account, local_id, payload, observed);
+    let finished = with_authorized(journal, &authorize, |j| {
+        j.finish(account, local_id, payload, observed)
+    });
     Ok(match finished {
         Ok(saved) => saved,
         // The outcome row was committed; only the follow-up sync failed. The
@@ -601,6 +727,21 @@ where
         }
         Err(_) => SendDispositionDto::Unknown,
     })
+}
+
+#[cfg(test)]
+pub(crate) async fn send_once<F, Fut>(
+    journal: &Mutex<OutboundJournal>,
+    account: &AccountContext,
+    local_id: &str,
+    payload: &SendPayload,
+    dispatch: F,
+) -> Result<SendDispositionDto, AppError>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<SendDispositionDto, AppError>>,
+{
+    send_once_authorized(journal, account, local_id, payload, || Ok(()), dispatch).await
 }
 
 #[cfg(test)]

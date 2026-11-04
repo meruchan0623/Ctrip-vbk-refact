@@ -1,17 +1,23 @@
 //! Verify-before-install pipeline as an explicit state machine:
 //!
 //! ```text
-//! Planned -> Downloaded -> MinisignVerified -> PlatformVerified -> Installed
-//!               |               |                    |                |
-//!               +---------------+--------------------+----------------+--> Rejected
+//! Planned -> Downloaded -> MinisignVerified -> PlatformVerified -> InstallerHandedOff
+//!    |           |                |                    |
+//!    +-----------+----------------+--------------------+--> Rejected
 //! ```
 //!
 //! * `launch_installer` is reachable only from `PlatformVerified`;
-//! * every failure deletes the downloaded file and ends in `Rejected`
-//!   (terminal, further events are refused);
-//! * the platform signature check (WinVerifyTrust / `codesign --verify
-//!   --deep --strict`) happens after minisign and **before** anything is
-//!   unpacked or executed.
+//! * failures before installer launch discard the download and end in `Rejected`;
+//!   launch errors retain it because the installer may already be using it.
+//!   All rejection states are terminal; further events are refused;
+//! * `InstallerHandedOff` means only that `launch_installer` returned `Ok`.
+//!   Installer completion and successful startup of the target version require
+//!   future host integration; this in-memory flow has no persisted receipt;
+//! * platform signature verification follows minisign and precedes executing
+//!   the installer or replacing the installed application. For an archive,
+//!   the host must first isolate extraction of the minisign-verified archive
+//!   so the actual executable/application payload can be verified. Extraction
+//!   and platform I/O are host responsibilities, not implemented here.
 //!
 //! The cryptography is behind [`FlowOps`]; this module only enforces order.
 //! Real-world evidence that the host's platform check really precedes
@@ -25,6 +31,7 @@ pub enum RejectReason {
     DownloadFailed,
     MinisignInvalid,
     PlatformSignatureInvalid,
+    /// Handoff was not confirmed; an installer may already be running.
     InstallLaunchFailed,
 }
 
@@ -34,13 +41,14 @@ pub enum Stage {
     Downloaded,
     MinisignVerified,
     PlatformVerified,
-    Installed,
+    /// The verified artifact was handed to the installer, not confirmed installed.
+    InstallerHandedOff,
     Rejected(RejectReason),
 }
 
 impl Stage {
     pub fn is_terminal(self) -> bool {
-        matches!(self, Stage::Installed | Stage::Rejected(_))
+        matches!(self, Stage::InstallerHandedOff | Stage::Rejected(_))
     }
 }
 
@@ -49,7 +57,8 @@ pub enum Event {
     Download(bool),
     Minisign(bool),
     Platform(bool),
-    Install(bool),
+    /// Whether the host confirmed handing the artifact to its installer.
+    InstallerLaunch(bool),
 }
 
 /// The event is not valid in the current stage.
@@ -71,8 +80,8 @@ pub fn advance(stage: Stage, event: Event) -> Result<Stage, OutOfOrder> {
         (Downloaded, Minisign(false)) => Rejected(MinisignInvalid),
         (MinisignVerified, Platform(true)) => PlatformVerified,
         (MinisignVerified, Platform(false)) => Rejected(PlatformSignatureInvalid),
-        (PlatformVerified, Install(true)) => Installed,
-        (PlatformVerified, Install(false)) => Rejected(InstallLaunchFailed),
+        (PlatformVerified, InstallerLaunch(true)) => InstallerHandedOff,
+        (PlatformVerified, InstallerLaunch(false)) => Rejected(InstallLaunchFailed),
         (stage, event) => return Err(OutOfOrder { stage, event }),
     })
 }
@@ -88,16 +97,26 @@ pub trait FlowOps {
     /// minisign verification of the downloaded file with the embedded key
     /// `key_id`.
     fn verify_minisign(&mut self, key_id: &str) -> bool;
-    /// Platform signature verification of the downloaded file.
+    /// Verify the platform signature of the actual executable/application
+    /// payload that will be executed or replace the installed application.
+    /// For archives, the host must isolate extraction after minisign succeeds
+    /// and before this check, without executing or replacing anything. This
+    /// trait neither implements extraction nor proves that host I/O ordering.
     fn verify_platform(&mut self) -> bool;
     /// Delete the downloaded file (idempotent, best effort).
     fn discard_download(&mut self);
     /// Hand over to the installer. Only ever called after both checks.
+    /// `Ok` confirms this handoff only; it must not be treated as an installer
+    /// exit status or evidence that the target version has started.
+    /// `Err` may still follow process creation or other side effects; it does
+    /// not prove that no installer is running. Reconcile before cleanup or retry.
     fn launch_installer(&mut self) -> Result<(), OpFailed>;
 }
 
-/// Run the whole pipeline; returns the terminal stage. The old version is
-/// untouched on every `Rejected` outcome.
+/// Run verification and installer handoff; returns the terminal stage.
+/// No installer completion, rollback, or target-version startup is observed.
+/// A launch error does not establish that an installer made no changes;
+/// the host must determine the installed version separately before any retry.
 pub fn run(plan: &UpdatePlan, ops: &mut dyn FlowOps) -> Stage {
     let mut stage = Stage::Planned;
     while !stage.is_terminal() {
@@ -105,16 +124,23 @@ pub fn run(plan: &UpdatePlan, ops: &mut dyn FlowOps) -> Stage {
             Stage::Planned => Event::Download(ops.download(&plan.artifact_url).is_ok()),
             Stage::Downloaded => Event::Minisign(ops.verify_minisign(&plan.key_id)),
             Stage::MinisignVerified => Event::Platform(ops.verify_platform()),
-            Stage::PlatformVerified => Event::Install(ops.launch_installer().is_ok()),
+            Stage::PlatformVerified => Event::InstallerLaunch(ops.launch_installer().is_ok()),
             // Unreachable: loop guard excludes terminal stages.
-            Stage::Installed | Stage::Rejected(_) => break,
+            Stage::InstallerHandedOff | Stage::Rejected(_) => break,
         };
         match advance(stage, ev) {
             Ok(next) => stage = next,
             Err(_) => break,
         }
     }
-    if matches!(stage, Stage::Rejected(_)) {
+    if matches!(
+        stage,
+        Stage::Rejected(
+            RejectReason::DownloadFailed
+                | RejectReason::MinisignInvalid
+                | RejectReason::PlatformSignatureInvalid
+        )
+    ) {
         ops.discard_download();
     }
     stage
@@ -156,7 +182,7 @@ mod tests {
             self.log.push("discard");
         }
         fn launch_installer(&mut self) -> Result<(), OpFailed> {
-            self.log.push("install");
+            self.log.push("launch_installer");
             if self.inst_ok {
                 Ok(())
             } else {
@@ -185,14 +211,26 @@ mod tests {
     }
 
     #[test]
-    fn happy_path_order_is_download_minisign_platform_install() {
+    fn successful_launch_confirms_only_terminal_installer_handoff() {
         let mut f = fake(true, true, true, true);
-        assert_eq!(run(&plan(), &mut f), Stage::Installed);
-        assert_eq!(f.log, ["download", "minisign", "platform", "install"]);
+        assert_eq!(run(&plan(), &mut f), Stage::InstallerHandedOff);
+        assert_eq!(
+            f.log,
+            ["download", "minisign", "platform", "launch_installer"]
+        );
+        assert!(Stage::InstallerHandedOff.is_terminal());
+        assert!(
+            !f.log.contains(&"discard"),
+            "handoff must retain the artifact for the installer"
+        );
+        assert!(
+            advance(Stage::InstallerHandedOff, Event::InstallerLaunch(true)).is_err(),
+            "a handed-off installer must not be launched again"
+        );
     }
 
     #[test]
-    fn every_failure_discards_and_never_installs() {
+    fn failures_discard_only_before_launch_and_never_report_handoff() {
         let cases = [
             (fake(false, true, true, true), RejectReason::DownloadFailed),
             (fake(true, false, true, true), RejectReason::MinisignInvalid),
@@ -207,10 +245,17 @@ mod tests {
         ];
         for (mut f, why) in cases {
             assert_eq!(run(&plan(), &mut f), Stage::Rejected(why));
-            assert_eq!(f.log.last(), Some(&"discard"), "{why:?}");
-            if why != RejectReason::InstallLaunchFailed {
-                assert!(!f.log.contains(&"install"), "{why:?}");
-            }
+            let expected: &[&str] = match why {
+                RejectReason::DownloadFailed => &["download", "discard"],
+                RejectReason::MinisignInvalid => &["download", "minisign", "discard"],
+                RejectReason::PlatformSignatureInvalid => {
+                    &["download", "minisign", "platform", "discard"]
+                }
+                RejectReason::InstallLaunchFailed => {
+                    &["download", "minisign", "platform", "launch_installer"]
+                }
+            };
+            assert_eq!(f.log, expected, "{why:?}");
         }
     }
 
@@ -222,18 +267,18 @@ mod tests {
     }
 
     #[test]
-    fn install_requires_both_verifications_in_the_machine() {
+    fn installer_handoff_requires_both_verifications_in_the_machine() {
         let stages = [
             Stage::Planned,
             Stage::Downloaded,
             Stage::MinisignVerified,
-            Stage::Installed,
+            Stage::InstallerHandedOff,
             Stage::Rejected(RejectReason::MinisignInvalid),
         ];
         for s in stages {
-            assert!(advance(s, Event::Install(true)).is_err(), "{s:?}");
+            assert!(advance(s, Event::InstallerLaunch(true)).is_err(), "{s:?}");
         }
-        assert!(advance(Stage::PlatformVerified, Event::Install(true)).is_ok());
+        assert!(advance(Stage::PlatformVerified, Event::InstallerLaunch(true)).is_ok());
     }
 
     #[test]
@@ -242,10 +287,10 @@ mod tests {
             Event::Download(true),
             Event::Minisign(true),
             Event::Platform(true),
-            Event::Install(true),
+            Event::InstallerLaunch(true),
         ];
         for s in [
-            Stage::Installed,
+            Stage::InstallerHandedOff,
             Stage::Rejected(RejectReason::DownloadFailed),
         ] {
             for e in events {
@@ -259,6 +304,23 @@ mod tests {
         assert!(advance(Stage::Planned, Event::Minisign(true)).is_err());
         assert!(advance(Stage::Planned, Event::Platform(true)).is_err());
         assert!(advance(Stage::Downloaded, Event::Platform(true)).is_err());
-        assert!(advance(Stage::Downloaded, Event::Install(true)).is_err());
+        assert!(advance(Stage::Downloaded, Event::InstallerLaunch(true)).is_err());
+    }
+    #[test]
+    fn launch_error_is_rejected_after_both_checks_and_is_not_a_handoff_receipt() {
+        let mut f = fake(true, true, true, false);
+        let result = run(&plan(), &mut f);
+        assert_eq!(result, Stage::Rejected(RejectReason::InstallLaunchFailed));
+        assert_ne!(result, Stage::InstallerHandedOff);
+        assert!(result.is_terminal());
+        assert_eq!(
+            f.log,
+            ["download", "minisign", "platform", "launch_installer"]
+        );
+        assert!(
+            !f.log.contains(&"discard"),
+            "uncertain handoff retains the artifact until the host reconciles the installer"
+        );
+        assert!(advance(result, Event::InstallerLaunch(true)).is_err());
     }
 }
