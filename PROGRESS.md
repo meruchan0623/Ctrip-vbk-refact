@@ -1,5 +1,17 @@
 # VBooking 消息面板对齐（2026-10-31）
 
+## 2026-11-04：设置项逐项审计与即时生效
+- `display.zoom` 原本只存不用，现由宿主 `ui_zoom.rs` 用 `set_zoom` 作用于全部本地窗口（登录窗与远程 webview 除外），并同步主窗最小尺寸、小窗尺寸、提醒窗定位和内置浏览器区域；页面用 `--ui-zoom` 换算红绿灯宽度。
+- 接通此前无消费者的设置：勿扰时段、跟随系统勿扰（`SystemState.ambient_dnd`）、全屏应用检测（`attention.rs`）、系统代理（`net_policy.rs`，reqwest 启用 `system-proxy`）；提醒窗位置变更立即移动。
+- 无后端可接的项不再伪装成开关：GPU（系统 WebView 管理）、本地聊天缓存（不落盘）、分析埋点与崩溃上传（无接收端）。`prefs.json` 字段保留以兼容旧文件。
+- macOS 隔离身份实跑（独立 identifier/HOME，经真实 `prefs_set`）：75/125/150% 立即生效，CSS 视口、窗口尺寸、提醒窗位置、开机自启、勿扰时段、代理开关、全屏检测读数均已核对；无完全磁盘访问权限时开启跟随系统勿扰被如实拒绝。
+- 未实机：真实账号下内置浏览器区域对齐、已授权时的专注模式读取、实际经代理的请求、Windows 全部（交叉编译在 ring 处失败，`SHQueryUserNotificationState` 仅按 windows crate 源码核对签名）。
+
+## 2026-11-04：UI 反馈九条
+- 已落盘未提交：顶栏账号菜单（文字按钮）、删除截图、视频并入文件+原生拖放预览、带文字工具栏与「…」翻译模式、语音接收展示（类型4、7+CBZ09，官方无发送入口）、「打开网页订单详情」、主窗子 webview 内置浏览器与账号同栏切换、设置页连续滚动。
+- 主窗有子 webview 后 Tauri `get_webview_window(main)` 返回 None，一律用 `get_window`/`get_webview`。隔离探针已证实：远程页调 IPC 被 ACL 拒绝、子 webview 隐藏/改尺寸/关闭后主窗正常。
+- 未实机：真实账号下的内置浏览器、原生拖放、真实语音 URL 播放与 wav 回退、真实文件发送、Windows 全部原生行为。TSim 查询仍是 iframe 浮层，未进标签。
+
 ## 2026-11-02：改进计划首轮落盘（A/B 类）与对抗性审查
 - 起点 main@6f7ae82。按改进计划 8 个模块并行落盘可在云环境完成的 A/B 类部分，随后 6 路对抗性审查发现即修：P0 1/1、P1 15/18、P2 14/26 已修并附红→绿回归。合并后 cargo test 516、clippy -D warnings 0 错、fmt 干净、npm test 932、门禁夹具 178/178 且源码树 0 违规、release-scan 对实跑 bundle 为 clean。
 - 新增 std-only crate core-transport / core-diag / core-update；DOM sink 门禁已进入「允许清单空、严格零命中」；四条 I-30a–d 宿主命令五方注册；发布包不再含 mock。

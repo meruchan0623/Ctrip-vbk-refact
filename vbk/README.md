@@ -1,5 +1,7 @@
 # vbk — VBooking 网页 IM 桌面客户端工程
 
+Chrome 登录态复用见 [接入说明](../docs/integrations/2026-11-03-chrome-login.md)；订单 iframe、右下速览及 TSIM 配套发布依赖见 [查询接入](../docs/integrations/2026-11-03-tsim-iframe.md)。
+
 按 [开发总纲](../docs/dev/00-architecture.md)、[总和开发计划](../docs/plan/00-master-development-plan.md) 与 [独立强提醒设计](../docs/dev/03-strong-alert.md) 落盘的工程。范围只含网页 IM（消息、通知、订单“详情 → IM 联系”）和本项目自有能力（多账号、托盘、独立 alarm 窗、商家助手、截图/OCR、更新与诊断）。
 
 ## 结构
@@ -53,6 +55,28 @@ npx tauri build --target aarch64-apple-darwin
 
 `tauri build` 会先执行 `npm run bundle:ui` 组装 `ui/bundle`（Tauri 的 `frontendDist`），产物在 `src-tauri/target/aarch64-apple-darwin/release/bundle/{macos,dmg}/`。Intel Mac 用 `x86_64-apple-darwin`。产物未签名、未公证，只能内部冒烟；对外分发需 Developer ID 签名与公证（REL 任务）。CI 的 `macos-bundle` 任务会产出同样的未签名 dmg。
 
+给测试人员安装的包必须用组内共用的测试签名身份打包，否则每次构建的签名身份都会变（ad-hoc 签名的代码标识是 `vbk_host-<hash>`）。钥匙串里的快速登录标记和 TSim 助手登录绑定在签名上，签名一变，装完新包就会掉登录。证书全组只生成一次，保存在仓库之外，CI 通过 secret `MAC_DEV_CERTIFICATE` 和 `MAC_DEV_CERTIFICATE_PASSWORD` 使用同一张：
+
+```bash
+tools/mac-dev-signing.sh create ~/secure/vbk-dev-signing.p12
+```
+
+```bash
+tools/mac-dev-signing.sh build ~/secure/vbk-dev-signing.p12 --target aarch64-apple-darwin
+```
+
+打包后用 `codesign -dr -` 检查，结果应为 `identifier "tech.tsim.vbk.client" and certificate leaf = H"…"`。
+
+用户数据位置（只由 bundle identifier 决定，与版本号和安装位置无关）：
+
+| 数据 | macOS | Windows |
+| --- | --- | --- |
+| 账号索引、偏好、状态、日志 | `~/Library/Application Support/tech.tsim.vbk.client/` | `%APPDATA%\tech.tsim.vbk.client\` |
+| 各账号网页登录态（Cookie） | `~/Library/WebKit/tech.tsim.vbk.client/WebsiteDataStore/<uuid>/` | `%APPDATA%\tech.tsim.vbk.client\profiles\p_*\` |
+| 快速登录标记 / TSim 助手登录 | 登录钥匙串 `tech.tsim.vbk.client` / `tech.tsim.vbk.client.tsim` | 凭据管理器，同名 |
+
+启动日志 `logs/vbk.log` 会记录数据目录、账号索引的加载结果、每个账号的恢复结果（`resuming saved profile … (web data present|missing)`、`not resumed at startup (…)`、`quick-login marker missing`），以及保存的会话是被接受（`saved web session accepted`）还是被拒（`fell back to login`）。
+
 平台差异（`cfg(target_os = "macos")`）：
 
 | 行为 | Windows | macOS |
@@ -61,6 +85,7 @@ npx tauri build --target aarch64-apple-darwin
 | L0 未读数 | 窗口标题 `(n)`（覆盖图标待 NTF-04） | Dock 角标 + 窗口标题 |
 | alarm 窗 | 置顶、不激活、不进任务栏 | 置顶、不激活，并在所有桌面空间与全屏应用上可见 |
 | 关闭主窗口后找回 | 托盘左键 | 托盘或点击 Dock 图标（`RunEvent::Reopen`） |
+| 截图发送 | 暂未实现：输入框不显示截图按钮、设置页不显示截图快捷键，也不注册该全局热键（`shell::SCREENSHOT_SUPPORTED`） | 截图按钮 + 全局快捷键 |
 | 打包 | NSIS（当前用户安装） | `.app` + `.dmg`（`tauri.macos.conf.json`，`icons/icon.icns`） |
 
 macOS 上 alarm 显示时是否会夺走键盘焦点、锁屏/睡眠行为，仍需按[强提醒设计](../docs/dev/03-strong-alert.md) §7 在 Mac 上实测；未实测前不宣称 macOS 支持。
