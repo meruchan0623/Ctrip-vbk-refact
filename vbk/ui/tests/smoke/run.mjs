@@ -80,7 +80,7 @@ function build() {
     }
     console.warn(`[smoke] tsc exited ${r.status} with errors outside UI-owned files (emit still produced):\n${out.trim()}`);
   }
-  for (const app of ['main', 'alarm', 'setting', 'login']) {
+  for (const app of ['main', 'alarm', 'notice', 'setting', 'login']) {
     const f = join(uiRoot, 'dist', 'apps', app, 'main.js');
     if (!existsSync(f)) throw new Error(`missing build output ${f}`);
   }
@@ -192,7 +192,7 @@ async function hygiene(page, name) {
     const inlineScripts = document.querySelectorAll('script:not([src])').length;
     const jsLinks = Array.from(document.querySelectorAll('[href]')).filter((e) => /^\s*javascript:/i.test(e.getAttribute('href') ?? '')).length;
     const navText = Array.from(document.querySelectorAll('nav, [role="tab"], [role="menuitem"], [role="tablist"], .setnav, .tab-add, .nav-i')).map((e) => e.textContent?.trim() ?? '');
-    const buttons = Array.from(document.querySelectorAll('button, a, .link, .chipbtn')).map((e) => e.textContent?.trim() ?? '');
+    const buttons = Array.from(document.querySelectorAll('button, a, .link')).map((e) => e.textContent?.trim() ?? '');
     return { csp, inlineHandlers, inlineScripts, jsLinks, navText, buttons };
   });
   check(/script-src 'self'/.test(r.csp) && /object-src 'none'/.test(r.csp) && !/unsafe-eval/.test(r.csp), `${name}: CSP meta restricts script-src to self (${r.csp.slice(0, 40)}…)`);
@@ -200,7 +200,7 @@ async function hygiene(page, name) {
   check(r.inlineScripts === 0 && r.jsLinks === 0, `${name}: no inline <script> / javascript: links`);
   const badNav = r.navText.filter((s) => DELETED_MODULES.test(s));
   check(badNav.length === 0, `${name}: no nav/tab/menu label points at a deleted module (${badNav.join('|')})`);
-  const badBtn = r.buttons.filter((s) => DELETED_MODULES_SUBSTR.test(s) || (DELETED_MODULES_EXACT.test(s) && !(s === '导出' && name.startsWith('setting/privacy'))));
+  const badBtn = r.buttons.filter((s) => DELETED_MODULES_SUBSTR.test(s) || (DELETED_MODULES_EXACT.test(s) && !(s === '导出' && name.startsWith('setting/'))));
   check(badBtn.length === 0, `${name}: no button/link label points at a deleted module (${badBtn.join('|')})`);
 }
 
@@ -228,7 +228,8 @@ async function testMain(context, base) {
   check((await text(page, '.tab[data-account="acc-demo-b"] .tab-badge')) === '3', 'background account tab shows its unread badge');
   check((await page.$('[data-nav="messages"]')) !== null, 'nav 消息 present');
   check((await page.$('[data-nav="notifications"]')) !== null && (await page.$('[data-nav="order"]')) !== null, 'nav 通知 / 订单联系 present');
-  check((await page.$('[data-nav="settings"]')) !== null && (await page.$('[data-nav="me"]')) !== null, 'nav bottom 设置 / 账号');
+  check((await page.$('[data-nav="settings"]')) !== null, 'nav bottom 设置');
+  check((await page.$('[data-nav="me"]')) === null && (await page.$('.tb [aria-haspopup="menu"]')) === null, 'title bar has no account dropdown');
   const navLabels = await page.$$eval('.nav .nav-i > span:not(.nav-badge):not(.nav-alarm)', (els) => els.map((e) => e.textContent?.trim()));
   check(navLabels.join(',') === '消息,通知,订单联系,设置', `left nav only 消息/通知/订单联系/设置 (got ${navLabels.join(',')})`);
 
@@ -243,7 +244,7 @@ async function testMain(context, base) {
   check((await firstConv?.getAttribute('class'))?.includes('top'), 'pinned conversation sorts first');
   // A read receipt cannot clear the authoritative unread count (host data only), so the badge stays after opening.
   check((await text(page, '.conv[data-gid="g-demo-1"] .badge')) === '1', 'opening a conversation leaves the authoritative unread badge untouched');
-  check(/等待 \d+秒/.test((await text(page, '.conv[data-gid="g-demo-1"] .wait')) ?? ''), 'opening + marking read leaves the waiting chip untouched (host data only)');
+  check(/^\d{2}:\d{2}$/.test((await text(page, '.conv[data-gid="g-demo-1"] .conv-lead .wait')) ?? ''), 'opening + marking read leaves the waiting chip untouched (host data only)');
   check((await text(page, '.conv[data-gid="g-demo-2"] .badge')) === '1', 'unread badge on another conversation');
   check((await text(page, '.conv[data-gid="g-demo-2"] .chip-lang')) === '日语', 'language chip on the row');
   check((await page.$('.conv .cmark')) !== null, 'colour mark bar rendered');
@@ -283,7 +284,7 @@ async function testMain(context, base) {
     check(!r.disabled, `chat ${act} opens its peripheral flow (enabled)`);
   }
   check((await page.$('[data-chat-act="side"].on')) !== null, 'side panel toggle is on');
-  check((await text(page, '.btr .trtag')) === '译', 'inbound platform translation shown under original');
+  check((await page.$$eval('.btr', (els) => els.some((e) => e.textContent.includes('你好，我预订了')))), 'inbound platform translation shown under original');
   check((await page.$('.msg .ocard')) !== null, 'order card message rendered');
   check((await text(page, '.hl[data-hl="order"]')) === '3051228766', 'order number inside a message is clickable');
   check((await page.$('.side .source-info')) !== null && ((await page.$$eval('.side .info-grid .iv', (els) => els.map((e) => e.textContent))) ?? []).includes('3051228766'), 'right panel 咨询来源 card with order');
@@ -293,12 +294,12 @@ async function testMain(context, base) {
   await page.waitForSelector('[data-sb="alarm"]', { timeout: 5000 });
   check((await text(page, '[data-sb="alarm"]'))?.includes('超时提醒 3'), 'status bar alarm count from snapshot event');
   check((await page.getAttribute('[data-tb-alarm]', 'data-tb-alarm')) === '3' && (await page.getAttribute('[data-nav-alarm]', 'data-nav-alarm')) === '3', 'title bar + left nav timeout count from the alarm snapshot');
-  check((await page.$eval('[data-chip="recommend"]', (el) => el.disabled)) === true, 'composer chip recommend disabled (no frozen command)');
-  check((await page.$eval('[data-chip="phrases"]', (el) => el.disabled)) === false, 'composer chip phrases enabled (快捷话术 flow)');
-  await page.click('[data-chip="hide-tr"]');
-  await page.waitForFunction(() => !Array.from(document.querySelectorAll('.btr .trtag')).some((e) => e.textContent === '译'), null, { timeout: 3000 }).catch(() => undefined);
-  check(!(await page.$$eval('.btr .trtag', (els) => els.map((e) => e.textContent))).includes('译'), '隐藏翻译 hides inbound translations locally');
-  await page.click('[data-chip="hide-tr"]');
+  check((await page.$eval('[data-tool="recommend"]', (el) => el.disabled)) === true, 'composer tool recommend disabled (no frozen command)');
+  check((await page.$eval('[data-tool="phrases"]', (el) => el.disabled)) === false, 'composer tool phrases enabled (快捷话术 flow)');
+  await page.click('[data-tool="hide-tr"]');
+  await page.waitForFunction(() => !Array.from(document.querySelectorAll('.btr')).some((e) => e.textContent.includes('你好，我预订了')), null, { timeout: 3000 }).catch(() => undefined);
+  check(!(await page.$$eval('.btr', (els) => els.some((e) => e.textContent.includes('你好，我预订了')))), '隐藏翻译 hides inbound translations locally');
+  await page.click('[data-tool="hide-tr"]');
 
   // package quick view fills in for a conversation with an ICCID
   await page.click('.conv[data-gid="g-demo-2"]');
@@ -359,21 +360,34 @@ async function testMain(context, base) {
   check(markCalls.length === 1 && markCalls[0].payload.action === 4 && markCalls[0].payload.account?.account_id === 'acc-demo-a', 'im_set_mark payload {account, gid, action 4}');
   await page.mouse.click(700, 300);
 
-  // account menu: work status changes only after the server read-back
+  // work status menu: status changes only after the server read-back
   await rec.reset();
-  await page.click('[data-nav="me"]');
-  await page.waitForSelector('.me-menu', { timeout: 3000 });
-  check((await text(page, '.me-menu .mhead')) === '工作状态（服务端确认后生效）', 'account menu status header');
-  await hygiene(page, 'main/me-menu');
+  await page.click('.stat-pill');
+  await page.waitForSelector('#agent-status-menu', { timeout: 3000 });
+  check((await page.getAttribute('#agent-status-menu', 'aria-label')) === '工作状态（服务端确认后生效）', 'work status menu label');
+  check((await page.$$('#agent-status-menu [role="menuitem"]')).length === 4, 'work status menu holds only work statuses');
+  await hygiene(page, 'main/agent-status-menu');
   await page.click('[data-agent-status="hangup"]');
   await page.waitForSelector('.stat-pill[data-agent="hangup"]', { timeout: 5000 });
   const st = await rec.calls('account_set_agent_status');
   check(st.length === 1 && st[0].payload.status === 'hangup' && st[0].payload.account?.account_id === 'acc-demo-a', `account_set_agent_status {account, status} (${JSON.stringify(st[0]?.payload)})`);
   check((await text(page, '[data-sb="agent"]'))?.includes('挂起'), 'status bar shows the read-back status');
-  await page.evaluate(() => window.__vbkMock.emit('account://agent-status', { status: 'online', confirmed: false }));
-  await page.waitForFunction(() => document.querySelector('[data-sb="agent"]')?.textContent?.includes('状态未知'), null, { timeout: 3000 });
-  check((await text(page, '.stat-pill'))?.includes('状态未知'), 'an unconfirmed status is shown as 「状态未知」, never as 在线');
-  await page.click('[data-nav="me"]');
+  await page.evaluate(async () => {
+    const m = window.__vbkMock;
+    const snap = await m.invoke('account_snapshot');
+    const active = snap.accounts.find(a => a.context.account_id === snap.active_account_id).context;
+    const other = snap.accounts.find(a => a.context.account_id !== snap.active_account_id).context;
+    m.emit('account://agent-status', { account: other, status: 'getoff', confirmed: true });
+    await new Promise(requestAnimationFrame);
+    if (!document.querySelector('.stat-pill')?.textContent?.includes('挂起')) throw new Error('foreign status replaced foreground');
+    m.emit('account://agent-status', { account: active, status: 'online', confirmed: false });
+    await new Promise(requestAnimationFrame);
+    if (!document.querySelector('.stat-pill')?.textContent?.includes('挂起')) throw new Error('expiry replaced last confirmed display');
+    m.emit('account://agent-status', { account: active, status: 'getoff', confirmed: true });
+  });
+  await page.waitForSelector('.stat-pill[data-agent="getoff"]', { timeout: 3000 });
+  check((await text(page, '.stat-pill'))?.includes('下班'), 'only current-account confirmed getoff updates the display');
+  await page.click('.stat-pill');
   await page.click('[data-agent-status="online"]');
   await page.waitForSelector('.stat-pill[data-agent="online"]', { timeout: 5000 });
   await page.mouse.click(700, 300);
@@ -430,6 +444,20 @@ async function testMain(context, base) {
   check(!cats.includes('特别关注'), 'no 特别关注 category');
   check((await page.$$('.nitem.unread')).length >= 1, 'unread notifications');
   check((await text(page, '.nitem .link'))?.includes('打开官方页面'), 'notification link opens official page');
+  const noticeOrder = await page.$$eval('.nitem', (els) => els.map((e) => e.dataset.notice));
+  check(noticeOrder.join() === 'nt-1,nt-2,nt-3', `notifications run newest first (${noticeOrder.join()})`);
+  const bannerMenu = async () => {
+    await page.click('[data-cat="system"]', { button: 'right' });
+    await page.waitForSelector('[data-ncat-menu="banner"]', { timeout: 5000 });
+    return (await text(page, '[data-ncat-menu="banner"]'))?.trim();
+  };
+  check((await bannerMenu()) === '使用横幅提醒', 'category menu offers the banner');
+  await page.click('[data-ncat-menu="banner"]');
+  await page.waitForSelector('[data-cat-banner="system"]', { timeout: 5000 });
+  check((await bannerMenu()) === '取消横幅提醒', 'an opted-in category offers to turn it off');
+  await page.click('[data-ncat-menu="banner"]');
+  await page.waitForFunction(() => !document.querySelector('[data-cat-banner]'), null, { timeout: 5000 });
+  check(true, 'banner opt-in is reversible');
   await hygiene(page, 'main/notifications');
   await shot(page, 'main-notifications.png');
   await page.click('[data-action="mark-all"]');
@@ -453,7 +481,10 @@ async function testMain(context, base) {
   // 网页高级操作 → host webview command with the official detail URL, never window.open
   await rec.reset();
   await page.click('[data-order-state="one"] [data-action="web"]');
-  await page.waitForFunction(() => document.querySelector('.toast')?.textContent?.includes('已在内置网页打开'), null, { timeout: 3000 });
+  await page.waitForSelector('.tab.web-tab.on', { timeout: 3000 });
+  check((await page.$('.web-stage .web-view')) !== null, 'order detail opens as a title-bar web tab');
+  await page.click('.tab.web-tab .tab-x');
+  await page.waitForFunction(() => !document.querySelector('.tab.web-tab'), null, { timeout: 3000 });
   const webCalls = await rec.calls('shell_open_webview');
   check(webCalls.length === 1 && webCalls[0].payload.url === 'https://vbooking.ctrip.com/ticket_order/order/detail?orderId=3051466120' && webCalls[0].payload.account?.account_id === 'acc-demo-a', `网页高级操作 uses shell_open_webview with the detail URL (${JSON.stringify(webCalls[0]?.payload)})`);
   check((await rec.windowOpen()) === 0 && (await rec.calls('shell_open_external')).length === 0, '网页高级操作 never calls window.open / shell_open_external');
@@ -615,6 +646,74 @@ async function testMainWelcome(context, base) {
 }
 
 async function testAlarm(context, base) {
+  console.log('[smoke] notice');
+  {
+    const errors = [];
+    const page = await openPage(context, { width: 372, height: 480 });
+    watch(page, errors);
+    await page.goto(`${base}/apps/notice/index.html?scenario=default`);
+    const noticeAccount = { account_id: 'a', environment: 'test', session_generation: 1 };
+    const notice = (gid, count, stay_ms = 6000, content = { title: `客户${gid}`, preview: `预览${gid}` }) => page.evaluate((e) => window.__vbkMock.emit('notify://notice', e), {
+      account: noticeAccount, gid, ...content, count, stay_ms,
+    });
+    const order = () => page.$$eval('.ncard:not(.leaving)', (els) => els
+      .map((e) => [e.dataset.noticeGid, Number(getComputedStyle(e).getPropertyValue('--y').replace('px', ''))])
+      .sort((a, b) => a[1] - b[1]));
+    await page.waitForFunction(() => window.__vbkMock);
+    await page.waitForTimeout(100);
+    for (const garbage of GARBAGE_PAYLOADS) await page.evaluate((g) => window.__vbkMock.emit('notify://notice', g), garbage);
+    check((await page.$('.ncard')) === null, 'malformed notices are dropped');
+    await notice('100', 1); await notice('200', 1); await notice('300', 1);
+    await page.waitForSelector('.ncard.in');
+    check((await order()).map((row) => row[0]).join() === '100,200,300', 'notices stack downward in arrival order');
+    await page.waitForTimeout(400);
+    check(await page.$eval('.ncard', (e) => getComputedStyle(e).opacity === '1'), 'notice fades in to fully opaque');
+    check((await text(page, '[data-notice-gid="100"] [data-notice-name]')) === '客户100', 'notice shows the customer name');
+    check((await text(page, '[data-notice-gid="100"] [data-notice-preview]')) === '预览100', 'notice shows the message preview');
+    check(await page.$eval('[data-notice-gid="100"] [data-notice-count]', (e) => e.hidden), 'a single message shows no count');
+    check(await page.$eval('[data-notice-gid="100"]', (e) => !/客户新消息|您负责的客户|现在/.test(e.textContent ?? '') && !e.querySelector('svg')), 'notice drops the old filler');
+    await notice('100', 4);
+    check((await text(page, '[data-notice-gid="100"] [data-notice-count]')) === '4', 'same conversation merges its count');
+    check((await page.$$('.ncard')).length === 3, 'merge adds no card');
+    await notice('500', 1, 6000, { title: '', preview: null });
+    check((await text(page, '[data-notice-gid="500"] [data-notice-name]')) === '客户', 'unknown name falls back');
+    await page.evaluate((e) => window.__vbkMock.emit('notify://notice', e), { account: noticeAccount, gid: 'notice-category:1:1', title: '系统通知', preview: null, count: 2, stay_ms: 6000, category_id: '1:1' });
+    await page.waitForSelector('[data-notice-gid="notice-category:1:1"]', { timeout: 5000 });
+    check((await text(page, '[data-notice-gid="notice-category:1:1"] [data-notice-preview]')) === '收到新的通知', 'a notice-center card has its own fallback text');
+    await page.click('[data-notice-gid="notice-category:1:1"] .ncard-close');
+    await page.waitForFunction(() => !document.querySelector('[data-notice-gid="notice-category:1:1"]'), null, { timeout: 5000 });
+    check((await text(page, '[data-notice-gid="500"] [data-notice-preview]')) === '发来一条新消息', 'missing preview falls back');
+    const longPreview = '长'.repeat(200);
+    await page.evaluate((e) => window.__vbkMock.emit('notify://notice-update', e), { account: noticeAccount, gid: '500', title: '张三', preview: longPreview });
+    check((await text(page, '[data-notice-gid="500"] [data-notice-name]')) === '张三', 'late row fills in the name');
+    check((await text(page, '[data-notice-gid="500"] [data-notice-preview]')) === longPreview, 'late row fills in the preview');
+    check(await page.$eval('[data-notice-gid="500"]', (card) => {
+      const preview = card.querySelector('[data-notice-preview]');
+      return preview.scrollHeight > preview.clientHeight && preview.getBoundingClientRect().bottom <= card.getBoundingClientRect().bottom;
+    }), 'a long preview is clamped inside the card');
+    for (const garbage of GARBAGE_PAYLOADS) await page.evaluate((g) => window.__vbkMock.emit('notify://notice-update', g), garbage);
+    await page.evaluate((e) => window.__vbkMock.emit('notify://notice-update', e), { account: noticeAccount, gid: '999', title: 'x', preview: 'x' });
+    check((await page.$$('.ncard')).length === 4, 'an update never creates a card');
+    await page.click('[data-notice-gid="500"]', { position: { x: 200, y: 40 } });
+    await page.waitForTimeout(400);
+    const before = await order();
+    await page.hover('[data-notice-gid="200"]');
+    await page.click('[data-notice-gid="200"] .ncard-close');
+    const after = await order();
+    check(after.map((row) => row[0]).join() === '100,300' && after[1][1] === before[1][1], 'closing a card moves the one below up');
+    await page.waitForTimeout(400);
+    check((await page.$('[data-notice-gid="200"]')) === null, 'closed card leaves the DOM after fading');
+    await page.mouse.move(0, 470);
+    await page.evaluate(() => document.getElementById('app').dispatchEvent(new MouseEvent('mouseleave')));
+    await notice('400', 1, 300);
+    await page.waitForTimeout(800);
+    check((await page.$('[data-notice-gid="400"]')) === null && (await page.$('[data-notice-gid="100"]')) !== null, 'each card expires on its own timer');
+    await hygiene(page, 'notice');
+    await shot(page, 'notice.png');
+    await page.close();
+    check(errors.length === 0, `notice page errors: ${errors.join(' | ')}`);
+  }
+
   console.log('[smoke] alarm');
   const errors = [];
   const page = await openPage(context, { width: 420, height: 520 });
@@ -629,22 +728,12 @@ async function testAlarm(context, base) {
   check((await page.$('.arow:nth-child(2) .alarm-wait.red')) === null, '45 s entry is not red');
   check((await text(page, '[data-pending]')) === '待核对', '待核对 badge for unconfirmed start');
   check(/\d+分\d+秒/.test((await text(page, '.arow:first-child .alarm-wait')) ?? ''), 'waited time formatted 分秒');
-  const bodyText = await text(page, 'body');
-  check(!/示例消息|Is breakfast/.test(bodyText ?? ''), 'no customer message text in alarm window');
-  // stronger: none of the demo conversations' message texts / previews may appear anywhere in the alarm DOM
-  const leaked = await page.evaluate(async () => {
-    const m = window.__vbkMock;
-    const acc = (await m.invoke('account_snapshot')).accounts[0].context;
-    const convs = await m.invoke('im_conversations', { account: acc });
-    const texts = [];
-    for (const c of convs) {
-      if (c.preview) texts.push(c.preview);
-      for (const msg of await m.invoke('im_messages', { account: acc, gid: c.gid })) if (msg.text.length > 3) texts.push(msg.text);
-    }
-    const html = document.body.innerHTML;
-    return texts.filter((t) => html.includes(t));
-  });
-  check(leaked.length === 0, `no conversation text leaks into the alarm DOM (${leaked.join('|')})`);
+  const previews = await page.$$eval('.arow', (els) => els.map((e) => ({ text: e.querySelector('[data-preview]')?.textContent ?? null, height: e.offsetHeight })));
+  check(previews[0].text?.startsWith('请问 eSIM') && previews[1].text === 'Where do we meet tomorrow?' && previews[2].text === null, 'rows show the host preview, none when not cached');
+  check(previews[0].height > previews[1].height && previews[1].height > previews[2].height, `row height follows the preview (${previews.map((p) => p.height).join(',')})`);
+  const resized = await page.evaluate(() => { const b = document.querySelector('.alarm'); return [...b.children].reduce((n, el) => n + (el.classList.contains('alarm-list') ? el.firstElementChild.offsetHeight : el.offsetHeight), 0); });
+  check(resized < 300, `content is compact for 3 rows (${resized}px)`);
+  check((await page.$('.alarm-sel')) === null && (await page.$('.alarm-f')) === null, 'no large customer block or footer');
   await hygiene(page, 'alarm');
   await shot(page, 'alarm.png');
   const rec = await recordInvokes(page);
@@ -679,21 +768,7 @@ async function testAlarm(context, base) {
   await page.waitForFunction((b) => Number(document.querySelector('.arow [data-waited]')?.getAttribute('data-waited')) > b, before, { timeout: 5000 });
   check(true, 'snapshot ticks every second');
 
-  // snooze: the menu offers exactly 5/10/30 and the command echoes the row's identity + version
-  const row2 = await page.$eval('.arow:nth-child(2)', (el) => ({ gid: el.dataset.gid, round_id: el.dataset.round, version: Number(el.dataset.version) }));
-  await page.click('.arow:nth-child(2) [data-act="snooze"]');
-  await page.waitForSelector('[data-snooze]', { timeout: 3000 });
-  const snoozeOpts = await page.$$eval('[data-snooze]', (els) => els.map((e) => e.getAttribute('data-snooze')));
-  check(snoozeOpts.join(',') === '5,10,30', `snooze menu offers exactly 5/10/30 (${snoozeOpts.join(',')})`);
-  await page.click('.arow:nth-child(2) [data-snooze="10"]');
-  await page.waitForSelector('[data-snoozed]', { timeout: 5000 });
-  check((await text(page, '[data-snoozed]'))?.startsWith('稍后提醒至'), 'snoozed indicator');
-  check(/^2 个回复超时提醒$/.test((await text(page, '[data-alarm-title]')) ?? ''), 'snoozed entry not counted in header');
-  const snoozeCalls = await rec.calls('notify_snooze');
-  check(
-    snoozeCalls.length === 1 && JSON.stringify(Object.keys(snoozeCalls[0].payload).sort()) === '["account","gid","minutes","round_id","version"]' && snoozeCalls[0].payload.gid === row2.gid && snoozeCalls[0].payload.round_id === row2.round_id && snoozeCalls[0].payload.version === row2.version && snoozeCalls[0].payload.minutes === 10 && snoozeCalls[0].payload.account.account_id === 'acc-demo-a',
-    `notify_snooze echoes {account,gid,round_id,version} of the displayed row + minutes (${JSON.stringify(snoozeCalls[0]?.payload)})`,
-  );
+  check((await page.$('[data-act="snooze"]')) === null && (await page.$('[data-snooze]')) === null, 'alarm offers no snooze control');
 
   // version mismatch → notice + refresh, no retry with the old version
   await rec.reset();
@@ -739,6 +814,53 @@ async function testAlarm(context, base) {
   await shot(page, 'alarm-clock-untrusted.png');
 
   for (const e of errors) check(false, `alarm: ${e}`);
+  await page.close();
+}
+
+async function testMediaViewer(context, base) {
+  console.log('[smoke] media-viewer');
+  const errors = [];
+  const page = await openPage(context, { width: 1120, height: 820 });
+  watch(page, errors);
+  const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  await page.route('https://dimg04.tripcdn.com/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: pixel }));
+  await page.goto(`${base}/apps/media-viewer/index.html?scenario=default&platform=windows`);
+  await page.waitForSelector('.viewer-image', { timeout: 8000 });
+  await hygiene(page, 'media-viewer');
+  check((await text(page, '.viewer-heading strong')) === '演示图片2.png', 'viewer opens on the image the host selected');
+  check((await text(page, '.viewer-count')) === '2 / 4', 'sequence position is shown');
+  check(await page.evaluate(() => !document.querySelector('dialog')), 'viewer is the window itself, not an in-page dialog');
+  check((await page.$$('.viewer-win button')).length === 3, 'Windows draws minimize / maximize / close');
+  await page.click('button[aria-label="放大"]');
+  check((await text(page, 'button[aria-label="恢复适应窗口"]'))?.includes('125%'), 'image zoom works');
+  const recorded = await recordInvokes(page);
+  await page.click('.viewer-card[data-pos="next"]');
+  check((await text(page, '.viewer-heading strong')) === '演示图片3.png' && (await text(page, '.viewer-count')) === '3 / 4', 'clicking the right peek promotes it to the main image');
+  check((await page.getAttribute('.viewer-card[data-pos="main"] img', 'src'))?.endsWith('photo-3.png'), 'the clicked peek is now the main card');
+  check(!(await text(page, 'button[aria-label="恢复适应窗口"]'))?.includes('%'), 'moving resets the previous zoom');
+  await page.click('.viewer-nav[data-nav="next"]');
+  check((await text(page, '.viewer-count')) === '4 / 4' && await page.isDisabled('.viewer-nav[data-nav="next"]') && (await page.$('.viewer-card[data-pos="next"]')) === null, 'the sequence stops at the newest image');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await page.click('.viewer-card[data-pos="prev"]');
+  check((await text(page, '.viewer-count')) === '1 / 4' && await page.isDisabled('.viewer-nav[data-nav="prev"]'), 'arrow keys and the left peek walk back to the start');
+  await page.click('button[aria-label="在系统浏览器中打开"]');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  const calls = await recorded.calls();
+  check(calls.some((c) => c.cmd === 'media_viewer_open_external' && c.payload?.index === 0) && !calls.some((c) => c.cmd === 'shell_open_external'), 'external open names the current item, not a URL');
+  check(calls.some((c) => c.cmd === 'shell_window' && c.payload?.action === 'close'), 'Esc closes the window');
+  await page.goto(`${base}/apps/media-viewer/index.html?scenario=default&platform=macos&kind=single-image`);
+  await page.waitForSelector('.viewer-card[data-pos="main"]', { timeout: 8000 });
+  check((await page.$('.viewer-nav')) === null && (await page.$('.viewer-count')) === null, 'a single image has no navigation');
+  await page.goto(`${base}/apps/media-viewer/index.html?scenario=default&platform=macos&kind=video`);
+  await page.waitForSelector('video.viewer-player', { timeout: 8000 });
+  check((await page.$('.viewer-win')) === null, 'macOS keeps the traffic lights');
+  await page.goto(`${base}/apps/media-viewer/index.html?scenario=default&platform=macos&kind=file`);
+  await page.waitForSelector('.viewer-file h2', { timeout: 8000 });
+  check((await text(page, '.viewer-file h2')) === '演示文档.pdf', 'document shows its name and the external open action');
+  await shot(page, 'media-viewer-file.png');
+  for (const e of errors) check(false, `media-viewer: ${e}`);
   await page.close();
 }
 
@@ -798,13 +920,8 @@ async function testSetting(context, base) {
   await shot(page, 'setting-notify.png');
 
   await page.click('[data-section="assistant"]');
-  await page.waitForSelector('[data-send-mode="replace_draft"]', { timeout: 5000 });
-  check((await page.getAttribute('[data-send-mode="replace_draft"]', 'aria-checked')) === 'true', 'replace-draft is default');
-  check((await text(page, '[data-send-mode="send_direct"]'))?.includes('客户只收到译文'), 'direct-send explanation');
-  check((await text(page, '[data-send-mode="replace_draft"]'))?.includes('点「替换」'), 'replace-draft explanation');
-  await page.click('[data-send-mode="send_direct"]');
-  await page.waitForFunction(() => document.querySelector('[data-send-mode="send_direct"]')?.getAttribute('aria-checked') === 'true', null, { timeout: 5000 });
-  check(true, 'send mode switched');
+  await page.waitForSelector('[data-section="assistant"][aria-current]', { timeout: 5000 });
+  check((await page.$('[data-send-mode]')) === null, 'translation mode moved out of settings');
   check((await page.getAttribute('[data-tsim-status]', 'data-tsim-status')) === 'in', 'TSim initially logged in (demo)');
   await page.click('[data-action="tsim-logout"]');
   await page.waitForSelector('[data-fid="tsim-user"]', { timeout: 5000 });
@@ -907,6 +1024,7 @@ async function main() {
       ['main-welcome', testMainWelcome],
       ['alarm', testAlarm],
       ['setting', testSetting],
+      ['media-viewer', testMediaViewer],
       ['login', testLogin],
     ]) {
       // A fresh context per case: no localStorage, cookies or mock state leaks from one case into the next.
