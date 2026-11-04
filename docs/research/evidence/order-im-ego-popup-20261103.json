@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-03",
+  "browser": "ego-browser",
+  "action": "Click order-detail IM 联系 once",
+  "result": "New web tab: 供应商客服工作台; a conversation is selected and the composer is visible",
+  "destination": {
+    "origin": "https://imvendor.ctrip.com",
+    "path": "/main",
+    "initChat": "2",
+    "serviceType": "1513",
+    "targetGid": "",
+    "parameterNames": [
+      "initChat",
+      "vendorRefId",
+      "serviceType",
+      "threadId",
+      "orderNo",
+      "vendorRole",
+      "currentTab",
+      "lang",
+      "accountsource",
+      "client-source",
+      "extParams",
+      "targetGid"
+    ]
+  },
+  "externalApplicationPromptObserved": false,
+  "messageSent": false,
+  "scope": "Current browser/session only; no claim about other environments",
+  "screenshot": "/tmp/ego-order-im-contact-20261103.png"
+}

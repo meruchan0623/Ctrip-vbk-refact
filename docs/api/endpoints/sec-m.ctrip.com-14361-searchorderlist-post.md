@@ -1,6 +1,6 @@
 # POST sec-m.ctrip.com/restapi/soa2/14361/searchorderlist
 
-状态：真实网页请求样本；完整实施准入尚未通过。固定网页版本、鉴权边界和占位符规则见 [鉴权说明](../authentication.md)。
+状态：真实网页请求样本；2026-11-03 已闭环完整订单查询的 page/sort 来源并接入客户端，见 [查询修复验证](../../research/2026-11-03-order-contact-query.md)。完整实施准入尚未通过。固定网页版本、鉴权边界和占位符规则见 [鉴权说明](../authentication.md)。
 
 - 完整地址：`https://sec-m.ctrip.com/restapi/soa2/14361/searchorderlist`
 - 请求方法：`POST`
@@ -162,11 +162,11 @@
 | `head.auth` | `string` | 本轮 Cookie 请求为空；显式 token 分支与 Cookie 分支分开 |
 | `head.xsid` | `string` | 对应请求层的公共 head；见 authentication.md，不与 HTTP Header 合并 |
 | `head.extension` | `array` | 对应请求层的公共 head；见 authentication.md，不与 HTTP Header 合并 |
-| `page` | `string` | 待追溯：当前仅保留位置与类型，来源未闭环，阻塞自行构造请求 |
+| `page` | `string` | 2026-11-03 官方“全部”页完整订单查询实测 `"0"` |
 | `pageIndex` | `number` | 实际调用点配置/用户操作；本轮观测值见完整示例，非已证明的完整枚举 |
 | `pageSize` | `number` | 实际调用点配置/用户操作；本轮观测值见完整示例，非已证明的完整枚举 |
 | `aggSortType` | `object` | 本轮实际观测值；必填性、默认值及完整取值范围未由单次样本证明 |
-| `aggSortType.property` | `string` | 待追溯：当前仅保留位置与类型，来源未闭环，阻塞自行构造请求 |
+| `aggSortType.property` | `string` | 2026-11-03 官方完整订单查询实测 `"orderDate"`，direction=`desc` |
 | `aggSortType.direction` | `string` | 本轮实际观测值；必填性、默认值及完整取值范围未由单次样本证明 |
 | `vbkVer` | `number` | 本轮实际观测值；必填性、默认值及完整取值范围未由单次样本证明 |
 | `datablockType` | `number` | 本轮实际观测值；必填性、默认值及完整取值范围未由单次样本证明 |
@@ -3313,4 +3313,4 @@
 
 - 逐字段必填性、所有条件分支和失败范围尚未穷尽。
 - 独立宿主 Origin/Profile/网络层尚未验证；页面内重放成功不能外推到原生 HTTP。
-- 动态来源未闭环：`aggSortType.property`、`page`
+- `aggSortType.property`、`page` 的“全部订单”精确查询来源已于 2026-11-03 闭环；其他页签未枚举。

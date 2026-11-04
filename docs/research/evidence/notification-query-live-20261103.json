@@ -1,0 +1,106 @@
+{
+  "verifiedAt": "2026-11-03T07:48:35.361Z",
+  "source": "ego-browser official page, inherited browser session; read-only requests, no read receipts",
+  "categoryRequest": {
+    "lastMsgTime": 0,
+    "head": {
+      "cver": "2",
+      "appId": "1001",
+      "extension": [
+        {
+          "name": "cpc",
+          "value": "pc"
+        },
+        {
+          "name": "protocal",
+          "value": "https"
+        },
+        {
+          "name": "amp-product-type",
+          "value": "IM"
+        },
+        {
+          "name": "amp-account-source",
+          "value": "VBK"
+        },
+        {
+          "name": "client-source",
+          "value": "pc-1001"
+        },
+        {
+          "name": "locale",
+          "value": "zh-CN"
+        }
+      ]
+    }
+  },
+  "categoryResponse": {
+    "ack": "Success",
+    "parentCount": 6,
+    "childCount": 23
+  },
+  "listRequest": {
+    "categoryId": 3,
+    "categorySubId": 112,
+    "lastMsgTime": 0,
+    "pageSize": 100,
+    "head": {
+      "ctok": "",
+      "cver": "1.0",
+      "lang": "01",
+      "sid": "8888",
+      "syscode": "09",
+      "auth": "",
+      "extension": []
+    }
+  },
+  "listResponse": {
+    "ack": "Success",
+    "count": 100,
+    "rowKeys": [
+      "msgId",
+      "messageBody",
+      "msgType",
+      "bizType",
+      "messageCode",
+      "createTime",
+      "status"
+    ],
+    "messageIdType": "string",
+    "bodyKeys": [
+      "ext",
+      "action",
+      "title",
+      "operation"
+    ],
+    "extKeys": [
+      "nickName",
+      "toCardHide",
+      "avatar",
+      "templateId",
+      "type",
+      "title",
+      "extendInfo",
+      "fromCardHide",
+      "categorySubId",
+      "playSound",
+      "isPlay",
+      "soundUrl",
+      "categoryId",
+      "desc"
+    ]
+  },
+  "olderPage": {
+    "cursor": 1793691295815,
+    "httpStatus": 200,
+    "ack": "Success",
+    "count": 100,
+    "overlap": 0,
+    "strictlyOlder": true
+  },
+  "limitations": [
+    "Browser account is not verified to be the screenshot Bob account",
+    "No live mark-read mutation performed",
+    "No native Tauri app end-to-end acceptance yet"
+  ]
+}

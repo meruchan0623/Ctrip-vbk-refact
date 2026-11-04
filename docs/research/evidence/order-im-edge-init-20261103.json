@@ -1,0 +1,25 @@
+{
+  "date": "2026-11-03",
+  "browser": "system Edge",
+  "method": "Compiled repository createImChat → orderImPlan → startOrderB2c → SoaClient latest-conversation readback executed once in logged-in official order page",
+  "result": {
+    "bizSuccess": true,
+    "created": "ok",
+    "customerPresent": true,
+    "emptyTarget": true,
+    "gidLength": 19,
+    "gidMatches": true,
+    "gidType": "string",
+    "latest": "success",
+    "orderMatches": true,
+    "servicePresent": true,
+    "sessionPresent": true,
+    "started": "ok",
+    "status": 2,
+    "step": "readback",
+    "typePresent": true
+  },
+  "messagesSent": 0,
+  "nativeApplicationAcceptance": false,
+  "temporaryPageHelpersRemoved": true
+}

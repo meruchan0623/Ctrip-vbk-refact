@@ -1,0 +1,83 @@
+{
+  "date": "2026-11-03",
+  "desktop": {
+    "bundle": "/Applications/旅游商家桌面版.app",
+    "files": [
+      {
+        "name": "imWindow-BaGPtUvK.js",
+        "sha256": "9b4894abe8eab7274749169b8db0660e43301beeebdd30a4bc384ce216bfce47"
+      },
+      {
+        "name": "BaseController-B_9ex1XX.js",
+        "sha256": "517db0fb51fc9dbb1f34a4176a8b5f436f8fe37e9180a6a7d1ce66800288756c"
+      },
+      {
+        "name": "index-DKzkzNcK.js",
+        "sha256": "8122702433fd92c9522ebe9fe5e979d7a35ff29c46692fdf73ef538130e7898f"
+      }
+    ],
+    "searchType": {
+      "content": 0,
+      "customerName": 1,
+      "orderId": 2,
+      "all": 3,
+      "time": 4
+    },
+    "searchResultField": "orderSearchList",
+    "creationFlow": [
+      "createChat",
+      "createB2CChat / createB2OChat",
+      "startChatB2C / createChatB2O",
+      "workSheetId check",
+      "groupId -> conversationChange"
+    ]
+  },
+  "officialPage": {
+    "url": "https://vbooking.ctrip.com/ticket_order/order/list",
+    "tool": "ego-browser",
+    "request": {
+      "endpoint": "https://sec-m.ctrip.com/restapi/soa2/14361/searchorderlist",
+      "method": "POST",
+      "body": {
+        "contentType": "json",
+        "head": "[current page context; not persisted]",
+        "ttdOrderId": "[user-provided complete order; not persisted]",
+        "page": "0",
+        "pageIndex": 1,
+        "pageSize": 20,
+        "aggSortType": {
+          "property": "orderDate",
+          "direction": "desc"
+        },
+        "vbkVer": 3,
+        "datablockType": 0
+      }
+    },
+    "response": {
+      "Ack": "Success",
+      "errorCode": 0,
+      "totalCount": 1,
+      "idsMatch": true,
+      "rowKeys": [
+        "ttdOrderId",
+        "orderInfoList"
+      ]
+    }
+  },
+  "compiledAdapterLive": {
+    "modules": [
+      "order.ts",
+      "soa.ts"
+    ],
+    "kind": "one",
+    "summaryValid": true,
+    "idMatches": true,
+    "productPresent": true,
+    "statusPresent": true,
+    "scope": "compiled real query + parser in official authenticated browser page; not native host acceptance"
+  },
+  "writes": {
+    "createConversation": false,
+    "sendMessage": false
+  }
+}
