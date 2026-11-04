@@ -5,7 +5,7 @@
  * Demo data mirrors the prototype's sample data (docs/design/prototype/02-main,
  * all fictional: 云游·小王, Emma Wilson, 订单 3051228766 …). Command handlers
  * enforce the same contracts as the Rust core: round version must match for
- * hide/snooze, stale generations are rejected, T1 must be an allowed value,
+ * hide, stale generations are rejected, T1 must be an allowed value,
  * and a timed-out order query is reported as unknown and never replayed.
  */
 
@@ -17,10 +17,9 @@ import type {
   ClockReading,
   ReminderSettings,
   SendDisposition,
-  SnoozeMinutes,
 } from './contracts.ts';
 import { ALLOWED_T1_SECONDS, DEFAULT_REMINDER_SETTINGS, ErrorCodes, isStaleGeneration, sameAccountContext } from './contracts.ts';
-import { AccountCommands, Events, NotifyCommands, PrefsCommands, OrderCommands, ImCommands } from './commands.ts';
+import { AccountCommands, Events, NoticeCommands, NotifyCommands, PrefsCommands, OrderCommands, ImCommands, ShellCommands } from './commands.ts';
 import type {
   IpcClient,
   MarkAction,
@@ -38,6 +37,7 @@ import type {
   UiPackageInfo,
   UiOrderPackageSummary,
   UiOrderPackagePlan,
+  UiOrderReissue,
   UiPackageDetail,
   UiTsimStatus,
 } from './client.ts';
@@ -77,7 +77,7 @@ const ACCOUNT_C: AccountContext = { account_id: 'acc-demo-c', environment: 'prod
 interface MockState {
   accounts: UiAccount[];
   active: string | null;
-  agent: UiAgentStatus;
+  agents: Map<string, UiAgentStatus>;
   net: UiNetStatus;
   clock: ClockReading;
   prefs: PrefsSnapshot;
@@ -254,9 +254,9 @@ function seedNotices(now: number): { cats: UiNoticeCategory[]; items: UiNotice[]
 
 function seedAlarm(now: number): AlarmEntry[] {
   return [
-    { account: ACCOUNT_A, gid: 'g-demo-2', round_id: 'r-demo-2', version: 3, label: '佐藤 健 · 玩乐 eSIM', waiting_since_ms: now - 95_000, waited_seconds: 95, level: 'L3', start_confirmed: true, snoozed_until_ms: null },
-    { account: ACCOUNT_A, gid: 'g-demo-1', round_id: 'r-demo-1', version: 1, label: 'Emma Wilson · 跟团游', waiting_since_ms: now - 45_000, waited_seconds: 45, level: 'L3', start_confirmed: true, snoozed_until_ms: null },
-    { account: ACCOUNT_A, gid: 'g-demo-4', round_id: 'r-demo-4', version: 2, label: 'Kim Minji · 酒店+接送', waiting_since_ms: null, waited_seconds: 33, level: 'L3', start_confirmed: false, snoozed_until_ms: null },
+    { account: ACCOUNT_A, gid: 'g-demo-2', round_id: 'r-demo-2', version: 3, label: '佐藤 健 · 玩乐 eSIM', waiting_since_ms: now - 95_000, waited_seconds: 95, level: 'L3', start_confirmed: true, snoozed_until_ms: null, preview: '请问 eSIM 到了日本之后要怎么激活？我的手机是 iPhone 15，出发前需要先安装吗？另外流量用完以后还可以继续充值吗？麻烦尽快回复，明天一早就要出发了。' },
+    { account: ACCOUNT_A, gid: 'g-demo-1', round_id: 'r-demo-1', version: 1, label: 'Emma Wilson · 跟团游', waiting_since_ms: now - 45_000, waited_seconds: 45, level: 'L3', start_confirmed: true, snoozed_until_ms: null, preview: 'Where do we meet tomorrow?' },
+    { account: ACCOUNT_A, gid: 'g-demo-4', round_id: 'r-demo-4', version: 2, label: 'Kim Minji · 酒店+接送', waiting_since_ms: null, waited_seconds: 33, level: 'L3', start_confirmed: false, snoozed_until_ms: null, preview: null },
   ];
 }
 
@@ -265,12 +265,13 @@ function defaultPrefs(): PrefsSnapshot {
     reminder: { ...DEFAULT_REMINDER_SETTINGS },
     general: { autostart: false, close_action: 'tray', start_hidden: false, show_msg_time: true, spell_check: true },
     display: { zoom: 100, gpu: true },
-    keys: { send_key: 'enter', screenshot: 'Ctrl + Shift + X', toggle_main: 'Ctrl + Alt + V' },
+    keys: { send_key: 'enter', toggle_main: 'Ctrl + Alt + V' },
     assistant: { enabled: true, outbound_translation: true, send_mode: 'replace_draft', package_quick_view: true, tsim_logged_in: true, tsim_user: 'tsim-demo' },
     dnd: { schedule_enabled: false, follow_system: true },
     network: { system_proxy: true },
     storage: { cache_days: 90, cache_mb: 236 },
     privacy: { analytics: false, crash_upload: false },
+    notice_banner: { accounts: {} },
   };
 }
 
@@ -296,7 +297,7 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
             { context: ACCOUNT_C, nick: '畅行租车·Lily', remark: null, party: '畅行汽车租赁', color: '#E07A2E', state: 'expired', unread: 0 },
           ],
     active: scenario === 'no-accounts' ? null : 'acc-demo-a',
-    agent: { status: 'online', confirmed: true },
+    agents: new Map(),
     net: scenario === 'offline' ? { online: false, transport: 'reconnecting' } : { online: true, transport: 'connected' },
     clock: { server_now_ms: t0, monotonic_ms: 0, quality: scenario === 'clock-untrusted' ? { kind: 'stale' } : { kind: 'anchored', offset_ms: 12, error_ms: 40 } },
     prefs: defaultPrefs(),
@@ -312,6 +313,10 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     loginCounter: 0,
     attempts: new Map(),
   };
+  const productSelections = new Map<string, { account: AccountContext; gid: string; ids: readonly string[]; expires: number }>();
+  const browserTabs: { tab_id: string; account_id: string; url: string; title: string; loading: boolean }[] = [];
+  let browserTabSeq = 0;
+  let productSequence = 0;
   const hiddenRounds = new Set<string>();
   const timedOutQueries = new Set<string>();
   const orderQueries = new Map<string, UiOrderPackageSummary>();
@@ -359,7 +364,7 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
   function alarmSnapshot(): AlarmSnapshot {
     const nowMs = now();
     const entries = st.alarmEntries
-      .filter((e) => !hiddenRounds.has(`${e.gid}:${e.round_id}:${e.version}`))
+      .filter((e) => !hiddenRounds.has(JSON.stringify([e.account, e.gid, e.round_id, e.version])))
       .map((e) => ({ ...e }));
     return {
       generated_at_ms: nowMs,
@@ -400,18 +405,24 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     return Array.from(st.conversations.values()).filter((c) => c.account.account_id === ctx.account_id);
   }
 
+  const readFrontier = (gid: string) => [...(st.messages.get(gid) ?? [])].filter(m => m.sender_role === 'customer' && m.message_id).sort((a, b) => b.create_time_ms - a.create_time_ms)[0]?.message_id ?? null;
+
   function updateConv(gid: string, fn: (c: UiConversation) => UiConversation): UiConversation {
     const c = st.conversations.get(gid);
     if (!c) throw appError(ErrorCodes.IM_PERMISSION_DENIED, '会话不存在');
-    const next = fn(c);
+    const next = { ...fn(c), read_target_message_id: readFrontier(gid) };
     st.conversations.set(gid, next);
     emit(Events.IM_CONVERSATION_CHANGED, next);
     return next;
   }
 
+  const savedEmojis = new Map<string, {id:string;name:string;url:string;thumbnail:string|null;created_at_ms:number;rank:number}[]>();
+  const forwarded = new Map<string, SendDisposition>();
   const handlers: Record<string, (payload: unknown) => Promise<unknown>> = {
     // ---- account
     [AccountCommands.SNAPSHOT]: async () => accountSnapshot(),
+    [AccountCommands.BROWSER_PROFILES]: async () => [],
+    [AccountCommands.BROWSER_CONNECT]: async () => { throw appError('account.browser_no_session', '演示模式没有 Chrome 登录态'); },
     [AccountCommands.SWITCH]: async (p) => {
       const ctx = checkAccount(p);
       st.active = ctx.account_id;
@@ -474,24 +485,26 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       return accountSnapshot();
     },
     [UiCommands.ACCOUNT_AGENT_STATUS]: async (p) => {
-      checkAccount(p);
-      return { ...st.agent };
+      const account = checkEvidenceAccount(p);
+      return { ...(st.agents.get(JSON.stringify(account)) ?? { status: 'online', confirmed: true }) };
     },
     [UiCommands.ACCOUNT_SET_AGENT_STATUS]: async (p) => {
-      checkAccount(p);
+      const account = { ...checkEvidenceAccount(p) };
       const status = (p as { status?: string }).status;
       if (status !== 'online' && status !== 'hangup' && status !== 'leaving' && status !== 'getoff') throw appError('account.bad_agent_status', '未知工作状态');
       await delay(latency * 4);
       // Only the server read-back changes the status the UI shows.
-      st.agent = { status, confirmed: true };
-      emit(UiEvents.AGENT_STATUS, { ...st.agent });
-      return { ...st.agent };
+      checkEvidenceAccount({ account });
+      const agent: UiAgentStatus = { status, confirmed: true };
+      st.agents.set(JSON.stringify(account), agent);
+      emit(UiEvents.AGENT_STATUS, { ...agent, account });
+      return { ...agent };
     },
     [UiCommands.NET_STATUS]: async () => ({ ...st.net }),
 
     // ---- im
     [ImCommands.CONVERSATION_SNAPSHOT]: async (p) => conversationsOf(checkAccount(p)),
-    [UiCommands.IM_CONVERSATIONS]: async (p) => conversationsOf(checkAccount(p)).map((c) => ({ ...c })),
+    [UiCommands.IM_CONVERSATIONS]: async (p) => conversationsOf(checkAccount(p)).map((c) => ({ ...c, read_target_message_id: readFrontier(c.gid) })),
     [UiCommands.IM_OUTBOUND_LOOKUP]: async (p) => {
       const ctx = checkEvidenceAccount(p), gid = String((p as { gid?: string }).gid ?? '');
       convFor(ctx, gid);
@@ -516,6 +529,20 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       const hasMore = all.length > items.length;
       return { items, has_more: hasMore, before_ms: hasMore ? items[0]?.create_time_ms ?? null : null };
     },
+    [UiCommands.IM_TRANSLATE_MESSAGES]: async (p) => {
+      const ctx = checkAccount(p);
+      const args = p as { gid?: string; message_ids?: readonly string[] };
+      const gid = String(args.gid ?? '');
+      convFor(ctx, gid);
+      const rows = st.messages.get(gid) ?? [];
+      return { supplier: '示例', items: (args.message_ids ?? []).map((message_id) => {
+        const text = rows.find((m) => m.message_id === message_id)?.text ?? '';
+        // Latin/kana/hangul text gets a demo translation; Chinese already matches the target.
+        return /[A-Za-z\u3040-\u30ff\uac00-\ud7af\u0400-\u04ff]/.test(text)
+          ? { message_id, status: 'translated', translation: `[示例平台译文] ${text}`, source_kind: 'text' }
+          : { message_id, status: 'not_needed', translation: null, source_kind: null };
+      }) };
+    },
     [ImCommands.LOCATE]: async (p) => {
       const ctx = checkAccount(p);
       const gid = String((p as { gid?: string }).gid ?? '');
@@ -531,11 +558,12 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
         throw appError(ErrorCodes.ADAPTER_FAILED, 'Read conversation context changed');
       }
       const expected = (p as { expected_message_id?: unknown }).expected_message_id;
-      const latest = (st.messages.get(gid) ?? []).at(-1)?.message_id;
+      const latest = readFrontier(gid);
       if (typeof expected !== 'string' || expected === '' || !latest || expected !== latest) {
         throw appError(ErrorCodes.ADAPTER_FAILED, '已读目标缺失或已变化');
       }
-      // Receipt acknowledgment cannot clear authoritative unread or the waiting round.
+      // Mock a confirmed receipt for the exact current customer frontier.
+      updateConv(gid, c => ({ ...c, unread_count: 0 }));
       return null;
     },
     [UiCommands.IM_SET_TOP]: async (p) => {
@@ -544,9 +572,49 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       convFor(ctx, gid);
       return updateConv(gid, (c) => ({ ...c, is_top: !!top }));
     },
+    [UiCommands.IM_RECOMMEND_CITIES]: async (p) => {
+      checkAccount(p);
+      const query = (p as { query?: unknown }).query;
+      if (typeof query !== 'string') throw appError(ErrorCodes.ADAPTER_FAILED, '无效的城市查询');
+      return { items: [{ id: 2, name: '上海' }, { id: 1, name: '北京' }, { id: 17, name: '新加坡' }].filter(c => c.name.includes(query.trim())) };
+    },
+    [UiCommands.IM_RECOMMEND_PRODUCTS]: async (p) => {
+      const account = checkAccount(p);
+      const { gid, query, page_index } = p as { gid: string; query: string; page_index: number };
+      convFor(account, gid);
+      if (typeof query !== 'string' || !Number.isSafeInteger(page_index) || page_index < 0) throw appError(ErrorCodes.ADAPTER_FAILED, '无效的产品查询');
+      const products = [
+        { id: 'demo-1', name: '新加坡城市观光', image_url: '', departure_city: '上海', destination_city: '新加坡', detail_url: 'https://vacations.ctrip.com/', price_text: '¥1200', sendable: true },
+        { id: 'demo-2', name: '北京周末之旅', image_url: '', departure_city: '上海', destination_city: '北京', detail_url: 'https://vacations.ctrip.com/', price_text: '¥800', sendable: true },
+        { id: 'demo-3', name: '上海城市漫步', image_url: '', departure_city: '北京', destination_city: '上海', detail_url: 'https://vacations.ctrip.com/', price_text: '¥600', sendable: true },
+      ].filter(item => `${item.name}${item.departure_city}${item.destination_city}${item.id}`.includes(query.trim()));
+      const items = products.slice(page_index * 2, (page_index + 1) * 2);
+      const token = `mock-product-${++productSequence}`;
+      const expires = now() + 60000;
+      productSelections.set(token, { account, gid, ids: items.map(item => item.id), expires });
+      return { kind: 'ready', items, page_index, has_more: products.length > (page_index + 1) * 2, total: products.length, selection_token: token, expires_at_ms: expires };
+    },
+    [UiCommands.IM_SEND_PRODUCT_CARD]: async (p) => {
+      const account = checkAccount(p);
+      const { gid, selection_token, product_id } = p as { gid: string; selection_token: string; product_id: string };
+      convFor(account, gid);
+      const selected = productSelections.get(selection_token);
+      if (!selected || !sameAccountContext(selected.account, account) || selected.gid !== gid || selected.expires <= now() || !selected.ids.includes(product_id)) return { kind: 'not_submitted', confirmed: false, reason: '请重新选择产品' };
+      productSelections.delete(selection_token);
+      return { kind: 'confirmed', confirmed: true, reason: '示例产品卡片已模拟发送' };
+    },
+    [UiCommands.IM_QUICK_REPLY_CATEGORIES]: async (p) => {
+      checkAccount(p);
+      const type = (p as { type?: unknown }).type;
+      if (type !== 'VAGENT' && type !== 'VSKILLGROUP') throw appError(ErrorCodes.ADAPTER_FAILED, '无效的话术类型');
+      return { categories: [{ id: type === 'VAGENT' ? '1' : '2', name: type === 'VAGENT' ? '常用回复' : '团队话术', scripts: [{ id: `${type}-1`, content: type === 'VAGENT' ? '您好，请问有什么可以帮您？' : '您的需求已收到，我们正在核实。', short_cut: 'hi', type }], sub_categories: [] }] };
+    },
     [UiCommands.IM_CUSTOMER_SCRIPTS]: async (p) => {
       checkAccount(p);
-      throw appError(ErrorCodes.HOST_UNSUPPORTED, '示例模式未连接官方成员与话术接口');
+      const content = (p as { content?: unknown }).content;
+      if (typeof content !== 'string') throw appError(ErrorCodes.ADAPTER_FAILED, '无效的查询');
+      const items = content.trim() ? [{ id: 'suggestion-0', content: '您好，请问有什么可以帮您？', short_cut: 'hi', type: 'VAGENT' }, { id: 'suggestion-1', content: '您的需求已收到，我们正在核实。', short_cut: '', type: 'VSKILLGROUP' }].filter(item => `${item.content}${item.short_cut}`.includes(content.trim())) : [];
+      return { kind: items.length ? 'ready' : 'empty', raw_count: items.length, items };
     },
     [UiCommands.IM_MEMBERS]: async (p) => {
       checkAccount(p);
@@ -568,12 +636,57 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       checkAccount(p);
       throw appError(ErrorCodes.HOST_UNSUPPORTED, '示例模式未连接官方成员与话术接口');
     },
+    [UiCommands.IM_REMOVE]: async (p) => {
+      checkAccount(p);
+      throw appError(ErrorCodes.HOST_UNSUPPORTED, '示例模式未连接官方成员与话术接口');
+    },
     [UiCommands.IM_SET_MARK]: async (p) => {
       const ctx = checkAccount(p);
       const { gid, action } = p as { gid: string; action: number };
       if (!Number.isInteger(action) || action < 0 || action > 5) throw appError('im.bad_mark', 'action 必须为 0–5');
       convFor(ctx, gid);
       return updateConv(gid, (c) => ({ ...c, mark: action as MarkAction }));
+    },
+    [UiCommands.IM_COPY_MESSAGE_IMAGE]: async () => { throw appError('host.unsupported', '浏览器演示不能复制系统图片，请在桌面客户端使用'); },
+    [UiCommands.IM_SAVE_MESSAGE_IMAGE]: async () => { throw appError('host.unsupported', '浏览器演示不能打开系统保存窗口，请在桌面客户端使用'); },
+    [UiCommands.IM_FORWARD_MESSAGE]: async p => {
+      const ctx=checkAccount(p), args=p as {source_gid:string;message_id:string;gid:string;local_id:string};
+      convFor(ctx,args.source_gid); const target=convFor(ctx,args.gid);
+      if(target.status!=='active') throw appError('im.invalid_send','请选择进行中的会话');
+      const key=JSON.stringify([ctx.account_id,args.local_id]);
+      const previous=forwarded.get(key); if(previous)return previous;
+      const source=st.messages.get(args.source_gid)?.find(m=>m.message_id===args.message_id);
+      if(!source)throw appError('im.invalid_send','消息不存在');
+      const disposition:SendDisposition={kind:'confirmed',server_message_id:`demo-forward-${args.local_id}`,server_time_ms:now()};
+      forwarded.set(key,disposition);
+      const message:UiMessage={...source,gid:args.gid,message_id:disposition.server_message_id,local_id:args.local_id,create_time_ms:now(),sender_role:'merchant_self',quote:null,translation:null,original:null,disposition};
+      st.messages.set(args.gid,[...(st.messages.get(args.gid)??[]),message]);emit(Events.IM_MESSAGE_NEW,{...message,account:ctx});
+      return disposition;
+    },
+    [UiCommands.IM_SAVED_EMOJIS]:async p=>{const ctx=checkAccount(p);return savedEmojis.get(ctx.account_id)??[];},
+    [UiCommands.IM_ADD_SAVED_EMOJI]:async p=>{
+      const ctx=checkAccount(p),args=p as {gid:string;message_id:string};convFor(ctx,args.gid);
+      const message=st.messages.get(args.gid)?.find(m=>m.message_id===args.message_id&&m.kind==='image');
+      if(!message?.media_url)throw appError('im.invalid_send','图片不可用');
+      const items=savedEmojis.get(ctx.account_id)??[];
+      if(!items.some(e=>e.url===message.media_url))items.unshift({id:`emoji-${now()}`,name:message.media_filename||'自定义表情',url:message.media_url,thumbnail:message.media_thumbnail??null,created_at_ms:now(),rank:now()});
+      savedEmojis.set(ctx.account_id,items);return [...items];
+    },
+    [UiCommands.IM_UPDATE_SAVED_EMOJI]:async p=>{
+      const ctx=checkAccount(p),args=p as {id:string;action:string;name?:string},items=savedEmojis.get(ctx.account_id)??[],item=items.find(e=>e.id===args.id);
+      if(!item)throw appError('im.invalid_send','表情不存在');
+      if(args.action==='delete')items.splice(items.indexOf(item),1);
+      else if(args.action==='rename')item.name=args.name||item.name;
+      else if(args.action==='front'){item.rank=now();items.splice(items.indexOf(item),1);items.unshift(item);}
+      return [...items];
+    },
+    [UiCommands.IM_SEND_SAVED_EMOJI]:async p=>{
+      const ctx=checkAccount(p),args=p as {id:string;gid:string;local_id:string};convFor(ctx,args.gid);
+      const item=savedEmojis.get(ctx.account_id)?.find(e=>e.id===args.id);if(!item)throw appError('im.invalid_send','表情不存在');
+      const key=JSON.stringify([ctx.account_id,args.local_id]);const previous=forwarded.get(key);if(previous)return previous;
+      const disposition:SendDisposition={kind:'confirmed',server_message_id:`demo-emoji-${args.local_id}`,server_time_ms:now()};forwarded.set(key,disposition);
+      const message:UiMessage={gid:args.gid,message_id:disposition.server_message_id,local_id:args.local_id,create_time_ms:now(),sender_role:'merchant_self',kind:'image',text:item.url,media_url:item.url,media_thumbnail:item.thumbnail,translation:null,original:null,quote:null,order_id:null,disposition};
+      st.messages.set(args.gid,[...(st.messages.get(args.gid)??[]),message]);emit(Events.IM_MESSAGE_NEW,{...message,account:ctx});return disposition;
     },
     [UiCommands.IM_SEND_TEXT]: async (p) => {
       const ctx = checkAccount(p);
@@ -625,7 +738,9 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     [UiCommands.NOTICE_LIST]: async (p) => {
       checkAccount(p);
       const cat = String((p as { category_id?: string }).category_id ?? '');
-      return st.notices.filter((n) => n.category_id === cat).map((n) => ({ ...n }));
+      const before = (p as { before_ms?: number | null }).before_ms ?? 0;
+      return st.notices.filter((n) => n.category_id === cat && (!before || n.time_ms < before))
+        .sort((a, b) => b.time_ms - a.time_ms).slice(0, 100).map((n) => ({ ...n }));
     },
     [UiCommands.NOTICE_MARK_READ]: async (p) => {
       checkAccount(p);
@@ -678,13 +793,50 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     },
 
     // ---- shell / media placeholders
+    [ShellCommands.EXPORT_DIAGNOSTICS]: async () => false,
+    [ShellCommands.OPEN_DATA_DIRECTORY]: async () => {
+      emit(UiEvents.TOAST, { text: '演示环境没有本机数据目录' });
+      return null;
+    },
     [UiCommands.SHELL_OPEN_EXTERNAL]: async (p) => {
       emit(UiEvents.TOAST, { text: `（演示）已在系统浏览器打开：${String((p as { url?: string }).url ?? '')}` });
       return null;
     },
+    [UiCommands.MEDIA_VIEWER_OPEN_MESSAGE]: async (p) => {
+      checkAccount(p);
+      emit(UiEvents.TOAST, { text: '（演示）已在独立窗口打开附件' });
+      return null;
+    },
+    [UiCommands.MEDIA_VIEWER_OPEN_EMOJI]: async (p) => {
+      checkAccount(p);
+      emit(UiEvents.TOAST, { text: '（演示）已在独立窗口打开表情' });
+      return null;
+    },
+    [UiCommands.MEDIA_VIEWER_CURRENT]: async () => {
+      const kind = new URLSearchParams(location.search).get('kind');
+      if (kind === 'video') return { items: [{ kind, url: 'https://dimg04.tripcdn.com/demo/clip.mp4', name: '演示视频.mp4', thumbnail: null }], index: 0 };
+      if (kind === 'file') return { items: [{ kind, url: 'https://dimg04.tripcdn.com/demo/report.pdf', name: '演示文档.pdf', thumbnail: null }], index: 0 };
+      const items = [1, 2, 3, 4].map((n) => ({ kind: 'image', url: `https://dimg04.tripcdn.com/demo/photo-${n}.png`, name: `演示图片${n}.png`, thumbnail: null }));
+      return kind === 'single-image' ? { items: items.slice(0, 1), index: 0 } : { items, index: 1 };
+    },
+    [UiCommands.MEDIA_VIEWER_OPEN_EXTERNAL]: async () => {
+      emit(UiEvents.TOAST, { text: '（演示）已在系统浏览器打开附件' });
+      return null;
+    },
     [UiCommands.SHELL_OPEN_WEBVIEW]: async (p) => {
       checkAccount(p);
-      emit(UiEvents.TOAST, { text: `（演示）已在内置网页打开：${String((p as { url?: string }).url ?? '')}` });
+      const { account, url } = p as { account: { account_id: string }; url: string };
+      const open = browserTabs.find((tab) => tab.account_id === account.account_id && tab.url === url);
+      if (open) return open;
+      const tab = { tab_id: `webview-${++browserTabSeq}`, account_id: account.account_id, url, title: '（演示）网页', loading: false };
+      browserTabs.push(tab);
+      return tab;
+    },
+    [UiCommands.BROWSER_SHOW]: async () => null,
+    [UiCommands.BROWSER_NAV]: async () => null,
+    [UiCommands.BROWSER_CLOSE]: async (p) => {
+      const at = browserTabs.findIndex((tab) => tab.tab_id === (p as { tab_id?: string }).tab_id);
+      if (at >= 0) browserTabs.splice(at, 1);
       return null;
     },
     [UiCommands.SHELL_OPEN_WINDOW]: async (p) => {
@@ -695,16 +847,13 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       emit(UiEvents.TOAST, { text: `（演示）窗口操作：${String((p as { action?: string }).action ?? '')}` });
       return null;
     },
-    [UiCommands.MEDIA_SCREENSHOT]: async () => {
-      await delay(latency * 2);
-      return { attachment_id: 'att-demo-shot', name: '截图 2026-10-30 23-16.png' };
-    },
     [UiCommands.MEDIA_PICK]: async (p) => {
       const kind = String((p as { kind?: string }).kind ?? 'file');
       await delay(latency);
-      const names: Record<string, string> = { image: '行程单.png', file: '出行须知.pdf', video: '集合点.mp4' };
+      const names: Record<string, string> = { image: '行程单.png', file: '出行须知.pdf' };
       return { attachment_id: `att-demo-${kind}`, name: names[kind] ?? '附件' };
     },
+    [UiCommands.MEDIA_ACCEPT_DROP]: async () => null,
     [UiCommands.MEDIA_RELEASE]: async () => null,
     [UiCommands.IM_SEND_MEDIA]: async () => ({ stage: 'prepare', kind: 'not_submitted', write_started: false, disposition: null, message: null, error: 'Browser demo has no registered local attachment or official uploader' }),
 
@@ -727,31 +876,22 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     // ---- notify (strong alert §6)
     [NotifyCommands.SNAPSHOT]: async () => alarmSnapshot(),
     [NotifyCommands.OPEN_CONVERSATION]: async (p) => {
-      const { entry } = findEntry(p);
+      const { entry } = findEntry((p as { round: unknown }).round);
       emit(UiEvents.TOAST, { text: `（演示）已激活主窗口并定位会话 ${entry.gid}` });
       return { gid: entry.gid };
     },
     [NotifyCommands.HIDE_ROUND]: async (p) => {
-      const { entry } = findEntry(p);
-      hiddenRounds.add(`${entry.gid}:${entry.round_id}:${entry.version}`);
+      const { entry } = findEntry((p as { round: unknown }).round);
+      hiddenRounds.add(JSON.stringify([entry.account, entry.gid, entry.round_id, entry.version]));
       pushAlarm();
       return null;
     },
     [NotifyCommands.HIDE_ALL]: async (p) => {
-      const seen = (p as { seen?: readonly { gid: string; round_id: string; version: number }[] }).seen ?? [];
+      const seen = (p as { seen?: readonly { account: AccountContext; gid: string; round_id: string; version: number }[] }).seen ?? [];
       for (const s of seen) {
-        const e = st.alarmEntries.find((x) => x.gid === s.gid && x.round_id === s.round_id && x.version === s.version);
-        if (e) hiddenRounds.add(`${e.gid}:${e.round_id}:${e.version}`);
+        const e = st.alarmEntries.find((x) => sameAccountContext(x.account, s.account) && x.gid === s.gid && x.round_id === s.round_id && x.version === s.version);
+        if (e) hiddenRounds.add(JSON.stringify([e.account, e.gid, e.round_id, e.version]));
       }
-      pushAlarm();
-      return null;
-    },
-    [NotifyCommands.SNOOZE]: async (p) => {
-      const { entry, index } = findEntry(p);
-      const minutes = (p as { minutes?: number }).minutes;
-      if (minutes !== 5 && minutes !== 10 && minutes !== 30) throw appError('notify.bad_snooze', '稍后提醒只能是 5/10/30 分钟');
-      const m: SnoozeMinutes = minutes;
-      st.alarmEntries[index] = { ...entry, version: entry.version + 1, snoozed_until_ms: now() + m * 60_000 };
       pushAlarm();
       return null;
     },
@@ -762,6 +902,11 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       pushAlarm();
       return null;
     },
+    [NotifyCommands.SET_VIEWING]: async () => null,
+    [NotifyCommands.ALARM_RESIZE]: async () => null,
+    [NoticeCommands.OPEN]: async () => null,
+    [NoticeCommands.OPEN_CATEGORY]: async () => null,
+    [NoticeCommands.RESIZE]: async () => null,
     [NotifyCommands.SET_THRESHOLD]: async (p) => {
       const t1 = Number((p as { t1_seconds?: number }).t1_seconds);
       if (!(ALLOWED_T1_SECONDS as readonly number[]).includes(t1)) throw appError('notify.bad_threshold', `阈值只能是 ${ALLOWED_T1_SECONDS.join('/')} 秒`);
@@ -833,7 +978,15 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       if (typeof order_id !== 'string' || !/^(?:\d{10}|\d{16})$/.test(order_id)) throw appError('assistant.invalid_input', '完整订单号无效');
       const conv = convFor(account, gid);
       if (conv.order?.order_id !== order_id || conv.assistant_context_revision !== context_revision || !st.tsim.logged_in || st.tsim.session_epoch !== session_epoch) throw appError('account.stale_generation', '订单范围或 TSim 身份已变化');
-      const summary: UiOrderPackageSummary = { account, gid, order_id, context_revision, session_epoch, query_handle: `demo-query-${++orderQueryCounter}`, total: 2, fetched_at_ms: now(), plans: [1, 2].map(n => ({ detail_handle: `demo-detail-${orderQueryCounter}-${n}`, iccid: `8986000000000000000${n}`, plan: `（演示）日本 eSIM 套餐 ${n}`, status: '演示待激活', supplier: 'DEMO', apn: '', remain_pct: null, remain: '', total: '', fetched_at_ms: now() })) };
+      const summary: UiOrderPackageSummary = { account, gid, order_id, context_revision, session_epoch, query_handle: `demo-query-${++orderQueryCounter}`, total: 2, fetched_at_ms: now(), plans: [1, 2].map(n => {
+        const base = { iccid: `8986000000000000000${n}`, plan: `（演示）日本 eSIM 套餐 ${n}`, status: '演示待激活', supplier: 'DEMO', apn: '', remain_pct: null, remain: '', total: '', fetched_at_ms: now() };
+        // 演示补发链：第 1 个套餐带 1 个已读取、1 个读取失败的补发（宿主按补发时间升序给出）。
+        const reissues: readonly UiOrderReissue[] | undefined = n === 1 ? [
+          { create_time_ms: now() - 2 * 86_400_000, state: 'ready', info: { ...base, iccid: '89860000000000000A1', plan: '（演示）日本 eSIM 套餐 1 · 补发', status: '使用中', remain_pct: 60, remain: '3 GB', total: '5 GB' } },
+          { create_time_ms: now() - 86_400_000, state: 'error', info: null },
+        ] : undefined;
+        return { detail_handle: `demo-detail-${orderQueryCounter}-${n}`, ...base, ...(n === 1 ? { order_time: '2026-10-28 09:30:00' } : {}), ...(reissues ? { reissues } : {}) };
+      }) };
       await delay(latency); checkOrderBinding(summary);
       while (orderQueries.size >= 16) orderQueries.delete(orderQueries.keys().next().value!);
       orderQueries.set(summary.query_handle, summary); return summary;
@@ -854,7 +1007,8 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       if (conv.order?.order_id !== order_id || conv.assistant_context_revision !== context_revision) throw appError('account.stale_generation', '订单范围已变化');
       if (!st.tsim.logged_in) throw appError('assistant.tsim_unauthenticated', 'TSim 未登录', false);
       if (st.tsim.session_epoch !== session_epoch) throw appError('host.view_unauthorized', 'TSim 身份已变化');
-      emit(UiEvents.TOAST, { text: `（演示）原生客户端会打开 TSim 订单查询窗：${order_id}` }); return null;
+      const request_id = '00000000-0000-4000-8000-000000000001';
+      return { url: `https://csagent.tsim.tech/embed/operator?source=travel-merchant-companion&session=handoff&identifier=${order_id}&identifierType=order_number&requestId=${request_id}`, identifier: order_id, request_id, session_epoch, access_token: 'synthetic-demo-token-never-valid', session_ref: null };
     },
     [UiCommands.ASSIST_PACKAGE_DETAIL]: async () => {
       if (!openedPackage) throw appError('host.view_unauthorized', '详情窗口尚未绑定套餐');

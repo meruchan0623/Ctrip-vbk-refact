@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { badgeText, formatDuration, formatRelativeTime, initialOf, maskMiddle } from './format.ts';
+import { badgeText, formatDuration, formatRelativeTime, formatStopwatch, initialOf, maskMiddle } from './format.ts';
 
 test('formatDuration matches prototype fmtWait', () => {
   assert.equal(formatDuration(0), '0秒');
@@ -34,4 +34,13 @@ test('maskMiddle and initialOf', () => {
   assert.equal(initialOf('客户A'), '客');
   assert.equal(initialOf('emma'), 'E');
   assert.equal(initialOf('  '), '?');
+});
+
+test('formatStopwatch counts every second at a fixed width', () => {
+  assert.equal(formatStopwatch(0), '00:00');
+  assert.equal(formatStopwatch(45.9), '00:45');
+  assert.equal(formatStopwatch(65), '01:05');
+  assert.equal(formatStopwatch(3599), '59:59');
+  assert.equal(formatStopwatch(3930), '1:05:30');
+  assert.equal(formatStopwatch(-3), '00:00');
 });

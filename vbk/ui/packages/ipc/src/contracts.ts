@@ -15,7 +15,7 @@
  * mismatch the host rejects all commands of that window. Bump both together;
  * `contracts.test.ts` fails when the two numbers drift.
  */
-export const CONTRACT_VERSION = 1;
+export const CONTRACT_VERSION = 2;
 
 // ---------------------------------------------------------------- identity
 
@@ -309,6 +309,8 @@ export interface AlarmEntry {
   readonly level: AlarmLevel;
   readonly start_confirmed: boolean;
   readonly snoozed_until_ms: number | null;
+  /** Latest message preview from the host's in-memory display cache; null when not cached. */
+  readonly preview: string | null;
 }
 
 export interface AlarmSnapshot {
@@ -323,7 +325,7 @@ export type AlarmCommand =
   | { readonly kind: 'snapshot' }
   | { readonly kind: 'open_conversation'; readonly account: AccountContext; readonly gid: string; readonly round_id: string; readonly version: number }
   | { readonly kind: 'hide_round'; readonly account: AccountContext; readonly gid: string; readonly round_id: string; readonly version: number }
-  | { readonly kind: 'hide_all'; readonly seen: readonly { readonly gid: string; readonly round_id: string; readonly version: number }[] }
+  | { readonly kind: 'hide_all'; readonly seen: readonly { readonly account: AccountContext; readonly gid: string; readonly round_id: string; readonly version: number }[] }
   | { readonly kind: 'snooze'; readonly account: AccountContext; readonly gid: string; readonly round_id: string; readonly version: number; readonly minutes: SnoozeMinutes }
   | { readonly kind: 'set_enabled'; readonly enabled: boolean }
   | { readonly kind: 'set_threshold'; readonly t1_seconds: number }

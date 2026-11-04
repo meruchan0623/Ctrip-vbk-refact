@@ -160,3 +160,42 @@ test('无键的可选兄弟出现/消失不会让后面的带键滚动容器移�
   assert.equal(readCounters().scrollResets, 0);
   assert.equal(readCounters().detached, 2, "只有 netbar 自己（元素 + 文本）被移除");
 });
+
+test('配对键在建树时定下：多个键属性并存时仍按 data-key > data-row-id > data-gid 的优先级，与属性写入顺序无关', () => {
+  root.replaceChildren();
+  const row = (gid: string, key: string, label: string) => h('div', { class: 'row', dataset: { gid, key }, 'data-row-id': `r-${label}` }, label);
+  rerender(dom, () => h('div', { class: 'list' }, row('g1', 'k1', 'a'), row('g2', 'k2', 'b')));
+  const [a, b] = root.querySelectorAll('div[data-key]');
+  // 顺序调换 + gid/row-id 都变：只要 data-key 相同就复用原节点。
+  rerender(dom, () => h('div', { class: 'list' }, row('g9', 'k2', 'b2'), row('g8', 'k1', 'a2')), { morph: true });
+  const after = root.querySelectorAll('div[data-key]');
+  assert.equal(after[0], b);
+  assert.equal(after[1], a);
+  assert.equal(a!.textContent, 'a2');
+  assert.equal(a!.getAttribute('data-gid'), 'g8');
+  // data-key 变了，即便 gid 相同也不复用。
+  rerender(dom, () => h('div', { class: 'list' }, row('g9', 'k3', 'c'), row('g8', 'k1', 'a3')), { morph: true });
+  const third = root.querySelectorAll('div[data-key]');
+  assert.notEqual(third[0], b);
+  assert.equal(third[1], a);
+  // 不传 props 的元素按同类无键配对。
+  const plain = () => h('div', { class: 'wrap' }, h('b', null, 'x'), h('i', null, 'y'));
+  rerender(dom, () => plain());
+  const bold = root.querySelector('b');
+  rerender(dom, () => plain(), { morph: true });
+  assert.equal(root.querySelector('b'), bold);
+});
+
+test('build() 返回单个已挂载的活节点时：它原地保留，root 里多出来的兄弟被移除而不是被当作新序列', () => {
+  root.replaceChildren();
+  const live = h('div', { class: 'pane' }, h('span', { class: 't' }, 'v1'));
+  rerender(dom, () => live);
+  const extra = h('div', { class: 'extra' });
+  root.appendChild(extra as unknown as FakeElement);
+  resetCounters();
+  rerender(dom, () => live, { morph: true });
+  assert.equal(root.childNodes.length, 1);
+  assert.equal(root.childNodes[0], live);
+  assert.equal(readCounters().detached, 1, '只有 extra 被移出文档，live 从未离开');
+  assert.equal(readCounters().created, 0);
+});

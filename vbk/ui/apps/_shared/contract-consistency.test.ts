@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { AccountCommands, ImCommands, NotifyCommands, OrderCommands, PrefsCommands } from '../../packages/ipc/src/commands.ts';
+import { AccountCommands, ImCommands, NoticeCommands, NotifyCommands, OrderCommands, PrefsCommands, ShellCommands } from '../../packages/ipc/src/commands.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { AdapterCommands } from '../../packages/ipc/src/adapterProtocol.ts';
 
@@ -24,7 +24,7 @@ const views = read('src-tauri/src/views.rs');
 const roleLists: Record<string, string[]> = {};
 for (const m of views.matchAll(/const (\w+)_CMDS: &\[&str\] = &\[([\s\S]*?)\];/g)) roleLists[m[1]!] = sorted([...m[2]!.matchAll(/"(\w+)"/g)].map((x) => x[1]!));
 const tsCmds = sorted(
-  [AccountCommands, ImCommands, NotifyCommands, OrderCommands, PrefsCommands, UiCommands, AdapterCommands].flatMap((o) => Object.values(o) as string[]),
+  [AccountCommands, ImCommands, NoticeCommands, NotifyCommands, OrderCommands, PrefsCommands, ShellCommands, UiCommands, AdapterCommands].flatMap((o) => Object.values(o) as string[]),
 );
 
 test('commands.txt == generate_handler!', () => assert.deepEqual(libCmds, txt));
@@ -37,7 +37,7 @@ test('every command is allowed for at least one role and roles name only real co
   for (const c of union) assert.ok(txt.includes(c), `${c} in views.rs but not in commands.txt`);
 });
 test('capability files grant exactly their role list', () => {
-  const capToRole: Record<string, string> = { 'main.json': 'MAIN', 'popups.json': 'ALARM', 'setting.json': 'SETTING', 'update.json': 'UPDATE', 'login.json': 'LOGIN', 'adapter.json': 'ADAPTER', 'package-detail.json': 'DETAIL' };
+  const capToRole: Record<string, string> = { 'main.json': 'MAIN', 'popups.json': 'ALARM', 'notice.json': 'NOTICE', 'setting.json': 'SETTING', 'update.json': 'UPDATE', 'login.json': 'LOGIN', 'adapter.json': 'ADAPTER', 'package-detail.json': 'DETAIL', 'media-viewer.json': 'MEDIA_VIEWER' };
   const files = readdirSync(join(vbk, 'src-tauri/capabilities')).filter((f) => f.endsWith('.json'));
   assert.deepEqual(sorted(files), sorted(Object.keys(capToRole)));
   for (const f of files) {

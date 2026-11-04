@@ -50,7 +50,9 @@ let session: BuildSession | null = null;
 const SURVIVOR = Symbol('vbk.survivor');
 /** 兄弟间配对键的缓存：键属性在节点生命周期内不变（只有同键/同为无键的节点才会互相 morph）。 */
 const KEY = Symbol('vbk.key');
-type MorphHost = { [SURVIVOR]?: Node; [KEY]?: string | null };
+/** 无键配对用的「标签 + 首个 class」缓存：无键节点只会被同 kind 的新节点 morph，首个 class 因而在生命周期内不变。 */
+const KIND = Symbol('vbk.kind');
+type MorphHost = { [SURVIVOR]?: Node; [KEY]?: string | null; [KIND]?: string };
 
 /** 当前在页面上代表 `node` 的节点（从未被折叠时就是它自己）。 */
 export function liveNode<T extends Node>(node: T): T {
@@ -74,6 +76,7 @@ function retainLive(node: Node): Node {
 
 /** 兄弟节点间的配对键：显式身份属性优先，行被移动/重排时仍复用原节点。 */
 const KEY_ATTRS = ['data-key', 'data-row-id', 'data-gid', 'data-media-key', 'data-keep-scroll', 'data-fid'];
+const MEDIA_KEY_RANK = KEY_ATTRS.indexOf('data-media-key');
 let unpaired = 0;
 function keyOf(node: Node): string | null {
   if (node.nodeType !== 1) return null;
@@ -95,21 +98,26 @@ function computeKey(el: Element): string | null {
 /** 无键兄弟按标签 + 首个 class 配对，可选的兄弟出现/消失不会让其后所有节点错位。 */
 function kindOf(node: Node): string {
   if (node.nodeType !== 1) return node.nodeName;
+  const host = node as MorphHost;
+  const cached = host[KIND];
+  if (cached !== undefined) return cached;
   const cls = (node as Element).getAttribute('class') ?? '';
   const space = cls.indexOf(' ');
-  return `${node.nodeName}.${space < 0 ? cls : cls.slice(0, space)}`;
+  return (host[KIND] = `${node.nodeName}.${space < 0 ? cls : cls.slice(0, space)}`);
 }
 
 function syncAttributes(from: Element, to: Element): void {
   if (from === to) return;
   const next = to.attributes;
-  for (let i = 0; i < next.length; i++) {
+  const count = next.length;
+  for (let i = 0; i < count; i++) {
     const attr = next[i]!;
-    if (from.getAttribute(attr.name) !== attr.value) from.setAttribute(attr.name, attr.value);
+    const name = attr.name, value = attr.value;
+    if (from.getAttribute(name) !== value) from.setAttribute(name, value);
   }
   // 此时 from 的属性已包含 to 的全部；个数相同即完全一致，省掉逐个反查。
   const prev = from.attributes;
-  if (prev.length === next.length) return;
+  if (prev.length === count) return;
   for (let i = prev.length - 1; i >= 0; i--) {
     const name = prev[i]!.name;
     if (!to.hasAttribute(name)) from.removeAttribute(name);
@@ -143,50 +151,79 @@ function morphNode(old: Node, next: Node, used: Set<Node>): Node {
     for (const type in handlers) if (!previous || !(type in previous)) from.addEventListener(type, dispatchHandler);
     (from as unknown as HandlerHost)[HANDLERS] = handlers;
   } else if (previous) delete (from as unknown as HandlerHost)[HANDLERS];
-  if (to.firstChild || from.firstChild) morphChildren(from, Array.from(to.childNodes), used);
+  const first = to.firstChild;
+  if (first || from.firstChild) morphChildren(from, first, null, used);
   syncFormState(from, to);
   (next as MorphHost)[SURVIVOR] = old;
   return old;
 }
 
-function morphChildren(parent: Node, next: readonly Node[], used: Set<Node>): void {
-  const olds = Array.from(parent.childNodes);
-  const keyed = new Map<string, Node>();
-  const unkeyed: Node[] = [];
-  for (const node of olds) {
-    const key = keyOf(node);
-    if (key === null) unkeyed.push(node);
-    else if (!keyed.has(key)) keyed.set(key, node);
-  }
-  const plan: Node[] = [];
-  let cursor = 0;
-  for (const node of next) {
-    const kept = node.nodeType === 8 ? session?.retained.get(node as Comment) : undefined;
-    if (kept) { used.add(kept); plan.push(kept); continue; }
-    let match: Node | undefined;
-    const key = keyOf(node);
-    if (key !== null) {
-      match = keyed.get(key);
-    } else {
-      const kind = kindOf(node);
-      for (let i = cursor; i < unkeyed.length && i < cursor + 8; i++) {
-        const candidate = unkeyed[i]!;
-        if (!used.has(candidate) && kindOf(candidate) === kind) { match = candidate; cursor = i + 1; break; }
+/** 无键配对时从游标起最多考察的旧节点数。 */
+const UNKEYED_WINDOW = 8;
+/**
+ * 各层 morphChildren 的配对结果栈（新子节点 i → 留在树上的节点）。morph 是深度优先递归，每层只用自己压入的那一段，
+ * 返回前截断；共用一个数组省掉每个父节点一次分配。
+ */
+const plan: Node[] = [];
+
+/**
+ * 把 `parent` 的子节点就地 morph 成新子节点序列 `first ..< stop`（兄弟链，`stop` 为 null 即到末尾）。
+ * 新节点一般仍挂在新树的父节点下，放置时才被 insertBefore 搬进 `parent`，因此每次都先取 nextSibling 再动节点。
+ */
+function morphChildren(parent: Node, first: Node | null, stop: Node | null, used: Set<Node>): void {
+  const retained = session?.retained;
+  // 带键旧节点表只在新序列里真的出现带键节点时才建（首个同键节点胜出，与按序扫描一致）。
+  let keyed: Map<string, Node> | null = null;
+  /** 最近一次无键配对到的旧节点：下一次从它后面开始找，游标只前进。 */
+  let last: Node | null = null;
+  const base = plan.length;
+  try {
+    for (let node: Node | null = first; node && node !== stop; node = node.nextSibling) {
+      const kept = node.nodeType === 8 && retained ? retained.get(node as Comment) : undefined;
+      if (kept) { used.add(kept); plan.push(kept); continue; }
+      let match: Node | undefined;
+      const key = keyOf(node);
+      if (key !== null) {
+        if (!keyed) {
+          keyed = new Map();
+          for (let old = parent.firstChild; old; old = old.nextSibling) {
+            const k = keyOf(old);
+            if (k !== null && !keyed.has(k)) keyed.set(k, old);
+          }
+        }
+        match = keyed.get(key);
+      } else {
+        const kind = kindOf(node);
+        // 上一个配对到的旧节点若已被嵌套 morph 搬进了兄弟子树（它是别处保留的活节点），其兄弟链不再属于 parent，不再往后找。
+        let candidate: Node | null = last ? (last.parentNode === parent ? last.nextSibling : null) : parent.firstChild;
+        for (let seen = 0; candidate && seen < UNKEYED_WINDOW; candidate = candidate.nextSibling) {
+          if (keyOf(candidate) !== null) continue;
+          seen++;
+          if (!used.has(candidate) && kindOf(candidate) === kind) { match = candidate; last = candidate; break; }
+        }
       }
+      if (match && !used.has(match)) {
+        used.add(match);
+        const result = morphNode(match, node, used);
+        if (result !== match) used.delete(match);
+        plan.push(result);
+      } else plan.push(node);
     }
-    if (match && !used.has(match)) {
-      used.add(match);
-      const result = morphNode(match, node, used);
-      if (result !== match) used.delete(match);
-      plan.push(result);
-    } else plan.push(node);
-  }
-  for (const node of olds) if (!used.has(node) && node.parentNode === parent) parent.removeChild(node);
-  // 常见情况下配对节点相对顺序不变，因此不会被移动（移动 = 先脱离文档）。
-  let at: Node | null = parent.firstChild;
-  for (const node of plan) {
-    if (node === at) { at = at.nextSibling; continue; }
-    parent.insertBefore(node, at);
+    for (let old: Node | null = parent.firstChild, next: Node | null; old; old = next) {
+      next = old.nextSibling;
+      if (!used.has(old)) parent.removeChild(old);
+    }
+    // 常见情况下配对节点相对顺序不变，因此不会被移动（移动 = 先脱离文档）。
+    let at: Node | null = parent.firstChild;
+    let i = base;
+    for (let node: Node | null = first, next: Node | null; node && node !== stop; node = next) {
+      next = node.nextSibling;
+      const target = plan[i++]!;
+      if (target === at) { at = at.nextSibling; continue; }
+      parent.insertBefore(target, at);
+    }
+  } finally {
+    plan.length = base;
   }
 }
 
@@ -197,7 +234,9 @@ function morphRoot(root: Element, build: () => Node): void {
   session = own;
   try {
     const next = build();
-    morphChildren(root, next.nodeType === 11 ? Array.from(next.childNodes) : [next], new Set());
+    // 单个节点时只 morph 它自己：它可能是已挂载的活节点，不能顺着兄弟链把 root 的其他子节点也当成新序列。
+    if (next.nodeType === 11) morphChildren(root, next.firstChild, null, new Set());
+    else morphChildren(root, next, next.nextSibling, new Set());
   } finally {
     session = outer;
   }
@@ -220,15 +259,32 @@ export function cx(...values: readonly (ClassValue | null | undefined | false)[]
     } else if (Array.isArray(v)) {
       for (const x of v as readonly (string | false | null | undefined)[]) if (x) out.push(x);
     } else {
-      for (const [k, on] of Object.entries(v as Record<string, boolean>)) if (on) out.push(k);
+      const record = v as Record<string, boolean>;
+      for (const k in record) if (record[k]) out.push(k);
     }
   }
   return out.join(' ');
 }
 
+/** dataset 键 camelCase → `data-*` 属性名的缓存（键的种类有限，正则替换只做一次）。 */
+const DATA_ATTR = new Map<string, string>();
+function dataAttr(key: string): string {
+  let name = DATA_ATTR.get(key);
+  if (name === undefined) DATA_ATTR.set(key, (name = `data-${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`));
+  return name;
+}
+
+/** 键属性的优先级（KEY_ATTRS 下标），非键属性为 -1。属性名以 `data-` 开头时才查。 */
+function keyRank(name: string): number {
+  return name.charCodeAt(0) === 100 /* d */ && name.startsWith('data-') ? KEY_ATTRS.indexOf(name) : -1;
+}
+
 function applyProps(el: HTMLElement | SVGElement, props: Props): void {
-  if (!props) return;
-  for (const [key, value] of Object.entries(props)) {
+  if (!props) { (el as unknown as MorphHost)[KEY] = null; return; }
+  // 建树时顺手定下配对键，morph 时就不必对每个新元素逐个 getAttribute 试探 KEY_ATTRS。
+  let rank = KEY_ATTRS.length, keyName = '', keyValue = '';
+  for (const key in props) {
+    const value = props[key];
     if (value === null || value === undefined || value === false) {
       if (key === 'value') (el as HTMLInputElement).value = '';
       continue;
@@ -238,14 +294,23 @@ function applyProps(el: HTMLElement | SVGElement, props: Props): void {
       if (cls) el.setAttribute('class', cls);
     } else if (key === 'style') {
       if (typeof value === 'string') el.setAttribute('style', value);
-      else for (const [k, v] of Object.entries(value as Record<string, string>)) el.style.setProperty(k, v);
+      else {
+        const record = value as Record<string, string>;
+        for (const k in record) el.style.setProperty(k, record[k]!);
+      }
     } else if (key === 'ref') {
       // 增量渲染期间延后到 morph 之后，交给最终留在页面里的那个元素。
       if (session) session.refs.push([el, value as (e: Element) => void]);
       else (value as (e: Element) => void)(el);
     } else if (key === 'dataset') {
       // camelCase keys become kebab-case attributes, mirroring `el.dataset`.
-      for (const [k, v] of Object.entries(value as Record<string, string>)) el.setAttribute(`data-${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`, v);
+      const record = value as Record<string, string>;
+      for (const k in record) {
+        const name = dataAttr(k), v = String(record[k]);
+        el.setAttribute(name, v);
+        const r = keyRank(name);
+        if (r >= 0 && r < rank) { rank = r; keyName = name; keyValue = v; }
+      }
     } else if (key.startsWith('on')) {
       // Listeners only: an `on*` prop is never written as an inline-handler attribute (CSP: no inline script).
       // 监听器挂在元素的处理表上，经固定的跳板分发：morph 复用旧元素时只换表，不残留旧闭包。
@@ -254,12 +319,15 @@ function applyProps(el: HTMLElement | SVGElement, props: Props): void {
       (el as unknown as Record<string, unknown>)[key] = value === true;
     } else if (key === 'value') {
       (el as HTMLInputElement).value = String(value);
-    } else if (value === true) {
-      el.setAttribute(key, '');
     } else {
-      el.setAttribute(key, String(value));
+      const v = value === true ? '' : String(value);
+      el.setAttribute(key, v);
+      const r = keyRank(key);
+      if (r >= 0 && r < rank) { rank = r; keyName = key; keyValue = v; }
     }
   }
+  // 媒体键要连同 src 一起算，而 src 可能在建树之后才设置：留给 morph 时的 computeKey 按原规则处理。
+  if (rank !== MEDIA_KEY_RANK) (el as unknown as MorphHost)[KEY] = rank === KEY_ATTRS.length ? null : `${el.nodeName}|${keyName}|${keyValue}`;
 }
 
 export function appendChildren(parent: Node, children: readonly Child[]): void {

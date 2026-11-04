@@ -11,6 +11,7 @@
 export const WindowLabels = {
   MAIN: 'main',
   ALARM: 'alarm',
+  NOTICE: 'notice',
   SETTING: 'setting',
   UPDATE: 'update',
   LOGIN: 'login',
@@ -24,16 +25,26 @@ export const NotifyCommands = {
   OPEN_CONVERSATION: 'notify_open_conversation',
   HIDE_ROUND: 'notify_hide_round',
   HIDE_ALL: 'notify_hide_all',
-  SNOOZE: 'notify_snooze',
+  ALARM_RESIZE: 'notify_alarm_resize',
   SET_ENABLED: 'notify_set_enabled',
+  SET_VIEWING: 'notify_set_viewing',
   SET_THRESHOLD: 'notify_set_threshold',
   SET_SOUND_ENABLED: 'notify_set_sound_enabled',
+} as const;
+
+/** Commands the `notice` window is allowed to invoke. */
+export const NoticeCommands = {
+  OPEN: 'notice_open',
+  OPEN_CATEGORY: 'notice_open_category',
+  RESIZE: 'notice_resize',
 } as const;
 
 /** Commands the `main` window uses for accounts and IM facts. */
 export const AccountCommands = {
   SNAPSHOT: 'account_snapshot',
   START_LOGIN: 'account_start_login',
+  BROWSER_PROFILES: 'account_browser_profiles',
+  BROWSER_CONNECT: 'account_browser_connect',
   SWITCH: 'account_switch',
   SUSPEND: 'account_suspend',
   LOGOUT: 'account_logout',
@@ -65,13 +76,26 @@ export const PrefsCommands = {
   SNAPSHOT: 'prefs_snapshot',
 } as const;
 
+/** Settings-only host operations. Neither accepts arbitrary paths. */
+export const ShellCommands = {
+  SHELL_READ_CLIPBOARD_TEXT: 'shell_read_clipboard_text',
+  SHELL_WRITE_CLIPBOARD_TEXT: 'shell_write_clipboard_text',
+
+  EXPORT_DIAGNOSTICS: 'shell_export_diagnostics', // no args → boolean (false = cancelled)
+  OPEN_DATA_DIRECTORY: 'shell_open_data_directory', // no args → void
+} as const;
+
 export const Events = {
   MEDIA_SEND_PROGRESS: 'media://send-progress',
   ACCOUNT_CHANGED: 'account://changed',
   ALARM_SNAPSHOT: 'notify://alarm-snapshot',
+  NOTICE: 'notify://notice',
+  NOTICE_UPDATE: 'notify://notice-update',
+  PLAY_SOUND: 'notify://play-sound',
   IM_CONVERSATION_CHANGED: 'im://conversation-changed',
   IM_CONVERSATIONS_INVALIDATED: 'im://conversations-invalidated',
   IM_MESSAGE_NEW: 'im://message-new',
+  IM_MESSAGE_READ_STATUSES: 'im://message-read-statuses',
   NET_CLOCK: 'net://clock',
   PREFS_CHANGED: 'prefs://changed',
 } as const;

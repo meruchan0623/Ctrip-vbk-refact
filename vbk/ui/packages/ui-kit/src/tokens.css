@@ -76,7 +76,7 @@
   --shadow-dlg: 0 24px 64px rgba(10, 30, 60, 0.3);
 
   /* window chrome (platform shells; see html[data-platform] below) */
-  --mac-traffic-w: 78px;
+  --mac-traffic-w: calc(78px / var(--ui-zoom, 1));
   --fwin-h: 36px;
 }
 

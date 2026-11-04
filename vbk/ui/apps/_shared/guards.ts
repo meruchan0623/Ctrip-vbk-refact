@@ -6,7 +6,9 @@
  */
 
 import type { AccountContext, AlarmSnapshot, ClockReading } from '../../packages/ipc/src/contracts.ts';
-import type { PrefsSnapshot, UiAccountSnapshot, UiAgentStatus, UiConversation, UiMessage, UiNetStatus } from '../../packages/ipc/src/client.ts';
+import type { PrefsSnapshot, UiAccountSnapshot, UiAgentStatus, UiAgentStatusEvent, UiConversation, UiMessage, UiNetStatus } from '../../packages/ipc/src/client.ts';
+
+import type { NoticeEvent, NoticeUpdate } from '../notice/viewmodel.ts';
 
 type Rec = Record<string, unknown>;
 
@@ -57,7 +59,8 @@ export function isAlarmSnapshot(x: unknown): x is AlarmSnapshot {
       num(e['waited_seconds']) &&
       str(e['level']) &&
       bool(e['start_confirmed']) &&
-      nullableNum(e['snoozed_until_ms']),
+      nullableNum(e['snoozed_until_ms']) &&
+      (e['preview'] === null || str(e['preview'])),
   );
 }
 
@@ -96,7 +99,9 @@ export function isUiMessage(x: unknown): x is UiMessage {
     num(x['create_time_ms']) &&
     str(x['sender_role']) &&
     str(x['kind']) &&
+    (x['platform_type'] === undefined || x['platform_type'] === null || (Number.isSafeInteger(x['platform_type']) && Number(x['platform_type']) >= 0)) &&
     str(x['text']) &&
+    (x['voice_duration_s'] === undefined || x['voice_duration_s'] === null || (Number.isSafeInteger(x['voice_duration_s']) && Number(x['voice_duration_s']) >= 0)) &&
     nullableStr(x['translation']) &&
     nullableStr(x['original']) &&
     nullableStr(x['quote']) &&
@@ -128,7 +133,11 @@ export function isUiNetStatus(x: unknown): x is UiNetStatus {
 }
 
 export function isUiAgentStatus(x: unknown): x is UiAgentStatus {
-  return rec(x) && str(x['status']) && bool(x['confirmed']);
+  return rec(x) && ['online', 'hangup', 'leaving', 'getoff'].includes(x['status'] as string) && bool(x['confirmed']);
+}
+
+export function isUiAgentStatusEvent(x: unknown): x is UiAgentStatusEvent {
+  return isUiAgentStatus(x) && accountContext((x as unknown as Rec)['account']);
 }
 
 export function isToastPayload(x: unknown): x is { readonly text: string } {
@@ -159,6 +168,24 @@ export function isBannerPayload(x: unknown): x is BannerPayload {
 }
 
 export type SoundName = 'new_message' | 'timeout' | 'loop';
+
+/** `notify://notice-update`: late customer name and preview for a card on screen. */
+export function isNoticeUpdate(x: unknown): x is NoticeUpdate {
+  return rec(x) && accountContext(x['account']) && str(x['gid']) && x['gid'] !== ''
+    && str(x['title']) && (x['preview'] === null || str(x['preview']));
+}
+
+/** `notify://notice`: customer name, message preview and a count. */
+export function isNoticeEvent(x: unknown): x is NoticeEvent {
+  return rec(x) && Number.isInteger(x['count']) && (x['count'] as number) > 0
+    && num(x['stay_ms']) && x['stay_ms'] > 0 && isNoticeUpdate(x)
+    && (x['category_id'] === undefined || (str(x['category_id']) && x['category_id'] !== ''));
+}
+
+/** `notice://new` / `notice://locate-category`. */
+export function isNoticeCategoryPayload(x: unknown): x is { readonly account: AccountContext; readonly category_id: string } {
+  return rec(x) && accountContext(x['account']) && str(x['category_id']) && x['category_id'] !== '';
+}
 
 /** `notify://play-sound` carries the bare clip name. */
 export function isSoundName(x: unknown): x is SoundName {

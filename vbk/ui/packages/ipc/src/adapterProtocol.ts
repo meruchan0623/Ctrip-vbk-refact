@@ -15,7 +15,7 @@
  */
 
 import type { AccountContext, AdapterFactEnvelope, AppError, SendDisposition, TransportState } from './contracts.ts';
-import type { AgentStatus, MarkAction, OrderSearchResult, UiConversation, UiMessage, UiMessagePage, UiNotice, UiNoticeCategory, UiCustomerScripts, UiMembers, UiInviteCandidates, UiPeripheralWrite } from './client.ts';
+import type { AgentStatus, MarkAction, OrderSearchResult, UiConversation, UiMessage, UiMessagePage, UiMessageTranslations, UiNotice, UiNoticeCategory, UiCustomerScripts, UiQuickReplyCategories, UiMembers, UiInviteCandidates, UiPeripheralWrite } from './client.ts';
 
 export interface MediaTarget { readonly target_token: string; readonly identity_sha256: string; readonly sender_id: string }
 export interface MediaUploadReply {
@@ -76,10 +76,17 @@ export type DisplayConversation = Omit<UiConversation, 'account' | 'waiting_sinc
 export type AdapterDisplayPayload =
   | { readonly kind: 'conversations'; readonly full: boolean; readonly items: readonly DisplayConversation[]; readonly removed_gids: readonly string[] }
   | { readonly kind: 'messages'; readonly gid: string; readonly replace: boolean; readonly items: readonly UiMessage[] }
+  | { readonly kind: 'message_read_statuses'; readonly gid: string; readonly items: readonly MessageReadStatusPatch[] }
   | { readonly kind: 'message_profiles'; readonly gid: string; readonly items: readonly MessageProfilePatch[] }
   | { readonly kind: 'agent_status'; readonly status: AgentStatus; readonly confirmed: boolean; readonly status_epoch: number; readonly status_seq: number }
   | { readonly kind: 'transport'; readonly state: TransportState }
   | { readonly kind: 'notice_categories'; readonly items: readonly UiNoticeCategory[] };
+
+export interface MessageReadStatusPatch {
+  readonly message_id: string;
+  readonly sender_id: string;
+  readonly read_status: 'read' | 'unread';
+}
 
 /** Enrichment may never replay an old message body, status, or timestamp. */
 export interface MessageProfilePatch {
@@ -106,17 +113,26 @@ export type AdapterRequest =
   | { readonly req_id: string; readonly op: 'im.outbound_lookup'; readonly args: { readonly gid: string } }
   | { readonly req_id: string; readonly op: 'im.messages'; readonly args: { readonly gid: string } }
   | { readonly req_id: string; readonly op: 'im.message_page'; readonly args: { readonly gid: string; readonly before_ms?: number; readonly expected_context_revision?: string } }
+  | { readonly req_id: string; readonly op: 'im.translate_messages'; readonly args: { readonly gid: string; readonly message_ids: readonly string[] } }
+  | { readonly req_id: string; readonly op: 'im.forward_message'; readonly args: { readonly gid: string; readonly local_id: string; readonly source_gid: string; readonly source_message_id: string; readonly source_create_time_ms: number; readonly source_context_revision?: string; readonly target_context_revision?: string } }
+  | { readonly req_id: string; readonly op: 'im.send_saved_image'; readonly args: { readonly gid: string; readonly local_id: string; readonly url: string; readonly thumbnail?: string | null; readonly target_context_revision?: string } }
   | { readonly req_id: string; readonly op: 'im.send_text'; readonly args: { readonly gid: string; readonly local_id: string; readonly text: string; readonly original: string | null; readonly quote_id: string | null } }
   | { readonly req_id: string; readonly op: 'im.customer_scripts'; readonly args: { readonly content: string } }
+  | { readonly req_id: string; readonly op: 'im.quick_reply_categories'; readonly args: { readonly type: 'VAGENT' | 'VSKILLGROUP' } }
+  | { readonly req_id: string; readonly op: 'im.recommend_products'; readonly args: { readonly gid: string; readonly query: string; readonly departure_city_id?: number; readonly destination_city_id?: number; readonly page_index: number } }
+  | { readonly req_id: string; readonly op: 'im.recommend_cities'; readonly args: { readonly query: string } }
+  | { readonly req_id: string; readonly op: 'im.send_product_card'; readonly args: { readonly gid: string; readonly selection_token: string; readonly product_id: string } }
   | { readonly req_id: string; readonly op: 'im.members'; readonly args: { readonly gid: string } }
-  | { readonly req_id: string; readonly op: 'im.invite_candidates'; readonly args: { readonly gid: string; readonly parent_skill_group_ids?: readonly number[] } }
+  | { readonly req_id: string; readonly op: 'im.invite_candidates'; readonly args: { readonly gid: string; readonly parent_skill_group_ids?: readonly number[]; readonly keywords?: string; readonly extend_token?: string } }
   | { readonly req_id: string; readonly op: 'im.invite'; readonly args: { readonly gid: string; readonly selection_token: string; readonly target_uids: readonly string[] } }
   | { readonly req_id: string; readonly op: 'im.transfer'; readonly args: { readonly gid: string; readonly selection_token: string; readonly target_uid: string } }
   | { readonly req_id: string; readonly op: 'im.finish'; readonly args: { readonly gid: string; readonly selection_token: string } }
+  | { readonly req_id: string; readonly op: 'im.remove'; readonly args: { readonly gid: string; readonly selection_token: string; readonly target_uids: readonly string[] } }
   | { readonly req_id: string; readonly op: 'im.mark_read'; readonly args: { readonly gid: string; readonly expected_message_id: string; readonly expected_context_revision: string } }
   | { readonly req_id: string; readonly op: 'im.set_mark'; readonly args: { readonly gid: string; readonly action: MarkAction } }
   | { readonly req_id: string; readonly op: 'notice.categories'; readonly args: Record<string, never> }
-  | { readonly req_id: string; readonly op: 'notice.list'; readonly args: { readonly category_id: string } }
+  | { readonly req_id: string; readonly op: 'notice.watch'; readonly args: Record<string, never> }
+  | { readonly req_id: string; readonly op: 'notice.list'; readonly args: { readonly category_id: string; readonly before_ms?: number | null } }
   | { readonly req_id: string; readonly op: 'notice.mark_read'; readonly args: { readonly category_id: string; readonly id: string | null } }
   | { readonly req_id: string; readonly op: 'order.search'; readonly args: { readonly order_id: string } }
   | { readonly req_id: string; readonly op: 'order.create_im_chat'; readonly args: { readonly order_id: string } }
@@ -141,16 +157,25 @@ export interface AdapterResultMap {
   'im.outbound_lookup': import('./client.ts').UiOutboundLookup;
   'im.messages': readonly UiMessage[];
   'im.message_page': UiMessagePage;
+  'im.translate_messages': UiMessageTranslations;
+  'im.forward_message': MediaSendReply;
+  'im.send_saved_image': MediaSendReply;
   'im.send_text': SendDisposition;
   'im.mark_read': null;
   'im.customer_scripts': UiCustomerScripts;
+  'im.quick_reply_categories': UiQuickReplyCategories;
+  'im.recommend_products': import('./recommend.ts').UiRecommendProducts;
+  'im.recommend_cities': import('./recommend.ts').UiRecommendCities;
+  'im.send_product_card': import('./recommend.ts').UiRecommendSend;
   'im.members': UiMembers;
   'im.invite_candidates': UiInviteCandidates;
   'im.invite': UiPeripheralWrite;
   'im.transfer': UiPeripheralWrite;
   'im.finish': UiPeripheralWrite;
+  'im.remove': UiPeripheralWrite;
   'im.set_mark': null;
   'notice.categories': readonly UiNoticeCategory[];
+  'notice.watch': readonly { readonly id: string; readonly name: string; readonly last_msg_time: number; readonly last_msg_id: string | null }[];
   'notice.list': readonly UiNotice[];
   'notice.mark_read': null;
   'order.search': OrderSearchResult;

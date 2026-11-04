@@ -126,31 +126,47 @@ export const UiCommands = {
   IM_UNKNOWN_OUTBOUND: 'im_unknown_outbound', // {account} -> UiUnknownOutboundRecord[]; read-only metadata
   IM_MESSAGES: 'im_messages', // {account, gid} → UiMessage[]
   IM_MESSAGE_PAGE: 'im_message_page', // {account, gid, before_ms?, expected_context_revision?} → UiMessagePage
+  IM_TRANSLATE_MESSAGES: 'im_translate_messages', // {account, gid, message_ids (≤20)} → UiMessageTranslations
+  IM_COPY_MESSAGE_IMAGE: 'im_copy_message_image',
+  IM_SAVE_MESSAGE_IMAGE: 'im_save_message_image',
+  IM_FORWARD_MESSAGE: 'im_forward_message',
+  IM_SAVED_EMOJIS: 'im_saved_emojis',
+  IM_ADD_SAVED_EMOJI: 'im_add_saved_emoji',
+  IM_UPDATE_SAVED_EMOJI: 'im_update_saved_emoji',
+  IM_SEND_SAVED_EMOJI: 'im_send_saved_emoji',
   IM_SEND_TEXT: 'im_send_text', // {account, gid, local_id, text, original?, quote_id?} → SendDisposition
   IM_SEND_MEDIA: 'im_send_media', // {account,gid,local_id,attachment_id} → UiMediaSendResult
   IM_SET_TOP: 'im_set_top', // {account, gid, top}
   IM_SET_MARK: 'im_set_mark', // {account, gid, action: 0..5}  (official setWorkSheetStar)
   IM_MARK_READ: 'im_mark_read', // {account, gid, expected_message_id, expected_context_revision}
   IM_CUSTOMER_SCRIPTS: 'im_customer_scripts', // {account, content} → UiCustomerScripts
+  IM_QUICK_REPLY_CATEGORIES: 'im_quick_reply_categories', // {account,type:'VAGENT'|'VSKILLGROUP'} → UiQuickReplyCategories
+  IM_RECOMMEND_PRODUCTS: 'im_recommend_products',
+  IM_RECOMMEND_CITIES: 'im_recommend_cities',
+  IM_SEND_PRODUCT_CARD: 'im_send_product_card',
   IM_MEMBERS: 'im_members', // {account, gid} → UiMembers
-  IM_INVITE_CANDIDATES: 'im_invite_candidates', // {account, gid, parent_skill_group_ids?} → UiInviteCandidates
+  IM_INVITE_CANDIDATES: 'im_invite_candidates', // {account, gid, parent_skill_group_ids? | keywords?, extend_token?} → UiInviteCandidates
   IM_INVITE: 'im_invite', // {account, gid, selection_token, target_uids} → UiPeripheralWrite
   IM_TRANSFER: 'im_transfer', // {account, gid, selection_token, target_uid} → UiPeripheralWrite
   IM_FINISH: 'im_finish', // {account, gid, selection_token} → UiPeripheralWrite
+  IM_REMOVE: 'im_remove', // {account, gid, selection_token, target_uids} → UiPeripheralWrite (finishConversation + venAgentUids)
   // notification centre (official getIQConversations / getIQMessages / putAdviceofreadIQMessage)
   NOTICE_CATEGORIES: 'notice_categories', // {account} → UiNoticeCategory[]
-  NOTICE_LIST: 'notice_list', // {account, category_id} → UiNotice[]
+  NOTICE_LIST: 'notice_list', // {account, category_id, before_ms?} → UiNotice[] (up to 100, older than cursor)
   NOTICE_MARK_READ: 'notice_mark_read', // {account, category_id, id | null}
   // order contact (official searchorderlist / createimchat)
   ORDER_SEARCH: 'order_search', // {account, order_id} → OrderSearchResult
   ORDER_CREATE_IM_CHAT: 'order_create_im_chat', // {account, order_id} → {gid}
   // shell / media placeholders
   SHELL_OPEN_EXTERNAL: 'shell_open_external', // {url}
-  SHELL_OPEN_WEBVIEW: 'shell_open_webview', // {account, url}
+  SHELL_OPEN_WEBVIEW: 'shell_open_webview', // {account, url} → UiBrowserTab; opens/reuses a tab of the built-in browser
+  BROWSER_SHOW: 'browser_show', // {tab_id: string|null, bounds?: {x,y,width,height}} logical px; null hides all
+  BROWSER_NAV: 'browser_nav', // {tab_id, action: 'back'|'forward'|'reload'}
+  BROWSER_CLOSE: 'browser_close', // {tab_id}
   SHELL_OPEN_WINDOW: 'shell_open_window', // {label}
   SHELL_WINDOW: 'shell_window', // {action: 'minimize'|'toggle_maximize'|'close'}
-  MEDIA_SCREENSHOT: 'media_screenshot', // {account,gid} → UiAttachment | null
-  MEDIA_PICK: 'media_pick', // {account,gid,kind:'image'|'file'|'video'} → UiAttachment | null
+  MEDIA_PICK: 'media_pick', // {account,gid,kind:'image'|'file'} → UiAttachment | null
+  MEDIA_ACCEPT_DROP: 'media_accept_drop', // {account,gid,drop_id} → UiAttachment | null; redeems a media://dropped id
   MEDIA_RELEASE: 'media_release', // {account,gid,attachment_id} → null; never clears a durable intent
   NET_STATUS: 'net_status', // {include_diagnostics?: boolean, account?: AccountContext} → UiNetStatus; diagnostics require account
   // prefs (in addition to PrefsCommands.SNAPSHOT)
@@ -169,19 +185,29 @@ export const UiCommands = {
   ASSIST_ORDER_SUMMARY: 'assistant_order_summary',
   ASSIST_PACKAGE_DETAIL_OPEN: 'assistant_package_detail_open',
   ASSIST_PACKAGE_DETAIL: 'assistant_package_detail',
-  // {account, gid, order_id, context_revision, session_epoch} → null; host builds the fixed TSim operator URL
-  // (https://csagent.tsim.tech/embed/operator) and opens it in a remote window with no IPC capability.
+  MEDIA_VIEWER_OPEN_MESSAGE: 'media_viewer_open_message', // {account,gid,message_id}; the host resolves the URL
+  MEDIA_VIEWER_OPEN_EMOJI: 'media_viewer_open_emoji', // {account,id}
+  MEDIA_VIEWER_CURRENT: 'media_viewer_current', // → UiViewerGallery; viewer window only
+  MEDIA_VIEWER_OPEN_EXTERNAL: 'media_viewer_open_external', // {index}; viewer window only; opens an item of its bound gallery
+  // {account, gid, order_id, context_revision, session_epoch} → UiTsimOperatorGrant;
+  // scope-checked iframe handoff. Keep the credential outside stores, logs and URLs.
   ASSIST_TSIM_ORDER_OPEN: 'assistant_tsim_order_open',
   ASSIST_PACKAGE: 'assistant_package_quick_view', // {iccid} → UiPackageInfo
 } as const;
 
 /** Events needed in addition to `Events`. */
 export const UiEvents = {
+  MEDIA_DRAG: 'media://drag', // {active}: OS file drag over the main UI
+  MEDIA_DROPPED: 'media://dropped', // {drop_id, name, count}
+  BROWSER_TAB_OPENED: 'browser://tab-opened', // UiBrowserTab opened by a page; activate it
+  BROWSER_TAB_CHANGED: 'browser://tab-changed', // UiBrowserTab
+  BROWSER_TAB_CLOSED: 'browser://tab-closed', // {tab_id}
   PACKAGE_DETAIL_INVALIDATED: 'assistant://package-detail-invalidated',
+  MEDIA_VIEWER_CHANGED: 'media-viewer://changed',
   TSIM_STATUS: 'assistant://tsim-status', // UiTsimStatus; local views only
   MEDIA_SEND_PROGRESS: 'media://send-progress',
   NET_STATUS: 'net://status', // UiNetStatus
-  AGENT_STATUS: 'account://agent-status', // UiAgentStatus
+  AGENT_STATUS: 'account://agent-status', // UiAgentStatusEvent
   TOAST: 'shell://toast', // {text}
 } as const;
 
@@ -190,6 +216,12 @@ export interface UiAttachment {
   readonly kind: 'image' | 'file' | 'video'; readonly mime: string; readonly size: number;
   readonly content_sha256: string; readonly owner: { readonly account: AccountContext; readonly gid: string };
   readonly supported: true;
+  /** Small `data:image/jpeg` composer thumbnail; images only. */
+  readonly preview_data_url?: string;
+}
+export interface UiBrowserTab {
+  readonly tab_id: string; readonly account_id: string;
+  readonly url: string; readonly title: string; readonly loading: boolean;
 }
 export interface UiMediaSendResult {
   /** Existing ledger metadata without a verifiable selected attachment. Never project/clear the current composer. */
@@ -242,6 +274,11 @@ export interface UiAgentStatus {
   readonly confirmed: boolean;
 }
 
+/** Broadcasts must retain their owner; RPC results are scoped by their request. */
+export interface UiAgentStatusEvent extends UiAgentStatus {
+  readonly account: AccountContext;
+}
+
 export interface UiNetStatus {
   readonly online: boolean;
   readonly transport: TransportState;
@@ -290,6 +327,9 @@ export interface UiOrderSummary {
   readonly status: string;
   /** Masked contact label, never a phone number. */
   readonly contact: string;
+  readonly product_id?: string;
+  readonly customer_language?: string;
+  readonly product_price?: string;
   readonly source_channel?: string;
   readonly total_amount?: string;
   readonly remark_name?: string;
@@ -321,7 +361,7 @@ export interface UiConversation extends ConversationFact {
   readonly order: UiOrderSummary | null;
 }
 
-export type UiMessageKind = 'text' | 'image' | 'file' | 'video' | 'order_card' | 'system';
+export type UiMessageKind = 'text' | 'image' | 'file' | 'video' | 'voice' | 'order_card' | 'system';
 
 export interface UiMessage {
   readonly gid: string;
@@ -333,10 +373,14 @@ export interface UiMessage {
   readonly sender_name?: string | null;
   readonly sender_avatar?: string | null;
   readonly kind: UiMessageKind;
+  /** Original platform message type; drives the official menu's capabilities. */
+  readonly platform_type?: number | null;
   readonly text: string;
   readonly media_url?: string | null;
   readonly media_thumbnail?: string | null;
   readonly media_filename?: string | null;
+  /** `kind: 'voice'` only: whole seconds from the body; null when missing or invalid. */
+  readonly voice_duration_s?: number | null;
   readonly recalled_message_id?: string | null;
   readonly read_status?: 'read' | 'unread' | 'unknown';
   /** Inbound: platform translation under the original. */
@@ -362,6 +406,24 @@ export interface UiUnknownOutboundRecord {
   readonly created_at_ms: number;
   readonly write_started: boolean;
   readonly phase: 'write_started' | 'unknown' | 'upload_started' | 'uploaded';
+}
+
+/** One explicit answer per requested ID of a platform translation batch. */
+export interface UiMessageTranslation {
+  readonly message_id: string;
+  readonly status: 'translated' | 'not_needed' | 'missing' | 'unsupported';
+  readonly translation: string | null;
+  readonly source_kind: 'text' | 'system' | null;
+  /** Why the platform's answer took this form; `flagged` is its `idWithTranslatedMap[id] === true`. */
+  readonly reason?: 'flagged' | 'card' | 'blank' | 'no_row' | 'option_off' | null;
+}
+
+export interface UiMessageTranslations {
+  readonly items: readonly UiMessageTranslation[];
+  /** Translation provider label returned by the platform, when any. */
+  readonly supplier: string | null;
+  /** Short hash of the session asked about, for telling stale-session answers apart in logs. */
+  readonly session_tag?: string | null;
 }
 
 export interface UiMessagePage {
@@ -406,7 +468,7 @@ export interface PrefsSnapshot {
     readonly spell_check: boolean;
   };
   readonly display: { readonly zoom: 75 | 100 | 125 | 150; readonly gpu: boolean };
-  readonly keys: { readonly send_key: 'enter' | 'ctrl_enter'; readonly screenshot: string; readonly toggle_main: string };
+  readonly keys: { readonly send_key: 'enter' | 'ctrl_enter'; readonly toggle_main: string };
   readonly assistant: {
     readonly enabled: boolean;
     readonly outbound_translation: boolean;
@@ -419,6 +481,8 @@ export interface PrefsSnapshot {
   readonly network: { readonly system_proxy: boolean };
   readonly storage: { readonly cache_days: 30 | 90 | 180 | 365; readonly cache_mb: number };
   readonly privacy: { readonly analytics: boolean; readonly crash_upload: boolean };
+  /** Notice categories that use a banner, per `environment:account_id`. */
+  readonly notice_banner: { readonly accounts: Readonly<Record<string, readonly string[]>> };
 }
 
 export type PrefsSection = Exclude<keyof PrefsSnapshot, 'reminder'>;
@@ -441,33 +505,69 @@ export interface UiPackageInfo {
   readonly unlimited?: boolean;
 }
 
+/** Ephemeral reply for the main shell's fixed-origin operator iframe only. */
+export interface UiTsimOperatorGrant {
+  readonly url: string;
+  readonly identifier: string;
+  readonly request_id: string;
+  readonly session_epoch: number;
+  readonly access_token: string;
+  readonly session_ref: string | null;
+}
+
 export interface UiTsimStatus {
   readonly session_epoch: number;
   readonly logged_in: boolean;
   readonly user: string | null;
 }
 
-/** Nonempty script entries have no captured field schema; never expose guessed reply text. */
-export interface UiCustomerScripts { readonly kind: 'empty' | 'unsupported'; readonly raw_count: number; readonly reason?: string }
-export interface UiMember { readonly avatar?: string | null; readonly uid: string; readonly nickname: string | null; readonly status: string; readonly roles: readonly number[]; readonly can_transfer: boolean }
-export interface UiMembers { readonly members: readonly UiMember[]; readonly fetched_at_ms: number; readonly selection_token: string; readonly expires_at_ms: number }
+export interface UiQuickReplyScript { readonly id: string; readonly content: string; readonly short_cut: string; readonly type: string }
+export type UiCustomerScripts = { readonly kind: 'ready'; readonly raw_count: number; readonly items: readonly UiQuickReplyScript[] } | { readonly kind: 'empty' | 'unsupported'; readonly raw_count: number; readonly items?: readonly UiQuickReplyScript[]; readonly reason?: string };
+export interface UiQuickReplyCategory { readonly id: string; readonly name: string; readonly scripts: readonly UiQuickReplyScript[]; readonly sub_categories: readonly UiQuickReplyCategory[] }
+export interface UiQuickReplyCategories { readonly categories: readonly UiQuickReplyCategory[] }
+export type UiMemberRole = 'master' | 'agent' | 'customer' | 'robot' | 'company' | 'other';
+export interface UiMember {
+  readonly avatar?: string | null; readonly uid: string; readonly nickname: string | null; readonly status: string; readonly roles: readonly number[];
+  readonly role?: UiMemberRole; readonly present?: boolean; readonly is_self?: boolean;
+  readonly can_transfer: boolean; readonly can_remove?: boolean;
+}
+export interface UiMembers { readonly members: readonly UiMember[]; readonly self_is_master?: boolean; readonly fetched_at_ms: number; readonly selection_token: string; readonly expires_at_ms: number }
+/** Official chat status (imWindow DE/Fh): 0 在线 / 1 挂起 / 2 离开 / 3 下班; duty_status 1 上班. */
+export interface UiInviteAgent {
+  readonly uid: string; readonly nickname: string | null; readonly avatar?: string | null; readonly in_group?: boolean;
+  readonly status?: number | null; readonly duty_status?: number | null; readonly job_position?: string | null; readonly job_position_type?: number | null; readonly skill_group_full_name?: string | null;
+}
 export interface UiInviteCandidates {
   readonly selection_token: string; readonly expires_at_ms: number;
   readonly skill_groups: readonly { readonly skill_group_id: number; readonly name: string }[];
-  readonly agents: readonly { readonly uid: string; readonly nickname: string | null; readonly avatar?: string | null }[];
+  readonly agents: readonly UiInviteAgent[];
 }
 /** Only a matching independent read-back makes an action confirmed. A repeated
  * same action in the same session returns the original result without another write. */
 export interface UiPeripheralWrite { readonly kind: 'confirmed' | 'accepted' | 'unknown' | 'not_submitted'; readonly confirmed: boolean; readonly reason?: string }
 
 export type UiOrderPackageInfo = Omit<UiPackageInfo, 'remain_pct'> & { readonly remain_pct: number | null };
-export interface UiOrderPackagePlan extends UiOrderPackageInfo { readonly detail_handle: string }
+/** 补发套餐（detail.reissue_list）：宿主逐条读取，按补发时间升序、至多 10 个；读取失败的条目 state='error' 且 info 为 null。 */
+export interface UiOrderReissue { readonly create_time_ms: number | null; readonly state: 'ready' | 'error'; readonly info: UiOrderPackageInfo | null }
+export interface UiOrderPackagePlan extends UiOrderPackageInfo { readonly detail_handle: string; readonly order_time?: string; readonly reissues?: readonly UiOrderReissue[] }
 export interface UiOrderPackageSummary {
   readonly account: AccountContext; readonly gid: string; readonly order_id: string;
   readonly session_epoch: number; readonly context_revision: string; readonly query_handle: string;
   readonly plans: readonly UiOrderPackagePlan[]; readonly total: number; readonly fetched_at_ms: number;
 }
 export interface UiPackageField { readonly label: string; readonly value: string }
+export interface UiViewerAttachment {
+  readonly kind: 'image' | 'video' | 'file';
+  readonly url: string;
+  readonly name: string;
+  readonly thumbnail: string | null;
+}
+
+export interface UiViewerGallery {
+  readonly items: readonly UiViewerAttachment[];
+  readonly index: number;
+}
+
 export interface UiPackageDetail {
   readonly order_id: string; readonly session_epoch: number; readonly plan: UiOrderPackageInfo;
   readonly detail_fields: readonly UiPackageField[]; readonly live_fields: readonly UiPackageField[];

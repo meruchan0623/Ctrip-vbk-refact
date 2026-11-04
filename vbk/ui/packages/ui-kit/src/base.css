@@ -8,12 +8,15 @@ body {
   color: var(--c-text);
   background: var(--c-ground);
   overflow: hidden;
-  user-select: none;
+  -webkit-user-select: none; user-select: none;
   -webkit-font-smoothing: antialiased;
 }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
 button:disabled { cursor: default; }
 input, textarea, select { font: inherit; color: inherit; }
+/* WebKit: a user-select:none ancestor blocks typing/selecting inside fields. */
+input, textarea { -webkit-user-select: text; user-select: text; }
+button, select, summary, label[for], [role="button"], [role="tab"], [role="menuitem"] { -webkit-user-select: none; user-select: none; }
 a { color: var(--c-primary); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--c-scroll); border-radius: 4px; }
@@ -21,8 +24,8 @@ a { color: var(--c-primary); }
 .ic { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .muted { color: var(--c-text-muted); }
-.mono { font-family: var(--font-mono); word-break: break-all; user-select: text; }
-.selectable { user-select: text; }
+.mono { font-family: var(--font-mono); word-break: break-all; -webkit-user-select: text; user-select: text; }
+.selectable { -webkit-user-select: text; user-select: text; }
 .sp { flex: 1; }
 
 /* platform-only elements (window chrome) */
@@ -47,7 +50,7 @@ html:not([data-platform="macos"]) .mac-only { display: none !important; }
 .link:hover { text-decoration: underline; }
 
 /* form */
-.inp { height: 30px; border: 1px solid var(--c-border-strong); border-radius: var(--radius); background: var(--c-surface); padding: 0 10px; outline: none; font-size: var(--fs-md); min-width: 0; user-select: text; }
+.inp { height: 30px; border: 1px solid var(--c-border-strong); border-radius: var(--radius); background: var(--c-surface); padding: 0 10px; outline: none; font-size: var(--fs-md); min-width: 0; -webkit-user-select: text; user-select: text; }
 .inp:focus { border-color: var(--c-primary); box-shadow: 0 0 0 2px var(--c-primary-ring); }
 .sel { height: 30px; border: 1px solid var(--c-border-strong); border-radius: var(--radius); background: var(--c-surface); padding: 0 6px; font-size: 12.5px; outline: none; }
 .sel:focus { border-color: var(--c-primary); }
@@ -109,3 +112,24 @@ html:not([data-platform="macos"]) .mac-only { display: none !important; }
 .cbx { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid #9AA4B2; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; }
 .cbx.on { background: var(--c-primary); border-color: var(--c-primary); }
 .mode-banner { position: fixed; right: 8px; bottom: 32px; font-size: var(--fs-xs); color: var(--c-text-faint); background: rgba(255, 255, 255, 0.85); border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: 1px 6px; z-index: 5; pointer-events: none; }
+
+/* Local Tauri context menus: one material, spacing and keyboard model in every window. */
+.app-context-menu { position: fixed; z-index: 10000; width: 216px; min-width: 190px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow-y: auto; padding: 6px; border: 1px solid rgba(115,137,163,.22); border-radius: 13px; background: rgba(255,255,255,.97); color: #23354d; box-shadow: 0 14px 40px rgba(16,34,60,.16), 0 2px 6px rgba(16,34,60,.07); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); -webkit-app-region: no-drag; -webkit-user-select: none; user-select: none; animation: context-menu-enter .1s ease-out; }
+.app-context-menu .context-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 34px; padding: 7px 10px; border: 0; border-radius: 7px; background: transparent; color: inherit; font: inherit; font-size: 13px; line-height: 20px; text-align: left; white-space: nowrap; cursor: pointer; }
+.app-context-menu .context-menu-item:hover, .app-context-menu .context-menu-item:focus-visible, .app-context-menu .context-menu-active { background: #edf3fd; color: #1c5cc3; outline: none; }
+.context-menu-icon { color: #76869b; }
+.context-menu-item:hover .context-menu-icon, .context-menu-item:focus-visible .context-menu-icon { color: inherit; }
+.app-context-menu .context-menu-item:disabled { color: #a8b2bf; background: transparent; cursor: default; }
+.app-context-menu .context-menu-item:disabled .context-menu-icon { opacity: .45; }
+.context-menu-label { flex: 1; }
+.context-menu-shortcut { margin-left: 16px; color: #94a1b1; font: inherit; font-size: 11px; }
+.app-context-menu .danger { color: #c84648; }
+.app-context-menu .danger:hover, .app-context-menu .danger:focus-visible { color: #b52e39; background: #fff0f1; }
+.context-menu-separator { height: 1px; margin: 5px 7px; background: #e9edf3; }
+.context-menu-colors .mhead { padding: 5px 10px 6px; color: #8a96a7; font-size: 11px; font-weight: 500; }
+.app-context-menu .mk-row { justify-content: space-between; padding: 5px 10px 10px; gap: 10px; }
+.app-context-menu .mk { width: 23px; height: 23px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff; border: 2px solid #fff; box-shadow: 0 0 0 1px #dde4ed; transition: transform .12s; }
+.app-context-menu .mk:hover, .app-context-menu .mk:focus-visible { transform: scale(1.14); outline: 2px solid #bfd2f3; outline-offset: 2px; }
+.app-context-menu .mk.on { box-shadow: 0 0 0 2px #b0c2da; }
+@keyframes context-menu-enter { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .app-context-menu { animation: none; } .app-context-menu .mk { transition: none; } }

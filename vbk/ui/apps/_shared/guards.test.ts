@@ -5,7 +5,7 @@ import type { AlarmSnapshot } from '../../packages/ipc/src/contracts.ts';
 import { Events, NotifyCommands, PrefsCommands, AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
-import { isAttemptResult, isBannerPayload, isLocatePayload, isSoundName, messageAccount } from './guards.ts';
+import { isAttemptResult, isBannerPayload, isLocatePayload, isNoticeEvent, isNoticeUpdate, isSoundName, messageAccount } from './guards.ts';
 import { guarded, isAlarmSnapshot, isClockReading, isPrefsSnapshot, isToastPayload, isUiAccountSnapshot, isUiAgentStatus, isUiConversation, isUiMessage, isUiNetStatus } from './guards.ts';
 
 const acc = { account_id: 'a', environment: 'production', session_generation: 1 };
@@ -60,6 +60,21 @@ test('main-window payload guards accept mock payloads and reject garbage', async
   assert.equal(isUiMessage({ ...m0, text: null }), false);
   assert.equal(isUiMessage({ ...m0, disposition: 'confirmed' }), false);
   ipc.dispose();
+});
+
+test('notice guards accept a missing preview and reject malformed cards', () => {
+  const update = { account: { account_id: 'a', environment: 'test', session_generation: 1 }, gid: '1', title: '张三', preview: null };
+  assert.equal(isNoticeUpdate(update), true);
+  assert.equal(isNoticeUpdate({ ...update, preview: '明天入住' }), true);
+  assert.equal(isNoticeUpdate({ ...update, title: null }), false);
+  assert.equal(isNoticeUpdate({ ...update, preview: 7 }), false);
+  assert.equal(isNoticeUpdate({ ...update, gid: '' }), false);
+  const notice = { ...update, count: 1, stay_ms: 6000 };
+  assert.equal(isNoticeEvent(notice), true);
+  assert.equal(isNoticeEvent(update), false);
+  assert.equal(isNoticeEvent({ ...notice, count: 0 }), false);
+  assert.equal(isNoticeEvent({ ...notice, stay_ms: 0 }), false);
+  for (const g of GARBAGE) assert.equal(isNoticeEvent(g) || isNoticeUpdate(g), false);
 });
 
 test('guarded() drops malformed payloads without throwing and still delivers good ones', () => {

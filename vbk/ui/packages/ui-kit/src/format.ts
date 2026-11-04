@@ -14,6 +14,14 @@ export function formatDuration(totalSeconds: number): string {
   return `${hh}小时${pad2(m % 60)}分`;
 }
 
+/** Fixed-width stopwatch text: `00:45`, `12:05`, `1:05:30`. */
+export function formatStopwatch(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const m = Math.floor(s / 60);
+  const clock = `${pad2(m % 60)}:${pad2(s % 60)}`;
+  return m < 60 ? clock : `${Math.floor(m / 60)}:${clock}`;
+}
+
 /** Unread badge: `''` for 0, `1`–`99`, `99+` beyond. */
 export function badgeText(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '';
