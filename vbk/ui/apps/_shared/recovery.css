@@ -1,0 +1,8 @@
+.recovery-panel { flex: none; max-height: 240px; overflow-y: auto; padding: 10px 14px; border-bottom: 1px solid #e5c891; color: #4f3a18; background: #fff7e8; font-size: 12px; }
+.recovery-row, .recovery-confirm, .recovery-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.recovery-row + .recovery-row { margin-top: 6px; }
+.recovery-message { flex: 1; min-width: 180px; }
+.recovery-confirm { margin: 10px 0; padding: 9px; border: 1px solid #ddac61; border-radius: 6px; }
+.recovery-confirm > span { flex: 1; min-width: 200px; }
+.recovery-panel p { margin: 6px 0; }
+.recovery-actions { margin-top: 8px; }
