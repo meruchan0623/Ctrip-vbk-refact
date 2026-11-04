@@ -47,20 +47,29 @@ export function sortConversations(list: readonly UiConversation[]): UiConversati
     .map((c, i) => ({ c, i }))
     .sort((a, b) => {
       if (a.c.is_top !== b.c.is_top) return a.c.is_top ? -1 : 1;
-      const ta = a.c.last_message_time_ms ?? 0;
-      const tb = b.c.last_message_time_ms ?? 0;
+      const ta = a.c.last_message_time_ms ?? a.c.last_update_time_ms ?? 0;
+      const tb = b.c.last_message_time_ms ?? b.c.last_update_time_ms ?? 0;
       if (ta !== tb) return tb - ta;
       return a.i - b.i;
     })
     .map((x) => x.c);
 }
 
+type TabCounts = { doing: number; done: number; unknown: number };
+const conversationCounts = new WeakMap<readonly UiConversation[], Map<BusinessTab, TabCounts>>();
+const conversationUnreads = new WeakMap<readonly UiConversation[], number>();
+
 export function tabCounts(list: readonly UiConversation[], business: BusinessTab = 'customer'): { doing: number; done: number; unknown: number } {
+  let cached = conversationCounts.get(list);
+  const hit = cached?.get(business);
+  if (hit) return { ...hit };
   const counts = { doing: 0, done: 0, unknown: 0 };
   for (const c of list) {
     if (conversationBusiness(c) === business) counts[conversationListStatus(c)] += 1;
   }
-  return counts;
+  if (!cached) { cached = new Map(); conversationCounts.set(list, cached); }
+  cached.set(business, counts);
+  return { ...counts };
 }
 
 export function matchesQuery(c: UiConversation, query: string): boolean {
@@ -84,7 +93,11 @@ export function filterConversations(list: readonly UiConversation[], tab: ListTa
 }
 
 export function unreadTotal(list: readonly UiConversation[]): number {
-  return list.reduce((n, c) => n + (isDone(c) ? 0 : c.unread_count), 0);
+  const cached = conversationUnreads.get(list);
+  if (cached !== undefined) return cached;
+  const total = list.reduce((n, c) => n + (isDone(c) ? 0 : c.unread_count), 0);
+  conversationUnreads.set(list, total);
+  return total;
 }
 
 // ------------------------------------------------------------ context menu
@@ -211,6 +224,8 @@ export function previewOf(m: UiMessage): string {
       return t('chat.file');
     case 'video':
       return t('chat.video');
+    case 'voice':
+      return '[语音]';
     case 'order_card':
       return `[${t('chat.orderCard')}]`;
     default:
@@ -288,46 +303,7 @@ export function needsOutboundTranslation(text: string): boolean {
   return HAN.test(text) && !KANA_OR_HANGUL.test(text);
 }
 
-/**
- * 文字脚本启发式（与 core-assistant `suggest_language` 同序）：假名→ja、谚文→ko、
- * 泰文→th、阿拉伯文→ar、西里尔文→ru、汉字→zh、拉丁字母→en。判定字母少于 4 个视为低置信，返回 null。
- */
-export function suggestLanguage(text: string): string | null {
-  let kana = 0, hangul = 0, thai = 0, arabic = 0, cyrillic = 0, han = 0, latin = 0;
-  for (const ch of text) {
-    const c = ch.codePointAt(0)!;
-    if ((c >= 0x3041 && c <= 0x30FF) || (c >= 0x31F0 && c <= 0x31FF) || (c >= 0xFF66 && c <= 0xFF9F)) kana++;
-    else if ((c >= 0xAC00 && c <= 0xD7AF) || (c >= 0x1100 && c <= 0x11FF) || (c >= 0x3130 && c <= 0x318F) || (c >= 0xA960 && c <= 0xA97F)) hangul++;
-    else if ((c >= 0x0E01 && c <= 0x0E3A) || (c >= 0x0E40 && c <= 0x0E4E)) thai++;
-    else if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0x0750 && c <= 0x077F) || (c >= 0xFB50 && c <= 0xFDFF) || (c >= 0xFE70 && c <= 0xFEFF)) arabic++;
-    else if (c >= 0x0400 && c <= 0x052F) cyrillic++;
-    else if (HAN.test(ch) || c === 0x3005 || c === 0x3007 || (c >= 0x20000 && c <= 0x2A6DF)) han++;
-    else if ((c < 0x80 && /[A-Za-z]/.test(ch)) || (c >= 0x00C0 && c <= 0x024F) || (c >= 0x1E00 && c <= 0x1EFF)) latin++;
-  }
-  const [lang, count] = kana > 0 ? ['ja', kana + han] : hangul > 0 ? ['ko', hangul] : thai > 0 ? ['th', thai] : arabic > 0 ? ['ar', arabic] : cyrillic > 0 ? ['ru', cyrillic] : han > 0 ? ['zh', han] : latin > 0 ? ['en', latin] : [null, 0];
-  return lang !== null && count >= 4 ? lang : null;
-}
-
-/** 识别时最多回看的客户文字消息条数。 */
-export const LANGUAGE_SCAN_LIMIT = 5;
-
-/**
- * 会话的有效客户语言。官方行的 `languageInfo.lang / ext.locale` 是客户端界面区域
- * （Trip-App 常见 `zh_HK`，或整个缺失而被归为 zh），不等于客户实际书写的语言；
- * 行上为外语时直接采用，否则按最近几条客户文字消息的书写脚本识别。
- */
-export function customerLanguage(conv: Pick<UiConversation, 'lang'>, messages: readonly Pick<UiMessage, 'sender_role' | 'kind' | 'text'>[]): string {
-  if (conv.lang !== 'zh') return conv.lang;
-  let seen = 0;
-  for (let i = messages.length - 1; i >= 0 && seen < LANGUAGE_SCAN_LIMIT; i--) {
-    const m = messages[i]!;
-    if (m.sender_role !== 'customer' || m.kind !== 'text' || !m.text) continue;
-    seen++;
-    const lang = suggestLanguage(m.text);
-    if (lang !== null) return lang;
-  }
-  return 'zh';
-}
+export { customerLanguage, suggestLanguage, LANGUAGE_SCAN_LIMIT } from '../../packages/ipc/src/customer-language.ts';
 
 export const LANG_NAMES: Readonly<Record<string, string>> = {
   ar: '阿拉伯语',
@@ -362,7 +338,8 @@ export type OrderContactState =
   | { readonly kind: 'one'; readonly orderId: string; readonly order: UiOrderSummary }
   | { readonly kind: 'multiple'; readonly orderId: string; readonly orders: readonly UiOrderSummary[] }
   | { readonly kind: 'forbidden'; readonly orderId: string }
-  | { readonly kind: 'unknown'; readonly orderId: string; readonly message: string };
+  | { readonly kind: 'unknown'; readonly orderId: string; readonly message: string }
+  | { readonly kind: 'failed'; readonly orderId: string; readonly message: string };
 
 export type OrderContactEvent =
   | { readonly type: 'query'; readonly orderId: string }
@@ -411,10 +388,10 @@ export function orderContactReduce(state: OrderContactState, ev: OrderContactEve
       const e = ev.error;
       if (isAppError(e)) {
         if (e.code === ErrorCodes.IM_PERMISSION_DENIED || e.code === ErrorCodes.HOST_VIEW_UNAUTHORIZED) return { kind: 'forbidden', orderId: ev.orderId };
-        if (e.code === ErrorCodes.NET_TIMEOUT || e.code === ErrorCodes.NET_OFFLINE || e.code === ErrorCodes.IM_SEND_UNKNOWN) return { kind: 'unknown', orderId: ev.orderId, message: e.message };
-        return { kind: 'unknown', orderId: ev.orderId, message: e.message };
+        if (e.code === ErrorCodes.NET_TIMEOUT || e.code === ErrorCodes.ADAPTER_TIMEOUT) return { kind: 'unknown', orderId: ev.orderId, message: e.message };
+        return { kind: 'failed', orderId: ev.orderId, message: e.message };
       }
-      return { kind: 'unknown', orderId: ev.orderId, message: errorMessage(e) };
+      return { kind: 'failed', orderId: ev.orderId, message: errorMessage(e) };
     }
     case 'select': {
       // Only a row of the current multiple result can be selected; the pick narrows it to `one`.
@@ -490,11 +467,24 @@ export function sameAccount(a: AccountContext, b: AccountContext): boolean {
   return a.account_id === b.account_id && a.environment === b.environment;
 }
 
+/** The conversation main shows, if any; the notification and order views show none. */
+export function viewingGid(s: { readonly view: string; readonly activeGid: string | null }): string | null {
+  return s.view === 'messages' ? s.activeGid : null;
+}
 
-/** Agent status as shown: an unconfirmed (not yet read back) status is 「状态未知」, never the default value. */
-export function agentView(a: UiAgentStatus): { readonly label: string; readonly colorVar: string; readonly known: boolean } {
-  if (!a.confirmed) return { label: t('status.unknown'), colorVar: '--c-offline', known: false };
-  return { label: agentStatusLabel(a.status), colorVar: agentStatusColorVar(a.status), known: true };
+/** Keep the last server observation for display; freshness still gates notifications. */
+export type AgentDisplayStatus = UiAgentStatus & { readonly lastConfirmedStatus?: AgentStatus };
+
+export function mergeAgentStatus(previous: AgentDisplayStatus, next: UiAgentStatus): AgentDisplayStatus {
+  if (next.confirmed) return next;
+  const last = previous.confirmed ? previous.status : previous.lastConfirmedStatus;
+  return last === undefined ? next : { ...next, lastConfirmedStatus: last };
+}
+
+export function agentView(a: AgentDisplayStatus): { readonly label: string; readonly colorVar: string; readonly known: boolean } {
+  const status = a.confirmed ? a.status : a.lastConfirmedStatus;
+  if (status === undefined) return { label: t('status.unknown'), colorVar: '--c-offline', known: false };
+  return { label: agentStatusLabel(status), colorVar: agentStatusColorVar(status), known: true };
 }
 
 export function agentStatusDesc(s: AgentStatus): string {
@@ -531,8 +521,10 @@ export function persistFailedView(snap: Pick<UiAccountSnapshot, 'persist_failed'
 }
 
 /** Network label from the host read-back only; `null` means nothing was read back yet (「未连接」). */
-export function netView(n: UiNetStatus | null): { readonly label: string; readonly ok: boolean; readonly offline: boolean } {
+export function netView(n: UiNetStatus | null, everConnected = true): { readonly label: string; readonly ok: boolean; readonly offline: boolean } {
   if (!n) return { label: t('bar.net.none'), ok: false, offline: false };
+  // 首次启动、尚未连上过：断开/重连只是冷启动的过渡态，不报「网络不可用 / 正在重连」。
+  if (!everConnected && !(n.online && n.transport === 'connected')) return { label: t('bar.net.connecting'), ok: false, offline: false };
   if (!n.online) return { label: t('bar.net.offline'), ok: false, offline: true };
   switch (n.transport) {
     case 'connected':
@@ -601,8 +593,28 @@ export function resumeBanners(list: readonly BannerItem[], pausedAt: number, now
   return list.map((b) => ({ ...b, until: Math.max(b.until + shift, now + 1500) }));
 }
 
+export type WaitTier = 'calm' | 'notice' | 'warn' | 'urgent' | 'overdue';
+
+/** Colour band of the list stopwatch: [0,30) [30,60) [60,90) [90,120) [120,∞) seconds. */
+export function waitTier(seconds: number): WaitTier {
+  if (seconds < 30) return 'calm';
+  if (seconds < 60) return 'notice';
+  if (seconds < 90) return 'warn';
+  return seconds < 120 ? 'urgent' : 'overdue';
+}
+
 export function alarmActiveCount(entries: readonly { readonly snoozed_until_ms: number | null }[], nowMs: number): number {
   return entries.filter((e) => e.snoozed_until_ms === null || e.snoozed_until_ms <= nowMs).length;
+}
+
+/** The active (not snoozed) alarm entry that has waited longest; the top-right alarm button jumps to it. */
+export function longestWaitingAlarm<T extends { readonly waited_seconds: number; readonly snoozed_until_ms: number | null }>(entries: readonly T[], nowMs: number): T | null {
+  let best: T | null = null;
+  for (const e of entries) {
+    if (e.snoozed_until_ms !== null && e.snoozed_until_ms > nowMs) continue;
+    if (best === null || e.waited_seconds > best.waited_seconds) best = e;
+  }
+  return best;
 }
 
 /** Media is rendered only from network URLs, never executable or local-file schemes. */
@@ -631,6 +643,11 @@ function mergeMessageRecord(existing: UiMessage, incoming: UiMessage): UiMessage
     : existing.disposition?.kind === 'confirmed' ? existing.disposition : null;
   return {
     ...merged,
+    // Originals are re-read without translations; an unchanged text keeps the one already fetched.
+    ...(!incoming.translation && existing.translation && existing.text === incoming.text ? { translation: existing.translation } : {}),
+    ...(existing.message_id && existing.message_id === incoming.message_id && existing.sender_id?.trim() && existing.sender_id.trim().toLowerCase() === incoming.sender_id?.trim().toLowerCase()
+      && (existing.read_status === 'read' || (existing.read_status === 'unread' && incoming.read_status !== 'read'))
+      ? { read_status: existing.read_status } : {}),
     message_id: confirmed?.server_message_id ?? incoming.message_id ?? existing.message_id,
     local_id: incoming.local_id ?? existing.local_id,
     disposition: confirmed ?? incoming.disposition ?? existing.disposition,
@@ -756,10 +773,16 @@ export function messageHistoryMatches(before: string, after: string): boolean {
   return historyKeysMatch(parseHistoryKey(before), parseHistoryKey(after));
 }
 
+const visibleMessageLists = new WeakMap<readonly UiMessage[], UiMessage[]>();
+
 /** Recall notices remain visible while their original content stays hidden across pages. */
 export function visibleMessages(messages: readonly UiMessage[]): UiMessage[] {
+  const cached = visibleMessageLists.get(messages);
+  if (cached) return cached;
   const recalled = new Set(messages.map(m => (m as QuotedUiMessage).recalled_message_id).filter(Boolean));
-  return messages.filter(m => !m.message_id || !recalled.has(m.message_id));
+  const visible = messages.filter(m => !m.message_id || !recalled.has(m.message_id));
+  visibleMessageLists.set(messages, visible);
+  return visible;
 }
 
 
@@ -808,9 +831,52 @@ export function mergeQuoteReference(existing: UiMessage, incoming: UiMessage): U
   return merged;
 }
 
+/** 会话列表行高固定 80px；`.cscroll` 有 4px 上内边距，第 i 行的顶边在 4 + 80 * i。 */
+export const CONVERSATION_ROW_PX = 80;
+const CONVERSATION_LIST_PAD_PX = 4;
+const CONVERSATION_OVERSCAN = 8;
+
 /** Fixed-height list window: overscan keeps scrolling smooth with bounded DOM size. */
 export function virtualConversationRange(total: number, top: number, height: number): { start: number; end: number } {
-  const visible = Math.max(1, Math.ceil(Math.max(0, height) / 96));
-  const first = Math.min(Math.max(0, Math.floor(top / 96)), Math.max(0, total - visible));
-  return { start: Math.max(0, first - 6), end: Math.min(total, first + visible + 6) };
+  const visible = Math.max(1, Math.ceil(Math.max(0, height) / CONVERSATION_ROW_PX));
+  const first = Math.min(Math.max(0, Math.floor((top - CONVERSATION_LIST_PAD_PX) / CONVERSATION_ROW_PX)), Math.max(0, total - visible));
+  return { start: Math.max(0, first - CONVERSATION_OVERSCAN), end: Math.min(total, first + visible + CONVERSATION_OVERSCAN) };
+}
+
+/**
+ * 当前挂载窗口 `range` 在视口前后是否已不足 `margin` 行缓冲（需要换窗重算）。
+ * `range.start === 0` 时顶部不算 stale，`range.end >= total` 时底部不算 stale；视口完全落在窗口之外也算 stale。
+ */
+export function conversationWindowStale(range: { start: number; end: number }, total: number, top: number, height: number, margin = 2): boolean {
+  if (total <= 0) return false;
+  const offset = Math.max(0, top - CONVERSATION_LIST_PAD_PX);
+  const firstVisible = Math.min(Math.floor(offset / CONVERSATION_ROW_PX), total - 1);
+  const lastVisible = Math.min(total, Math.max(firstVisible + 1, Math.ceil((offset + Math.max(0, height)) / CONVERSATION_ROW_PX)));
+  if (range.start > 0 && firstVisible - range.start < margin) return true;
+  if (range.end < total && range.end - lastVisible < margin) return true;
+  return false;
+}
+
+export const EMPTY_MESSAGES: readonly UiMessage[] = Object.freeze([]) as unknown as readonly UiMessage[];
+
+const latestPreviewCache = new WeakMap<readonly UiMessage[], string>();
+
+/**
+ * 按 create_time_ms 降序找到的第一条非空预览（最新一条预览为空时继续往前找；时间并列取先出现者，与稳定排序一致）。
+ * 结果按数组身份缓存：同一数组对象只扫一遍。
+ */
+export function latestPreview(msgs: readonly UiMessage[]): string {
+  const cached = latestPreviewCache.get(msgs);
+  if (cached !== undefined) return cached;
+  let best = '';
+  let bestTime = Number.NEGATIVE_INFINITY;
+  let found = false;
+  for (const m of msgs) {
+    if (found && !(m.create_time_ms > bestTime)) continue;
+    const text = previewOf(m);
+    if (!text.trim()) continue;
+    best = text; bestTime = m.create_time_ms; found = true;
+  }
+  latestPreviewCache.set(msgs, best);
+  return best;
 }

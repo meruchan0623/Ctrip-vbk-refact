@@ -8,12 +8,16 @@ const key = 'key.im.servicechat.robotnickname';
 const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
 test('actual member dialog translates only the exact known robot key and preserves each UID', () => {
   const a = source.indexOf('function peripheralDialog('); const b = source.indexOf('\nfunction render(', a);
-  const people = [{ uid: 'synthetic-bot', nickname: key, status: '1' }, { uid: 'synthetic-customer', nickname: 'SYNTHETIC ' + key, status: '1' }];
+  const people = [{ uid: 'synthetic-bot', nickname: key, status: '1', can_transfer: true }, { uid: 'synthetic-customer', nickname: 'SYNTHETIC ' + key, status: '1', can_transfer: true }];
   const state = { activeGid: 'synthetic-room', peripheral: { kind: 'members', scope: { account: {}, gid: 'synthetic-room' }, busy: false, submitted: false, write: null, error: null, notice: null, selected: [], members: { members: people, expires_at_ms: 1000 } }, now: 100 };
-  const env = { personDisplayName, stillActive: () => true, activeConv: () => ({ gid: 'synthetic-room' }), h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }), cx, document: {}, renderMessageAvatar: (_doc: unknown, name: string) => name, icon: () => null, IC: {}, t: (k: string) => k, S: () => state, peripheralWriteView: () => null };
+  const selected: string[] = [];
+  const env = { peripheral: { select: (uid: string) => selected.push(uid) }, isDone: () => false, INVITE_ROOT: 'root', personDisplayName, stillActive: () => true, activeConv: () => ({ gid: 'synthetic-room' }), h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }), cx, document: {}, renderMessageAvatar: (_doc: unknown, name: string) => name, icon: () => null, IC: {}, t: (k: string) => k, S: () => state, peripheralWriteView: () => null };
   const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn peripheralDialog;')(...Object.values(env));
-  const tree = JSON.stringify(render(state));
-  assert.ok(tree.includes('游游机器人')); assert.ok(tree.includes('synthetic-bot'));
+  const rendered = render(state);
+  const tree = JSON.stringify(rendered);
+  function selectMembers(node: any): void { if (Array.isArray(node)) { node.forEach(selectMembers); return; } if (!node || typeof node !== 'object') return; if (node.tag === 'input' && node.props?.type === 'checkbox') node.props.onchange(); selectMembers(node.children); }
+  selectMembers(rendered);
+  assert.ok(tree.includes('游游机器人')); assert.deepEqual(selected, ['synthetic-bot', 'synthetic-customer']);
   assert.ok(tree.includes('SYNTHETIC ' + key));
   assert.equal(people[0]?.nickname, key);
   assert.equal(personDisplayName(' ' + key, 'synthetic-id'), ' ' + key);

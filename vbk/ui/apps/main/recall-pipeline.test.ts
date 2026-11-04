@@ -17,7 +17,7 @@ const reply = { ...original, message_id: 'synthetic-reply', text: 'SYNTHETIC REP
 function renderRows(thread: UiMessage[]): string {
   const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
   const a = source.indexOf('function messageRow('); const b = source.indexOf('\nfunction translationBar(', a);
-  const env = { ...vm, messageAlignment, cx, h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }), t: (key: string) => key, richText: (text: string) => [text], formatDate: () => 'date', formatClock: () => 'time', icon: () => null, IC: {}, document: {}, renderMessageAvatar: () => 'avatar' };
+  const env = { ...vm, inboundTranslation: { view: () => null, supplier: () => null }, refreshMessageTranslation() {}, messageAlignment, cx, h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }), t: (key: string) => key, richText: (text: string) => [text], formatDate: () => 'date', formatClock: () => 'time', icon: () => null, IC: {}, document: {}, renderMessageAvatar: () => 'avatar' };
   const row = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn messageRow;')(...Object.values(env));
   const state = { messages: { [original.gid]: thread }, prefs: { general: { show_msg_time: true } } };
   return JSON.stringify(vm.visibleMessages(thread).map((message) => row(state, message, { gid: original.gid, title: 'Synthetic Customer', color: '#aaa' }, null)));

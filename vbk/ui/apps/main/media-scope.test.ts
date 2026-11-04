@@ -1,3 +1,4 @@
+import { createHistoryLayoutFrames } from './history-layout.ts';
 import { historyDiagnostics } from './history-diagnostics.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +13,7 @@ const scope = { account_id: 'synthetic-account', environment: 'prod', session_ge
 const { root } = installFakeDom();
 /** The actual `messageRow` (with `mediaNodeKey`) rendered through the real ui-kit `h` into a minimal DOM. */
 function renderVideo(account = scope, room = 'synthetic-room', id: string | null = 'synthetic-message', url = 'https://media.ctrip.com/synthetic.mp4', owner = account): { row: HTMLElement; video: HTMLVideoElement } {
-  const env: Record<string, unknown> = { visibleReads: { retry() {}, afterRender() {} }, ...vm, historyDiagnostics, cx, messageAlignment, h, document: fakeDocument, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: () => null, IC: {} };
+  const env: Record<string, unknown> = { createHistoryLayoutFrames, visibleReads: { retry() {}, afterRender() {} }, ...vm, historyDiagnostics, cx, messageAlignment, h, document: fakeDocument, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: () => null, IC: {} };
   if (source.includes('function mediaNodeKey(')) { const a = source.indexOf('function mediaNodeKey('), b = source.indexOf('\nfunction messageRow(', a); env['mediaNodeKey'] = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn mediaNodeKey;')(...Object.values(env)); }
   const a = source.indexOf('function messageRow('), b = source.indexOf('\nfunction translationBar(', a);
   const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn messageRow;')(...Object.values(env));

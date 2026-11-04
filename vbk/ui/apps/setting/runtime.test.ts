@@ -7,8 +7,9 @@ import { SETTING_STRINGS, fmt } from './strings.ts';
 import { createStore } from '../../packages/ui-kit/src/store.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
-import { PrefsCommands } from '../../packages/ipc/src/commands.ts';
+import { PrefsCommands, ShellCommands } from '../../packages/ipc/src/commands.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
+import { ALLOWED_T1_SECONDS } from '../../packages/ipc/src/contracts.ts';
 import { isPrefsSnapshot } from '../_shared/guards.ts';
 const source = readFileSync(process.env['VBK_SETTING_MAIN_SOURCE'] ?? new URL('./main.ts', import.meta.url), 'utf8');
 interface Tree { tag: string; props: Record<string, any>; children: unknown[] }
@@ -19,10 +20,10 @@ async function fixture(overrides: Record<string, any> = {}) {
   const store = createStore<Record<string, any>>({ prefs, section: 'assistant', tsimForm: { user: 'SYNTHETIC_USER', password: 'SYNTHETIC_PASSWORD' }, tsimBusy: false, tsimError: null, tsimStatus: null, tsimImportExpanded: false, tsimImportToken: '', loading: false, loadError: null, settingsRequest: 0, tsimRequest: 0, net: null, nick: null, version: null, toast: null });
   const calls: { command: string }[] = []; const results = new Map<string, unknown>([[PrefsCommands.SNAPSHOT, prefs], [UiCommands.ASSIST_TSIM_STATUS, { logged_in: false, user: null }], [UiCommands.ASSIST_TSIM_LOGIN, { logged_in: true, user: 'SYNTHETIC_USER' }], [UiCommands.ASSIST_TSIM_LOGOUT, { logged_in: false, user: null }]]);
   let importKeys: string[] = [];
-  const invoke = async (command: string, payload?: object) => { calls.push({ command }); if (command === UiCommands.ASSIST_TSIM_IMPORT_SESSION) importKeys = Object.keys(payload ?? {}); const result = await results.get(command); if (result instanceof Error || (result && typeof result === 'object' && 'code' in result)) throw result; return result; };
-  const env: Record<string, any> = { ...vm, S: SETTING_STRINGS, fmt, store, ipc: { invoke }, PrefsCommands, UiCommands, isPrefsSnapshot, cx, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, msg: () => 'SYNTHETIC_UNTRUSTED_ERROR', toast: (value: string) => store.patch({ toast: value }), icon: () => null, IC: {}, sel: { mock: true }, platform: 'windows', closeWindow() {}, setPref() {}, setReminder() {}, ...overrides };
-  function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name); const tail = source.slice(a); const next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z]|subscribeBatched\()/.exec(tail); assert.ok(next, name); return new Function(...Object.keys(env), stripTypeScriptTypes(tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
-  for (const name of ['head', 'row', 'toggle', 'segment', 'text', 'loadSettings', 'refreshTsimStatus', 'tsimLogin', 'tsimLogout', 'tsimImportSession', 'tsimBrowserConnect', 'generalSection', 'displaySection', 'notifySection', 'keysSection', 'assistantSection', 'networkSection', 'storageSection', 'privacySection', 'aboutSection', 'body', 'closeWindow', 'titleBar', 'render']) if (source.includes(`function ${name}(`)) env[name] = actual(name);
+  const invoke = async (command: string, payload?: object) => { calls.push({ command, payload } as { command: string }); if (command === UiCommands.ASSIST_TSIM_IMPORT_SESSION) importKeys = Object.keys(payload ?? {}); const result = await results.get(command); if (result instanceof Error || (result && typeof result === 'object' && 'code' in result)) throw result; return result; };
+  const env: Record<string, any> = { ...vm, ALLOWED_T1_SECONDS, preferenceWrites: new Map(), S: SETTING_STRINGS, fmt, store, ipc: { invoke }, PrefsCommands, ShellCommands, UiCommands, isPrefsSnapshot, cx, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, msg: () => 'SYNTHETIC_UNTRUSTED_ERROR', toast: (value: string) => store.patch({ toast: value }), icon: () => null, IC: {}, sel: { mock: true }, platform: 'windows', closeWindow() {}, selectSection() {}, onBodyScroll() {}, setPref() {}, setReminder() {}, ...overrides };
+  function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '(?:<[^>]+>)?\\(')); assert.ok(a >= 0, name); const tail = source.slice(a); const next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z]|subscribeBatched\()/.exec(tail); assert.ok(next, name); return new Function(...Object.keys(env), stripTypeScriptTypes(tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
+  for (const name of ['head', 'row', 'toggle', 'segment', 'text', 'loadSettings', 'refreshTsimStatus', 'tsimLogin', 'tsimLogout', 'tsimImportSession', 'tsimBrowserConnect', 'generalSection', 'displaySection', 'notifySection', 'keysSection', 'assistantSection', 'networkSection', 'storageSection', 'privacySection', 'aboutSection', 'sectionContent', 'body', 'closeWindow', 'titleBar', 'render']) if (new RegExp('function ' + name + '(?:<[^>]+>)?\\(').test(source)) env[name] = actual(name);
   function bootstrap() { if (env['loadSettings']) return env['loadSettings'](); const a = source.lastIndexOf('void (async () => {'), b = source.indexOf('\n})();', a) + '\n})();'.length; assert.ok(a >= 0 && b > a); return new Function(...Object.keys(env), 'return ' + stripTypeScriptTypes(source.slice(a, b).replace('void ', '')))(...Object.values(env)); }
   return { store, calls, actual, bootstrap, importKeys: () => importKeys, setResult: (command: string, value: unknown) => results.set(command, value), tree: () => env['render'](store.get()) };
 }
@@ -107,13 +108,13 @@ test('actual import refuses false/malformed status and never copies credential-b
   }
 });
 
-test('actual import is single-flight and late import cannot overwrite newer status; closing the section drops unsubmitted input', async () => {
+test('actual import is single-flight and late import cannot overwrite newer status; closing the section drops unsubmitted input; section navigation no longer unmounts it', async () => {
   const f = await fixture(), pending = deferred(); f.store.patch({ tsimImportExpanded: true, tsimImportToken: 'SYNTHETIC_SESSION_TOKEN' }); f.setResult(UiCommands.ASSIST_TSIM_IMPORT_SESSION, pending.promise);
   const importing = f.actual('tsimImportSession')(); await f.actual('tsimImportSession')(); assert.equal(f.calls.length, 1);
   f.setResult(UiCommands.ASSIST_TSIM_STATUS, { logged_in: false, user: null, session_epoch: 3 }); await f.actual('refreshTsimStatus')(); pending.resolve({ logged_in: true, user: 'SYNTHETIC_OLD_IMPORT', session_epoch: 2 }); await importing;
   assert.equal(f.store.get().tsimStatus.session_epoch, 3); assert.equal(f.store.get().tsimStatus.logged_in, false);
   f.store.patch({ tsimImportToken: 'SYNTHETIC_UNSUBMITTED' }); nodes(f.tree()).find(n => n.props.dataset?.tsimImport === '1')!.props.ontoggle({ currentTarget: { open: false } }); assert.equal(f.store.get().tsimImportToken, '');
-  f.store.patch({ tsimImportExpanded: true, tsimImportToken: 'SYNTHETIC_UNSUBMITTED' }); nodes(f.tree()).find(n => n.props.dataset?.section === 'general')!.props.onclick(); assert.equal(f.store.get().tsimImportToken, ''); assert.equal(f.store.get().tsimImportExpanded, false);
+  f.store.patch({ tsimImportExpanded: true, tsimImportToken: 'SYNTHETIC_UNSUBMITTED' }); nodes(f.tree()).find(n => n.props.dataset?.section === 'general')!.props.onclick(); assert.equal(f.store.get().tsimImportToken, 'SYNTHETIC_UNSUBMITTED'); assert.equal(f.store.get().tsimImportExpanded, true);
 });
 
 test('actual close button clears unsubmitted session input before a hung or failed native close resolves', async () => {
@@ -168,17 +169,26 @@ test('failed replacement login does not retain the previous logged-in UI identit
 });
 
 
-test('one browser profile requires explicit source selection without exposing a token', async () => {
-  const f = await fixture();
-  f.setResult(UiCommands.ASSIST_TSIM_BROWSER_PROFILES, [{ id: 'edge:Default', label: 'Edge · Default' }]);
+test('one browser profile connects directly from Chrome on macOS without exposing a token', async () => {
+  const f = await fixture({ platform: 'macos' });
+  const button = nodes(f.tree()).find(n => n.props.dataset?.action === 'tsim-browser-connect');
+  assert.ok(button); assert.match(button.props.class, /pri/);
+  f.setResult(UiCommands.ASSIST_TSIM_BROWSER_PROFILES, [{ id: 'chrome:Default', label: 'Chrome · Default' }]);
   f.setResult(UiCommands.ASSIST_TSIM_BROWSER_CONNECT, { logged_in: true, user: 'synthetic-browser-user', session_epoch: 8 });
   await f.actual('tsimBrowserConnect')();
-  assert.equal(f.calls.length, 1);
-  assert.equal(nodes(f.tree()).filter(n => n.props.dataset?.browserProfile).length, 1);
-  await f.actual('tsimBrowserConnect')('edge:Default');
   assert.deepEqual(f.calls.map(c => c.command), [UiCommands.ASSIST_TSIM_BROWSER_PROFILES, UiCommands.ASSIST_TSIM_BROWSER_CONNECT]);
   assert.equal(f.store.get().tsimStatus.user, 'synthetic-browser-user');
   assert.equal(f.store.get().tsimForm.password, '');
+});
+
+test('failed Chrome connection retains account login and renders only a safe error', async () => {
+  const f = await fixture({ platform: 'macos' });
+  f.setResult(UiCommands.ASSIST_TSIM_BROWSER_PROFILES, [{ id: 'chrome:Default', label: 'Chrome · Default' }]);
+  f.setResult(UiCommands.ASSIST_TSIM_BROWSER_CONNECT, { code: 'assistant.browser_storage_unavailable', message: 'SYNTHETIC_PRIVATE_TOKEN' });
+  await f.actual('tsimBrowserConnect')();
+  assert.equal(f.store.get().tsimStatus, null);
+  assert.ok(nodes(f.tree()).some(n => n.props.dataset?.action === 'tsim-login'));
+  assert.equal(JSON.stringify(f.tree()).includes('SYNTHETIC_PRIVATE_TOKEN'), false);
 });
 
 test('multiple browser profiles require selection and missing profiles retain manual login', async () => {
@@ -212,4 +222,138 @@ test('browser invalidation event removes stale logged-in identity without cancel
   assert.equal(f.store.get().tsimRequest, 8);
   f.actual('receiveTsimStatus')({ logged_in: true, user: 'old', session_epoch: 4 });
   assert.equal(f.store.get().tsimStatus.logged_in, false);
+});
+
+
+test('failed setting saves preserve successful changes in the same section', async () => {
+  const f = await fixture(), pending = deferred();
+  const before = f.store.get().prefs;
+  f.setResult(UiCommands.PREFS_SET, pending.promise);
+  const first = f.actual('setPref')('display', 'zoom', 125);
+  const latest = { ...before, display: { ...before.display, zoom: 100, gpu: !before.display.gpu } };
+  f.setResult(UiCommands.PREFS_SET, latest);
+  await f.actual('setPref')('display', 'gpu', !before.display.gpu);
+  assert.equal(f.store.get().prefs.display.zoom, 125);
+  pending.resolve(new Error('failed')); await first;
+  assert.equal(f.store.get().prefs.display.zoom, before.display.zoom);
+  assert.equal(f.store.get().prefs.display.gpu, !before.display.gpu);
+});
+
+test('late settings replies cannot overwrite a newer write of the same field', async () => {
+  for (const fail of [false, true]) {
+    const f = await fixture(), pending = deferred(), before = f.store.get().prefs;
+    f.setResult(UiCommands.PREFS_SET, pending.promise);
+    const first = f.actual('setPref')('display', 'zoom', 125);
+    const next = { ...before, display: { ...before.display, zoom: 150 } };
+    f.setResult(UiCommands.PREFS_SET, next); await f.actual('setPref')('display', 'zoom', 150);
+    pending.resolve(fail ? new Error('old failure') : { ...before, display: { ...before.display, zoom: 125 } }); await first;
+    assert.equal(f.store.get().prefs.display.zoom, 150);
+  }
+});
+
+test('failed reminder changes roll back only their field', async () => {
+  const f = await fixture(), pending = deferred(), before = f.store.get().prefs;
+  const { cmd } = vm.reminderCommand('enabled', !before.reminder.enabled);
+  f.setResult(cmd, pending.promise);
+  const first = f.actual('setReminder')('enabled', !before.reminder.enabled);
+  const sound = vm.reminderCommand('timeout_sound', !before.reminder.timeout_sound);
+  f.setResult(sound.cmd, undefined); await f.actual('setReminder')('timeout_sound', !before.reminder.timeout_sound);
+  pending.resolve(new Error('failed')); await first;
+  assert.equal(f.store.get().prefs.reminder.enabled, before.reminder.enabled);
+  assert.equal(f.store.get().prefs.reminder.timeout_sound, !before.reminder.timeout_sound);
+});
+
+
+test('an authoritative preferences event outranks an earlier save reply or failure', async () => {
+  for (const fail of [false, true]) {
+    const f = await fixture(), pending = deferred(), before = f.store.get().prefs;
+    f.setResult(UiCommands.PREFS_SET, pending.promise);
+    const first = f.actual('setPref')('display', 'zoom', 125);
+    const broadcast = { ...before, display: { ...before.display, zoom: 150 } };
+    f.actual('applySettingsSnapshot')(broadcast);
+    pending.resolve(fail ? new Error('old failure') : { ...before, display: { ...before.display, zoom: 125 } }); await first;
+    assert.equal(f.store.get().prefs, broadcast);
+  }
+});
+
+test('same-field failures restore confirmed preferences for either response order', async () => {
+  for (const reminder of [false, true]) for (const oldFirst of [false, true]) for (const oldSucceeds of [false, true]) {
+    const f = await fixture(), first = deferred(), second = deferred(), before = f.store.get().prefs;
+    const key = reminder ? 't1_seconds' : 'zoom';
+    const command = reminder ? vm.reminderCommand('t1_seconds', 60).cmd : UiCommands.PREFS_SET;
+    const save = (value: number) => reminder ? f.actual('setReminder')(key, value) : f.actual('setPref')('display', key, value);
+    f.setResult(command, first.promise); const old = save(reminder ? 60 : 125);
+    f.setResult(command, second.promise); const latest = save(reminder ? 90 : 150);
+    const confirmed = reminder ? undefined : { ...before, display: { ...before.display, zoom: 125 } };
+    const settleOld = async () => { first.resolve(oldSucceeds ? confirmed : new Error('old failed')); await old; };
+    const settleLatest = async () => { second.resolve(new Error('latest failed')); await latest; };
+    if (oldFirst) { await settleOld(); await settleLatest(); } else { await settleLatest(); await settleOld(); }
+    assert.equal(reminder ? f.store.get().prefs.reminder.t1_seconds : f.store.get().prefs.display.zoom,
+      oldSucceeds ? reminder ? 60 : 125 : reminder ? before.reminder.t1_seconds : before.display.zoom,
+      JSON.stringify({ reminder, oldFirst, oldSucceeds }));
+  }
+});
+
+
+test('a change the host already announced still reports saved', async () => {
+  const f = await fixture(), pending = deferred(), before = f.store.get().prefs;
+  const next = { ...before, general: { ...before.general, show_msg_time: !before.general.show_msg_time } };
+  f.setResult(UiCommands.PREFS_SET, pending.promise);
+  const saving = f.actual('setPref')('general', 'show_msg_time', next.general.show_msg_time);
+  f.actual('applySettingsSnapshot')(next);
+  pending.resolve(next); await saving;
+  assert.equal(f.store.get().prefs.general.show_msg_time, next.general.show_msg_time);
+  assert.equal(f.store.get().toast, 'set.saved');
+});
+
+test('settings without a working backend are shown as facts, not as switches', async () => {
+  const f = await fixture();
+  const controls = nodes(f.tree()).map(n => n.props.dataset?.setting).filter(Boolean);
+  for (const key of ['display.gpu', 'storage.cache_days', 'privacy.analytics', 'privacy.crash_upload']) assert.ok(!controls.includes(key), key);
+  for (const key of ['display.zoom', 'dnd.schedule_enabled', 'dnd.follow_system', 'network.system_proxy']) assert.ok(controls.includes(key), key);
+  assert.equal(nodes(f.tree()).find(n => n.props.dataset?.action === 'clear-cache'), undefined);
+});
+
+test('settings diagnostics and data-directory buttons use dedicated host commands', async () => {
+  const f = await fixture();
+  const storage = nodes(f.tree());
+  const open = storage.find(n => n.tag === 'button' && JSON.stringify(n.children).includes('set.storage.open'));
+  assert.ok(open); open.props.onclick(); await Promise.resolve();
+  assert.equal(f.calls.at(-1)?.command, ShellCommands.OPEN_DATA_DIRECTORY);
+  f.setResult(ShellCommands.EXPORT_DIAGNOSTICS, false);
+  const exp = nodes(f.tree()).find(n => n.tag === 'button' && JSON.stringify(n.children).includes('set.privacy.export'));
+  assert.ok(exp); exp.props.onclick(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(f.calls.at(-1)?.command, ShellCommands.EXPORT_DIAGNOSTICS); assert.equal(f.store.get().toast, null);
+  f.setResult(ShellCommands.EXPORT_DIAGNOSTICS, true); exp.props.onclick();
+  for (let i = 0; i < 6; i++) await Promise.resolve();
+  assert.equal(f.store.get().toast, '诊断信息已导出');
+});
+
+test('actual settings page renders every section in one long page; nav is a labelled nav with aria-current and calls selectSection', async () => {
+  const picked: string[] = [];
+  const f = await fixture({ selectSection: (id: string) => picked.push(id) }); f.store.patch({ section: 'storage' });
+  const all = nodes(f.tree());
+  assert.deepEqual(all.filter(n => n.tag === 'section').map(n => n.props.dataset?.setSection), vm.SECTIONS.map(s => s.id));
+  assert.ok(all.filter(n => n.tag === 'section').every(n => (n.children[0] as Tree).tag === 'h2'));
+  const nav = all.find(n => n.tag === 'nav'); assert.ok(nav); assert.equal(all.some(n => n.props.role === 'tablist' || n.props.role === 'tab'), false);
+  const buttons = nodes(nav.children).filter(n => n.tag === 'button');
+  assert.deepEqual(buttons.map(b => b.props.dataset.section), vm.SECTIONS.map(s => s.id));
+  assert.deepEqual(buttons.filter(b => b.props['aria-current'] === 'true').map(b => b.props.dataset.section), ['storage']);
+  buttons.find(b => b.props.dataset.section === 'about')!.props.onclick(); assert.deepEqual(picked, ['about']);
+  assert.ok(all.find(n => n.props.dataset?.keepScroll === 'set')?.props.onscroll);
+  // 已移除的内容：发送模式、只读翻译服务行、截图快捷键
+  const dump = JSON.stringify(f.tree());
+  for (const gone of ['set.asst.sendMode', 'set.asst.outService', 'set.asst.inService', 'set.keys.screenshot']) assert.equal(dump.includes(gone), false, gone);
+  assert.equal(all.some(n => n.props.dataset?.sendMode), false);
+});
+
+test('general settings open web personal settings under the active account', async () => {
+  const f = await fixture({ section: 'general' });
+  const button = () => nodes(f.tree()).find(n => n.props.dataset?.action === 'personal-settings')!;
+  assert.equal(button().props.disabled, true);
+  const account = { account_id: 'synthetic-a', environment: 'synthetic', session_generation: 1 };
+  f.store.patch({ account });
+  assert.equal(button().props.disabled, false);
+  button().props.onclick();
+  assert.deepEqual(f.calls.at(-1), { command: UiCommands.SHELL_OPEN_WEBVIEW, payload: { account, url: vm.PERSONAL_SETTINGS_URL } });
 });

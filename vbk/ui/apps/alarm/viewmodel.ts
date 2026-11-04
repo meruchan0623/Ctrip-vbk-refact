@@ -1,6 +1,6 @@
 /** Pure derivations for the alarm window (no DOM). */
 
-import type { AlarmEntry, AlarmSnapshot, SnoozeMinutes } from '../../packages/ipc/src/contracts.ts';
+import type { AlarmEntry, AlarmSnapshot } from '../../packages/ipc/src/contracts.ts';
 import { RED_AFTER_SECONDS } from '../../packages/ipc/src/contracts.ts';
 import { NotifyCommands } from '../../packages/ipc/src/commands.ts';
 import { formatClock, formatDuration } from '../../packages/ui-kit/src/format.ts';
@@ -15,17 +15,17 @@ export interface AlarmRow {
   readonly pending: boolean;
   readonly snoozed: boolean;
   readonly snoozedUntilText: string | null;
-  readonly level: AlarmEntry['level'];
+  readonly preview: string | null;
 }
 
 export function rowKey(e: Pick<AlarmEntry, 'account' | 'gid' | 'round_id'>): string {
-  return `${e.account.account_id}:${e.gid}:${e.round_id}`;
+  return JSON.stringify([e.account.environment, e.account.account_id, e.account.session_generation, e.gid, e.round_id]);
 }
 
 /**
  * Rows sorted by waited time (desc). Red when `waited_seconds >= RED_AFTER_SECONDS`,
  * `待核对` when the round start is not confirmed, snoozed when `snoozed_until_ms`
- * is in the future. Snoozed rows are kept (dimmed) so the user sees what is paused.
+ * is in the future. Rounds snoozed by an earlier build stay dimmed until that pause runs out.
  */
 export function deriveAlarmRows(snapshot: AlarmSnapshot, nowMs: number): AlarmRow[] {
   return snapshot.entries
@@ -40,7 +40,7 @@ export function deriveAlarmRows(snapshot: AlarmSnapshot, nowMs: number): AlarmRo
         pending: !entry.start_confirmed,
         snoozed,
         snoozedUntilText: snoozed && entry.snoozed_until_ms !== null ? formatClock(entry.snoozed_until_ms) : null,
-        level: entry.level,
+        preview: entry.preview,
       };
     })
     .sort((a, b) => {
@@ -88,47 +88,26 @@ export function roundRef(e: AlarmEntry): RoundRef {
   return { account: e.account, gid: e.gid, round_id: e.round_id, version: e.version };
 }
 
-export type AlarmAction = { kind: 'open' } | { kind: 'hide' } | { kind: 'snooze'; minutes: SnoozeMinutes };
+export type AlarmAction = { kind: 'open' } | { kind: 'hide' };
 
 /** Command + payload for a per-entry action; the version is echoed from the snapshot. */
 export function entryCommand(e: AlarmEntry, action: AlarmAction): { cmd: string; payload: Record<string, unknown> } {
   const ref = roundRef(e);
   switch (action.kind) {
     case 'open':
-      return { cmd: NotifyCommands.OPEN_CONVERSATION, payload: { ...ref } };
+      return { cmd: NotifyCommands.OPEN_CONVERSATION, payload: { round: ref } };
     case 'hide':
-      return { cmd: NotifyCommands.HIDE_ROUND, payload: { ...ref } };
-    case 'snooze':
-      return { cmd: NotifyCommands.SNOOZE, payload: { ...ref, minutes: action.minutes } };
+      return { cmd: NotifyCommands.HIDE_ROUND, payload: { round: ref } };
     default:
-      return { cmd: NotifyCommands.OPEN_CONVERSATION, payload: { ...ref } };
+      return { cmd: NotifyCommands.OPEN_CONVERSATION, payload: { round: ref } };
   }
 }
 
-export function hideAllCommand(snapshot: AlarmSnapshot): { cmd: string; payload: { seen: { gid: string; round_id: string; version: number }[] } } {
+export function hideAllCommand(snapshot: AlarmSnapshot): { cmd: string; payload: { seen: RoundRef[] } } {
   return {
     cmd: NotifyCommands.HIDE_ALL,
-    payload: { seen: snapshot.entries.map((e) => ({ gid: e.gid, round_id: e.round_id, version: e.version })) },
+    payload: { seen: snapshot.entries.map(roundRef) },
   };
-}
-
-export const SNOOZE_OPTIONS: readonly { minutes: SnoozeMinutes; labelKey: 'alarm.snooze5' | 'alarm.snooze10' | 'alarm.snooze30' }[] = [
-  { minutes: 5, labelKey: 'alarm.snooze5' },
-  { minutes: 10, labelKey: 'alarm.snooze10' },
-  { minutes: 30, labelKey: 'alarm.snooze30' },
-];
-
-/**
- * The row the top block and the footer act on (prototype `alarmSel`): the
- * picked row while it is still listed, otherwise the first row — rows are
- * sorted active-first by waited time, so that is the longest-waiting one.
- */
-export function selectedRow(rows: readonly AlarmRow[], pickedKey: string | null): AlarmRow | null {
-  if (pickedKey !== null) {
-    const picked = rows.find((r) => r.key === pickedKey);
-    if (picked) return picked;
-  }
-  return rows[0] ?? null;
 }
 
 /** Prototype avatar palette; the colour is a stable function of the conversation id. */

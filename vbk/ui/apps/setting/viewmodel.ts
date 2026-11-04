@@ -3,7 +3,7 @@
 import type { ReminderSettings } from '../../packages/ipc/src/contracts.ts';
 import { ALLOWED_T1_SECONDS } from '../../packages/ipc/src/contracts.ts';
 import { NotifyCommands } from '../../packages/ipc/src/commands.ts';
-import type { PrefsSection, PrefsSnapshot, SendMode, UiTsimStatus } from '../../packages/ipc/src/client.ts';
+import type { PrefsSection, PrefsSnapshot, UiTsimStatus } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { I18nKey } from '../../packages/ui-kit/src/i18n.ts';
@@ -76,8 +76,52 @@ export function prefsCommand(section: PrefsSection, key: string, value: boolean 
   return { cmd: UiCommands.PREFS_SET, payload: { section, key, value } };
 }
 
-export function sendModeDescription(mode: SendMode): string {
-  return mode === 'send_direct' ? t('set.asst.modeDirectDesc') : t('set.asst.modeReplaceDesc');
+/** 点击导航后锁定高亮的时长：覆盖平滑滚动，且让末尾几个很短的分类（滚不到顶）也能高亮被点的那个。 */
+export const SPY_LOCK_MS = 900;
+/** 分类标题距容器顶部不足这么多像素时，就算“已进入”该分类。 */
+export const SPY_OFFSET_PX = 24;
+
+/** 滚动容器里某个分类的顶边，相对容器内容起点（与 scrollTop 同一坐标系）。 */
+export interface SectionTop {
+  readonly id: SectionId;
+  readonly top: number;
+}
+
+/** 点击导航后的高亮锁：`until` 之前不允许滚动把高亮改回去。 */
+export interface SpyLock {
+  readonly id: SectionId;
+  readonly until: number;
+}
+
+export interface SpyInput {
+  /** 按页面顺序排列的各分类顶边。 */
+  readonly tops: readonly SectionTop[];
+  readonly scrollTop: number;
+  readonly clientHeight: number;
+  readonly scrollHeight: number;
+  readonly now: number;
+  readonly current: SectionId;
+  readonly lock: SpyLock | null;
+}
+
+/**
+ * scroll-spy：滚动时该高亮哪个分类。
+ * 锁未过期 → 被点的分类；内容放不满一屏 → 保持现状；滚到底 → 最后一个；
+ * 否则取顶边已越过视口上沿（含 SPY_OFFSET_PX）的最后一个分类。
+ */
+export function pickActiveSection(input: SpyInput): SectionId {
+  const { tops, scrollTop, clientHeight, scrollHeight, now, current, lock } = input;
+  if (lock && now < lock.until) return lock.id;
+  const last = tops[tops.length - 1];
+  if (!last) return current;
+  if (scrollHeight - clientHeight <= 1) return current;
+  if (scrollTop + clientHeight >= scrollHeight - 2) return last.id;
+  let picked = tops[0]!.id;
+  for (const sec of tops) {
+    if (sec.top <= scrollTop + SPY_OFFSET_PX) picked = sec.id;
+    else break;
+  }
+  return picked;
 }
 
 export function tsimStatusText(p: PrefsSnapshot['assistant']): string {
@@ -132,4 +176,6 @@ export function tsimErrorText(error: unknown): string {
 }
 
 export const ZOOM_OPTIONS: readonly PrefsSnapshot['display']['zoom'][] = [75, 100, 125, 150];
-export const CACHE_DAY_OPTIONS: readonly PrefsSnapshot['storage']['cache_days'][] = [30, 90, 180, 365];
+
+/** Official IM page that hosts the web personal settings; opened in the main window's browser tabs. */
+export const PERSONAL_SETTINGS_URL = 'https://vbooking.ctrip.com/vbk/im/main';

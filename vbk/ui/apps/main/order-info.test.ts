@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createTsimOrderOpener, orderInfoRows, orderInfoSection, tsimOrderRequest, tsimQueryableOrder, type TsimOrderContext } from './order-info.ts';
 import { UiCommands, type UiAccountSnapshot, type UiConversation, type UiOrderSummary, type UiTsimStatus } from '../../packages/ipc/src/client.ts';
 import { AccountCommands } from '../../packages/ipc/src/commands.ts';
+import { operatorGrant } from './operator-overlay.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
 import type { h } from '../../packages/ui-kit/src/h.ts';
 
@@ -19,7 +20,7 @@ const identity: UiTsimStatus = { logged_in: true, user: 'synthetic-agent', sessi
 
 function render(o: UiOrderSummary = order) {
   const calls: string[] = [];
-  const tree = orderInfoSection({ order: o, hot: false, labels: { copy: '复制订单号', detail: '详情', pcDetail: 'PC详情' }, copy: () => calls.push('copy'), detail: () => calls.push('detail'), pcDetail: () => calls.push('pc'), queryTsim: () => calls.push('tsim') }, fakeH, (() => null) as any, 'copy-glyph');
+  const tree = orderInfoSection({ order: o, hot: false, labels: { copy: '复制订单号', pcDetail: '打开网页订单详情' }, copy: () => calls.push('copy'), pcDetail: () => calls.push('pc'), queryTsim: () => calls.push('tsim') }, fakeH, (() => null) as any, 'copy-glyph');
   return { tree, all: nodes(tree), calls };
 }
 
@@ -30,18 +31,18 @@ test('user info renders the reference two-column labels in order and hides blank
   assert.deepEqual(labels, ['来源渠道', '订单ID', '产品名称', '使用日期', '订单总额', '备注名称']);
   assert.ok(!labels.includes('数量') && !labels.includes('订单状态'), 'blank quantity/status rows stay hidden');
   const actions = view.all.find(n => n.props.class === 'source-actions')!;
-  assert.deepEqual(nodes(actions.children).filter(n => n.tag === 'button').map(n => text(n)), ['详情', 'PC详情']);
+  assert.deepEqual(nodes(actions.children).filter(n => n.tag === 'button').map(n => text(n)), ['打开网页订单详情']);
 });
 
-test('order ID is a TSim query link; detail, PC detail and copy keep their own handlers', () => {
+test('order ID is a TSim query link; web detail and copy keep their own handlers', () => {
   const view = render();
   const link = view.all.find(n => n.props.dataset?.side === 'tsim-order')!;
   assert.equal(link.tag, 'button'); assert.equal(text(link), order.order_id); assert.equal(link.props.type, 'button');
   link.props.onclick();
-  view.all.find(n => n.props.dataset?.side === 'detail')!.props.onclick();
+  assert.equal(view.all.find(n => n.props.dataset?.side === 'detail'), undefined, 'the separate detail button is gone');
   view.all.find(n => n.props.dataset?.side === 'pc')!.props.onclick();
   view.all.find(n => n.props['aria-label'] === '复制订单号')!.props.onclick();
-  assert.deepEqual(view.calls, ['tsim', 'detail', 'pc', 'copy']);
+  assert.deepEqual(view.calls, ['tsim', 'pc', 'copy']);
   const partial = render({ ...order, order_id: '12345-abc' });
   assert.equal(partial.all.find(n => n.props.dataset?.side === 'tsim-order'), undefined, 'a non-numeric order is plain text, never a link');
   assert.ok(partial.all.some(n => n.tag === 'span' && text(n) === '12345-abc'));
@@ -87,15 +88,35 @@ test('mock host enforces the same order binding contract as assistant_tsim_order
     const status = await ipc.invoke<UiTsimStatus>(UiCommands.ASSIST_TSIM_STATUS);
     const request = tsimOrderRequest({ account: ctx, conversation: conv, identity: status.logged_in ? status : { logged_in: true, user: 'synthetic', session_epoch: status.session_epoch } });
     assert.ok(request.ok);
-    if (status.logged_in) assert.equal(await ipc.invoke(UiCommands.ASSIST_TSIM_ORDER_OPEN, request.payload), null);
+    if (status.logged_in) assert.ok(operatorGrant(await ipc.invoke(UiCommands.ASSIST_TSIM_ORDER_OPEN, request.payload)));
     else await assert.rejects(ipc.invoke(UiCommands.ASSIST_TSIM_ORDER_OPEN, request.payload), { code: 'assistant.tsim_unauthenticated' });
     await assert.rejects(ipc.invoke(UiCommands.ASSIST_TSIM_ORDER_OPEN, { ...request.payload, order_id: '../embed?x=1' }), { code: 'assistant.invalid_input' });
     await assert.rejects(ipc.invoke(UiCommands.ASSIST_TSIM_ORDER_OPEN, { ...request.payload, context_revision: 'stale' }));
   } finally { ipc.dispose(); }
 });
 
+test('a pending iframe authorization never opens after the conversation or TSIM epoch changes', async () => {
+  for (const change of ['conversation', 'identity']) {
+    let current: TsimOrderContext = { account, conversation, identity }, release!: () => void;
+    const shown: unknown[] = [];
+    const opener = createTsimOrderOpener({ current: () => current, notify: () => {}, login: () => {}, show: value => shown.push(value), invoke: () => new Promise(resolve => { release = () => resolve({ synthetic: true }); }) });
+    const pending = opener.open(conversation.gid);
+    current = change === 'conversation' ? { ...current, conversation: { ...conversation, gid: 'another' } } : { ...current, identity: { ...identity, session_epoch: 8 } };
+    release(); await pending;
+    assert.deepEqual(shown, [], change);
+  }
+});
+
 test('main.ts delegates the user info section and keeps the TSim query out of the renderer', () => {
   const main = readFileSync(new URL('./main.ts', import.meta.url), 'utf8'), module = readFileSync(new URL('./order-info.ts', import.meta.url), 'utf8');
   assert.ok(main.includes('orderInfoSection(') && main.includes('tsimOrder.open(conv.gid)'));
   assert.ok(!/csagent|tsim\.tech/.test(main + module), 'the TSim origin lives only in the host');
+});
+
+test('product-only source displays its fields without order actions', () => {
+  const source = { ...order, order_id: '', product_id: '123', customer_language: 'zh-HK', product_price: 'CNY2', source_title: '产品查询通知' };
+  const view = render(source);
+  assert.deepEqual(orderInfoRows(source).map(([label]) => label), ['来源渠道', '客户语言', '产品ID', '产品名称', '产品价格', '使用日期', '订单总额', '备注名称']);
+  assert.equal(view.all.find(n => n.props.dataset?.side === 'pc'), undefined);
+  assert.equal(view.all.find(n => n.props.dataset?.side === 'tsim-order'), undefined);
 });

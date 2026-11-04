@@ -1,3 +1,4 @@
+import { createHistoryLayoutFrames } from './history-layout.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,8 +15,8 @@ function fixture(sideOrder = orderB, cardOrder: string | null = orderA) {
   let account = { context, color: '#aaa' };
   let conv = { account: context, gid: 'synthetic-room', order: { order_id: sideOrder, product: 'SYNTHETIC PRODUCT' }, title: 'Synthetic Customer', color: '#aaa' };
   const state = { activeGid: conv.gid, messages: {}, prefs: { general: { show_msg_time: false } } };
-  const patches: object[] = [], notices: string[] = [], outbound: unknown[] = [];
-  const env: Record<string, unknown> = { ...vm, messageAlignment, cx, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), renderMessageAvatar: () => 'avatar', document: {}, t: (k: string) => k, icon: () => null, IC: {}, S: () => state, activeAccount: () => account, activeConv: () => conv, stillActive: (scope: typeof context) => vm.sameAccount(scope, account.context), store: { patch: (p: object) => patches.push(p) }, toast: (s: string) => notices.push(s), invokeSafe: (...args: unknown[]) => outbound.push(args) };
+  const patches: object[] = [], notices: string[] = [], outbound: unknown[] = [], opened: string[] = [];
+  const env: Record<string, unknown> = { createHistoryLayoutFrames, ...vm, messageAlignment, cx, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), renderMessageAvatar: () => 'avatar', document: {}, t: (k: string) => k, icon: () => null, IC: {}, S: () => state, activeAccount: () => account, activeConv: () => conv, stillActive: (scope: typeof context) => vm.sameAccount(scope, account.context), store: { patch: (p: object) => patches.push(p) }, toast: (s: string) => notices.push(s), invokeSafe: (...args: unknown[]) => outbound.push(args), openWebAdvanced: (id: string) => { opened.push(id); } };
   function actual(name: string, next: string) { const a = source.indexOf(`function ${name}(`); const b = source.indexOf(`\nfunction ${next}(`, a); assert.ok(a >= 0 && b > a); return new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + `\nreturn ${name};`)(...Object.values(env)); }
   const guardStart = source.indexOf('function stillActive('); const guardEnd = source.indexOf('\n}', guardStart) + 2;
   env['stillActive'] = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(guardStart, guardEnd)) + '\nreturn stillActive;')(...Object.values(env));
@@ -24,12 +25,12 @@ function fixture(sideOrder = orderB, cardOrder: string | null = orderA) {
   const tree = actual('messageRow', 'translationBar')(state, m, conv, account);
   const action = nodes(tree).find(n => n.tag === 'button' && (n.props['dataset'] as Record<string, string> | undefined)?.orderAction === 'open');
   assert.ok(action); const click = action.props['onclick'] as () => void;
-  return { click, patches, notices, outbound, switchAccount: (next: typeof context) => { account = { ...account, context: next }; }, changeOrder: (id: string) => { conv = { ...conv, order: { ...conv.order, order_id: id } }; }, changeRoom: () => { state.activeGid = 'synthetic-other-room'; } };
+  return { click, opened, patches, notices, outbound, switchAccount: (next: typeof context) => { account = { ...account, context: next }; }, changeOrder: (id: string) => { conv = { ...conv, order: { ...conv.order, order_id: id } }; }, changeRoom: () => { state.activeGid = 'synthetic-other-room'; } };
 }
-test('actual order A card onclick cannot open the current order B sidebar', () => { const f = fixture(); f.click(); assert.equal(f.patches.length, 0); assert.equal(f.outbound.length, 0); assert.ok(f.notices[0]?.includes('未提供此订单')); });
-test('same full-precision order ID opens only the matching sidebar', () => { const f = fixture(orderA); f.click(); assert.deepEqual(f.patches, [{ sideOpen: true, hotOrder: true }]); assert.equal(f.outbound.length, 0); });
+test('actual order A card opens its own web order detail even when the sidebar shows order B, without touching the sidebar', () => { const f = fixture(); f.click(); assert.deepEqual(f.opened, [orderA]); assert.equal(f.patches.length, 0); assert.equal(f.outbound.length, 0); assert.equal(f.notices.length, 0); });
+test('same full-precision order ID opens the web detail and never patches the sidebar open', () => { const f = fixture(orderA); f.click(); assert.deepEqual(f.opened, [orderA]); assert.equal(f.patches.length, 0); assert.equal(f.outbound.length, 0); });
 test('stale account, environment, generation and room click never changes another scope', () => {
-  for (const next of [{ ...context, account_id: 'synthetic-other' }, { ...context, environment: 'synthetic-other' }, { ...context, session_generation: 2 }]) { const f = fixture(orderA); f.switchAccount(next); f.click(); assert.equal(f.patches.length, 0); assert.equal(f.outbound.length, 0); }
-  const f = fixture(orderA); f.changeRoom(); f.click(); assert.equal(f.patches.length, 0);
+  for (const next of [{ ...context, account_id: 'synthetic-other' }, { ...context, environment: 'synthetic-other' }, { ...context, session_generation: 2 }]) { const f = fixture(orderA); f.switchAccount(next); f.click(); assert.equal(f.patches.length, 0); assert.equal(f.outbound.length, 0); assert.equal(f.opened.length, 0); }
+  const f = fixture(orderA); f.changeRoom(); f.click(); assert.equal(f.patches.length, 0); assert.equal(f.opened.length, 0);
 });
-test('order change after render and absent card identity stay unavailable', () => { const f = fixture(orderA); f.changeOrder(orderB); f.click(); assert.equal(f.patches.length, 0); assert.equal(f.notices.length, 1); const missing = fixture(orderA, null); missing.click(); assert.equal(missing.patches.length, 0); assert.equal(missing.outbound.length, 0); });
+test('card opens its own order after the sidebar order changes; absent card identity stays unavailable', () => { const f = fixture(orderA); f.changeOrder(orderB); f.click(); assert.deepEqual(f.opened, [orderA]); assert.equal(f.patches.length, 0); const missing = fixture(orderA, null); missing.click(); assert.equal(missing.opened.length, 0); assert.equal(missing.notices.length, 1); assert.equal(missing.outbound.length, 0); });

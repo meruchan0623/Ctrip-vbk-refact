@@ -20,7 +20,7 @@ const row = (gid: string): UiConversation => ({ account, gid, status: 'active', 
 function conversationTree() {
   const conversations = ['room-1', 'room-2', 'room-3'].map(row);
   const store = createStore<Record<string, any>>({ accounts: { active_account_id: account.account_id, accounts: [{ context: account, state: 'online' }], max_accounts: 16 }, conversations, business: 'customer', tab: 'doing', query: '', activeGid: 'room-1', drafts: {}, messages: {}, now: 1000, agent: { status: 'online', confirmed: true }, net: null, ctxMenu: null, meMenu: false });
-  const env: Record<string, unknown> = { ...vm, document: {}, store, S: () => store.get(), cx, activeAccount: () => ({ context: account, state: 'online' }), h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (k: string) => k, icon: () => null, IC: {}, accBadge: () => null, formatRelativeTime: () => '', formatDuration: () => '', RED_AFTER_SECONDS: 90, waitedSeconds: () => 0, openConversation() {}, renderMessageAvatar: () => null, loadForActiveAccount: async () => undefined, startLogin() {}, toggleTop() {}, ipc: { invoke() {} }, langName: (c: string) => c, MARK_COLORS: vm.MARK_COLORS };
+  const env: Record<string, unknown> = { ...vm, netEverConnected: true, document: {}, store, part: (_name: string, build: () => unknown) => build(), S: () => store.get(), cx, activeAccount: () => ({ context: account, state: 'online' }), h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (k: string) => k, icon: () => null, IC: {}, accBadge: () => null, formatRelativeTime: () => '', formatDuration: () => '', RED_AFTER_SECONDS: 90, waitedSeconds: () => 0, openConversation() {}, renderMessageAvatar: () => null, loadForActiveAccount: async () => undefined, startLogin() {}, toggleTop() {}, ipc: { invoke() {} }, langName: (c: string) => c, MARK_COLORS: vm.MARK_COLORS };
   const a = source.indexOf('function conversationList('), b = source.indexOf('\nfunction contextMenu(', a);
   const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn conversationList;')(...Object.values(env));
   return render(store.get());
@@ -34,7 +34,7 @@ test('conversation rows and list tabs carry unique fids so focus survives the fu
 });
 
 test('every interactive control that has a stable identity in the main window source declares a fid', () => {
-  for (const needle of ["fid: `conv:${c.gid}`", "fid: 'chat-act:transfer'", "fid: 'chat-act:end'", "fid: 'tool:emoji'", "fid: 'tool:image'", "fid: 'tr:send'", "fid: `nav:${view}`", "fid: 'nav:settings'", "fid: `acct-tab:${a.context.account_id}`"]) assert.ok(source.includes(needle), needle);
+  for (const needle of ["fid: `conv:${c.gid}`", "fid: 'chat-act:members'", "fid: 'chat-act:end'", "fid: `tool:${id}`", "fid: 'tool:more'", "fid: 'tr:send'", "fid: `nav:${view}`", "fid: 'nav:settings'", "fid: `acct-tab:${a.context.account_id}`"]) assert.ok(source.includes(needle), needle);
 });
 
 /** The real ui-kit rerender against a tiny fake DOM: focus returns to a fid'd button, not just inputs. */

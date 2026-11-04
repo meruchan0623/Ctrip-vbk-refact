@@ -19,7 +19,7 @@ const nodes = (tree: unknown): Node[] => (Array.isArray(tree) ? tree.flatMap(nod
 const text = (tree: unknown): string => JSON.stringify(tree);
 
 function renderRow(message: UiMessage) {
-  const env: Record<string, unknown> = { ...vm, messageAlignment, cx, h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), document: {}, renderMessageAvatar: (_d: unknown, name: string) => `avatar:${name}`, t: (k: string) => k, icon: () => null, IC: {}, richText: (s: string) => [s], formatDate: () => 'd', formatClock: () => 'c', store: { patch() {} }, copyText() {}, toast() {}, openMessageOrder() {} };
+  const env: Record<string, unknown> = { ...vm, netEverConnected: true, inboundTranslation: { view: () => null, supplier: () => null }, refreshMessageTranslation() {}, messageAlignment, cx, h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), document: {}, renderMessageAvatar: (_d: unknown, name: string) => `avatar:${name}`, t: (k: string) => k, icon: () => null, IC: {}, richText: (s: string) => [s], formatDate: () => 'd', formatClock: () => 'c', store: { patch() {} }, copyText() {}, toast() {}, openMessageOrder() {} };
   const a = source.indexOf('function messageRow('), b = source.indexOf('\nfunction translationBar(', a);
   const row = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn messageRow;')(...Object.values(env));
   return row({ messages: {}, prefs: { general: { show_msg_time: false } } }, message, conv, { context: owner, color: '#bbb' });
@@ -52,7 +52,7 @@ test('D5: an unknown local echo and its confirmed history row are one message, i
 test('D5: a history order card keeps its own order ID and never renders another order from the sidebar', () => {
   const card = msg({ kind: 'order_card', order_id: 'ORDER-A', sender_role: 'customer', text: 'card text' });
   const withOtherSideOrder = { ...conv, order: { order_id: 'ORDER-B', product: 'PRODUCT B', use_date: 'X', quantity: 1, status: 'S' } };
-  const env: Record<string, unknown> = { ...vm, messageAlignment, cx, h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), document: {}, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: () => null, IC: {}, richText: (s: string) => [s], formatDate: () => 'd', formatClock: () => 'c', store: { patch() {} }, copyText() {}, toast() {}, openMessageOrder() {} };
+  const env: Record<string, unknown> = { ...vm, netEverConnected: true, inboundTranslation: { view: () => null, supplier: () => null }, refreshMessageTranslation() {}, messageAlignment, cx, h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), document: {}, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: () => null, IC: {}, richText: (s: string) => [s], formatDate: () => 'd', formatClock: () => 'c', store: { patch() {} }, copyText() {}, toast() {}, openMessageOrder() {} };
   const a = source.indexOf('function messageRow('), b = source.indexOf('\nfunction translationBar(', a);
   const row = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn messageRow;')(...Object.values(env));
   const tree = row({ messages: {}, prefs: { general: { show_msg_time: false } } }, card, withOtherSideOrder, { context: owner });

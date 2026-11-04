@@ -5,15 +5,22 @@
  *
  * The reading anchor is `{scope, key, offset}`: `key` is the pre-parsed
  * {@link HistoryKey} of the first visible row and `offset` is the distance
- * from the viewport top to that row's top (<= 0 for a partly scrolled row).
+ * from the viewport top to that row's top (<= 0 for a partly scrolled row, > 0 only inside the history runway).
  * It is resolved against the *model* (message list + layout), so it survives
  * a re-render, a page prepend or a window change without reading the DOM.
  */
 import type { HistoryKey, KeyedMessage } from './history-key.ts';
-import { historyKeyMatchesMessage } from './history-key.ts';
+import { historyKeyMatchesMessage, historyKeyString } from './history-key.ts';
 
 export const ROW_ESTIMATE = 76;
-export const ROW_OVERSCAN = 8;
+/** Rows mounted beyond the viewport on each side when a window is (re)computed. */
+export const ROW_OVERSCAN = 12;
+/**
+ * Hysteresis: a mounted window is kept while it still has at least this many
+ * rows of buffer before and after the viewport, so scrolling swaps windows
+ * about every `ROW_OVERSCAN - ROW_MARGIN` rows instead of every row.
+ */
+export const ROW_MARGIN = 4;
 
 export interface Layout {
   readonly count: number;
@@ -64,16 +71,37 @@ export function sameRange(a: WindowRange | undefined, b: WindowRange | undefined
   return !!a && !!b && a.start === b.start && a.end === b.end;
 }
 
+/**
+ * True when the mounted `range` still covers [top, top + height) with at least
+ * `margin` rows of buffer on each side (clamped at the list ends), so the
+ * window can stay as it is. A range that no longer fits the layout is never
+ * kept.
+ */
+export function coversViewport(layout: Layout, range: WindowRange, top: number, height: number, margin = ROW_MARGIN): boolean {
+  if (layout.count === 0) return range.start === 0 && range.end === 0;
+  if (range.start < 0 || range.end > layout.count || range.start >= range.end) return false;
+  const y = Math.max(0, top);
+  const first = rowIndexAt(layout, y);
+  const last = rowIndexAt(layout, y + Math.max(1, height) - 1);
+  if (range.start > first || last >= range.end) return false;
+  return range.start <= Math.max(0, first - margin) && range.end >= Math.min(layout.count, last + 1 + margin);
+}
+
 /** Anchor on the first row whose bottom edge is below the viewport top. */
 export function captureAnchor(layout: Layout, scrollTop: number, scope: string, keyAt: (index: number) => HistoryKey | null): MessageAnchor | null {
-  const y = Math.max(0, scrollTop);
-  for (let i = rowIndexAt(layout, y); i >= 0 && i < layout.count; i++) {
+  // The offset is not clamped: above row 0 (the history runway) the row sits below the viewport top, offset > 0.
+  for (let i = rowIndexAt(layout, Math.max(0, scrollTop)); i >= 0 && i < layout.count; i++) {
     const key = keyAt(i);
-    if (key) return { scope, key, offset: layout.tops[i]! - y };
+    if (key) return { scope, key, offset: layout.tops[i]! - scrollTop };
     // An unkeyed row (no identity) cannot anchor; fall through to the next one.
   }
   return null;
 }
+
+// Immutable snapshots own bounded lookup results, including absent/ambiguous
+// identities. Offsets do not affect identity; both scopes prevent cross-pane reuse.
+const anchorIndexes = new WeakMap<readonly KeyedMessage[], Map<string, number>>();
+const ANCHOR_CACHE_LIMIT = 256;
 
 /**
  * Resolve the anchor row in a (possibly changed) list. Exactly one match is
@@ -81,12 +109,19 @@ export function captureAnchor(layout: Layout, scrollTop: number, scope: string, 
  * matches mean the row is gone or the key is stale and nothing is guessed.
  */
 export function findAnchorIndex(messages: readonly KeyedMessage[], anchor: MessageAnchor): number {
+  let cache = anchorIndexes.get(messages);
+  const identity = JSON.stringify([anchor.scope, historyKeyString(anchor.key)]);
+  const cached = cache?.get(identity);
+  if (cached !== undefined) return cached;
   let found = -1;
   for (let i = 0; i < messages.length; i++) {
     if (!historyKeyMatchesMessage(anchor.key, messages[i]!)) continue;
-    if (found >= 0) return -1;
+    if (found >= 0) { found = -1; break; }
     found = i;
   }
+  if (!cache) { cache = new Map(); anchorIndexes.set(messages, cache); }
+  if (cache.size >= ANCHOR_CACHE_LIMIT) cache.clear();
+  cache.set(identity, found);
   return found;
 }
 

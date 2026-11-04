@@ -1,4 +1,6 @@
-import { historyScopeKey, virtualConversationRange } from './viewmodel.ts';
+import { customerLanguage } from './viewmodel.ts';
+import { historyScopeKey, virtualConversationRange, latestPreview, EMPTY_MESSAGES } from './viewmodel.ts';
+import { filteredInviteAgents } from './peripheralPanel.ts';
 import { personDisplayName } from './person-name.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,13 +31,13 @@ function render(name: 'conversationList' | 'chatPane' | 'peripheralDialog', next
     createTextNode: (text: string) => ({ tag: '#text', text }),
     querySelector: () => null,
   };
-  const env = { personDisplayName, virtualConversationRange, PIN_THRESHOLD: 48, messagePane: () => null,
+  const env = { filteredInviteAgents, customerLanguage, INVITE_ROOT: 'root', personDisplayName, virtualConversationRange, latestPreview, EMPTY_MESSAGES, PIN_THRESHOLD: 48, messagePane: () => null, part: (_name: string, build: () => unknown) => build(), featureRuntime: { renderSlot: () => [] },
     document: doc, renderMessageAvatar, initialOf, cx, historyScopeKey,
     h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
     icon: () => ({ tag: 'icon' }), IC: {}, t: (key: string) => key,
     tabCounts: () => ({ doing: 1, done: 0 }), filterConversations: () => [conv],
     activeAccount: () => ({ context: { account_id: 'synthetic-account' }, state: 'online', avatar: 'https://example.invalid/never-use-account.png' }),
-    activeConv: () => conv, agentView: () => ({}), netView: () => ({ offline: false }),
+    activeConv: () => conv, agentView: () => ({}), netEverConnected: true, netView: () => ({ offline: false }),
     MARK_COLORS: [], isDone: () => false, langName: (lang: string) => lang,
     accBadge: () => null, formatRelativeTime: () => '', stillActive: () => true,
     visibleMessages: () => [], composer: () => null, emojiPicker: () => null,
@@ -69,10 +71,12 @@ for (const kind of ['members', 'invite'] as const) {
     ];
     for (const avatarsPresent of [true, false]) {
       const records = avatarsPresent ? people : people.map((person) => ({ ...person, avatar: null }));
-      const peripheral = { kind, scope: { account: {}, gid: conv.gid }, busy: false, submitted: false, write: null, error: null, notice: null, selected: ['synthetic-person-a'], members: { members: records, expires_at_ms: 1000 }, candidates: { agents: records, skill_groups: [], expires_at_ms: 1000 } };
+      const peripheral = { kind, onlineOnly: false, roleFilter: 'all', query: '', known: Object.fromEntries(records.map(person => [person.uid, person])), scope: { account: {}, gid: conv.gid }, busy: false, submitted: false, write: null, error: null, notice: null, selected: ['synthetic-person-a'], members: { members: records, expires_at_ms: 1000 }, candidates: { agents: records, skill_groups: [], expires_at_ms: 1000 } };
       const tree = nodes(render('peripheralDialog', 'render', { ...state, peripheral }, conv));
-      assert.deepEqual(tree.filter((node) => node.tag === 'img').map((image) => [image.src, image.alt]), avatarsPresent ? [[avatarA, 'Alice'], [avatarB, 'Bob']] : []);
-      if (kind === 'invite') assert.deepEqual(tree.filter((node) => node.tag === 'input').map((input) => input.props?.['checked']), [true, false]);
+      // Invite also lists the selected agent again in its「已选」column, same record and avatar.
+      const expected = kind === 'invite' ? [[avatarA, 'Alice'], [avatarB, 'Bob'], [avatarA, 'Alice']] : [[avatarA, 'Alice'], [avatarB, 'Bob']];
+      assert.deepEqual(tree.filter((node) => node.tag === 'img').map((image) => [image.src, image.alt]), avatarsPresent ? expected : []);
+      if (kind === 'invite') assert.deepEqual(tree.filter((node) => node.tag === 'input' && node.props?.['type'] === 'checkbox' && String(node.props?.['aria-label']).startsWith('选择')).map((input) => input.props?.['checked']), [true, false]);
     }
   });
 }

@@ -7,7 +7,7 @@ import { sameAccount } from './viewmodel.ts';
 
 const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
 const start = source.indexOf('let accountLoadTicket');
-const end = source.indexOf('\nasync function loadNotices(', start);
+const end = source.indexOf('\nasync function loadPrefs(', start);
 assert.ok(start >= 0 && end > start);
 const body = stripTypeScriptTypes(source.slice(start, end));
 
@@ -28,7 +28,7 @@ for (const selected of [null, 'synthetic-selected-room']) {
       isUiAgentStatus: () => false,
       isUiNetStatus: () => false,
       store,
-      loadNotices: async () => undefined,
+      noticeQuery: { categories: async () => undefined },
       filterConversations: () => [row],
       openConversation: async (gid: unknown) => { opened.push(gid); },
     };

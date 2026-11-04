@@ -1,0 +1,44 @@
+/*
+ * New-message notices. The host window is transparent and sized to the stack
+ * (windows.rs ensure_notice), so each card carries its own radius and shadow.
+ */
+html, body { background: transparent; overflow: hidden; }
+#app { position: fixed; inset: 0; }
+
+.ncard {
+  position: absolute; top: 0; left: 14px; right: 14px; height: 76px;
+  display: flex; align-items: center; gap: 12px; padding: 0 14px;
+  border-radius: 16px; cursor: pointer; -webkit-user-select: none; user-select: none;
+  background: rgba(246, 246, 248, 0.97); color: #1d1d1f;
+  border: 0.5px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
+  opacity: 0;
+  transform: translate3d(24px, var(--y), 0) scale(0.98);
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms ease-out;
+}
+.ncard.in { opacity: 1; transform: translate3d(0, var(--y), 0) scale(1); }
+.ncard.leaving { opacity: 0; transform: translate3d(0, calc(var(--y) - 10px), 0) scale(0.98); pointer-events: none; }
+.ncard:focus-visible { outline: 2px solid #0a84ff; outline-offset: 1px; }
+
+.ncard-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ncard-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ncard-name { font-size: 13px; font-weight: 600; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ncard-count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; background: #0a84ff; color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.ncard-count[hidden] { display: none; }
+.ncard-preview { font-size: 12.5px; line-height: 17px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+
+.ncard-close {
+  position: absolute; top: -6px; left: -6px; width: 20px; height: 20px; padding: 0;
+  display: grid; place-items: center; border-radius: 50%; border: 0.5px solid rgba(0, 0, 0, 0.15);
+  background: #fff; color: #3c3c43; font-size: 13px; line-height: 1; cursor: pointer;
+  opacity: 0; transition: opacity 120ms ease-out;
+}
+.ncard:hover .ncard-close, .ncard-close:focus-visible { opacity: 1; }
+
+@media (prefers-color-scheme: dark) {
+  .ncard { background: rgba(44, 44, 46, 0.97); color: #f5f5f7; border-color: rgba(255, 255, 255, 0.12); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
+  .ncard-close { background: #3a3a3c; color: #f5f5f7; border-color: rgba(255, 255, 255, 0.2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ncard { transition: opacity 120ms linear; }
+}

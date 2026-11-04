@@ -19,14 +19,22 @@ export function mergeMessageProfile(existing: UiMessage, incoming: UiMessage): U
   };
 }
 
-/** Only an actual API-provided safe URL is loaded; failures keep this person's text fallback. */
-export function renderMessageAvatar(doc: Pick<Document, 'createElement' | 'createTextNode'>, name: string, source: string | null | undefined): Node {
+export interface AvatarImageSize { readonly width: number; readonly height: number }
+
+/**
+ * Only an actual API-provided safe URL is loaded; failures keep this person's text fallback.
+ * 头像尺寸默认交给 CSS；调用方传入 `size` 时才写 width/height 属性（解码前即可占位）。
+ */
+export function renderMessageAvatar(doc: Pick<Document, 'createElement' | 'createTextNode'>, name: string, source: string | null | undefined, size?: AvatarImageSize): Node {
   const url = safeMediaUrl(source);
   if (!url) return doc.createTextNode(initialOf(name));
   const image = doc.createElement('img');
   image.src = url;
   image.alt = name;
   image.referrerPolicy = 'no-referrer';
+  image.decoding = 'async';
+  image.loading = 'lazy';
+  if (size) { image.width = size.width; image.height = size.height; }
   image.onerror = () => {
     image.onerror = null;
     image.replaceWith(doc.createTextNode(initialOf(name)));

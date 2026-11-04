@@ -15,14 +15,14 @@ function fixture() {
   const state: any = { activeGid: 'synthetic-room', view: 'messages', messages: { 'synthetic-room': [] }, history: {}, drafts: {}, draft: 'KEEP DRAFT', draftVersion: 1, banners: [], conversations: [{ gid: 'synthetic-room', account, unread_count: 3, waiting_since_ms: null, status: 'active', lang: 'en' }] };
   let response: unknown = null, active = true;
   const requests: string[] = [];
-  const invoke = async (cmd: string) => { requests.push(cmd); return await response; };
+  const invoke = async (cmd: string) => { requests.push(cmd); return await (typeof response === 'function' ? response() : response); };
   const visibility = { visibilityState: 'visible' };
-  const env = { visibleReads: { retry() {}, afterRender() {} }, ...vm, readHistoryPage, document: visibility, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => uiAccount, stillActive: () => active, peripheral: { close() {} }, isUiMessage, TRANSLATION_IDLE: vm.TRANSLATION_IDLE, PKG_IDLE: {}, releaseAttachment: async () => {}, autoQueryPackage() {}, UiCommands: { IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages', IM_MARK_READ: 'read' }, invokeQuiet: invoke, invokeSafe: invoke };
+  const env = { closeCommerce() {}, visibleReads: { retry() {}, afterRender() {} }, ...vm, readHistoryPage, document: visibility, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => uiAccount, stillActive: () => active, peripheral: { close() {} }, isUiMessage, TRANSLATION_IDLE: vm.TRANSLATION_IDLE, PKG_IDLE: {}, releaseAttachment: async () => {}, autoQueryPackage() {}, UiCommands: { IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages', IM_MARK_READ: 'read' }, invokeQuiet: invoke, invokeSafe: invoke };
   const a = source.indexOf('async function openConversation('), b = source.indexOf('\nasync function loadEarlier(', a);
   const open = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn openConversation;')(...Object.values(env));
   const loadEnd = source.indexOf('\n/** `im://locate-conversation`', b);
   const load = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(b, loadEnd)) + '\nreturn loadEarlier;')(...Object.values(env));
-  const renderEnv = { ...env, messagePaneModel: createMessagePane(), liveAnchor: null, PIN_THRESHOLD, sameWindow, cx, activeConv: () => state.conversations[0], document: { querySelector: () => null }, h: (tag: string, props: any, ...children: any[]) => ({ tag, props: props ?? {}, dataset: props?.dataset ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, renderMessageAvatar: () => null, netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, messageRow: () => null, openConversation: open, loadEarlier: load };
+  const renderEnv = { ...env, HISTORY_RUNWAY: 16000, messagePaneModel: createMessagePane(), liveAnchor: null, PIN_THRESHOLD, sameWindow, cx, part: (_name: string, build: () => unknown) => build(), featureRuntime: { renderSlot: () => [] }, activeConv: () => state.conversations[0], document: { querySelector: () => null }, h: (tag: string, props: any, ...children: any[]) => ({ tag, props: props ?? {}, dataset: props?.dataset ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, renderMessageAvatar: () => null, netEverConnected: true, netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, messageRow: () => null, openConversation: open, loadEarlier: load };
   const ca = source.indexOf('let messagePaneCache:'), cb = source.indexOf('\nfunction messagesView(', ca);
   const render = new Function(...Object.keys(renderEnv), stripTypeScriptTypes(source.slice(ca, cb)) + '\nreturn chatPane;')(...Object.values(renderEnv));
   return { state, requests, visibility, render: () => render(state), open: () => open('synthetic-room'), earlier: () => load(state.conversations[0]), respond: (value: unknown) => { response = value; }, invalidate: () => { active = false; }, page: { items: [], has_more: false, before_ms: null } };
@@ -35,11 +35,39 @@ test('empty or realtime-only cache cannot suppress the first historical read', a
   assert.equal(f.state.draft, 'KEEP DRAFT');
   await f.open(); assert.equal(f.requests.filter(x => x === 'page').length, 1, 'a verified first page is reusable');
 });
-test('initial failure is visible and retryable without a duplicate legacy request or clearing the draft', async () => {
+test('persistent failure is visible after one automatic retry without clearing the draft', async () => {
   const f = fixture(); await f.open();
   assert.equal(f.state.history['synthetic-room']?.firstPage, 'error');
-  assert.deepEqual(f.requests, ['page']); assert.equal(f.state.draft, 'KEEP DRAFT');
+  assert.deepEqual(f.requests, ['page', 'page']); assert.equal(f.state.draft, 'KEEP DRAFT');
   f.respond(f.page); await f.open(); assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded');
+});
+test('opening a conversation automatically recovers a transient first-page failure', async () => {
+  const f = fixture(); let attempts = 0;
+  let finish!: (value: unknown) => void;
+  f.respond(() => ++attempts === 1 ? null : new Promise(resolve => { finish = resolve; }));
+  const pending = f.open();
+  for (let i = 0; i < 12; i++) await Promise.resolve();
+  assert.deepEqual(f.requests, ['page', 'page']);
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'loading');
+  assert.doesNotMatch(JSON.stringify(f.render()), /聊天记录读取失败或超时/);
+  await f.open(); assert.equal(attempts, 2, 'clicks cannot duplicate the automatic retry');
+  finish(f.page); await pending;
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded');
+  assert.equal(f.state.draft, 'KEEP DRAFT');
+});
+test('a timed out initial read automatically fetches a fresh page', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(); let attempts = 0;
+  f.respond(() => ++attempts === 1 ? new Promise(() => {}) : f.page);
+  const pending = f.open(); t.mock.timers.tick(20_000); await pending;
+  assert.deepEqual(f.requests, ['page', 'page']);
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded');
+});
+test('leaving a room before a failed initial read prevents an automatic background retry', async () => {
+  const f = fixture(); let finish!: (value: unknown) => void;
+  f.respond(new Promise(resolve => { finish = resolve; }));
+  const pending = f.open(); f.state.activeGid = 'other'; finish(null); await pending;
+  assert.deepEqual(f.requests, ['page']);
 });
 test('concurrent clicks share initial read and completion while another room is visible does not mark read', async () => {
   const f = fixture(); let complete!: (value: unknown) => void;
@@ -67,7 +95,7 @@ test('actual chat pane exposes pending status and an actionable failed-read retr
   const retry = nodes(f.render()).find(n => n.tag === 'button' && n.children.includes('聊天记录读取失败或超时，点击重试'));
   assert.ok(retry); f.respond(f.page); retry.props.onclick();
   for (let i = 0; i < 8; i++) await Promise.resolve();
-  assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded'); assert.equal(f.requests.filter(x => x === 'page').length, 2);
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded'); assert.equal(f.requests.filter(x => x === 'page').length, 3);
 });
 test('renderer deadline releases a stuck host invocation and a later result cannot change it', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -102,18 +130,28 @@ test('earlier-page renderer timeout remains visibly retryable with its old curso
   assert.match(JSON.stringify(f.render()), /历史记录读取失败或超时，点击重试/);
 });
 
-test('actual first page retains its source revision and rejects a replaced service while awaiting history', async () => {
+test('first-open context enrichment discards the old page and automatically reads the new scope', async () => {
   const f = fixture(); f.state.conversations[0].assistant_context_revision = 'service-A';
   let done!: (value: unknown) => void; f.respond(new Promise(resolve => { done = resolve; }));
-  const loading = f.open(); f.state.conversations[0] = { ...f.state.conversations[0], assistant_context_revision: 'service-B' };
-  done(f.page); await loading;
-  assert.equal(f.state.history['synthetic-room'].firstPage, 'error');
-  assert.equal(f.state.history['synthetic-room'].readContextRevision, 'service-A');
-  f.state.messages['synthetic-room'] = [{ message_id: 'old-customer' }]; f.respond(f.page); await f.open();
+  const loading = f.open();
+  f.state.conversations[0] = { ...f.state.conversations[0], assistant_context_revision: 'service-B' };
+  f.state.messages['synthetic-room'] = [{ message_id: 'old-customer' }];
+  f.respond(f.page); done(f.page); await loading;
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'loaded');
   assert.equal(f.state.history['synthetic-room'].readContextRevision, 'service-B');
   assert.deepEqual(f.state.messages['synthetic-room'], []);
   assert.equal(f.requests.filter(cmd => cmd === 'page').length, 2);
   assert.equal(f.requests.includes('read'), false);
+});
+test('continuous context changes stop automatic recovery after one fresh scope', async () => {
+  const f = fixture(); let attempts = 0;
+  f.respond(() => {
+    f.state.conversations[0].assistant_context_revision = String(++attempts);
+    return f.page;
+  });
+  await f.open();
+  assert.equal(attempts, 2);
+  assert.equal(f.state.history['synthetic-room'].firstPage, 'error');
 });
 test('actual earlier-page reply cannot cross a service revision or stamp old rows with the new revision', async () => {
   const f = fixture(); f.state.conversations[0].assistant_context_revision = 'A';
@@ -160,10 +198,10 @@ test('scrolling near the top loads history only for the current mounted scope an
   const account = { account_id: 'a', environment: 'test', session_generation: 1 }, conv = { gid: 'g', account };
   const state: any = { history: { g: {} } }; let calls = 0;
   let onScroll!: (event: any) => void;
-  const env = { root: { addEventListener: (_: string, fn: typeof onScroll) => { onScroll = fn; } }, visibleReads: { afterRender() {} }, onMessageScroll() {}, S: () => state, activeConv: () => conv, activeAccount: () => ({ context: account }), historyScopeKey: vm.historyScopeKey, loadEarlier: () => { calls++; } };
+  const env = { messagePaneModel: { distanceToHead: (scrollTop: number) => scrollTop }, historyPrefetchDistance: (viewport: number) => viewport * 2, root: { addEventListener: (_: string, fn: typeof onScroll) => { onScroll = fn; } }, visibleReads: { afterRender() {} }, onMessageScroll() {}, S: () => state, activeConv: () => conv, activeAccount: () => ({ context: account }), historyScopeKey: vm.historyScopeKey, loadEarlier: () => { calls++; } };
   const a = source.indexOf("root.addEventListener('scroll',"), b = source.indexOf("window.addEventListener('resize',", a);
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)))(...Object.values(env));
-  const pane = { isConnected: true, scrollTop: 100, dataset: { keepScroll: 'msgs', historyScope: vm.historyScopeKey(account, 'g') } };
+  const pane = { isConnected: true, scrollTop: 100, clientHeight: 200, dataset: { keepScroll: 'msgs', historyScope: vm.historyScopeKey(account, 'g') } };
   onScroll({ target: pane }); assert.equal(calls, 1);
   pane.scrollTop = 500; onScroll({ target: pane }); assert.equal(calls, 1);
   pane.scrollTop = 0; state.history.g.pageError = true; onScroll({ target: pane }); assert.equal(calls, 1);

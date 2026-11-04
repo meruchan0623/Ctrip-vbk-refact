@@ -1,6 +1,4 @@
-/** 右栏「用户信息」：两列键值 + 详情链接；订单号点击后由宿主打开 TSim 订单查询窗。
- * 不拼 URL、不碰 TSim token：渲染进程只交出会话绑定（账号/gid/订单号/修订号/身份代次），
- * 地址、域名白名单与登录态核对都在宿主 `assistant_tsim_order_open`。 */
+/** The host checks the order scope and returns an ephemeral operator grant. */
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 import { UiCommands, type UiConversation, type UiOrderSummary, type UiTsimStatus } from '../../packages/ipc/src/client.ts';
 import type { Child, h as dom, icon as glyph } from '../../packages/ui-kit/src/h.ts';
@@ -9,7 +7,10 @@ import type { Child, h as dom, icon as glyph } from '../../packages/ui-kit/src/h
 export const ORDER_INFO_LABELS = [
   ['来源渠道', 'source_channel'],
   ['订单ID', 'order_id'],
+  ['客户语言', 'customer_language'],
+  ['产品ID', 'product_id'],
   ['产品名称', 'product'],
+  ['产品价格', 'product_price'],
   ['使用日期', 'use_date'],
   ['订单总额', 'total_amount'],
   ['备注名称', 'remark_name'],
@@ -47,7 +48,7 @@ const NOTICE: Record<'order' | 'revision' | 'login' | 'failed', string> = {
 };
 
 /** 单飞：同一时刻只发一次打开请求；结果只提示，不自动重试。 */
-export function createTsimOrderOpener(deps: { current(): TsimOrderContext | null; invoke(command: string, payload: object): Promise<unknown>; notify(text: string): void; login(): void }) {
+export function createTsimOrderOpener(deps: { current(): TsimOrderContext | null; invoke(command: string, payload: object): Promise<unknown>; notify(text: string): void; login(): void; show?(grant: unknown, current: () => boolean): void }) {
   let inFlight = false;
   async function open(gid: string): Promise<void> {
     const c = deps.current();
@@ -55,10 +56,14 @@ export function createTsimOrderOpener(deps: { current(): TsimOrderContext | null
     const request = tsimOrderRequest(c);
     if (!request.ok) { deps.notify(NOTICE[request.reason]); if (request.reason === 'login') deps.login(); return; }
     inFlight = true;
-    try { await deps.invoke(UiCommands.ASSIST_TSIM_ORDER_OPEN, request.payload); }
+    const applies = () => { const now = deps.current(); const next = now && tsimOrderRequest(now); return !!next?.ok && JSON.stringify(next.payload) === JSON.stringify(request.payload); };
+    try {
+      const grant = await deps.invoke(UiCommands.ASSIST_TSIM_ORDER_OPEN, request.payload);
+      if (applies()) deps.show?.(grant, applies);
+    }
     catch (error) {
       const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
-      deps.notify(code === 'assistant.tsim_unauthenticated' || code === 'assistant.session_cleared' ? NOTICE.login : NOTICE.failed);
+      if (applies()) deps.notify(code === 'assistant.tsim_unauthenticated' || code === 'assistant.session_cleared' ? NOTICE.login : NOTICE.failed);
     } finally { inFlight = false; }
   }
   return { open };
@@ -66,11 +71,11 @@ export function createTsimOrderOpener(deps: { current(): TsimOrderContext | null
 
 export interface OrderInfoView {
   readonly order: UiOrderSummary; readonly hot: boolean;
-  readonly labels: { readonly copy: string; readonly detail: string; readonly pcDetail: string };
-  copy(): void; detail(): void; pcDetail(): void; queryTsim(): void;
+  readonly labels: { readonly copy: string; readonly pcDetail: string };
+  copy(): void; pcDetail(): void; queryTsim(): void;
 }
 
-/** 两列键值（灰色标签列 + 可换行值列），底部右对齐「详情」「PC详情」，以分隔线收尾。 */
+/** 两列键值（灰色标签列 + 可换行值列），底部一个「打开网页订单详情」按钮，以分隔线收尾。 */
 export function orderInfoSection(v: OrderInfoView, h: typeof dom, icon: typeof glyph, copyGlyph: string): HTMLElement {
   const o = v.order;
   const value = (key: keyof UiOrderSummary, text: string): Child => {
@@ -86,7 +91,6 @@ export function orderInfoSection(v: OrderInfoView, h: typeof dom, icon: typeof g
     o.source_title ? h('div', { class: 'source-title' }, o.source_title) : null,
     o.source_description ? h('div', { class: 'source-description' }, o.source_description) : null,
     h('div', { class: 'info-grid' }, orderInfoRows(o).map(([label, key, text]) => [h('div', { class: 'ik' }, label), value(key, text)])),
-    h('div', { class: 'source-actions' },
-      h('button', { type: 'button', class: 'link', dataset: { side: 'detail' }, onclick: () => v.detail() }, v.labels.detail),
-      h('button', { type: 'button', class: 'link', dataset: { side: 'pc' }, onclick: () => v.pcDetail() }, v.labels.pcDetail)));
+    o.order_id ? h('div', { class: 'source-actions' },
+      h('button', { type: 'button', class: 'btn sm', dataset: { side: 'pc' }, onclick: () => v.pcDetail() }, v.labels.pcDetail)) : null);
 }

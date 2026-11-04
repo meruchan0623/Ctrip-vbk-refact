@@ -1,3 +1,5 @@
+import { createAccountNavigation } from './account-navigation.ts';
+import { EMPTY_NOTICE_QUERY } from './notice-query.ts';
 import { companionPackageCard } from './companion-card.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,10 +26,10 @@ function fixture(wire = false) {
   const invoke = async (command: string, payload: any) => { calls.push({ command, payload }); const value = await (command === UiCommands.ASSIST_TSIM_STATUS ? identityResult ?? store.get().tsimStatus : result); if (value instanceof Error || value && typeof value === 'object' && 'code' in value) throw value; return value; };
   const controller = preview.createPackagePreview({ current: () => { const s = store.get(), a = s.accounts.accounts.find((x: any) => x.context.account_id === s.accounts.active_account_id), c = s.conversations.find((x: any) => x.gid === s.activeGid); return a && c && s.tsimStatus ? { account: a.context, conversation: c, identity: s.tsimStatus, enabled: !!s.prefs.assistant.enabled && !!s.prefs.assistant.package_quick_view, iccid: vm.findIccids(s.messages[s.activeGid] ?? [])[0] ?? null } : null; }, invoke, publish: pkg => store.patch({ pkg }) });
   const eventHandlers = new Map<string, ((value: unknown) => void)[]>();
-  const env: Record<string, any> = { companionPackageCard, ...vm, ...preview, UiCommands, PKG_IDLE: preview.EMPTY_PACKAGE_PREVIEW, autoQueryPackage: () => actual('autoQueryPackage')(), Events: { ACCOUNT_CHANGED: 'account://changed' }, guarded, isUiAccountSnapshot, peripheral: { close() {} }, receiveDiagnostics: { close() {} }, unknownOutbound: { close() {} }, loadForActiveAccount: async () => {}, WindowLabels: { SETTING: 'setting' }, packagePreview: controller, store, S: () => store.get(), ipc: { invoke, listen: (event: string, callback: (value: unknown) => void) => eventHandlers.set(event, [...eventHandlers.get(event) ?? [], callback]) }, invokeSafe: invoke, t: (key: string) => key, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, cx: () => '', toast() {} };
+  const env: Record<string, any> = { accountNavigation: createAccountNavigation({ switch: async () => null, snapshot: async () => null, valid: isUiAccountSnapshot }), closeCommerce() {}, noticeQuery: { reset() {} }, companionPackageCard, ...vm, ...preview, UiCommands, PKG_IDLE: preview.EMPTY_PACKAGE_PREVIEW, autoQueryPackage: () => actual('autoQueryPackage')(), Events: { ACCOUNT_CHANGED: 'account://changed' }, guarded, isUiAccountSnapshot, peripheral: { close() {} }, receiveDiagnostics: { close() {} }, unknownOutbound: { close() {} }, loadForActiveAccount: async () => {}, WindowLabels: { SETTING: 'setting' }, packagePreview: controller, store, S: () => store.get(), ipc: { invoke, listen: (event: string, callback: (value: unknown) => void) => eventHandlers.set(event, [...eventHandlers.get(event) ?? [], callback]) }, invokeSafe: invoke, t: (key: string) => key, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, cx: () => '', toast() {} };
   function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name); const tail = source.slice(a), next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z])/.exec(tail); assert.ok(next, name); return new Function(...Object.keys(env), stripTypeScriptTypes(tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   const resetStart = source.indexOf('const ACCOUNT_SCOPED_RESET ='), resetEnd = source.indexOf('} as const satisfies Partial<MainState>;', resetStart) + '} as const satisfies Partial<MainState>;'.length;
-  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, preview.EMPTY_PACKAGE_PREVIEW);
+  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, preview.EMPTY_PACKAGE_PREVIEW, EMPTY_NOTICE_QUERY);
   for (const name of ['activeAccount', 'activeConv', 'stillActive', 'applyAccountSnapshot', 'packageEnabled', 'packageContext', 'queryPackage', 'openTsimSettings', 'receivePackageIdentity', 'refreshPackageIdentity', 'refreshPackages']) if (source.includes(`function ${name}(`)) env[name] = actual(name);
   if (wire) { const statement = 'subscribeBatched(store, () => autoQueryPackage());', a = source.indexOf(statement); assert.ok(a >= 0); new Function('store', 'subscribeBatched', 'autoQueryPackage', stripTypeScriptTypes(source.slice(a, a + statement.length)))(store, subscribeBatched, env['autoQueryPackage']); for (const line of source.matchAll(/^ipc.listen<unknown>\(Events.ACCOUNT_CHANGED,.*\);$/gm)) new Function(...Object.keys(env), stripTypeScriptTypes(line[0]))(...Object.values(env)); }
   return { store, controller, calls, actual, auto: () => actual('autoQueryPackage')(), event: (name: string, payload: unknown) => eventHandlers.get(name)?.forEach(callback => callback(payload)), result: (v: unknown) => { result = v; }, identity: (value: unknown) => { identityResult = value; } };
@@ -66,9 +68,9 @@ test('ICCID fallback uses the original ICCID command and a stale plan button can
 test('actual same-gid service/customer revision changes hide old cards immediately, invalidate old buttons and query once', async () => {
   const f = fixture(); f.auto(); await settle(); const original = f.store.get().pkg;
   const card = f.actual('packageCard'), tree = card(f.store.get(), f.store.get().conversations[0]);
-  const oldDetail = nodes(tree).find(n => n.props?.dataset?.packageAction === 'detail').props.onclick;
+  const oldRefresh = nodes(tree).find(n => n.props?.dataset?.packageAction === 'refresh').props.onclick;
   const next = { ...f.store.get().conversations[0], assistant_context_revision: 'synthetic-context-2' }; f.store.patch({ conversations: [next] });
-  const hidden = card(f.store.get(), next); assert.equal(JSON.stringify(hidden).includes('SYNTHETIC PLAN'), false); oldDetail(); await settle(); assert.equal(f.calls.length, 1);
+  const hidden = card(f.store.get(), next); assert.equal(JSON.stringify(hidden).includes('SYNTHETIC PLAN'), false); oldRefresh(); await settle(); assert.equal(f.calls.length, 1);
   f.result({ account, gid, order_id: order, context_revision: 'synthetic-context-2', query_handle: 'synthetic-query-2', session_epoch: 1, total: 1, plans: [plan], fetched_at_ms: 1000 }); f.auto(); await settle();
   assert.notEqual(f.store.get().pkg, original); assert.equal(f.store.get().pkg.summary.context_revision, 'synthetic-context-2'); assert.equal(f.calls.length, 2); assert.equal(f.calls[1]?.payload.context_revision, 'synthetic-context-2');
   f.auto(); await settle(); assert.equal(f.calls.length, 2);
@@ -82,13 +84,11 @@ test('actual in-flight revision replacement rejects old success/error and missin
   const f = fixture(); f.store.patch({ conversations: [{ ...f.store.get().conversations[0], assistant_context_revision: undefined }] }); f.auto(); await settle(); assert.equal(f.calls.length, 0); assert.ok(f.store.get().pkg.error.includes('身份尚未核验'));
 });
 
-test('actual package card detail and login buttons send only opaque handles and the native settings label', async () => {
+test('package card omits detail action and keeps the native settings login', async () => {
   const f = fixture(); f.auto(); await settle(); let tree = f.actual('packageCard')(f.store.get(), f.store.get().conversations[0]);
-  assert.equal(nodes(tree).filter(n => n.props?.dataset?.packageAction === 'detail').length, 2);
-  nodes(tree).find(n => n.props?.dataset?.packageAction === 'detail').props.onclick(); await settle();
-  assert.equal(f.calls[1]?.command, UiCommands.ASSIST_PACKAGE_DETAIL_OPEN); assert.deepEqual(f.calls[1]?.payload, { account, gid, query_handle: 'synthetic-query', detail_handle: 'synthetic-detail' });
+  assert.equal(nodes(tree).filter(n => n.props?.dataset?.packageAction === 'detail').length, 0);
   f.actual('receivePackageIdentity')({ logged_in: false, user: null, session_epoch: 2 }); await settle(); tree = f.actual('packageCard')(f.store.get(), f.store.get().conversations[0]);
-  nodes(tree).find(n => n.props?.dataset?.packageAction === 'login').props.onclick(); await settle(); assert.equal(f.calls[2]?.command, UiCommands.SHELL_OPEN_WINDOW); assert.deepEqual(f.calls[2]?.payload, { label: 'setting' });
+  nodes(tree).find(n => n.props?.dataset?.packageAction === 'login').props.onclick(); await settle(); assert.equal(f.calls[1]?.command, UiCommands.SHELL_OPEN_WINDOW); assert.deepEqual(f.calls[1]?.payload, { label: 'setting' });
 });
 
 test('query errors do not auto-retry on broadcasts; a current explicit refresh starts exactly one fresh request', async () => {
@@ -155,4 +155,21 @@ test('actual account listener still clears cached and pending package state on r
     f.event('account://changed', { active_account_id: field === 'active_none' ? null : context.account_id, max_accounts: 16, accounts: [{ context, nick: 'synthetic', remark: null, party: 'synthetic', color: '#aaa', state: 'online', unread: 0 }] }); await settle();
     assert.equal(f.store.get().pkg.status, 'idle', field); pending.resolve({ account, gid, order_id: order, context_revision: 'synthetic-context-1', query_handle: 'synthetic-old', session_epoch: 1, total: 1, plans: [plan], fetched_at_ms: 1000 }); await settle(); assert.equal(f.store.get().pkg.status, 'idle', field); assert.equal(f.store.get().pkg.summary, null);
   }
+});
+
+test('order summary validates the reissue timeline and keeps only well-formed order_time/reissues', async () => {
+  const ready = { create_time_ms: 1_700_000_000_000, state: 'ready', info: { ...plan, plan: 'REISSUE' } }, failed = { create_time_ms: null, state: 'error', info: null };
+  async function summaryWith(extra: Record<string, unknown>) {
+    const f = fixture(); f.result({ account, gid, order_id: order, query_handle: 'synthetic-query', context_revision: 'synthetic-context-1', session_epoch: 1, total: 1, plans: [{ ...plan, ...extra }], fetched_at_ms: 1000 });
+    f.auto(); await settle(); return f.store.get().pkg;
+  }
+  const good = await summaryWith({ order_time: '2026-10-28 09:30:00', reissues: [ready, failed] });
+  assert.equal(good.status, 'done'); const first = good.summary.plans[0];
+  assert.equal(first.order_time, '2026-10-28 09:30:00'); assert.deepEqual(first.reissues.map((r: any) => r.state), ['ready', 'error']); assert.equal(first.reissues[0].info.plan, 'REISSUE'); assert.equal(first.reissues[1].info, null);
+  assert.equal((await summaryWith({ reissues: [] })).summary.plans[0].reissues, undefined);
+  for (const extra of [
+    { order_time: 7 }, { order_time: 'x'.repeat(65) }, { reissues: 'nope' }, { reissues: Array(11).fill(failed) },
+    { reissues: [{ ...failed, info: plan }] }, { reissues: [{ ...ready, info: null }] }, { reissues: [{ ...ready, info: { ...plan, detail_fields: [{ label: 'IMSI', value: 'x' }] } }] },
+    { reissues: [{ ...ready, state: 'pending' }] }, { reissues: [{ ...ready, create_time_ms: '1' }] }, { reissues: [{ ...ready, create_time_ms: -1 }] }, { reissues: [null] },
+  ]) assert.equal((await summaryWith(extra)).status, 'error', JSON.stringify(extra).slice(0, 80));
 });

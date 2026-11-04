@@ -6,6 +6,8 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import * as vm from './viewmodel.ts';
 import { messageAlignment } from './message-alignment.ts';
+import { httpMessageToUi } from '../../packages/web-adapter/src/display.ts';
+import { buildMemberRoles } from '../../packages/web-adapter/src/facts.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
 import { IC } from '../_shared/icons.ts';
 import type { UiMessage, UiOrderSummary } from '../../packages/ipc/src/client.ts';
@@ -19,17 +21,18 @@ const nodes = (tree: unknown): Node[] => (Array.isArray(tree) ? tree.flatMap(nod
 const strings = (tree: unknown): string[] => (typeof tree === 'string' ? [tree] : Array.isArray(tree) ? tree.flatMap(strings) : tree && typeof tree === 'object' ? strings((tree as Node).children ?? []) : []);
 const hasClass = (n: Node, cls: string): boolean => String(n.props['class'] ?? '').split(/\s+/).includes(cls);
 
-function renderRow(message: UiMessage, conv = baseConv) {
+function renderRow(message: UiMessage, conv = baseConv, hideInboundTr = false, showTime = false, trView: unknown = null) {
   const calls = { patches: [] as object[], copied: [] as string[], toasts: [] as string[], opened: 0 };
   const env: Record<string, unknown> = {
     ...vm, messageAlignment, cx, h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
-    document: {}, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: (d: string, size: number) => ({ tag: 'svg', props: { d, size }, children: [] }), IC,
+    inboundTranslation: { view: () => trView, supplier: () => null }, refreshMessageTranslation() {},
+    mediaNodeKey: () => 'synthetic-media', openMessageAttachment() {}, document: {}, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: (d: string, size: number) => ({ tag: 'svg', props: { d, size }, children: [] }), IC,
     richText: (s: string) => [s], formatDate: () => 'd', formatClock: () => 'c',
     store: { patch: (p: object) => calls.patches.push(p) }, copyText: (s: string) => calls.copied.push(s), toast: (s: string) => calls.toasts.push(s), openMessageOrder: () => { calls.opened++; }, resend() {},
   };
   const a = source.indexOf('function messageRow('), b = source.indexOf('\nfunction translationBar(', a);
   const row = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn messageRow;')(...Object.values(env));
-  return { tree: row({ messages: {}, prefs: { general: { show_msg_time: false } } }, message, conv, { context: owner, color: '#bbb' }), calls };
+  return { tree: row({ messages: {}, hideInboundTr, prefs: { general: { show_msg_time: showTime } } }, message, conv, { context: owner, color: '#bbb' }), calls };
 }
 
 test('confirmed outbound rows show no 已确认 text but keep a machine-readable outcome', () => {
@@ -63,6 +66,18 @@ test('inbound rows carry no send outcome', () => {
   const { tree } = renderRow(msg({}));
   assert.equal((tree as Node).props['dataset'].sendOutcome, undefined);
   assert.equal(nodes(tree).filter((n) => hasClass(n, 'mst')).length, 0);
+});
+
+test('official custom customer text renders a bubble while system notices keep the centered row', () => {
+  const roles = buildMemberRoles({ selfUid: 'agent', customerUid: 'customer', members: [] });
+  for (const msgtype of [7, 1007]) {
+    const message = httpMessageToUi({ msgId: `m-${msgtype}`, msgtype, fromJid: 'synthetic-room@conf/customer', createTime: 1793689482000, messageBody: JSON.stringify({ title: 'Не работала сим карта', action: msgtype === 7 ? 'CBZ06' : 'NBZ37' }) }, roles)!;
+    const { tree } = renderRow(message);
+    assert.equal(nodes(tree).some((n) => hasClass(n, 'msg-sys')), msgtype === 1007);
+    assert.equal(nodes(tree).some((n) => hasClass(n, 'bubble')), msgtype === 7);
+    assert.equal(nodes(tree).some((n) => hasClass(n, 'mine')), false);
+    assert.ok(strings(tree).some((s) => s.includes('Не работала сим карта')));
+  }
 });
 
 test('hover action bar has exactly two labelled icon buttons: quote and copy', () => {
@@ -125,10 +140,99 @@ test('order card renders the reference layout and keeps the open-order action', 
   const card = all.find((n) => hasClass(n, 'ocard'));
   assert.ok(card);
   const flat = strings(card);
-  for (const expected of ['订单咨询通知', '我来自玩乐订单详情页', '来源渠道：', 'Trip-App', '订单ID：', '产品名称：', '使用日期：', '2026/10/28', '订单总额：', '15.48', 'chat.orderLink']) assert.ok(flat.includes(expected), expected);
+  for (const expected of ['订单咨询通知', '我来自玩乐订单详情页', '来源渠道：', 'Trip-App', '订单ID：', '产品名称：', '使用日期：', '2026/10/28', '订单总额：', '15.48', 'side.pcDetail']) assert.ok(flat.includes(expected), expected);
   const link = all.find((n) => n.tag === 'button' && n.props['dataset']?.orderAction === 'open');
   assert.ok(link && hasClass(link, 'ocard-link'));
-  assert.equal(link.props['aria-label'], 'chat.viewOrder');
+  assert.ok(strings(link).includes('side.pcDetail'), 'the card action reuses the sidebar web-detail label');
   (link.props['onclick'] as () => void)();
   assert.equal(calls.opened, 1);
+});
+
+test('outbound rows show only returned platform translations, never our pre-translation original', () => {
+  for (const sender_role of ['merchant_self', 'merchant_other'] as const) {
+    const message = msg({ sender_role, text: 'Hello there', translation: '您好', original: '发送前原文' });
+    const { tree } = renderRow(message);
+    assert.ok(strings(tree).includes('Hello there'));
+    assert.ok(strings(tree).includes('您好'));
+    assert.ok(!strings(tree).includes('发送前原文'));
+    assert.equal(nodes(tree).filter(n => hasClass(n, 'inbound-translate')).length, 0);
+    assert.ok(!strings(renderRow(message, baseConv, true).tree).includes('您好'));
+    const silent = renderRow({ ...message, translation: null, original: null }).tree;
+    assert.equal(nodes(silent).filter(n => hasClass(n, 'btr')).length, 0, 'no permanent placeholder while nothing is known');
+  }
+});
+
+
+test('read and delivered SVG ticks sit at the bubble corner independently of message time', () => {
+  for (const showTime of [false, true]) {
+    for (const sender_role of ['merchant_self', 'merchant_other', 'customer'] as const) {
+      for (const read_status of ['read', 'unread'] as const) {
+        const { tree } = renderRow(msg({ sender_role, read_status }), baseConv, false, showTime);
+        const receipt = nodes(tree).find(n => hasClass(n, 'message-receipt'));
+        assert.ok(receipt);
+        const label = read_status === 'read' ? '已读' : '已送达';
+        assert.equal(receipt.props['aria-label'], label);
+        assert.equal(receipt.props['title'], label);
+        assert.equal(receipt.props['role'], 'img');
+        assert.equal(receipt.props['dataset'].receipt, read_status === 'read' ? 'read' : 'delivered');
+        assert.equal(receipt.props['dataset'].receiptSide, sender_role === 'customer' ? 'right' : 'left');
+        assert.equal(nodes(receipt).filter(n => n.tag === 'svg').length, read_status === 'read' ? 2 : 1);
+        assert.deepEqual(strings(receipt), [], 'marker uses icons without visible labels');
+        assert.equal(strings(tree).includes('d c'), showTime);
+        const line = nodes(tree).find(n => hasClass(n, 'bline'))!;
+        assert.ok(hasClass(line, 'has-receipt'));
+        assert.ok(line.children.includes(receipt), 'corner is anchored to the bubble, not the timestamp');
+      }
+    }
+  }
+});
+
+test('only known delivery gets a tick; inbound arrival never fabricates a read receipt', () => {
+  for (const sender_role of ['customer', 'merchant_other'] as const) {
+    const { tree } = renderRow(msg({ sender_role, read_status: 'unknown' }));
+    const receipt = nodes(tree).find(n => hasClass(n, 'message-receipt'))!;
+    assert.equal(receipt.props['dataset'].receipt, 'delivered');
+    assert.equal(nodes(receipt).filter(n => n.tag === 'svg').length, 1);
+    assert.equal(nodes(renderRow(msg({ sender_role, message_id: null })).tree).some(n => hasClass(n, 'message-receipt')), false);
+  }
+  for (const disposition of [null, { kind: 'unknown' }, { kind: 'rejected', code: 'x', reason: 'rejected' }] as const) {
+    const { tree } = renderRow(msg({ sender_role: 'merchant_self', read_status: 'unknown', disposition }));
+    assert.equal(nodes(tree).some(n => hasClass(n, 'message-receipt')), false);
+    assert.ok(nodes(tree).some(n => hasClass(n, 'mst')), 'existing sending/error feedback remains visible');
+  }
+  const { tree } = renderRow(msg({ sender_role: 'merchant_self', read_status: 'unknown', disposition: { kind: 'confirmed', server_message_id: 'm1', server_time_ms: 1 } }));
+  assert.equal(nodes(tree).find(n => hasClass(n, 'message-receipt'))?.props['dataset'].receipt, 'delivered');
+  assert.equal(nodes(renderRow(msg({ sender_role: 'unknown', read_status: 'read' })).tree).some(n => hasClass(n, 'message-receipt')), false);
+});
+
+test('receipt corner applies to text, image, file, video and order card bubbles', () => {
+  for (const kind of ['text', 'image', 'file', 'video', 'order_card'] as const) {
+    const { tree } = renderRow(msg({ kind, sender_role: 'merchant_self', read_status: 'read', media_url: 'https://example.invalid/media', order_id: fullOrder.order_id }), { ...baseConv, order: fullOrder });
+    const line = nodes(tree).find(n => hasClass(n, 'bline'))!;
+    assert.equal(nodes(line).find(n => hasClass(n, 'message-receipt'))?.props['dataset'].receipt, 'read', kind);
+  }
+  assert.equal(nodes(renderRow(msg({ kind: 'system', read_status: 'read' })).tree).some(n => hasClass(n, 'message-receipt')), false);
+});
+
+test('rows draw progress, failures and a retry only when the controller reports them', () => {
+  const row = (view: unknown) => renderRow(msg({ sender_role: 'merchant_self', text: 'Hello' }), baseConv, false, false, view).tree;
+  const pending = row({ status: 'pending' });
+  assert.ok(strings(pending).includes('正在翻译…'));
+  assert.equal(nodes(pending).filter(n => hasClass(n, 'inbound-translate')).length, 0);
+  for (const [view, label] of [[{ status: 'failed', error: '网络超时' }, '翻译失败'], [{ status: 'missing' }, '未找到翻译结果']] as const) {
+    const tree = row(view);
+    assert.ok(strings(tree).includes(label));
+    const retry = nodes(tree).filter(n => hasClass(n, 'inbound-translate'));
+    assert.equal(retry.length, 1);
+    assert.ok(strings(retry[0]).includes('点击重试'));
+  }
+  assert.equal(nodes(renderRow(msg({ text: 'Hello' }), baseConv, true, false, { status: 'missing' }).tree).filter(n => hasClass(n, 'btr')).length, 0, 'hidden translations draw nothing');
+});
+
+test('returned translation sits in the same bubble as the original', () => {
+  const translated = renderRow(msg({ sender_role: 'merchant_self', text: 'Hello', translation: '你好' })).tree;
+  const bubble = nodes(translated).find(n => hasClass(n, 'bubble'))!;
+  assert.ok(strings(bubble).includes('Hello'));
+  assert.ok(strings(bubble).includes('你好'));
+  assert.ok(nodes(bubble).some(n => hasClass(n, 'btr')));
 });

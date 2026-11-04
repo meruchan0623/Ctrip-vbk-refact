@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { renderMessageAvatar } from './message-profile.ts';
 import { initialOf } from '../../packages/ui-kit/src/format.ts';
-import { accountInitial, accountLabel, sameAccount } from './viewmodel.ts';
+import { AGENT_STATUS_ORDER, accountInitial, accountLabel, sameAccount } from './viewmodel.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
 
 const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
@@ -28,28 +28,31 @@ function fixture() {
   const a = account('synthetic-a', 'Alice', selfA);
   const b = account('synthetic-b', 'Bob', selfB);
   const conv = { gid: 'synthetic-room', title: 'Customer', color: '#bbb', customer_avatar: customer, lang: 'zh', customer_tags: [], order: null };
-  const state = { accounts: { accounts: [a, b], active_account_id: a.context.account_id, max_accounts: 16 }, conversations: [conv], noticeCats: [], view: 'messages', agent: { status: 'online', confirmed: false }, agentBusy: false, meMenu: true, alarmCount: 0, editingTab: null, banners: [] as unknown[] };
+  const state = { accounts: { accounts: [a, b], active_account_id: a.context.account_id, max_accounts: 16 }, conversations: [conv], noticeCats: [], view: 'messages', agent: { status: 'online', confirmed: false }, agentBusy: false, meMenu: false, alarmCount: 0, webTabs: [] as unknown[], activeWeb: null, editingTab: null, banners: [] as unknown[] };
   return { a, b, conv, state };
 }
 function render(name: string, next: string, state: unknown, conv?: unknown): Node {
-  const doc = { createElement: (tag: string) => ({ tag, replaceWith() {} }), createTextNode: (text: string) => ({ tag: '#text', text }) };
+  const doc = { querySelector: () => null, createElement: (tag: string) => ({ tag, replaceWith() {} }), createTextNode: (text: string) => ({ tag: '#text', text }) };
   const accountName = new Function('accountLabel', actualFunction('accountAvatarName', 'activeConv') + '\nreturn accountAvatarName;')(accountLabel);
   const env = {
     document: doc, renderMessageAvatar, accountAvatarName: accountName, accountInitial, accountLabel, initialOf, sameAccount, cx,
     h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key,
     activeAccount: (s: ReturnType<typeof fixture>['state']) => s.accounts.accounts.find((a) => a.context.account_id === s.accounts.active_account_id),
-    onTitleMouseDown: () => undefined, agentView: () => ({}), unreadTotal: () => 0, AGENT_STATUS_ORDER: [],
+    onTitleMouseDown: () => undefined, agentView: () => ({ label: 'online', colorVar: '--c-ok' }), browserTabs: { activate() {}, close() {} }, webTabView: () => null, switchAccount() {}, startLogin() {}, saveRemark() {}, cancelLogin() {}, store: { patch() {} }, invokeSafe() {}, unreadTotal: () => 0, AGENT_STATUS_ORDER, agentStatusColorVar: () => '', agentStatusLabel: () => '', agentStatusDesc: () => '',
+    activeConv: () => conv, historyScopeKey: () => '', isDone: () => true, customerLanguage: () => 'zh', netEverConnected: true, netView: () => ({ offline: false }), messagePane: () => null, composer: () => null, emojiPicker: () => null, part: (_name: string, build: () => unknown) => build(), featureRuntime: { renderSlot: () => [] }, EMPTY_MESSAGES: [],
+    splitCategories: (cats: unknown[]) => ({ visible: cats, hidden: [] }), ignoredNoticeCats: () => [],
     packageCard: () => null, BANNER_VISIBLE: 3, formatClock: () => '', badgeText: () => '',
   };
   const run = new Function(...Object.keys(env), actualFunction(name, next) + `\nreturn ${name};`)(...Object.values(env));
   return run(state, conv) as Node;
 }
 
-for (const [name, next] of [['titleBar', 'navBar'], ['navBar', 'meMenu'], ['meMenu', 'welcomeView']] as const) {
+for (const [name, next] of [['titleBar', 'navBar'], ['navBar', 'welcomeView']] as const) {
   test(`${name} uses its account's verified IM profile and never a customer's or another account's avatar`, () => {
     const { a, b, conv, state } = fixture();
     const images = nodes(render(name, next, state, conv)).filter((node) => node.tag === 'img');
-    assert.deepEqual(images.map((image) => [image.src, image.alt]), name === 'titleBar' ? [[selfA, 'Alice'], [selfB, 'Bob']] : [[selfA, 'Alice']]);
+    assert.deepEqual(images.map((image) => [image.src, image.alt]), name === 'titleBar' ? [[selfA, 'Alice'], [selfB, 'Bob']] : []);
+    if (name === 'navBar') return; // the nav rail has no account avatar
     a.self_profile.avatar = null;
     b.self_profile.avatar = null;
     assert.deepEqual(nodes(render(name, next, state, conv)).filter((node) => node.tag === 'img'), []);
@@ -59,10 +62,10 @@ for (const [name, next] of [['titleBar', 'navBar'], ['navBar', 'meMenu'], ['meMe
   });
 }
 
-test('customer side card uses only the selected conversation avatar', () => {
+test('customer chat header uses only the selected conversation avatar', () => {
   const { conv, state } = fixture();
-  assert.deepEqual(nodes(render('sidePanel', 'chatPane', state, conv)).filter((node) => node.tag === 'img').map((image) => [image.src, image.alt]), [[customer, 'Customer']]);
-  assert.deepEqual(nodes(render('sidePanel', 'chatPane', state, { ...conv, customer_avatar: null })).filter((node) => node.tag === 'img'), []);
+  assert.deepEqual(nodes(render('chatPane', 'messagesView', { ...state, messages: {} }, conv)).filter((node) => node.tag === 'img').map((image) => [image.src, image.alt]), [[customer, 'Customer']]);
+  assert.deepEqual(nodes(render('chatPane', 'messagesView', { ...state, messages: {} }, { ...conv, customer_avatar: null })).filter((node) => node.tag === 'img'), []);
 });
 
 test('banner avatar requires both owning account and gid; absent customer context is neutral', () => {
@@ -72,4 +75,12 @@ test('banner avatar requires both owning account and gid; absent customer contex
   for (const changed of [{ ...banner, account: b.context }, { ...banner, gid: 'synthetic-other-room' }, { ...banner, account: { ...a.context, session_generation: 0 } }]) {
     assert.deepEqual(nodes(render('bannerStack', 'statusBar', { ...state, banners: [changed] })).filter((node) => node.tag === 'img'), []);
   }
+});
+
+test('titleBar has no account dropdown; status lives in the list header and logout on the account tab', () => {
+  const { conv, state } = fixture();
+  const bar = nodes(render('titleBar', 'navBar', state, conv));
+  assert.equal(bar.some((n) => (n.props?.['dataset'] as Record<string, string> | undefined)?.['nav'] === 'me'), false);
+  assert.equal(bar.some((n) => n.props?.['aria-haspopup'] === 'menu'), false);
+  assert.equal(bar.filter((n) => n.props?.['class'] === 'tab-x').length, state.accounts.accounts.length);
 });

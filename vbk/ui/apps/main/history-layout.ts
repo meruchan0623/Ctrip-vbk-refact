@@ -1,4 +1,6 @@
 import { historyDiagnostics } from './history-diagnostics.ts';
+export type HistoryLayoutObserver = (() => void) & { refresh: () => void };
+
 /** Keep the current reading position when media resolves after a synchronous render. */
 export function observeHistoryLayout<Anchor>(
   scroll: HTMLElement,
@@ -6,7 +8,7 @@ export function observeHistoryLayout<Anchor>(
   restore: (anchor: Anchor | null) => void,
   current: () => boolean,
   Observer: typeof ResizeObserver = ResizeObserver,
-): () => void {
+): HistoryLayoutObserver {
   let disposed = false;
   let anchor = capture();
   let pinned = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 48;
@@ -37,21 +39,56 @@ export function observeHistoryLayout<Anchor>(
     else restore(anchor);
     remember();
   });
+  // Keep unchanged rows subscribed: re-observing them produces an initial RO delivery.
+  const watched = new Set<Element>();
+  const reconcile = (): void => {
+    // Spacers are written by the restore itself; observing them would only echo that write back.
+    const children = new Set<Element>([...scroll.children].filter(child => (child as HTMLElement).dataset?.['msgSpacer'] === undefined));
+    for (const row of watched) if (!children.has(row)) { observer.unobserve(row); watched.delete(row); }
+    for (const row of children) if (!watched.has(row)) { observer.observe(row); watched.add(row); }
+  };
   // Container dimensions alone do not change when an image grows inside an overflow pane.
   observer.observe(scroll);
-  for (const row of scroll.children) observer.observe(row);
+  reconcile();
   scroll.addEventListener('scroll', onScroll, { passive: true });
-  return () => {
+  const stop = (): void => {
     disposed = true;
     observer.disconnect();
+    watched.clear();
     scroll.removeEventListener('scroll', onScroll);
+  };
+  return Object.assign(stop, { refresh: (): void => {
+    if (disposed || !current()) return;
+    reconcile();
+    remember();
+  } });
+}
+
+/** Skip synchronous row reads only when both rendered content and pane geometry survived. */
+export function createHistoryLayoutFrames() {
+  let previous: { pane: HTMLElement; scope: string; revision: unknown; width: number; height: number; contentHeight: number } | undefined;
+  return {
+    sync(pane: HTMLElement | null, scope: string, revision: unknown, restore: () => void): boolean {
+      if (!pane) { previous = undefined; return false; }
+      const geometry = () => ({ pane, scope, revision, width: pane.clientWidth, height: pane.clientHeight, contentHeight: pane.scrollHeight });
+      const next = geometry();
+      if (previous && previous.pane === pane && previous.scope === scope && previous.revision === revision
+        && previous.width === next.width && previous.height === next.height && previous.contentHeight === next.contentHeight) return false;
+      restore();
+      previous = geometry();
+      return true;
+    },
   };
 }
 
-let stop: (() => void) | undefined;
-/** One active message pane; release detached nodes before each full render. */
-export function stopHistoryLayout(): void { stop?.(); stop = undefined; }
-export function startHistoryLayout<Anchor>(scroll: HTMLElement | null, capture: () => Anchor | null, restore: (anchor: Anchor | null) => void, current: () => boolean): void {
+let active: { pane: HTMLElement; scope: string; stop: HistoryLayoutObserver } | undefined;
+/** One observer per live pane/scope; refresh only after synchronous content/layout changes. */
+export function stopHistoryLayout(): void { active?.stop(); active = undefined; }
+export function startHistoryLayout<Anchor>(scroll: HTMLElement | null, capture: () => Anchor | null, restore: (anchor: Anchor | null) => void, current: () => boolean, scope = '', refresh = true): void {
+  if (scroll && active?.pane === scroll && active.scope === scope) {
+    if (refresh) active.stop.refresh();
+    return;
+  }
   stopHistoryLayout();
-  if (scroll && typeof ResizeObserver !== 'undefined') stop = observeHistoryLayout(scroll, capture, restore, current);
+  if (scroll && typeof ResizeObserver !== 'undefined') active = { pane: scroll, scope, stop: observeHistoryLayout(scroll, capture, restore, current) };
 }

@@ -34,12 +34,30 @@ let ctx: AudioContext | null = null;
 const live = new Set<OscillatorNode>();
 let lastMessageTone = 0;
 
+// Release WebKit's audio resources between short notification effects.
+function releaseContext(): void {
+  if (live.size || !ctx) return;
+  const finished = ctx;
+  ctx = null;
+  void finished.close().catch(() => undefined);
+}
+
 function context(): AudioContext | null {
   if (ctx) return ctx;
   const w = window as unknown as { AudioContext?: AudioCtor; webkitAudioContext?: AudioCtor };
   const C = w.AudioContext ?? w.webkitAudioContext;
   if (!C) return null;
   try {
+    // Supported by newer WebKit versions: this is a short notification,
+    // not long-form media. Cleanup below also works without this optional API.
+    const session = (window.navigator as Navigator & {
+      audioSession?: { type: string };
+    }).audioSession;
+    try {
+      if (session) session.type = 'transient';
+    } catch {
+      // An unsupported session hint must not prevent the notification.
+    }
     ctx = new C();
   } catch {
     ctx = null;
@@ -71,7 +89,12 @@ export function playSound(name: SoundName): number {
       g.gain.exponentialRampToValueAtTime(0.0001, st + 0.18);
       o.connect(g);
       g.connect(ac.destination);
-      o.onended = () => live.delete(o);
+      o.onended = () => {
+        o.disconnect();
+        g.disconnect();
+        live.delete(o);
+        releaseContext();
+      };
       o.start(st);
       o.stop(st + 0.2);
       live.add(o);
@@ -79,6 +102,7 @@ export function playSound(name: SoundName): number {
     }
     return n;
   } catch {
+    stopSound();
     return 0;
   }
 }
@@ -92,4 +116,5 @@ export function stopSound(): void {
     }
     live.delete(o);
   }
+  releaseContext();
 }

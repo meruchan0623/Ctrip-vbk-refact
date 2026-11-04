@@ -1,3 +1,6 @@
+import { isUiAccountSnapshot } from '../_shared/guards.ts';
+import { createAccountNavigation } from './account-navigation.ts';
+import { EMPTY_NOTICE_QUERY } from './notice-query.ts';
 import { readHistoryPage } from './history-read.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,7 +27,7 @@ function fixture() {
   const calls: { command: string; payload: Record<string, unknown> }[] = [];
   let sendResult: unknown = { kind: 'confirmed', server_message_id: 'synthetic-confirmed', server_time_ms: 1800000000000 };
   let translateResult: unknown = { draft_version: 1, text: 'SYNTHETIC TRANSLATION' };
-  const env: Record<string, unknown> = { visibleReads: { retry() {}, afterRender() {} }, ...vm, readHistoryPage, isUiMessage, isAppError, mergeMessageProfile, cx, settleAccountSend, sendComposer, attachmentSendUnavailable, S: () => store.get(), store, peripheral: { close() {} }, receiveDiagnostics: { close() {} }, unknownOutbound: { close() {} }, PKG_IDLE: {}, invokeQuiet: async (command: string) => command === 'page' ? ({ items: [], has_more: false, before_ms: null }) : [], autoQueryPackage() {}, loadForActiveAccount: async () => {}, scheduleTranslation() {}, translationOn: () => true, toast() {}, errorMessage: () => 'synthetic error', t: (key: string) => key, icon: () => null, IC: {}, TR_TARGETS: ['en'], langName: (code: string) => code, copyText() {}, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), UiCommands: { IM_SEND_TEXT: 'send', ASSIST_TRANSLATE: 'translate', IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages' }, ipc: { invoke: async (command: string, payload: Record<string, unknown>) => { calls.push({ command, payload }); const value = await (command === 'send' ? sendResult : translateResult); if (value instanceof Error) throw value; return value; } } };
+  const env: Record<string, unknown> = { accountNavigation: createAccountNavigation({ switch: async () => null, snapshot: async () => null, valid: isUiAccountSnapshot }), quickReplies: { close() {}, suggest() {} }, closeCommerce() {}, noticeQuery: { reset() {} }, visibleReads: { retry() {}, afterRender() {} }, ...vm, readHistoryPage, isUiMessage, isAppError, mergeMessageProfile, cx, settleAccountSend, sendComposer, attachmentSendUnavailable, S: () => store.get(), store, peripheral: { close() {} }, receiveDiagnostics: { close() {} }, unknownOutbound: { close() {} }, PKG_IDLE: {}, invokeQuiet: async (command: string) => command === 'page' ? ({ items: [], has_more: false, before_ms: null }) : [], autoQueryPackage() {}, loadForActiveAccount: async () => {}, scheduleTranslation() {}, translationOn: () => true, toast() {}, errorMessage: () => 'synthetic error', t: (key: string) => key, icon: () => null, IC: {}, TR_TARGETS: ['en'], langName: (code: string) => code, copyText() {}, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), UiCommands: { IM_SEND_TEXT: 'send', ASSIST_TRANSLATE: 'translate', IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages' }, ipc: { invoke: async (command: string, payload: Record<string, unknown>) => { calls.push({ command, payload }); const value = await (command === 'send' ? sendResult : translateResult); if (value instanceof Error) throw value; return value; } } };
   function actual(name: string): (...args: any[]) => any {
     const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name);
     const tail = source.slice(a); const boundary = /\n(?:(?:async )?function |(?:let|const) [A-Za-z])/g; const next = boundary.exec(tail); assert.ok(next, name);
@@ -32,7 +35,7 @@ function fixture() {
   }
   for (const name of ['activeAccount', 'activeConv', 'stillActive']) env[name] = actual(name);
   const resetStart = source.indexOf('const ACCOUNT_SCOPED_RESET ='), resetEnd = source.indexOf('} as const satisfies Partial<MainState>;', resetStart) + '} as const satisfies Partial<MainState>;'.length;
-  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {});
+  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {}, EMPTY_NOTICE_QUERY);
   for (const name of ['setDraft', 'upsertMessage', 'sendText', 'translationTarget', 'translateAndSend']) env[name] = actual(name);
   const set = env['setDraft'] as (text: string) => void;
   const open = actual('openConversation'), snapshot = actual('applyAccountSnapshot');
@@ -147,11 +150,11 @@ test('actual target selection invalidates old translated buttons across a langua
   }
 });
 
-test('actual direct translation cannot send or publish errors after the user changes language', async () => {
+test('actual translated send cannot send or publish errors after the user changes language', async () => {
   for (const result of [{ text: 'SYNTHETIC OLD ENGLISH' }, new Error('SYNTHETIC OLD ERROR')]) for (const startCurrent of [true, false]) {
-    const f = fixture(), old = deferred(), current = deferred(); f.state.prefs.assistant.send_mode = 'send_direct'; f.set('SYNTHETIC A'); const version = f.state.draftVersion;
-    f.translate(old.promise); const first = f.actual('handleSend')(); f.selectTarget('fr');
-    f.translate(current.promise); const second = startCurrent ? f.actual('handleSend')() : null; const translation = f.state.translation;
+    const f = fixture(), old = deferred(), current = deferred(); f.state.prefs.assistant.send_mode = 'replace_draft'; f.set('SYNTHETIC A'); const version = f.state.draftVersion;
+    f.translate(old.promise); const first = f.actual('translateAndSend')('SYNTHETIC A'); f.selectTarget('fr');
+    f.translate(current.promise); const second = startCurrent ? f.actual('translateAndSend')('SYNTHETIC A') : null; const translation = f.state.translation;
     old.resolve(result instanceof Error ? result : { ...result, draft_version: version }); await first;
     assert.equal(f.calls.filter(c => c.command === 'send').length, 0); assert.equal(f.state.translation, translation); assert.equal(f.state.draft, 'SYNTHETIC A');
     if (second) { current.resolve({ draft_version: version, text: 'SYNTHETIC CURRENT FRENCH' }); await second; assert.deepEqual(f.calls.filter(c => c.command === 'send').map(c => c.payload['text']), ['SYNTHETIC CURRENT FRENCH']); }

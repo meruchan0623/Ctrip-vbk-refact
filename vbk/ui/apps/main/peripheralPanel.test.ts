@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPeripheralPanel, type PeripheralPanelState } from './peripheralPanel.ts';
+import { createPeripheralPanel, filteredInviteAgents, MEMBER_REFRESH_MS, type PeripheralPanelState } from './peripheralPanel.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 
@@ -253,4 +253,189 @@ test('real prewrite missing-key result does not permanently lock a repaired fini
   await h.panel.submit();
   assert.equal(deps.fakeFetch.calls.filter((call) => call.url.includes('/finishConversation')).length, 1);
   assert.equal(h.state()?.write?.kind, 'confirmed');
+});
+
+const managed = { ...members, self_is_master: true, members: [
+  { uid: 'synthetic-self', nickname: null, status: '4', roles: [3, 4, 4], role: 'master', is_self: true, can_transfer: false, can_remove: false },
+  { uid: 'synthetic-agent-b', nickname: 'B', status: '1', roles: [0, 3, 4], role: 'agent', can_transfer: true, can_remove: true },
+  { uid: 'synthetic-agent-c', nickname: 'C', status: '4', roles: [0, 3, 4], role: 'agent', can_transfer: true, can_remove: true },
+] };
+
+test('members panel removes only after an explicit second confirmation, then re-reads members', async () => {
+  const payloads: unknown[] = []; let reads = 0;
+  const h = harness(async (cmd, payload) => {
+    if (cmd === UiCommands.IM_REMOVE) { payloads.push(payload); return { kind: 'confirmed', confirmed: true }; }
+    reads++; return managed;
+  });
+  await h.panel.open('members');
+  h.panel.select('synthetic-self'); h.panel.select('synthetic-agent-b'); h.panel.select('synthetic-agent-c');
+  assert.deepEqual(h.state()?.selected, ['synthetic-agent-b', 'synthetic-agent-c'], 'self is never selectable');
+  await h.panel.submit('remove'); assert.equal(payloads.length, 0, 'no write without the confirm step');
+  await h.panel.submit(); assert.equal(payloads.length, 0, 'members panel needs an explicit action');
+  h.panel.confirmRemove(); await h.panel.submit('remove');
+  assert.deepEqual(payloads, [{ account, gid: 'synthetic-room-a', selection_token: 'synthetic-token', target_uids: ['synthetic-agent-b', 'synthetic-agent-c'] }]);
+  assert.equal(h.state()?.write?.kind, 'confirmed'); assert.equal(h.state()?.action, 'remove');
+  assert.equal(reads, 2, 'confirmed removal re-reads members'); assert.deepEqual(h.state()?.selected, []);
+});
+
+test('members panel transfer requires exactly one selection; unknown remove fences the reopened panel', async () => {
+  let transfers = 0; let removes = 0;
+  const h = harness(async (cmd) => {
+    if (cmd === UiCommands.IM_TRANSFER) { transfers++; return { kind: 'confirmed', confirmed: true }; }
+    if (cmd === UiCommands.IM_REMOVE) { removes++; throw new Error('synthetic lost reply'); }
+    return managed;
+  });
+  await h.panel.open('members');
+  h.panel.select('synthetic-agent-b'); h.panel.select('synthetic-agent-c');
+  await h.panel.submit('transfer'); assert.equal(transfers, 0);
+  h.panel.confirmRemove(); await h.panel.submit('remove'); assert.equal(removes, 1);
+  h.panel.close(); await h.panel.open('members');
+  assert.equal(h.state()?.submitted, true); assert.equal(h.state()?.write?.kind, 'unknown');
+  h.panel.confirmRemove(); await h.panel.submit('remove'); assert.equal(removes, 1);
+});
+
+test('invite directory traverses every department in batches, extends tokens and terminates cycles', async () => {
+  const calls: Record<string, unknown>[] = [];
+  const h = harness(async (cmd, payload) => {
+    assert.equal(cmd, UiCommands.IM_INVITE_CANDIDATES);
+    const p = payload as Record<string, unknown>; calls.push(p);
+    const parents = p['parent_skill_group_ids'] as number[] | undefined;
+    return !parents
+      ? { selection_token: 'root-token', expires_at_ms: 1000, skill_groups: [{ skill_group_id: 7, name: 'A' }, { skill_group_id: 8, name: 'B' }], agents: [] }
+      : parents.includes(7)
+        ? { selection_token: 'branch-token', expires_at_ms: 1000, skill_groups: [{ skill_group_id: 9, name: 'Nested' }], agents: [{ uid: 'agent-7', nickname: 'Seven', status: 0, job_position_type: 4 }, { uid: 'agent-8', nickname: 'Eight', status: 0, job_position_type: 3 }] }
+        : { selection_token: 'leaf-token', expires_at_ms: 1000, skill_groups: [{ skill_group_id: 7, name: 'Cycle' }], agents: [{ uid: 'agent-9', nickname: 'Nine', status: 0, job_position_type: 4 }, { uid: 'member-9', nickname: null, in_group: true }] };
+  });
+  await h.panel.open('invite');
+  h.panel.select('agent-7'); h.panel.select('agent-9'); h.panel.select('member-9');
+  assert.deepEqual(calls.slice(1).map(c => [c['parent_skill_group_ids'], c['extend_token']]), [[[7, 8], 'root-token'], [[9], 'branch-token']]);
+  assert.deepEqual(h.state()?.selected, ['agent-7', 'agent-9'], 'in-group agents are not selectable');
+  assert.equal(h.state()?.candidates?.selection_token, 'leaf-token');
+  assert.deepEqual(filteredInviteAgents(h.state()!).map(a => a.uid), ['agent-9', 'agent-7']);
+  h.panel.setRoleFilter('all'); assert.equal(filteredInviteAgents(h.state()!).length, 3);
+  await h.panel.refresh(undefined, 'Seven');
+  assert.equal(calls.length, 3, 'search filters the complete directory locally');
+  assert.deepEqual(filteredInviteAgents(h.state()!).map(a => a.uid), ['agent-7']);
+  assert.deepEqual(h.state()?.selected, ['agent-7', 'agent-9'], 'filters do not erase explicit selections');
+});
+
+function automaticHarness(invoke: (command: string, payload: unknown) => Promise<unknown>) {
+  let state: PeripheralPanelState | null = null;
+  let scope = { account, gid: 'synthetic-room-a' };
+  let visible = true;
+  const jobs = new Map<number, () => void>(); let id = 0;
+  const panel = createPeripheralPanel({ current: () => scope, invoke, now: () => 100, publish: next => { state = next; }, refreshConversation: async () => {}, isVisible: () => visible,
+    schedule: (callback, delay) => { assert.equal(delay, MEMBER_REFRESH_MS); const key = ++id; jobs.set(key, callback); return () => { jobs.delete(key); }; },
+  });
+  return { panel, state: () => state, jobs, setVisible: (next: boolean) => { visible = next; }, setScope: (next: typeof scope) => { scope = next; },
+    tick: async () => { const next = jobs.entries().next().value; assert.ok(next); jobs.delete(next[0]); next[1](); await new Promise(resolve => setImmediate(resolve)); } };
+}
+const inviteSnapshot = (agents: unknown[], token = 'synthetic-token') => ({ selection_token: token, expires_at_ms: 1000, skill_groups: [], agents });
+
+test('automatic member reads preserve selection, prune lost eligibility, pause hidden and stop on close/context loss', async () => {
+  let calls = 0;
+  const h = automaticHarness(async () => ++calls < 3 ? managed : { ...managed, members: [managed.members[0]] });
+  await h.panel.open('members'); h.panel.select('synthetic-agent-b'); h.panel.confirmRemove();
+  await h.tick(); assert.equal(h.state()?.confirming, 'remove'); assert.equal(calls, 2); assert.deepEqual(h.state()?.selected, ['synthetic-agent-b']);
+  h.setVisible(false); await h.tick(); assert.equal(calls, 2);
+  h.setVisible(true); await h.tick(); assert.equal(calls, 3); assert.deepEqual(h.state()?.selected, []); assert.equal(h.state()?.confirming, null);
+  assert.equal(h.jobs.size, 1);
+  h.panel.close(); assert.equal(h.jobs.size, 0);
+  await h.panel.open('members'); h.setScope({ account, gid: 'other-room' });
+  await h.tick(); assert.equal(h.state(), null); assert.equal(h.jobs.size, 0);
+});
+
+test('background invitation refresh preserves filters and picks while preventing overlapping reads and writes', async () => {
+  let reads = 0; let writes = 0; const pending = deferred<unknown>();
+  const agents = [{ uid: 'a', nickname: 'Alpha', status: 0, job_position_type: 4 }, { uid: 'b', nickname: 'Beta', status: 0, job_position_type: 3 }];
+  const h = automaticHarness(async command => {
+    if (command === UiCommands.IM_INVITE) { writes++; return { kind: 'confirmed', confirmed: true }; }
+    return ++reads === 2 ? pending.promise : inviteSnapshot(agents);
+  });
+  await h.panel.open('invite'); h.panel.select('a'); h.panel.setOnlineOnly(false); h.panel.setRoleFilter('all');
+  await h.panel.refresh(undefined, 'Beta');
+  await h.tick(); assert.equal(h.state()?.refreshing, true); assert.equal(h.state()?.busy, false);
+  h.panel.select('b'); await h.panel.refresh(); await h.panel.submit();
+  assert.equal(reads, 2); assert.equal(writes, 0);
+  pending.resolve(inviteSnapshot(agents, 'new-token')); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.state()?.selected, ['a', 'b']); assert.equal(h.state()?.query, 'Beta');
+  assert.equal(h.state()?.onlineOnly, false); assert.equal(h.state()?.roleFilter, 'all');
+  assert.equal(h.state()?.candidates?.selection_token, 'new-token'); assert.equal(h.jobs.size, 1);
+});
+
+test('late automatic read cannot replace a reopened panel or cancel its timer', async () => {
+  let calls = 0; const pending = deferred<unknown>();
+  const h = automaticHarness(async () => ++calls === 2 ? pending.promise : managed);
+  await h.panel.open('members'); await h.tick();
+  h.panel.close(); await h.panel.open('members'); assert.equal(h.jobs.size, 1);
+  pending.resolve({ ...managed, members: [] }); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.state()?.members?.members.length, managed.members.length); assert.equal(h.jobs.size, 1);
+  await h.tick(); assert.equal(calls, 4);
+});
+
+test('unknown invitation is never retried by automatic refresh', async () => {
+  let writes = 0;
+  const h = automaticHarness(async command => command === UiCommands.IM_INVITE
+    ? (writes++, { kind: 'unknown', confirmed: false })
+    : inviteSnapshot([{ uid: 'a', nickname: null, status: 0, job_position_type: 4 }]));
+  await h.panel.open('invite'); h.panel.select('a'); await h.panel.submit(); await h.tick(); await h.tick();
+  await h.panel.submit(); assert.equal(writes, 1); assert.equal(h.state()?.submitted, true); assert.equal(h.state()?.write?.kind, 'unknown');
+});
+
+test('slow traversal cannot publish earlier candidates under a token that lost its extension', async () => {
+  let time = 100; let calls = 0;
+  const h = harness(async () => ++calls === 1
+    ? { ...inviteSnapshot([{ uid: 'a', nickname: null }]), skill_groups: [{ skill_group_id: 7, name: 'A' }] }
+    : (time = 1001, inviteSnapshot([{ uid: 'b', nickname: null }], 'non-extending-token')), () => time);
+  await h.panel.open('invite');
+  assert.equal(h.state()?.candidates, null); assert.deepEqual(h.state()?.known, {}); assert.match(h.state()?.error ?? '', /超时/);
+});
+
+test('online and role filters never infer presence from duty and keep unknown roles explicit', async () => {
+  const h = harness(async () => inviteSnapshot([
+    { uid: 'a', nickname: 'A', status: 0, duty_status: 0, job_position_type: 4 },
+    { uid: 'b', nickname: 'B', status: 3, duty_status: 1, job_position_type: 4 },
+    { uid: 'c', nickname: 'C', status: null, duty_status: 1, job_position_type: 4 },
+    { uid: 'd', nickname: 'D', status: 0, job_position: '客服' },
+    { uid: 'e', nickname: 'E', status: 0 },
+    { uid: 'f', nickname: 'F', status: 0, job_position_type: 99 },
+    { uid: 'g', nickname: 'G', status: 0, job_position_type: 0 },
+  ]));
+  await h.panel.open('invite'); assert.deepEqual(filteredInviteAgents(h.state()!).map(a => a.uid), ['a', 'd']);
+  h.panel.setOnlineOnly(false); assert.deepEqual(filteredInviteAgents(h.state()!).map(a => a.uid), ['a', 'd', 'b', 'c']);
+  h.panel.setRoleFilter('unknown'); assert.deepEqual(filteredInviteAgents(h.state()!).map(a => a.uid), ['e', 'f', 'g']);
+});
+
+test('available presence includes online, suspended and away in that order', async () => {
+  const h = harness(async () => inviteSnapshot([
+    { uid: 'away', nickname: 'A', status: 2, job_position_type: 4 },
+    { uid: 'off', nickname: 'B', status: 3, job_position_type: 4 },
+    { uid: 'busy', nickname: 'Z', status: 1, job_position_type: 4 },
+    { uid: 'on', nickname: 'Z', status: 0, job_position_type: 4 },
+    { uid: 'unknown', nickname: 'C', status: null, job_position_type: 4 },
+  ]));
+  await h.panel.open('invite');
+  assert.deepEqual(filteredInviteAgents(h.state()!).map(a => a.uid), ['on', 'busy', 'away']);
+  h.panel.setOnlineOnly(false);
+  assert.deepEqual(filteredInviteAgents(h.state()!).map(a => a.uid), ['on', 'busy', 'away', 'off', 'unknown']);
+});
+
+test('preloaded display is immediate but never authorizes a write before a fresh read', async () => {
+  const pending = deferred<unknown>();
+  let state: PeripheralPanelState | null = null;
+  let writes = 0;
+  const panel = createPeripheralPanel({
+    current: () => ({ account, gid: 'synthetic-room-a' }), now: () => 100,
+    invoke: async command => { if (command === UiCommands.IM_MEMBERS) return pending.promise; writes++; return {}; },
+    publish: next => { state = next; }, refreshConversation: async () => {},
+    preload: () => ({ members, updatedAt: 1 }),
+  });
+  const opening = panel.open('transfer');
+  const cached = state as PeripheralPanelState | null;
+  assert.equal(cached?.members?.members.length, 1);
+  assert.equal(cached?.members?.selection_token, '');
+  await panel.submit(); assert.equal(writes, 0);
+  pending.resolve(members); await opening;
+  assert.equal((state as PeripheralPanelState | null)?.members?.selection_token, members.selection_token);
+  panel.close();
 });

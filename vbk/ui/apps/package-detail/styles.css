@@ -1,7 +1,7 @@
 html, body { background: #f6f7f9; }
 .detail-window { position: absolute; inset: 0; display: flex; flex-direction: column; }
 .detail-chrome { height: 38px; flex: none; display: flex; align-items: center; padding-left: 16px; background: #fff; border-bottom: 1px solid var(--c-border); font-size: 12px; }
-html[data-platform="macos"] .detail-chrome { height: 40px; padding-left: 82px; }
+html[data-platform="macos"] .detail-chrome { height: 40px; padding-left: calc(82px / var(--ui-zoom, 1)); }
 .detail-body { flex: 1; overflow: auto; padding: 26px 30px 36px; }
 .detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
 .eyebrow { color: var(--c-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }

@@ -5,7 +5,7 @@ import { Events, NotifyCommands, PrefsCommands } from '../../packages/ipc/src/co
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import type { PrefsSnapshot } from '../../packages/ipc/src/client.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
-import { EMPTY_TSIM_FORM, SECTIONS, isAllowedT1, prefsCommand, reminderCommand, sendModeDescription, tsimFormValid, validateReminderSettings } from './viewmodel.ts';
+import { EMPTY_TSIM_FORM, SECTIONS, SPY_LOCK_MS, isAllowedT1, pickActiveSection, prefsCommand, reminderCommand, tsimFormValid, validateReminderSettings } from './viewmodel.ts';
 
 test('T1 validation follows ALLOWED_T1_SECONDS', () => {
   for (const v of ALLOWED_T1_SECONDS) assert.equal(isAllowedT1(v), true);
@@ -25,8 +25,6 @@ test('reminder settings map to notify commands; others to prefs', () => {
   assert.deepEqual(prefsCommand('assistant', 'send_mode', 'send_direct'), { cmd: UiCommands.PREFS_SET, payload: { section: 'assistant', key: 'send_mode', value: 'send_direct' } });
   assert.equal(SECTIONS.length, 9);
   assert.equal(SECTIONS[SECTIONS.length - 1]?.id, 'about');
-  assert.match(sendModeDescription('replace_draft'), /替换草稿/);
-  assert.match(sendModeDescription('send_direct'), /直接发送/);
   assert.equal(tsimFormValid(EMPTY_TSIM_FORM), false);
   assert.equal(tsimFormValid({ user: 'u', password: 'p' }), true);
 });
@@ -68,4 +66,37 @@ test('every reminder toggle persists through the command the view-model picks (n
   }
   await assert.rejects(ipc.invoke(UiCommands.PREFS_SET, { section: 'reminder', key: 'toString', value: 'x' }), (e: { code: string }) => e.code === 'prefs.unknown_key', 'inherited keys are not settings');
   ipc.dispose();
+});
+
+test('scroll-spy: ordinary scrolling follows the last section whose top passed the viewport edge', () => {
+  const tops = [{ id: 'general', top: 0 }, { id: 'display', top: 400 }, { id: 'notify', top: 800 }, { id: 'about', top: 1500 }] as const;
+  const base = { tops, clientHeight: 500, scrollHeight: 2000, now: 10_000, current: 'general', lock: null } as const;
+  assert.equal(pickActiveSection({ ...base, scrollTop: 0 }), 'general');
+  assert.equal(pickActiveSection({ ...base, scrollTop: 300 }), 'general');
+  assert.equal(pickActiveSection({ ...base, scrollTop: 380 }), 'display'); // 400 - 24 offset
+  assert.equal(pickActiveSection({ ...base, scrollTop: 900 }), 'notify');
+  assert.equal(pickActiveSection({ ...base, scrollTop: 1200 }), 'notify');
+  assert.equal(pickActiveSection({ ...base, tops: [], scrollTop: 100 }), 'general');
+});
+
+test('scroll-spy: reaching the bottom highlights the last section even when it is too short to reach the top', () => {
+  const tops = [{ id: 'general', top: 0 }, { id: 'storage', top: 1000 }, { id: 'privacy', top: 1300 }, { id: 'about', top: 1450 }] as const;
+  const base = { tops, clientHeight: 500, scrollHeight: 1600, now: 10_000, current: 'privacy', lock: null } as const;
+  assert.equal(pickActiveSection({ ...base, scrollTop: 1000 }), 'storage');
+  assert.equal(pickActiveSection({ ...base, scrollTop: 1099 }), 'about'); // 1099 + 500 >= 1598
+  assert.equal(pickActiveSection({ ...base, scrollTop: 1100 }), 'about');
+  // 内容放不满一屏：没有可滚动距离，保持当前高亮
+  assert.equal(pickActiveSection({ ...base, scrollHeight: 500, scrollTop: 0, current: 'storage' }), 'storage');
+});
+
+test('scroll-spy: a click lock wins until it expires, then scrolling decides again', () => {
+  const tops = [{ id: 'general', top: 0 }, { id: 'privacy', top: 1300 }, { id: 'about', top: 1450 }] as const;
+  const base = { tops, clientHeight: 500, scrollHeight: 1600, scrollTop: 1100, current: 'privacy' } as const;
+  const lock = { id: 'privacy', until: 11_000 } as const;
+  // 滚动落在底部（本会高亮 about），但锁还在：保持被点的 privacy
+  assert.equal(pickActiveSection({ ...base, now: 10_500, lock }), 'privacy');
+  assert.equal(pickActiveSection({ ...base, now: 10_999, lock, scrollTop: 0 }), 'privacy');
+  assert.equal(pickActiveSection({ ...base, now: 11_000, lock }), 'about');
+  assert.equal(pickActiveSection({ ...base, now: 12_000, lock: null, scrollTop: 0 }), 'general');
+  assert.ok(SPY_LOCK_MS > 0);
 });

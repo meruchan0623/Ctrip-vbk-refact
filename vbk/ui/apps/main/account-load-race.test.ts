@@ -26,10 +26,10 @@ function fixture(initial: UiConversation[] = []) {
     sameAccount, isUiConversation, isUiAgentStatus, isUiNetStatus,
     invokeQuiet: async (command: string) => await responses[command],
     UiCommands: { IM_CONVERSATIONS: 'convs', ACCOUNT_AGENT_STATUS: 'agent', NET_STATUS: 'net', NOTICE_CATEGORIES: 'cats', IM_MARK_READ: 'read' },
-    releaseAttachment: async () => undefined, loadNotices: async () => undefined, document: { visibilityState: 'hidden' } };
+    releaseAttachment: async () => undefined, noticeQuery: { categories: async () => undefined }, document: { visibilityState: 'hidden' } };
   const functionStart = source.indexOf('async function loadForActiveAccount():');
   const helperStart = source.lastIndexOf('let accountLoadTicket', functionStart);
-  const end = source.indexOf('\nasync function loadNotices(', functionStart);
+  const end = source.indexOf('\nasync function loadPrefs(', functionStart);
   const upsertStart = source.indexOf('function upsertConversation('), upsertEnd = source.indexOf('\nasync function sendText(', upsertStart);
   const code = source.slice(helperStart < 0 ? functionStart : helperStart, end) + '\n' + source.slice(upsertStart, upsertEnd);
   const actual = new Function(...Object.keys(env), stripTypeScriptTypes(code) + '\nreturn { load: loadForActiveAccount, upsert: upsertConversation };')(...Object.values(env)) as { load: () => Promise<void>; upsert: (c: UiConversation) => void };

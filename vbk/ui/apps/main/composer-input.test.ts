@@ -16,7 +16,7 @@ function fixture() {
   const conv = { gid: 'synthetic-room', account, status: 'active', lang: 'en' };
   const store = createStore<any>({ view: 'messages', draft: 'committed', drafts: {}, draftVersion: 3, activeGid: conv.gid, conversations: [conv], accounts: { active_account_id: account.account_id, accounts: [{ context: account, state: 'online' }] }, translation: { status: 'done', text: 'OLD', target: 'en' }, messages: {}, quote: null, attachment: null, prefs: { keys: { send_key: 'enter' }, assistant: { enabled: false } } });
   let renders = 0, translations = 0, sends = 0;
-  const env: Record<string, any> = { visibleReads: { retry() {}, afterRender() {} },
+  const env: Record<string, any> = { quickReplies: { close() {}, suggest() {} }, visibleReads: { retry() {}, afterRender() {} },
     ...vm, createComposerInput, cx, store, S: () => store.get(),
     activeAccount: () => store.get().accounts.accounts[0], activeConv: () => store.get().conversations.find((c: any) => c.gid === store.get().activeGid),
     scheduleTranslation: () => { translations++; }, clearTimeout,
@@ -29,6 +29,8 @@ function fixture() {
   const a = current.indexOf('const composerInput ='), b = current.indexOf('function scheduleTranslation(', a);
   const input = new Function(...Object.keys(env), stripTypeScriptTypes('let trTimer = null;\n' + current.slice(a, b)) + '\nreturn {composerInput, composerInputContext};')(...Object.values(env));
   Object.assign(env, input);
+  env['setSendMode'] = () => {};
+  for (const [n, e] of [['ctool', 'function formatFileSize('], ['formatFileSize', 'function composerMoreMenu('], ['composerMoreMenu', 'function composer(']] as const) env[n] = new Function(...Object.keys(env), stripTypeScriptTypes(extract(source, n, e)) + `\nreturn ${n};`)(...Object.values(env));
   const composer = new Function(...Object.keys(env), stripTypeScriptTypes(extract(source, 'composer', 'function emojiPicker(')) + '\nreturn composer;')(...Object.values(env));
   const start = source.indexOf('subscribeFrame(store,'), end = source.indexOf('\nrerender(root, () => render(S()));', start);
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)))(...Object.values(env));

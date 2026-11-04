@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { COMPANION_MAX_HEIGHT, companionPackageCard, packageFreshness, preserveCompanionFocus } from './companion-card.ts';
+import { COMPANION_FIXED_HEIGHT, COMPANION_MAX_HEIGHT, companionPackageCard, formatOrderTime, formatReissueTime, packageFreshness, preserveCompanionFocus } from './companion-card.ts';
 import { packageInfo } from './package-preview.ts';
 import type { PackagePlanInfo } from './package-preview.ts';
 import type { h } from '../../packages/ui-kit/src/h.ts';
@@ -11,20 +11,20 @@ const plan: PackagePlanInfo = { plan: '渠道套餐', iccid: '898600000000000000
 type Tree = { tag: string; props: Record<string, any>; children: unknown[] };
 const fakeH = ((tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children })) as unknown as typeof h;
 function nodes(tree: unknown): Tree[] { if (Array.isArray(tree)) return tree.flatMap(nodes); return tree && typeof tree === 'object' && 'tag' in tree ? [tree as Tree, ...nodes((tree as Tree).children)] : []; }
-function render(scope: string, plans: PackagePlanInfo[] = [plan, { ...plan, plan: '套餐二' }], now?: number) { const copied: string[] = []; const opened: number[] = []; const tree = companionPackageCard({ scope, plans, total: 3, open: true, busy: false, hot: false, identity: '订单', refreshDisabled: false, notice: [], canDetail: true, refresh() {}, toggle() {}, detail: index => opened.push(index), copy: text => copied.push(text), ...(now === undefined ? {} : { now }) }, fakeH, (() => null) as any); return { tree, nodes: nodes(tree), copied, opened }; }
+function render(scope: string, plans: PackagePlanInfo[] = [plan, { ...plan, plan: '套餐二' }], now?: number) { const copied: string[] = []; const opened: number[] = []; const tree = companionPackageCard({ scope, plans, total: 3, open: true, busy: false, hot: false, identity: '订单', refreshDisabled: false, notice: [], refresh() {}, toggle() {}, copy: text => copied.push(text), ...(now === undefined ? {} : { now }) }, fakeH, (() => null) as any); return { tree, nodes: nodes(tree), copied, opened }; }
 test('legacy card renders actual projected identities, usage and at most ten scrollable CDR rows per plan', () => {
   const view = render('records'); const content = JSON.stringify(view.nodes.filter(n => n.tag !== 'style').map(n => n.children.filter(c => typeof c === 'string')));
   for (const text of ['原始套餐', 'Enabled', 'iPhone', '1 GB', '最近 10 条 CDR · 日本', '10 MB 合计']) assert.ok(content.includes(text), text);
-  assert.equal(view.nodes.filter(n => n.props.class === 'cdr').length, 20);
+  assert.equal(view.nodes.filter(n => n.props.class === 'cdr').length, 10);
   assert.equal(view.nodes.find(n => n.props.class === 'cdrs')?.props.tabindex, '0');
   view.nodes.find(n => n.props['aria-label'] === '复制 ICCID')!.props.onclick(); assert.deepEqual(view.copied, [plan.iccid]);
-  view.nodes.filter(n => n.props.dataset?.packageAction === 'detail')[1]!.props.onclick(); assert.deepEqual(view.opened, [1]);
+  assert.equal(view.nodes.filter(n => n.props.dataset?.packageAction === 'detail').length, 0);
 });
 test('selected tab survives unrelated rerenders and resets for a new identity scope', () => {
   const view = render('selection'), tabs = view.nodes.filter(n => n.props.role === 'tab'), panels = view.nodes.filter(n => n.props.role === 'tabpanel');
   const tabElements = tabs.map(tab => ({ setAttribute: (name: string, value: string) => { tab.props[name] = value; } }));
   const panelElements = panels.map(panel => ({ querySelector: () => null, set hidden(value: boolean) { panel.props.hidden = value; } }));
-  tabs[1]!.props.onclick({ currentTarget: { getRootNode: () => ({ querySelectorAll: (selector: string) => selector.includes('tabpanel') ? panelElements : tabElements }) } });
+  tabs[1]!.props.onclick({ currentTarget: { getRootNode: () => ({ querySelector: () => null, querySelectorAll: (selector: string) => selector.includes('tabpanel') ? panelElements : tabElements }) } });
   assert.equal(panels[0]!.props.hidden, true); assert.equal(panels[1]!.props.hidden, false);
   assert.equal(render('selection').nodes.filter(n => n.props.role === 'tab')[1]!.props['aria-selected'], 'true');
   assert.equal(render('other-owner').nodes.filter(n => n.props.role === 'tab')[0]!.props['aria-selected'], 'true');
@@ -90,22 +90,28 @@ test('daily, unlimited and unknown gauges retain distinct truthful labels and me
 });
 test('showing a hidden package restores its CDR scroll after visibility changes', () => {
   const first = render('hidden-scroll');
-  const roots = () => ({ querySelectorAll: (selector: string) => selector.includes('tabpanel') ? [{ querySelector: () => null }, { querySelector: () => null }] : [{ setAttribute() {} }, { setAttribute() {} }] });
-  first.nodes.filter(n => n.props.role === 'tab')[1]!.props.onclick({ currentTarget: { getRootNode: roots } });
-  first.nodes.filter(n => n.props.class === 'cdrs')[1]!.props.onscroll({ currentTarget: { scrollTop: 73 } });
-  const rebuilt = render('hidden-scroll'), cdr = { scrollTop: 0 };
-  const tabs = rebuilt.nodes.filter(n => n.props.role === 'tab');
-  const root = { querySelectorAll: (selector: string) => selector.includes('tabpanel') ? [{ querySelector: () => null }, { querySelector: () => cdr }] : [{ setAttribute() {} }, { setAttribute() {} }] };
-  tabs[0]!.props.onclick({ currentTarget: { getRootNode: () => root } });
-  // Hidden scroll clamping must never replace the remembered offset.
-  rebuilt.nodes.filter(n => n.props.class === 'cdrs')[1]!.props.onscroll({ currentTarget: { scrollTop: 0 } });
-  tabs[1]!.props.onclick({ currentTarget: { getRootNode: () => root } });
-  assert.equal(cdr.scrollTop, 73);
+  function fixture(view: ReturnType<typeof render>) {
+    const tabs = view.nodes.filter(n => n.props.role === 'tab'), panels = view.nodes.filter(n => n.props.role === 'tabpanel');
+    const cdr = { scrollTop: 0 };
+    const root = {
+      querySelector: (selector: string) => ({ replaceWith(panel: Tree) { panels[Number(selector.match(/"(\d+)"/)![1])] = panel; } }),
+      querySelectorAll: (selector: string) => selector.includes('tabpanel') ? panels.map(panel => ({ set hidden(v: boolean) { panel.props.hidden = v; }, querySelector: () => panel.props.dataset.packagePlan === '1' ? cdr : null })) : tabs.map(() => ({ setAttribute() {} })),
+    };
+    return { cdr, panels, click(index: number) { tabs[index]!.props.onclick({ currentTarget: { getRootNode: () => root } }); } };
+  }
+  const initial = fixture(first); initial.click(1);
+  nodes(initial.panels[1]).find(n => n.props.class === 'cdrs')!.props.onscroll({ currentTarget: { scrollTop: 73 } });
+  const rebuilt = render('hidden-scroll'), next = fixture(rebuilt);
+  const remembered = rebuilt.nodes.find(n => n.props.class === 'cdrs')!;
+  next.click(0);
+  remembered.props.onscroll({ currentTarget: { scrollTop: 0 } });
+  next.click(1);
+  assert.equal(next.cdr.scrollTop, 73);
 });
 test('usage ring is built with DOM APIs (no innerHTML) and carries only validated numeric geometry', () => {
   const view = render('ring');
   const rings = view.nodes.filter(n => n.tag === 'span' && typeof n.props.ref === 'function');
-  assert.ok(rings.length >= 2, 'a big and a mini ring per plan');
+  assert.equal(rings.length, 1, 'only the active plan ring is constructed');
   const created: { tag: string; ns: string; attrs: Record<string, string>; children: unknown[] }[] = [];
   const doc = { createElementNS: (ns: string, tag: string) => { const node = { tag, ns, attrs: {} as Record<string, string>, children: [] as unknown[], setAttribute(k: string, v: string) { this.attrs[k] = v; }, append(...c: unknown[]) { this.children.push(...c); } }; created.push(node); return node; } };
   let mounted: any = null;
@@ -152,4 +158,123 @@ test('freshness wording and the raised height cap', () => {
   assert.equal(packageFreshness(Number.NaN, base), '更新时间未知');
   assert.equal(COMPANION_MAX_HEIGHT, '78%');
   assert.equal((render('height').tree as unknown as Tree).props.style['max-height'], '78%');
+});
+test('a card with reissues has a fixed height and no count badge; without reissues it stays auto', () => {
+  const fixed = render('fixed', [reissued, plan]), host = fixed.tree as unknown as Tree;
+  assert.equal(host.props.style.height, COMPANION_FIXED_HEIGHT);
+  assert.equal(host.props.style['max-height'], COMPANION_MAX_HEIGHT);
+  assert.ok(host.props.class.includes('fixed'));
+  assert.equal(fixed.nodes.some(n => n.props.class === 'rcount'), false);
+  const plain = render('fixed-none', [plan]).tree as unknown as Tree;
+  assert.equal(plain.props.style.height, undefined);
+});
+
+test('fractional usage stays compact while meter precision and copy values are retained', () => {
+  const view = render('fractional', [{ ...plan, remain_pct: 95.068359375, cdrs: [
+    [{ label: '总用量（MB）', value: '0.1' }], [{ label: '总用量（MB）', value: '0.2' }],
+  ] }]);
+  const meter = view.nodes.find(n => n.props.role === 'meter')!;
+  assert.equal(meter.props['aria-valuenow'], '95.068359375');
+  assert.ok(strings(nodes(meter)).includes('95%'));
+  assert.ok(strings(view.nodes).includes('0.3 MB 合计'));
+  assert.equal(strings(view.nodes).includes('0.30000000000000004'), false);
+});
+test('nonfinite percentage never enters the SVG or visible label', () => {
+  for (const value of [NaN, Infinity, -Infinity]) {
+    const view = render('nonfinite', [{ ...plan, remain_pct: value }]);
+    assert.equal(view.nodes.some(n => n.props.role === 'meter'), false);
+    const ring = view.nodes.find(n => n.props.class === 'ring')!;
+    assert.ok(strings(nodes(ring)).includes('—'));
+  }
+});
+
+
+test('collapsed and inactive plans avoid CDR construction; tab activation builds once', () => {
+  const plans = [plan, { ...plan, plan: 'second' }];
+  const input = { scope: 'lazy', plans, total: 2, open: false, busy: false, hot: false, identity: '', refreshDisabled: false, notice: [], refresh() {}, toggle() {}, copy() {} };
+  const collapsed = companionPackageCard(input, fakeH, (() => null) as any);
+  assert.equal(nodes(collapsed).filter(n => n.props.class === 'cdr').length, 0);
+  const expanded = companionPackageCard({ ...input, open: true }, fakeH, (() => null) as any);
+  const list = nodes(expanded), tabs = list.filter(n => n.props.role === 'tab');
+  let panels = list.filter(n => n.props.role === 'tabpanel'), replacements = 0;
+  const root = { querySelector: () => ({ replaceWith(panel: Tree) { panels[1] = panel; replacements++; } }), querySelectorAll: (selector: string) => selector.includes('tabpanel') ? panels.map(panel => ({ set hidden(v: boolean) { panel.props.hidden = v; }, querySelector: () => null })) : tabs.map(tab => ({ setAttribute(k: string, v: string) { tab.props[k] = v; } })) };
+  tabs[1]!.props.onclick({ currentTarget: { getRootNode: () => root } });
+  tabs[1]!.props.onclick({ currentTarget: { getRootNode: () => root } });
+  assert.equal(replacements, 1);
+  assert.equal(nodes(panels[1]).filter(n => n.props.class === 'cdr').length, 10);
+});
+
+test('cached native host updates actions and invalidates notices, freshness and scope', () => {
+  let creates = 0, copied = '', toggled = '', refreshed = '';
+  const nativeH = ((tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => {
+    creates++;
+    return { tag, props: props ?? {}, children, attachShadow: () => ({ append() {} }), isConnected: false };
+  }) as unknown as typeof h;
+  const glyph = (() => null) as any;
+  const plans = [plan], dependency = {};
+  const input = { scope: 'cache-owner-a', plans, total: 1, open: true, busy: false, hot: false, identity: '', refreshDisabled: false, notice: [], now: 1000, cacheKey: [dependency], refresh() { refreshed = 'old'; }, toggle() { toggled = 'old'; }, copy() { copied = 'old'; } };
+  const first = companionPackageCard(input, nativeH, glyph), initial = creates;
+  const next = companionPackageCard({ ...input, refresh() { refreshed = 'new'; }, toggle() { toggled = 'new'; }, copy() { copied = 'new'; } }, nativeH, glyph);
+  assert.equal(next, first); assert.equal(creates, initial);
+  const tree = nodes(first);
+  tree.find(n => n.props.class === 'copy')!.props.onclick();
+  tree.find(n => n.props.class === 'tg')!.props.onclick();
+  tree.find(n => n.props.dataset?.packageAction === 'refresh')!.props.onclick();
+  assert.deepEqual([copied, toggled, refreshed], ['new', 'new', 'new']);
+  const notice = companionPackageCard({ ...input, notice: ['changed'], cacheKey: [{}] }, nativeH, glyph);
+  assert.notEqual(notice, first); assert.ok(JSON.stringify(nodes(notice)).includes('changed'));
+  const minute = companionPackageCard({ ...input, now: 61_001 }, nativeH, glyph);
+  assert.notEqual(minute, notice); assert.ok(strings(nodes(minute)).includes('1 分钟前更新'));
+  const other = companionPackageCard({ ...input, scope: 'cache-owner-b' }, nativeH, glyph);
+  assert.notEqual(other, minute);
+});
+
+const reissued: PackagePlanInfo = { ...plan, order_time: '2026-10-28 09:30:00', reissues: [
+  { create_time_ms: new Date(2026, 9, 30, 8, 5).getTime(), state: 'ready', info: { ...plan, plan: '补发渠道套餐', iccid: '8986000000000000009', remain: '3 GB', cdrs: [] } },
+  { create_time_ms: null, state: 'error', info: null },
+] };
+const chips = (view: ReturnType<typeof render>) => view.nodes.filter(n => n.props.dataset?.reissue !== undefined);
+const texts = (node: Tree) => nodes(node).flatMap(n => n.children.filter(c => typeof c === 'string')) as string[];
+test('reissue time formats use local MM-DD HH:mm and omit missing values', () => {
+  assert.equal(formatReissueTime(new Date(2026, 0, 2, 3, 4).getTime()), '01-02 03:04');
+  for (const value of [null, undefined, 0, -1, NaN, Infinity]) assert.equal(formatReissueTime(value as number | null), '');
+  assert.equal(formatOrderTime('2026-10-28 09:30:00'), '10-28 09:30');
+  assert.equal(formatOrderTime('2026-10-28T09:30'), '10-28 09:30');
+  assert.equal(formatOrderTime('昨天'), '昨天');
+  for (const value of [undefined, null, '', ' ', '-', '—']) assert.equal(formatOrderTime(value), '');
+});
+test('a plan with reissues shows an original → reissue timeline; plans without reissues show none', () => {
+  assert.equal(chips(render('timeline-none')).length, 0);
+  const view = render('timeline', [reissued, plan]);
+  assert.equal(view.nodes.filter(n => n.props.class === 'rbar').length, 1);
+  const list = chips(view);
+  assert.deepEqual(list.map(n => n.props.dataset.reissue), ['0', '1', '2']);
+  assert.deepEqual(list.map(n => texts(n)[0]), ['原套餐', '补发 1', '补发 2']);
+  assert.ok(texts(list[0]!).includes('10-28 09:30'));
+  assert.ok(texts(list[1]!).includes('10-30 08:05'));
+  assert.equal(list[0]!.props['aria-pressed'], 'true');
+  assert.equal(list[2]!.props.disabled, true); assert.ok(texts(list[2]!).includes('失败'));
+  assert.ok(!texts(list[2]!).some(text => /^\d\d-\d\d/.test(text)), 'no time for a missing create_time');
+  assert.equal(view.nodes.filter(n => n.props.class === 'rarrow').length, 2);
+});
+test('clicking a reissue chip rebuilds the panel in place with that package and survives rerenders until the scope changes', () => {
+  const view = render('timeline-switch', [reissued]);
+  const slot: { panel: any } = { panel: null };
+  const old = { querySelector: () => null, replaceWith: (panel: unknown) => { slot.panel = panel; } };
+  const event = { currentTarget: { getRootNode: () => ({ querySelector: (selector: string) => selector === '[data-package-plan="0"]' ? old : null }) } };
+  chips(view)[2]!.props.onclick?.(event); assert.equal(slot.panel, null, 'a failed reissue cannot be selected by script either');
+  chips(view)[1]!.props.onclick(event);
+  const replaced = slot.panel as unknown as Tree & { hidden: boolean }; assert.ok(replaced); assert.equal(replaced.hidden, false);
+  const content = texts(replaced);
+  assert.ok(content.includes('补发渠道套餐')); assert.ok(content.includes('3 GB'));
+  assert.equal(nodes(replaced).filter(n => n.props['aria-pressed'] === 'true').map(n => n.props.dataset.reissue).join(), '1');
+  assert.ok(nodes(render('timeline-switch', [reissued]).tree).some(n => n.props['aria-pressed'] === 'true' && n.props.dataset?.reissue === '1'));
+  assert.ok(nodes(render('timeline-other', [reissued]).tree).some(n => n.props['aria-pressed'] === 'true' && n.props.dataset?.reissue === '0'));
+});
+test('a stale reissue selection falls back to the original package', () => {
+  const view = render('timeline-stale', [reissued]);
+  chips(view)[1]!.props.onclick({ currentTarget: { getRootNode: () => ({ querySelector: () => ({ querySelector: () => null, replaceWith() {} }) }) } });
+  const refreshed = render('timeline-stale', [{ ...plan, reissues: [{ create_time_ms: 1, state: 'error', info: null }] }]);
+  assert.ok(nodes(refreshed.tree).some(n => n.props['aria-pressed'] === 'true' && n.props.dataset?.reissue === '0'));
+  assert.ok(!texts(refreshed.tree as unknown as Tree).includes('补发渠道套餐'));
 });

@@ -13,7 +13,7 @@ const pending: UiMessage = { gid: 'synthetic-A', message_id: null, local_id: 'sy
 const confirmed: UiMessage = { ...pending, message_id: 'synthetic-server', text: 'SYNTHETIC HISTORY', sender_name: null, sender_avatar: null, disposition: { kind: 'confirmed', server_message_id: 'synthetic-server', server_time_ms: 105 } };
 function fixture(current: UiMessage[], page: UiMessage[]) {
   const state = { activeGid: 'synthetic-B', messages: { [pending.gid]: current }, drafts: {}, conversations: [{ gid: pending.gid, unread_count: 0 }], history: {}, banners: [], draftVersion: 0, view: 'messages', quote: null };
-  const env = { visibleReads: { retry() {}, afterRender() {} }, ...viewmodel, historyDiagnostics, readHistoryPage, mergeMessageProfile, isUiMessage, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => ({ context: { account_id: 'synthetic-account', environment: 'test', session_generation: 1 } }), stillActive: () => true, peripheral: { close: () => {} }, TRANSLATION_IDLE: {}, PKG_IDLE: {}, UiCommands: { IM_MESSAGE_PAGE: 'page' }, invokeQuiet: async () => ({ items: page, has_more: false, before_ms: null }), autoQueryPackage: () => {} };
+  const env = { closeCommerce() {}, visibleReads: { retry() {}, afterRender() {} }, ...viewmodel, historyDiagnostics, readHistoryPage, mergeMessageProfile, isUiMessage, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => ({ context: { account_id: 'synthetic-account', environment: 'test', session_generation: 1 } }), stillActive: () => true, peripheral: { close: () => {} }, TRANSLATION_IDLE: {}, PKG_IDLE: {}, UiCommands: { IM_MESSAGE_PAGE: 'page' }, invokeQuiet: async () => ({ items: page, has_more: false, before_ms: null }), autoQueryPackage: () => {} };
   function actual(name: string, next: string, async = false): (...args: unknown[]) => unknown {
     const a = source.indexOf(`${async ? 'async ' : ''}function ${name}(`); const b = source.indexOf(`\n${next}`, a);
     assert.ok(a >= 0 && b > a);
@@ -122,3 +122,11 @@ test('shared local alias retains separate compatible groups for later exact serv
 });
 
 // Reading-anchor behaviour (windowed pane, model-based anchors) lives in message-anchor.test.ts and message-pane.test.ts.
+
+test('re-read originals keep a fetched translation of the same text, but not of changed text', () => {
+  const row = (extra: Partial<UiMessage>): UiMessage => ({ gid: 'g', message_id: 'm1', local_id: null, create_time_ms: 1700000000000, sender_role: 'customer', sender_id: 'c', sender_name: null, sender_avatar: null, kind: 'text', text: 'Да', translation: null, original: null, quote: null, order_id: null, disposition: null, ...extra }) as UiMessage;
+  const kept = viewmodel.mergeHistory([row({ translation: '是的' })], [row({})]);
+  assert.equal(kept[0]?.translation, '是的');
+  const changed = viewmodel.mergeHistory([row({ translation: '是的' })], [row({ text: 'Нет' })]);
+  assert.equal(changed[0]?.translation, null);
+});

@@ -2,10 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { UiConversation, UiMessage } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
-import { ErrorCodes } from '../../packages/ipc/src/contracts.ts';
+import { ErrorCodes, RED_AFTER_SECONDS } from '../../packages/ipc/src/contracts.ts';
 import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
 import {
+  waitTier,
   MARK_COLORS,
   safeMediaUrl,
   mergeHistory,
@@ -13,7 +14,9 @@ import {
   accountInitial,
   agentView,
   alarmActiveCount,
+  longestWaitingAlarm,
   canContactOrder,
+  viewingGid,
   expireBanners,
   highlightParts,
   netView,
@@ -84,7 +87,7 @@ test('sortConversations: pinned first, then last message time desc, stable', () 
   ];
   assert.deepEqual(
     sortConversations(list).map((c) => c.gid),
-    ['pinNew', 'pinOld', 'new', 'mid', 'tieA', 'old', 'nullTime'],
+    ['pinNew', 'pinOld', 'nullTime', 'new', 'mid', 'tieA', 'old'],
   );
 });
 
@@ -158,7 +161,7 @@ test('order-contact state machine: none/one/multiple/forbidden/unknown, late res
   const timeout = orderContactReduce(s, { type: 'error', orderId: '0000000001', error: { code: ErrorCodes.NET_TIMEOUT, message: '超时', retryable: false } });
   assert.equal(timeout.kind, 'unknown');
   assert.equal(orderContactReduce(s, { type: 'error', orderId: '0000000001', error: { code: ErrorCodes.IM_PERMISSION_DENIED, message: 'x', retryable: false } }).kind, 'forbidden');
-  assert.equal(orderContactReduce(s, { type: 'error', orderId: '0000000001', error: new Error('boom') }).kind, 'unknown');
+  assert.equal(orderContactReduce(s, { type: 'error', orderId: '0000000001', error: new Error('boom') }).kind, 'failed');
   // a late result for a different query id does not overwrite the current one
   assert.equal(orderContactReduce(s, { type: 'result', orderId: '0000000002', result: { kind: 'none' } }), s);
   // results arriving after a timeout do not revive the query (no silent replay)
@@ -205,7 +208,7 @@ test('mock: marking read never touches the waiting round; conversations and crea
   await ipc.invoke(UiCommands.IM_MARK_READ, { account: a, gid: 'g-demo-2', expected_message_id: page.items.at(-1)?.message_id, expected_context_revision: before.assistant_context_revision });
   const after = (await ipc.invoke<UiConversation[]>(UiCommands.IM_CONVERSATIONS, { account: a })).find((c) => c.gid === 'g-demo-2');
   assert.ok(after);
-  assert.equal(after.unread_count, before.unread_count);
+  assert.equal(after.unread_count, 0);
   assert.equal(after.waiting_since_ms, before.waiting_since_ms, 'waiting indicator comes only from host data; read state does not clear it');
   assert.equal(after.waiting_confirmed, before.waiting_confirmed);
   assert.deepEqual(await ipc.invoke('notify_snapshot').then((s) => (s as { entries: unknown[] }).entries), alarmBefore.entries, 'alarm rounds untouched by mark-read');
@@ -279,6 +282,14 @@ test('no fake status: unconfirmed agent → 状态未知, no net read-back → �
   assert.equal(netView(null).label, '未连接');
   assert.equal(netView(null).ok, false);
   assert.equal(netView({ online: true, transport: 'connected' }).label, '已连接');
+  // 首次启动尚未连上过：不显示断连 / 重连 / 网络不可用
+  for (const n of [{ online: false, transport: 'disconnected' }, { online: false, transport: 'reconnecting' }] as const) {
+    const v = netView(n, false);
+    assert.equal(v.label, '连接中');
+    assert.equal(v.offline, false);
+  }
+  assert.equal(netView({ online: true, transport: 'connected' }, false).label, '已连接');
+  assert.equal(netView({ online: false, transport: 'disconnected' }, true).offline, true);
   assert.equal(netView({ online: true, transport: 'disconnected' }).label, '未连接');
   assert.equal(netView({ online: true, transport: 'reconnecting' }).label, '正在重连');
   assert.equal(netView({ online: false, transport: 'connected' }).offline, true);
@@ -303,6 +314,14 @@ test('banner stack: same conversation replaces, newest first, hover pauses expir
   const resumed = resumeBanners(list, 1000, 5000);
   assert.equal(resumed[0]?.until, 6200 + 4000, 'hover time is given back');
   assert.ok(resumeBanners(list, 0, 9000).every((b) => b.until >= 10500), 'at least 1.5 s after leaving');
+});
+
+test('longest waiting alarm skips snoozed entries and is null when none active', () => {
+  const e = (gid: string, waited_seconds: number, snoozed_until_ms: number | null = null) => ({ gid, waited_seconds, snoozed_until_ms });
+  assert.equal(longestWaitingAlarm([e('a', 130), e('b', 400), e('c', 250)], 1000)?.gid, 'b');
+  assert.equal(longestWaitingAlarm([e('a', 130), e('b', 400, 5000), e('c', 250, 100)], 1000)?.gid, 'c');
+  assert.equal(longestWaitingAlarm([e('b', 400, 5000)], 1000), null);
+  assert.equal(longestWaitingAlarm([], 1000), null);
 });
 
 test('alarm count ignores snoozed entries; account avatar letter', () => {
@@ -389,7 +408,7 @@ test('客户语言：行上 zh（zh_HK/缺失）时按最近客户文字消息�
   assert.equal(customerLanguage(zhRow, [m('merchant_self', 'Hello there friend'), m('robot', 'Welcome to Trip.com')]), 'zh', '只看客户消息');
   assert.equal(customerLanguage(zhRow, [m('customer', 'Здравствуйте', 'image')]), 'zh', '只看文字消息');
   assert.equal(customerLanguage(zhRow, [m('customer', 'Здравствуйте'), m('customer', '你好你好请问')]), 'zh', '最近一条明确是中文');
-  assert.equal(customerLanguage({ lang: 'ja' }, [m('customer', 'Здравствуйте')]), 'ja', '行上已是外语时直接采用');
+  assert.equal(customerLanguage({ lang: 'ja' }, [m('customer', 'Здравствуйте')]), 'ru', '客户原文优先于地区语言');
   assert.equal(customerLanguage(zhRow, []), 'zh');
   assert.equal(outboundTarget('ru'), 'ru');
   assert.equal(outboundTarget('fil'), 'en', '不支持的目标退回英语');
@@ -398,4 +417,172 @@ test('客户语言：行上 zh（zh_HK/缺失）时按最近客户文字消息�
   assert.equal(needsOutboundTranslation('ご予約ありがとうございます'), false, '已替换成日文的草稿不再翻译');
   assert.equal(composerLocked(conv('g', { status: 'finished' })), false);
   assert.equal(composerLocked(conv('g', { status: 'transferred_out' })), true);
+});
+
+test('customer language ignores identifiers and preserves ambiguous Latin locale', () => {
+ const m = (text: string) => ({ sender_role: 'customer' as const, kind: 'text' as const, text });
+ assert.equal(customerLanguage({lang: 'en'}, [m('您好我要查询订单')]), 'zh');
+ assert.equal(customerLanguage({lang: 'en'}, [m('你好')]), 'zh');
+ assert.equal(customerLanguage({lang: 'fr'}, [m('Bonjour merci beaucoup')]), 'fr');
+ assert.equal(customerLanguage({lang: 'ja'}, [m('https://example.com ABC12345')]), 'ja');
+});
+
+test('customer language caches script evidence over complete immutable history with dynamic locale fallback', () => {
+  let reads = 0;
+  const messages = Array.from({ length: 20_000 }, (_, i) => ({
+    get sender_role(): UiMessage['sender_role'] { reads++; return i === 0 ? 'customer' : 'merchant_self'; },
+    kind: 'text' as const, text: i === 0 ? 'Bonjour merci beaucoup' : '您好',
+  }));
+  assert.equal(customerLanguage({ lang: 'fr' }, messages), 'fr');
+  assert.equal(reads, 20_000, 'customer evidence beyond 20k merchant rows is still found');
+  for (let i = 0; i < 10; i++) assert.equal(customerLanguage({ lang: 'de' }, messages), 'de');
+  assert.equal(reads, 20_000);
+  assert.equal(customerLanguage({ lang: 'zh' }, messages), 'en', 'Latin fallback is evaluated against current locale');
+  assert.equal(customerLanguage({ lang: 'zh' }, [...messages, { sender_role: 'customer', kind: 'text', text: '你好' }]), 'zh');
+  const noEvidence = messages.slice(1);
+  assert.equal(customerLanguage({ lang: 'ja' }, noEvidence), 'ja');
+  const firstScan = reads;
+  assert.equal(customerLanguage({ lang: 'ko' }, noEvidence), 'ko');
+  assert.equal(reads, firstScan, 'missing evidence is cached too');
+});
+
+test('visible messages reuse derived identity without rescanning and invalidate on snapshot replacement', () => {
+  let reads = 0;
+  const messages: UiMessage[] = Array.from({ length: 20_000 }, (_, i) => ({
+    gid: 'g', message_id: `m${i}`, get recalled_message_id() { reads++; return i === 19_999 ? 'm0' : null; },
+    local_id: null, sender_role: 'customer', kind: 'text', text: 'hello', create_time_ms: i,
+  } as unknown as UiMessage));
+  const visible = visibleMessages(messages);
+  assert.equal(visible.length, 19_999);
+  assert.equal(visible[0]?.message_id, 'm1');
+  const firstScan = reads;
+  for (let i = 0; i < 10; i++) assert.equal(visibleMessages(messages), visible);
+  assert.equal(reads, firstScan);
+  const next = visibleMessages(messages.slice(0, -1));
+  assert.notEqual(next, visible);
+  assert.equal(next.length, 19_999);
+  assert.equal(next[0]?.message_id, 'm0', 'removing recall notice re-evaluates visibility');
+});
+
+test('conversation counts and unread cache immutable snapshots independently by business', () => {
+  let reads = 0;
+  const list = Array.from({ length: 20_000 }, (_, i) => conv(String(i), {
+    status: i % 2 ? 'finished' : 'active', unread_count: 3,
+  }));
+  for (let i = 0; i < list.length; i++) Object.defineProperty(list[i], 'status', { get() { reads++; return i % 2 ? 'finished' : 'active'; } });
+  assert.deepEqual(tabCounts(list), { doing: 10_000, done: 10_000, unknown: 0 });
+  assert.equal(unreadTotal(list), 30_000);
+  const firstScan = reads;
+  for (let i = 0; i < 10; i++) {
+    assert.deepEqual(tabCounts(list), { doing: 10_000, done: 10_000, unknown: 0 });
+    assert.equal(unreadTotal(list), 30_000);
+  }
+  assert.equal(reads, firstScan);
+  const counts = tabCounts(list);
+  counts.doing = -1;
+  assert.equal(tabCounts(list).doing, 10_000, 'callers cannot mutate cached aggregates');
+  assert.deepEqual(tabCounts(list, 'enterprise'), { doing: 0, done: 0, unknown: 0 });
+  const next = [...list, conv('new', { unread_count: 7 })];
+  assert.equal(tabCounts(next).doing, 10_001);
+  assert.equal(unreadTotal(next), 30_007);
+});
+
+test('only the messages view counts as viewing a conversation', () => {
+  assert.equal(viewingGid({ view: 'messages', activeGid: '42' }), '42');
+  assert.equal(viewingGid({ view: 'messages', activeGid: null }), null);
+  assert.equal(viewingGid({ view: 'notifications', activeGid: '42' }), null);
+  assert.equal(viewingGid({ view: 'order', activeGid: '42' }), null);
+});
+
+test('latestPreview follows time-descending first non-empty preview and caches per array identity', async () => {
+  const { latestPreview, previewOf, EMPTY_MESSAGES } = await import('./viewmodel.ts');
+  const m = (id: string, create_time_ms: number, kind: UiMessage['kind'], text: string): UiMessage => ({ gid: 'g', message_id: id, local_id: null, create_time_ms, sender_role: 'customer', kind, text, translation: null, original: null, quote: null, order_id: null, disposition: null });
+  const legacy = (msgs: readonly UiMessage[]): string => [...msgs].sort((a, b) => b.create_time_ms - a.create_time_ms).map(previewOf).find(text => text.trim()) || '';
+  assert.equal(latestPreview(EMPTY_MESSAGES), '');
+  assert.equal(latestPreview([]), '');
+  assert.ok(Object.isFrozen(EMPTY_MESSAGES));
+  // 最新一条预览为空（空白文本）时继续往前找。
+  const skipsBlank = [m('1', 100, 'text', 'first'), m('2', 300, 'text', '   '), m('3', 200, 'text', 'second')];
+  assert.equal(latestPreview(skipsBlank), 'second');
+  assert.equal(latestPreview(skipsBlank), legacy(skipsBlank));
+  // 全部为空 → ''。
+  const allBlank = [m('1', 100, 'text', ''), m('2', 300, 'text', ' ')];
+  assert.equal(latestPreview(allBlank), '');
+  // 时间并列取先出现者，与稳定排序一致；非文本类型走 previewOf 的占位。
+  const tie = [m('1', 500, 'text', 'left'), m('2', 500, 'image', ''), m('3', 100, 'text', 'old')];
+  assert.equal(latestPreview(tie), 'left');
+  assert.equal(latestPreview(tie), legacy(tie));
+  const tieMedia = [m('1', 500, 'image', ''), m('2', 500, 'text', 'right')];
+  assert.equal(latestPreview(tieMedia), previewOf(tieMedia[0]!));
+  assert.equal(latestPreview(tieMedia), legacy(tieMedia));
+  // 乱序输入不依赖数组顺序。
+  const unordered = [m('1', 300, 'text', 'mid'), m('2', 900, 'text', 'newest'), m('3', 100, 'text', 'oldest')];
+  assert.equal(latestPreview(unordered), 'newest');
+  // 随机对拍：与原排序实现结果一致。
+  let seed = 7;
+  const rand = (n: number): number => { seed = (seed * 48271) % 2147483647; return seed % n; };
+  for (let round = 0; round < 200; round += 1) {
+    const list = Array.from({ length: rand(8) }, (_, i) => m(String(i), rand(4) * 100, rand(3) === 0 ? 'image' : 'text', rand(3) === 0 ? ' ' : `t${rand(5)}`));
+    assert.equal(latestPreview(list), legacy(list));
+  }
+  // 按数组身份缓存：同一数组对象原地变异不会重新计算，新数组会。
+  const mutable = [m('1', 100, 'text', 'before')];
+  assert.equal(latestPreview(mutable), 'before');
+  mutable.push(m('2', 200, 'text', 'after'));
+  assert.equal(latestPreview(mutable), 'before');
+  assert.equal(latestPreview([...mutable]), 'after');
+});
+
+test('virtualConversationRange keeps a bounded mount with 8 rows of overscan and skips the 4px list padding', async () => {
+  const { virtualConversationRange } = await import('./viewmodel.ts');
+  assert.deepEqual(virtualConversationRange(10000, 0, 900), { start: 0, end: 20 });
+  assert.deepEqual(virtualConversationRange(10000, 9999 * 96, 900), { start: 9980, end: 10000 });
+  // 第 i 行顶边在 4 + 80i：滚到 83px 仍停在第 0 行，84px 进入第 1 行。
+  assert.equal(virtualConversationRange(10000, 83, 900).start, 0);
+  assert.equal(virtualConversationRange(10000, 4 + 80 * 30, 900).start, 22);
+  assert.equal(virtualConversationRange(10000, 4 + 80 * 30, 900).end, 30 + 12 + 8);
+  assert.deepEqual(virtualConversationRange(5, 0, 900), { start: 0, end: 5 });
+  assert.deepEqual(virtualConversationRange(0, 0, 900), { start: 0, end: 0 });
+  const mounted = virtualConversationRange(10000, 4 + 80 * 5000, 900);
+  assert.ok(mounted.end - mounted.start <= 12 + 16);
+});
+
+test('conversationWindowStale asks for a new window only when the viewport nears the mounted edge', async () => {
+  const { conversationWindowStale, virtualConversationRange } = await import('./viewmodel.ts');
+  const total = 10000, height = 900;
+  const rowTop = (i: number): number => 4 + 80 * i;
+  // 刚算出的窗口（上下各 8 行缓冲）不 stale。
+  const top = rowTop(3000);
+  const range = virtualConversationRange(total, top, height);
+  assert.equal(conversationWindowStale(range, total, top, height), false);
+  // 向上滚：缓冲剩 2 行仍可用，剩 1 行需要换窗。
+  assert.equal(conversationWindowStale(range, total, rowTop(range.start + 2), height), false);
+  assert.equal(conversationWindowStale(range, total, rowTop(range.start + 1), height), true);
+  assert.equal(conversationWindowStale(range, total, rowTop(range.start + 1), height, 1), false);
+  assert.equal(conversationWindowStale(range, total, rowTop(range.start - 20), height), true, 'viewport entirely above the window');
+  // 向下滚：底部最后可见行（向上取整）与 range.end 之间不足 margin 行时换窗。
+  const lastVisibleAt = (t: number): number => Math.ceil((t - 4 + height) / 80);
+  let t = top;
+  while (range.end - lastVisibleAt(t) >= 2) t += 8;
+  assert.equal(conversationWindowStale(range, total, t - 8, height), false);
+  assert.equal(conversationWindowStale(range, total, t, height), true);
+  assert.equal(conversationWindowStale(range, total, rowTop(range.end + 50), height), true, 'viewport entirely below the window');
+  // 边界：start===0 顶部不算 stale；end>=total 底部不算 stale。
+  const head = virtualConversationRange(total, 0, height);
+  assert.equal(head.start, 0);
+  assert.equal(conversationWindowStale(head, total, 0, height), false);
+  const tail = virtualConversationRange(total, rowTop(total), height);
+  assert.equal(tail.end, total);
+  assert.equal(conversationWindowStale(tail, total, rowTop(total), height), false);
+  assert.equal(conversationWindowStale(tail, total, 4 + 80 * total + 5000, height), false, 'overscroll past the end still not stale');
+  // 整表装得下时永远不 stale；空表也不 stale。
+  assert.equal(conversationWindowStale({ start: 0, end: 5 }, 5, 0, height), false);
+  assert.equal(conversationWindowStale({ start: 0, end: 5 }, 5, 10000, height), false);
+  assert.equal(conversationWindowStale({ start: 0, end: 0 }, 0, 0, height), false);
+});
+
+test('waitTier switches colour exactly at 30/60/90/120 seconds', () => {
+  const at = [0, 29, 30, 59, 60, 89, 90, 119, 120, 3600].map(waitTier);
+  assert.deepEqual(at, ['calm', 'calm', 'notice', 'notice', 'warn', 'warn', 'urgent', 'urgent', 'overdue', 'overdue']);
+  assert.equal(RED_AFTER_SECONDS, 90, 'the urgent band starts where the alarm window turns red');
 });

@@ -1,6 +1,7 @@
 /**
  * Settings window (prototype 02-main `.fwin` 设置): 通用 / 显示 / 通知与提醒 /
  * 快捷键 / 商家助手 / 网络 / 存储 / 隐私 / 关于与更新.
+ * 左侧是分类导航，右侧所有分类连成一个长页面（点导航滚到对应分类，滚动时 scroll-spy 高亮当前分类）。
  * Reminder fields go through `NotifyCommands.*`; everything else through prefs;
  * TSim through `assistant_tsim_*`.
  *
@@ -12,9 +13,9 @@
 import { applyPlatform } from '../_shared/platform.ts';
 const platform = applyPlatform();
 
-import type { ReminderSettings } from '../../packages/ipc/src/contracts.ts';
+import type { AccountContext, ReminderSettings } from '../../packages/ipc/src/contracts.ts';
 import { ALLOWED_T1_SECONDS, isAppError } from '../../packages/ipc/src/contracts.ts';
-import { AccountCommands, Events, PrefsCommands } from '../../packages/ipc/src/commands.ts';
+import { AccountCommands, Events, PrefsCommands, ShellCommands } from '../../packages/ipc/src/commands.ts';
 import type { PrefsSection, PrefsSnapshot, UiAccountSnapshot, UiNetStatus, UiTsimStatus } from '../../packages/ipc/src/client.ts';
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
 import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
@@ -24,12 +25,13 @@ import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isPrefsSnapshot, isUiAccountSnapshot } from '../_shared/guards.ts';
-import { CACHE_DAY_OPTIONS, EMPTY_TSIM_FORM, SECTIONS, ZOOM_OPTIONS, isSectionId, isTsimStatus, prefsCommand, reminderCommand, sectionLabel, sendModeDescription, tsimErrorText, tsimFormValid, tsimStatusText, tsimSessionInputValid, tsimImportErrorText } from './viewmodel.ts';
+import { EMPTY_TSIM_FORM, PERSONAL_SETTINGS_URL, SECTIONS, SPY_LOCK_MS, ZOOM_OPTIONS, isSectionId, isTsimStatus, pickActiveSection, prefsCommand, reminderCommand, sectionLabel, tsimErrorText, tsimFormValid, tsimStatusText, tsimSessionInputValid, tsimImportErrorText } from './viewmodel.ts';
 import { SETTING_STRINGS as S, fmt } from './strings.ts';
-import type { SectionId, TsimForm } from './viewmodel.ts';
+import type { SectionId, SpyLock, TsimForm } from './viewmodel.ts';
 
 interface SettingState {
   readonly prefs: PrefsSnapshot | null;
+  /** 导航里高亮的分类（点击或 scroll-spy 更新）。 */
   readonly section: SectionId;
   readonly tsimForm: TsimForm;
   readonly tsimBusy: boolean;
@@ -46,11 +48,13 @@ interface SettingState {
   readonly toast: string | null;
   /** Nick of the active account for the title (prototype 「设置 · 昵称」). */
   readonly nick: string | null;
+  /** Active account; web personal settings open under its identity. */
+  readonly account: AccountContext | null;
   readonly version: string | null;
 }
 
 const params = new URLSearchParams(location.search).get('section');
-const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'notify', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, tsimImportExpanded: false, tsimImportToken: '', settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, nick: null, version: null });
+const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'general', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, tsimImportExpanded: false, tsimImportToken: '', settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, nick: null, account: null, version: null });
 const sel = selectIpc();
 const ipc = sel.ipc;
 const root = document.getElementById('app');
@@ -68,6 +72,7 @@ function msg(e: unknown): string {
 }
 
 function applySettingsSnapshot(prefs: PrefsSnapshot): void {
+  preferenceWrites.clear();
   store.patch({ prefs, settingsRequest: store.get().settingsRequest + 1, loading: false, loadError: null });
 }
 
@@ -84,36 +89,74 @@ async function loadSettings(): Promise<void> {
   }
 }
 
+interface PreferenceWrite { confirmed: unknown; confirmedOrder: number; sequence: number; latest: object | null; pending: number }
+const preferenceWrites = new Map<string, PreferenceWrite>();
+
 async function setReminder<K extends keyof ReminderSettings>(key: K, value: ReminderSettings[K]): Promise<void> {
   const p = store.get().prefs;
   if (!p) return;
-  const prev = p.reminder;
-  store.patch({ prefs: { ...p, reminder: { ...prev, [key]: value } } }); // optimistic; reverted on failure
+  const field = `reminder.${key}`;
+  const write = preferenceWrites.get(field) ?? { confirmed: p.reminder[key], confirmedOrder: 0, sequence: 0, latest: null, pending: 0 };
+  const operation = { order: ++write.sequence };
+  write.latest = operation; write.pending++;
+  preferenceWrites.set(field, write);
+  store.patch({ prefs: { ...p, reminder: { ...p.reminder, [key]: value } } });
   try {
     const { cmd, payload } = reminderCommand(key, value);
     await ipc.invoke(cmd, payload);
-    toast(t('set.saved'));
+    // 宿主的 prefs://changed 可能先于命令返回到达并已带上新值：只差告诉用户保存成功。
+    if (preferenceWrites.get(field) !== write) { if (write.latest === operation) toast(t('set.saved')); return; }
+    if (operation.order >= write.confirmedOrder) { write.confirmed = value; write.confirmedOrder = operation.order; }
+    if (write.latest === operation) write.latest = null;
+    if (!write.latest) {
+      const cur = store.get().prefs;
+      if (cur) store.patch({ prefs: { ...cur, reminder: { ...cur.reminder, [key]: write.confirmed } } as PrefsSnapshot });
+      toast(t('set.saved'));
+    }
   } catch (e) {
-    const cur = store.get().prefs;
-    if (cur) store.patch({ prefs: { ...cur, reminder: prev } });
-    toast(t('set.saveFailed', { msg: msg(e) }));
+    if (preferenceWrites.get(field) !== write || write.latest !== operation) return;
+    write.latest = null;
+    if (!write.latest) {
+      const cur = store.get().prefs;
+      if (cur) store.patch({ prefs: { ...cur, reminder: { ...cur.reminder, [key]: write.confirmed } } as PrefsSnapshot });
+      toast(t('set.saveFailed', { msg: msg(e) }));
+    }
+  } finally {
+    if (--write.pending === 0 && preferenceWrites.get(field) === write) preferenceWrites.delete(field);
   }
 }
 
 async function setPref(section: PrefsSection, key: string, value: boolean | string | number): Promise<void> {
   const p = store.get().prefs;
   if (!p) return;
-  const prevSection = p[section];
-  store.patch({ prefs: { ...p, [section]: { ...prevSection, [key]: value } } as PrefsSnapshot });
+  const field = `${section}.${key}`;
+  const write = preferenceWrites.get(field) ?? { confirmed: (p[section] as unknown as Record<string, unknown>)[key], confirmedOrder: 0, sequence: 0, latest: null, pending: 0 };
+  const operation = { order: ++write.sequence };
+  write.latest = operation; write.pending++;
+  preferenceWrites.set(field, write);
+  store.patch({ prefs: { ...p, [section]: { ...p[section], [key]: value } } as PrefsSnapshot });
   try {
     const { cmd, payload } = prefsCommand(section, key, value);
     const next = await ipc.invoke<PrefsSnapshot>(cmd, payload);
-    store.patch({ prefs: next });
-    toast(t('set.saved'));
+    if (!isPrefsSnapshot(next)) throw new Error('invalid preferences snapshot');
+    if (preferenceWrites.get(field) !== write) { if (write.latest === operation) toast(t('set.saved')); return; }
+    if (operation.order >= write.confirmedOrder) { write.confirmed = (next[section] as unknown as Record<string, unknown>)[key]; write.confirmedOrder = operation.order; }
+    if (write.latest === operation) write.latest = null;
+    if (!write.latest) {
+      const cur = store.get().prefs;
+      if (cur) store.patch({ prefs: { ...cur, [section]: { ...cur[section], [key]: write.confirmed } } as PrefsSnapshot });
+      toast(t('set.saved'));
+    }
   } catch (e) {
-    const cur = store.get().prefs;
-    if (cur) store.patch({ prefs: { ...cur, [section]: prevSection } as PrefsSnapshot });
-    toast(t('set.saveFailed', { msg: msg(e) }));
+    if (preferenceWrites.get(field) !== write || write.latest !== operation) return;
+    write.latest = null;
+    if (!write.latest) {
+      const cur = store.get().prefs;
+      if (cur) store.patch({ prefs: { ...cur, [section]: { ...cur[section], [key]: write.confirmed } } as PrefsSnapshot });
+      toast(t('set.saveFailed', { msg: msg(e) }));
+    }
+  } finally {
+    if (--write.pending === 0 && preferenceWrites.get(field) === write) preferenceWrites.delete(field);
   }
 }
 
@@ -206,10 +249,13 @@ async function tsimBrowserConnect(profileId?: string): Promise<void> {
       const profiles = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_BROWSER_PROFILES, {});
       if (store.get().tsimRequest !== ticket) return;
       if (!Array.isArray(profiles) || profiles.length > 64 || profiles.some(p => !p || typeof p.id !== 'string' || typeof p.label !== 'string')) throw { code: 'assistant.malformed_response' };
-      // Always show the source, including a sole readable profile: another
-      // browser profile may be temporarily unavailable during discovery.
-      store.patch({ tsimBusy: false, tsimBrowserProfiles: profiles, tsimError: profiles.length ? null : '没有找到 TSim 网页会话。请先在 Edge 或 Chrome 普通窗口登录客服系统，再重试。' });
-      return;
+      // A single source completes the explicit browser-login action directly.
+      // With several sources, let the user choose the account's Chrome profile.
+      if (profiles.length !== 1) {
+        store.patch({ tsimBusy: false, tsimBrowserProfiles: profiles, tsimError: profiles.length ? null : '没有找到 TSim 网页会话。请先在 Chrome 普通窗口登录客服系统，再重试；也可以在下方使用账号密码登录。' });
+        return;
+      }
+      profileId = profiles[0].id;
     }
     const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_BROWSER_CONNECT, { profile_id: profileId });
     if (store.get().tsimRequest !== ticket) return;
@@ -246,22 +292,22 @@ function text(label: string, value: string, desc: string | null): HTMLElement {
 
 // ---- sections
 
-function generalSection(p: PrefsSnapshot): Child[] {
+function generalSection(s: SettingState, p: PrefsSnapshot): Child[] {
   return [
     head(t('set.general.startup')),
     toggle(t('set.general.autostart'), null, p.general.autostart, (v) => void setPref('general', 'autostart', v), 'general.autostart'),
     segment(t('set.general.closeAction'), null, [{ value: 'tray', label: t('set.general.closeTray') }, { value: 'quit', label: t('set.general.closeQuit') }], p.general.close_action, (v) => void setPref('general', 'close_action', v), 'general.close_action'),
     head(t('set.general.chat')),
     toggle(t('set.general.msgTime'), null, p.general.show_msg_time, (v) => void setPref('general', 'show_msg_time', v), 'general.show_msg_time'),
-    h('div', { class: 'notice-box info', style: { 'margin-top': '14px' } }, t('set.webHint')),
+    head(S.account),
+    row(S.personalSettings, t('set.webHint'), h('button', { class: 'btn sm', disabled: !s.account, dataset: { action: 'personal-settings' }, onclick: () => void ipc.invoke(UiCommands.SHELL_OPEN_WEBVIEW, { account: s.account, url: PERSONAL_SETTINGS_URL }).catch((e: unknown) => toast(msg(e))) }, S.open)),
   ];
 }
 
 function displaySection(p: PrefsSnapshot): Child[] {
   return [
-    head(t('set.display')),
-    segment(t('set.display.zoom'), null, ZOOM_OPTIONS.map((z) => ({ value: z, label: `${z}%` })), p.display.zoom, (v) => void setPref('display', 'zoom', v), 'display.zoom'),
-    toggle(t('set.display.gpu'), t('set.display.gpuDesc'), p.display.gpu, (v) => void setPref('display', 'gpu', v), 'display.gpu'),
+    segment(t('set.display.zoom'), t('set.display.zoomDesc'), ZOOM_OPTIONS.map((z) => ({ value: z, label: `${z}%` })), p.display.zoom, (v) => void setPref('display', 'zoom', v), 'display.zoom'),
+    text(t('set.display.gpu'), t('set.display.managed'), t('set.display.gpuDesc')),
   ];
 }
 
@@ -284,7 +330,7 @@ function notifySection(p: PrefsSnapshot): Child[] {
     segment(t('set.notify.position'), null, [{ value: 'br', label: t('set.notify.posBR') }, { value: 'bl', label: t('set.notify.posBL') }], r.position_bottom_right ? 'br' : 'bl', (v) => void setReminder('position_bottom_right', v === 'br'), 'reminder.position'),
     head(t('set.notify.dnd')),
     toggle(t('set.notify.dndSchedule'), null, p.dnd.schedule_enabled, (v) => void setPref('dnd', 'schedule_enabled', v), 'dnd.schedule_enabled'),
-    toggle(t('set.notify.dndFollow'), null, p.dnd.follow_system, (v) => void setPref('dnd', 'follow_system', v), 'dnd.follow_system'),
+    toggle(t('set.notify.dndFollow'), t(platform === 'macos' ? 'set.notify.dndFollowMac' : 'set.notify.dndFollowWin'), p.dnd.follow_system, (v) => void setPref('dnd', 'follow_system', v), 'dnd.follow_system'),
     toggle(t('set.notify.dndKeep'), t('set.notify.dndKeepDesc'), r.alert_during_dnd, (v) => void setReminder('alert_during_dnd', v), 'reminder.alert_during_dnd'),
     head(t('set.notify.fullscreen')),
     toggle(t('set.notify.fullKeep'), null, r.alert_during_fullscreen, (v) => void setReminder('alert_during_fullscreen', v), 'reminder.alert_during_fullscreen'),
@@ -296,9 +342,7 @@ function notifySection(p: PrefsSnapshot): Child[] {
 
 function keysSection(p: PrefsSnapshot): Child[] {
   return [
-    head(t('set.keys')),
     segment(t('set.keys.send'), null, [{ value: 'enter', label: t('set.keys.enter') }, { value: 'ctrl_enter', label: t('set.keys.ctrlEnter') }], p.keys.send_key, (v) => void setPref('keys', 'send_key', v), 'keys.send_key'),
-    row(t('set.keys.screenshot'), t('set.keys.screenshotDesc'), h('span', { class: 'kbd' }, p.keys.screenshot)),
     row(t('set.keys.toggleMain'), null, h('span', { class: 'kbd' }, p.keys.toggle_main)),
   ];
 }
@@ -307,30 +351,15 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
   const a = p.assistant;
   const status = s.tsimStatus;
   return [
-    head(t('set.assistant')),
     toggle(t('set.asst.enabled'), null, a.enabled, (v) => void setPref('assistant', 'enabled', v), 'assistant.enabled'),
     toggle(t('set.asst.outbound'), t('set.asst.outboundDesc'), a.outbound_translation, (v) => void setPref('assistant', 'outbound_translation', v), 'assistant.outbound_translation'),
-    text(t('set.asst.outService'), t('set.asst.outServiceVal'), t('set.asst.outServiceDesc')),
-    text(t('set.asst.inService'), t('set.asst.inServiceVal'), t('set.asst.inServiceDesc')),
-    h(
-      'div',
-      { class: 'set-row col' },
-      h('div', { class: 'set-l' }, h('div', { class: 'set-label' }, t('set.asst.sendMode'))),
-      h(
-        'div',
-        { class: 'mode-opts', role: 'radiogroup', 'aria-label': t('set.asst.sendMode') },
-        h('button', { class: cx('opt', { on: a.send_mode === 'replace_draft' }), role: 'radio', 'aria-checked': String(a.send_mode === 'replace_draft'), dataset: { sendMode: 'replace_draft' }, onclick: () => void setPref('assistant', 'send_mode', 'replace_draft') }, h('span', { class: 'radio' }), h('span', null, h('b', null, t('set.asst.modeReplace')), h('span', { class: 'muted', style: { display: 'block', 'font-size': '12px' } }, sendModeDescription('replace_draft')))),
-        h('button', { class: cx('opt', { on: a.send_mode === 'send_direct' }), role: 'radio', 'aria-checked': String(a.send_mode === 'send_direct'), dataset: { sendMode: 'send_direct' }, onclick: () => void setPref('assistant', 'send_mode', 'send_direct') }, h('span', { class: 'radio' }), h('span', null, h('b', null, t('set.asst.modeDirect')), h('span', { class: 'muted', style: { display: 'block', 'font-size': '12px' } }, sendModeDescription('send_direct')))),
-      ),
-      h('div', { class: 'set-desc' }, t('set.asst.modeCommon')),
-    ),
     h(
       'div',
       { class: 'set-row col', dataset: { tsim: '1' } },
       h('div', { class: 'set-l' }, h('div', { class: 'set-label' }, t('set.asst.tsim'), ' ', h('span', { class: cx('chip', status?.logged_in ? 'chip-ok' : 'chip-muted'), dataset: { tsimStatus: status ? status.logged_in ? 'in' : 'out' : 'unknown' } }, status ? tsimStatusText({ ...a, tsim_logged_in: status.logged_in, tsim_user: status.user }) : '登录状态未知')), h('div', { class: 'set-desc' }, t('set.asst.tsimDesc'))),
       h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-refresh' }, onclick: () => void refreshTsimStatus() }, s.tsimBusy ? '正在核对…' : '刷新 TSim 登录状态'),
-      platform === 'windows' ? h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-browser-connect' }, onclick: () => void tsimBrowserConnect() }, '复用 Edge / Chrome 客服登录态') : null,
-      platform === 'windows' ? h('p', { class: 'set-desc' }, '使用客服网页的现有会话，无需再次输入密码；网页退出、切换账号或更新会话后需重新连接。断开不会退出客服网页。') : null,
+      h('button', { class: 'btn pri', disabled: s.tsimBusy, dataset: { action: 'tsim-browser-connect' }, onclick: () => void tsimBrowserConnect() }, s.tsimBusy ? '正在读取…' : '从 Chrome 登录'),
+      h('p', { class: 'set-desc' }, '直接使用 Chrome 中已登录的 TSim 账号；多个浏览器配置时选择要连接的账号。断开不会退出浏览器。'),
       ...(s.tsimBrowserProfiles ?? []).map(p => h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { browserProfile: p.id }, onclick: () => void tsimBrowserConnect(p.id) }, `连接 ${p.label}`)),
       status?.logged_in
         ? h('div', null, h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-logout' }, onclick: () => void tsimLogout() }, t('set.asst.tsimLogout')))
@@ -339,7 +368,7 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
             { class: 'tsim-form', onsubmit: (e: Event) => { e.preventDefault(); void tsimLogin(e.currentTarget as HTMLFormElement); } },
             h('input', { class: 'inp', disabled: s.tsimBusy, name: 'username', required: true, placeholder: t('set.asst.tsimUser'), 'aria-label': t('set.asst.tsimUser'), value: s.tsimForm.user, autocomplete: 'username', dataset: { fid: 'tsim-user' }, oninput: (e: Event) => store.patch({ tsimForm: { ...store.get().tsimForm, user: (e.target as HTMLInputElement).value } }) }),
             h('input', { class: 'inp', disabled: s.tsimBusy, type: 'password', name: 'password', required: true, placeholder: t('set.asst.tsimPass'), 'aria-label': t('set.asst.tsimPass'), value: s.tsimForm.password, autocomplete: 'current-password', dataset: { fid: 'tsim-pass' }, oninput: (e: Event) => store.patch({ tsimForm: { ...store.get().tsimForm, password: (e.target as HTMLInputElement).value } }) }),
-            h('button', { class: 'btn pri', type: 'submit', disabled: s.tsimBusy, dataset: { action: 'tsim-login' } }, s.tsimBusy ? h('span', { class: 'spin' }) : null, t('set.asst.tsimLogin')),
+            h('button', { class: 'btn', type: 'submit', disabled: s.tsimBusy, dataset: { action: 'tsim-login' } }, s.tsimBusy ? h('span', { class: 'spin' }) : null, t('set.asst.tsimLogin')),
           ),
       s.tsimError ? h('div', { class: 'notice-box err', role: 'alert' }, s.tsimError) : null,
       h('details', { open: s.tsimImportExpanded, dataset: { tsimImport: '1' }, ontoggle: (e: Event) => { const expanded = (e.currentTarget as HTMLDetailsElement).open; if (expanded !== store.get().tsimImportExpanded) store.patch({ tsimImportExpanded: expanded, ...(!expanded ? { tsimImportToken: '' } : {}) }); } },
@@ -356,42 +385,37 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
 function networkSection(s: SettingState, p: PrefsSnapshot): Child[] {
   const net = s.net;
   return [
-    head(t('set.network')),
     toggle(t('set.net.proxy'), t('set.net.proxyDesc'), p.network.system_proxy, (v) => void setPref('network', 'system_proxy', v), 'network.system_proxy'),
     text(t('set.net.status'), net ? (net.online ? `${t('bar.net.online')} · ${net.transport}` : t('bar.net.offline')) : t('app.loading'), null),
   ];
 }
 
-function storageSection(p: PrefsSnapshot): Child[] {
+function storageSection(): Child[] {
   return [
-    head(t('set.storage')),
-    segment(t('set.storage.cacheDays'), null, CACHE_DAY_OPTIONS.map((d) => ({ value: d, label: t('set.storage.days', { n: d }) })), p.storage.cache_days, (v) => void setPref('storage', 'cache_days', v), 'storage.cache_days'),
-    row(t('set.storage.cache'), t('set.storage.cacheSize', { n: p.storage.cache_mb }), h('button', { class: 'btn sm', onclick: () => void setPref('storage', 'cache_mb', 0) }, t('set.storage.clear'))),
-    row(t('set.storage.openData'), null, h('button', { class: 'btn sm', onclick: () => void ipc.invoke(UiCommands.SHELL_OPEN_EXTERNAL, { url: 'file:///data-dir' }).catch((e: unknown) => toast(msg(e))) }, t('set.storage.open'))),
+    text(t('set.storage.cacheDays'), t('set.storage.cacheNone'), t('set.storage.cacheNoneDesc')),
+    row(t('set.storage.openData'), null, h('button', { class: 'btn sm', onclick: () => void ipc.invoke(ShellCommands.OPEN_DATA_DIRECTORY).catch((e: unknown) => toast(msg(e))) }, t('set.storage.open'))),
   ];
 }
 
-function privacySection(p: PrefsSnapshot): Child[] {
+function privacySection(): Child[] {
   return [
-    head(t('set.privacy')),
-    toggle(t('set.privacy.analytics'), t('set.privacy.analyticsDesc'), p.privacy.analytics, (v) => void setPref('privacy', 'analytics', v), 'privacy.analytics'),
-    toggle(t('set.privacy.crash'), t('set.privacy.crashDesc'), p.privacy.crash_upload, (v) => void setPref('privacy', 'crash_upload', v), 'privacy.crash_upload'),
-    row(t('set.privacy.diag'), t('set.privacy.diagDesc'), h('button', { class: 'btn sm', onclick: () => void ipc.invoke(UiCommands.SHELL_OPEN_WINDOW, { label: 'diag' }).catch((e: unknown) => toast(msg(e))) }, t('set.privacy.export'))),
+    text(t('set.privacy.analytics'), t('set.privacy.notCollected'), t('set.privacy.analyticsDesc')),
+    text(t('set.privacy.crash'), t('set.privacy.notCollected'), t('set.privacy.crashDesc')),
+    row(t('set.privacy.diag'), t('set.privacy.diagDesc'), h('button', { class: 'btn sm', onclick: () => void ipc.invoke<boolean>(ShellCommands.EXPORT_DIAGNOSTICS).then((saved) => { if (saved) toast('诊断信息已导出'); }).catch((e: unknown) => toast(msg(e))) }, t('set.privacy.export'))),
   ];
 }
 
 function aboutSection(s: SettingState): Child[] {
   return [
-    head(S.aboutHead),
     text(S.version, s.version ?? S.versionUnknown, null),
     row(S.checkUpdate, S.checkUpdateDesc, h('button', { class: 'btn sm pri', dataset: { action: 'check-update' }, onclick: () => void ipc.invoke(UiCommands.SHELL_OPEN_WINDOW, { label: 'update' }).catch((e: unknown) => toast(msg(e))) }, S.checkUpdate)),
   ];
 }
 
-function body(s: SettingState, p: PrefsSnapshot): Child[] {
-  switch (s.section) {
+function sectionContent(id: SectionId, s: SettingState, p: PrefsSnapshot): Child[] {
+  switch (id) {
     case 'general':
-      return generalSection(p);
+      return generalSection(s, p);
     case 'display':
       return displaySection(p);
     case 'notify':
@@ -403,14 +427,19 @@ function body(s: SettingState, p: PrefsSnapshot): Child[] {
     case 'network':
       return networkSection(s, p);
     case 'storage':
-      return storageSection(p);
+      return storageSection();
     case 'privacy':
-      return privacySection(p);
+      return privacySection();
     case 'about':
       return aboutSection(s);
     default:
       return [];
   }
+}
+
+/** 全部分类依次排开；每个分类以大标题开头，小标题仍由各 section 自己给。 */
+function body(s: SettingState, p: PrefsSnapshot): Child[] {
+  return SECTIONS.map((sec) => h('section', { class: 'set-sec', dataset: { setSection: sec.id }, 'aria-labelledby': `set-sec-${sec.id}` }, h('h2', { class: 'set-sec-h', id: `set-sec-${sec.id}` }, sectionLabel(sec)), ...sectionContent(sec.id, s, p)));
 }
 
 function closeWindow(): void {
@@ -432,6 +461,52 @@ function titleBar(s: SettingState): HTMLElement {
   );
 }
 
+// ---- 长页面导航：点击滚动 + scroll-spy
+
+/** 点击导航后短时间内不让 scroll-spy 改回高亮。 */
+let spyLock: SpyLock | null = null;
+let spyFrame = 0;
+/** 首次拿到设置内容后，把 URL 指定的分类滚到顶部（只做一次）。 */
+let pendingInitialScroll: SectionId | null = isSectionId(params) ? params : null;
+
+function sectionTops(scroller: HTMLElement): { id: SectionId; top: number }[] {
+  const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
+  const tops: { id: SectionId; top: number }[] = [];
+  for (const el of scroller.querySelectorAll<HTMLElement>('[data-set-section]')) {
+    const id = el.dataset['setSection'] ?? null;
+    if (isSectionId(id)) tops.push({ id, top: el.getBoundingClientRect().top - base });
+  }
+  return tops;
+}
+
+function scrollToSection(id: SectionId, instant: boolean): boolean {
+  const scroller = root?.querySelector<HTMLElement>('.setbody');
+  const top = scroller ? sectionTops(scroller).find((x) => x.id === id)?.top : undefined;
+  if (!scroller || top === undefined) return false;
+  const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  scroller.scrollTo({ top, behavior: instant || reduce ? 'auto' : 'smooth' });
+  return true;
+}
+
+/** 导航点击：先锁住高亮再滚动。仅换分类，不碰 TSim 表单/导入凭据（它们只在提交与关窗时清除）。 */
+function selectSection(id: SectionId): void {
+  spyLock = { id, until: performance.now() + SPY_LOCK_MS };
+  if (store.get().section !== id) store.patch({ section: id });
+  scrollToSection(id, false);
+}
+
+function onBodyScroll(e: Event): void {
+  if (spyFrame) return;
+  const scroller = e.currentTarget as HTMLElement;
+  spyFrame = requestAnimationFrame(() => {
+    spyFrame = 0;
+    const current = store.get().section;
+    const next = pickActiveSection({ tops: sectionTops(scroller), scrollTop: scroller.scrollTop, clientHeight: scroller.clientHeight, scrollHeight: scroller.scrollHeight, now: performance.now(), current, lock: spyLock });
+    // 只有分类变化才 patch，避免滚动期间重复触发重渲染。
+    if (next !== current) store.patch({ section: next });
+  });
+}
+
 function render(s: SettingState): Node {
   return h(
     'div',
@@ -440,27 +515,32 @@ function render(s: SettingState): Node {
     h(
       'div',
       { class: 'setbody-wrap' },
-      h('div', { class: 'setnav', role: 'tablist' }, h('div', { class: 'setnav-g' }, t('set.group.desktop')), SECTIONS.map((sec) => h('button', { class: cx({ on: s.section === sec.id }), role: 'tab', 'aria-selected': String(s.section === sec.id), dataset: { section: sec.id }, onclick: () => store.patch({ section: sec.id, tsimImportExpanded: false, tsimImportToken: '' }) }, sectionLabel(sec)))),
-      h('div', { class: 'setbody', dataset: { keepScroll: 'set' } }, s.loadError ? h('div', { class: 'notice-box err', role: 'alert' }, s.loadError, h('button', { class: 'btn sm', dataset: { action: 'retry-settings' }, disabled: s.loading, onclick: () => void loadSettings() }, s.loading ? '正在重试…' : '重新读取设置')) : null, s.prefs ? body(s, s.prefs) : !s.loadError ? h('div', { class: 'muted', role: 'status' }, t('app.loading')) : null),
+      h('nav', { class: 'setnav', 'aria-label': t('set.group.desktop') }, h('div', { class: 'setnav-g' }, t('set.group.desktop')), SECTIONS.map((sec) => h('button', { class: cx({ on: s.section === sec.id }), type: 'button', 'aria-current': s.section === sec.id ? 'true' : null, dataset: { section: sec.id }, onclick: () => selectSection(sec.id) }, sectionLabel(sec)))),
+      h('div', { class: 'setbody', dataset: { keepScroll: 'set' }, onscroll: onBodyScroll }, s.loadError ? h('div', { class: 'notice-box err', role: 'alert' }, s.loadError, h('button', { class: 'btn sm', dataset: { action: 'retry-settings' }, disabled: s.loading, onclick: () => void loadSettings() }, s.loading ? '正在重试…' : '重新读取设置')) : null, s.prefs ? body(s, s.prefs) : !s.loadError ? h('div', { class: 'muted', role: 'status' }, t('app.loading')) : null),
     ),
     s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast) : null,
   );
 }
 
-function activeNick(snap: UiAccountSnapshot): string | null {
+function activeAccountPatch(snap: UiAccountSnapshot): Pick<SettingState, 'nick' | 'account'> {
   const a = snap.accounts.find((x) => x.context.account_id === snap.active_account_id) ?? null;
-  return a ? (a.remark ?? a.nick) : null;
+  return { nick: a ? (a.remark ?? a.nick) : null, account: a?.context ?? null };
 }
 
-subscribeBatched(store, (s) => rerender(root, () => render(s)));
-rerender(root, () => render(store.get()));
+// 增量 morph：滚动容器 .setbody 原地保留，滚动（含平滑滚动）不会被重渲染打断。
+function paint(s: SettingState): void {
+  rerender(root!, () => render(s), { morph: true });
+  if (pendingInitialScroll && s.prefs && scrollToSection(pendingInitialScroll, true)) pendingInitialScroll = null;
+}
+subscribeBatched(store, paint);
+paint(store.get());
 
 ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, applySettingsSnapshot));
-ipc.listen<unknown>(Events.ACCOUNT_CHANGED, guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, (snap) => store.patch({ nick: activeNick(snap) })));
+ipc.listen<unknown>(Events.ACCOUNT_CHANGED, guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, (snap) => store.patch(activeAccountPatch(snap))));
 void ipc
   .invoke<unknown>(AccountCommands.SNAPSHOT)
   .then((snap) => {
-    if (isUiAccountSnapshot(snap)) store.patch({ nick: activeNick(snap) });
+    if (isUiAccountSnapshot(snap)) store.patch(activeAccountPatch(snap));
   })
   .catch(() => undefined);
 // Tauri core `app` plugin (granted by core:default); the mock has no version.

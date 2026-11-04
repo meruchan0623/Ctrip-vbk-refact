@@ -1,16 +1,15 @@
 /**
  * I-30c voice playback (FE-12), main-window half.
  *
- * The voice message type and body are not captured yet (see
- * `web-adapter/src/voice.ts`), so no message is rendered as voice today; this
- * module is the playback controller the message renderer calls once the
- * adapter yields a `VoiceClip`. Rules:
+ * The playback controller `voice-bubble.ts` drives. Rules:
  * - one clip at a time; starting another stops the first;
  * - only https URLs on the hosts the page CSP `media-src` already allows;
  * - playback stops when the conversation or account changes or the module is
  *   disposed (a clip never keeps playing for a conversation that is no longer
  *   open);
- * - a failed load is reported once, never retried in a loop.
+ * - a failed load walks `voiceCandidates` once, is then reported once, and is
+ *   never retried in a loop (only another user click starts over);
+ * - progress goes to `onProgress` listeners only: it never requests a render.
  */
 
 import type { FeatureContext, FeatureModule } from './context.ts';
@@ -30,44 +29,141 @@ export function isPlayableVoiceUrl(value: unknown): value is string {
   }
 }
 
+/**
+ * URLs to try, in order. The official client rewrites `.aac/.acc/.amr` to `.wav`;
+ * `.amr` has no WebView decoder so it goes straight to `.wav`, the others try the
+ * original first and fall back to `.wav` once.
+ */
+export function voiceCandidates(url: string): readonly string[] {
+  try {
+    const u = new URL(url);
+    const m = /\.(aac|acc|amr)$/i.exec(u.pathname);
+    if (!m) return [url];
+    u.pathname = `${u.pathname.slice(0, -m[0].length)}.wav`;
+    return m[1]!.toLowerCase() === 'amr' ? [u.href] : [url, u.href];
+  } catch {
+    return [url];
+  }
+}
+
 /** The slice of `HTMLAudioElement` the controller needs. */
 export interface AudioLike {
   play(): Promise<void>;
   pause(): void;
   onended: (() => void) | null;
   onerror: (() => void) | null;
+  ontimeupdate?: (() => void) | null;
+  ondurationchange?: (() => void) | null;
+  readonly currentTime?: number;
+  readonly duration?: number;
+  /** Drops the media resource; a stopped clip must not keep downloading. */
+  dispose?(): void;
 }
 
-export type VoiceState = 'idle' | 'playing' | 'error';
+export type VoiceState = 'idle' | 'playing' | 'paused' | 'error';
+
+export interface VoiceProgress {
+  readonly current_s: number;
+  /** From the media element; null until it knows (streams report NaN/Infinity). */
+  readonly duration_s: number | null;
+}
 
 export interface VoicePlayer {
   state(url: string): VoiceState;
-  /** Plays `url` (stopping any other clip) or pauses it when it is already playing. */
+  /** Position of `url` while it is the current clip, else null. */
+  progress(url: string): VoiceProgress | null;
+  /** Plays `url` (stopping any other clip), pauses it when playing, resumes it when paused. */
   toggle(url: string): Promise<VoiceState>;
   stop(): void;
+  /** Fires on time and duration updates of the current clip; returns the unsubscribe. */
+  onProgress(listener: (url: string, progress: VoiceProgress) => void): () => void;
+}
+
+interface Attempt {
+  readonly url: string;
+  readonly audio: AudioLike;
+  readonly index: number;
+  paused: boolean;
 }
 
 export function createVoicePlayer(factory: (url: string) => AudioLike, onChange: () => void): VoicePlayer {
-  let current: { readonly url: string; readonly audio: AudioLike } | null = null;
+  let current: Attempt | null = null;
   const errored = new Set<string>();
+  const listeners = new Set<(url: string, progress: VoiceProgress) => void>();
 
   function release(): void {
     if (!current) return;
     const { audio } = current;
     audio.onended = null;
     audio.onerror = null;
+    audio.ontimeupdate = null;
+    audio.ondurationchange = null;
     try {
       audio.pause();
+      audio.dispose?.();
     } catch {
       // already gone
     }
     current = null;
   }
 
-  return {
+  function progressOf(attempt: Attempt): VoiceProgress {
+    const { currentTime, duration } = attempt.audio;
+    return {
+      current_s: typeof currentTime === 'number' && Number.isFinite(currentTime) && currentTime > 0 ? currentTime : 0,
+      duration_s: typeof duration === 'number' && Number.isFinite(duration) && duration > 0 ? duration : null,
+    };
+  }
+
+  /** The current attempt failed: next candidate if any, otherwise report once. Stale attempts are ignored. */
+  async function fail(attempt: Attempt): Promise<void> {
+    if (current !== attempt) return;
+    release();
+    if (attempt.index + 1 < voiceCandidates(attempt.url).length) {
+      await start(attempt.url, attempt.index + 1);
+      return;
+    }
+    errored.add(attempt.url);
+    onChange();
+  }
+
+  async function start(url: string, index: number): Promise<void> {
+    const audio = factory(voiceCandidates(url)[index]!);
+    const mine: Attempt = { url, audio, index, paused: false };
+    current = mine;
+    const notify = (): void => {
+      if (current !== mine) return;
+      const progress = progressOf(mine);
+      for (const listener of listeners) listener(url, progress);
+    };
+    audio.ontimeupdate = notify;
+    audio.ondurationchange = notify;
+    audio.onended = () => {
+      if (current === mine) {
+        release();
+        onChange();
+      }
+    };
+    audio.onerror = () => void fail(mine);
+    await playAttempt(mine);
+  }
+
+  async function playAttempt(attempt: Attempt): Promise<void> {
+    try {
+      await attempt.audio.play();
+    } catch {
+      // Pausing while play() is pending rejects it: that is the user's pause, not a failed load.
+      if (!attempt.paused) await fail(attempt);
+    }
+  }
+
+  const player: VoicePlayer = {
     state(url) {
-      if (current?.url === url) return 'playing';
+      if (current?.url === url) return current.paused ? 'paused' : 'playing';
       return errored.has(url) ? 'error' : 'idle';
+    },
+    progress(url) {
+      return current?.url === url ? progressOf(current) : null;
     },
     async toggle(url) {
       if (!isPlayableVoiceUrl(url)) {
@@ -76,45 +172,29 @@ export function createVoicePlayer(factory: (url: string) => AudioLike, onChange:
         return 'error';
       }
       if (current?.url === url) {
+        const attempt = current;
+        attempt.paused = !attempt.paused;
+        if (attempt.paused) attempt.audio.pause();
+        else await playAttempt(attempt);
+      } else {
         release();
-        onChange();
-        return 'idle';
-      }
-      release();
-      errored.delete(url);
-      const audio = factory(url);
-      const mine = { url, audio };
-      current = mine;
-      audio.onended = () => {
-        if (current === mine) {
-          release();
-          onChange();
-        }
-      };
-      audio.onerror = () => {
-        if (current === mine) {
-          release();
-          errored.add(url);
-          onChange();
-        }
-      };
-      try {
-        await audio.play();
-      } catch {
-        if (current === mine) release();
-        errored.add(url);
-        onChange();
-        return 'error';
+        errored.delete(url);
+        await start(url, 0);
       }
       onChange();
-      return current === mine ? 'playing' : 'idle';
+      return player.state(url);
     },
     stop() {
       const was = current !== null;
       release();
       if (was) onChange();
     },
+    onProgress(listener) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
   };
+  return player;
 }
 
 export interface VoicePlayerModule extends FeatureModule {
@@ -138,8 +218,36 @@ function browserAudio(url: string): AudioLike {
     set onerror(cb) {
       a.onerror = cb ? () => cb() : null;
     },
+    get ontimeupdate() {
+      return a.ontimeupdate as (() => void) | null;
+    },
+    set ontimeupdate(cb) {
+      a.ontimeupdate = cb ?? null;
+    },
+    get ondurationchange() {
+      return a.ondurationchange as (() => void) | null;
+    },
+    set ondurationchange(cb) {
+      a.ondurationchange = cb ?? null;
+    },
+    get currentTime() {
+      return a.currentTime;
+    },
+    get duration() {
+      return a.duration;
+    },
+    dispose: () => {
+      a.removeAttribute('src');
+      a.load();
+    },
   };
   return wrapper;
+}
+
+/** The player of the registered module, for the message renderer (`main.ts` passes `FEATURES`). */
+export function voicePlayerOf(features: readonly FeatureModule[]): VoicePlayer | null {
+  const module = features.find((f) => f.id === 'voice-player') as VoicePlayerModule | undefined;
+  return module?.player ?? null;
 }
 
 export function createVoicePlayerModule(factory: (url: string) => AudioLike = browserAudio): VoicePlayerModule {

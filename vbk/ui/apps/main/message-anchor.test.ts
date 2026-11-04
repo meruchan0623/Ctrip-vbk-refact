@@ -6,8 +6,8 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import * as viewmodel from './viewmodel.ts';
 import { historyDiagnostics } from './history-diagnostics.ts';
-import { observeHistoryLayout } from './history-layout.ts';
-import { createMessagePane, PIN_THRESHOLD, sameWindow } from './message-pane.ts';
+import { createHistoryLayoutFrames, observeHistoryLayout } from './history-layout.ts';
+import { createMessagePane, HISTORY_RUNWAY, PIN_THRESHOLD, sameWindow } from './message-pane.ts';
 import { messageAlignment } from './message-alignment.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
@@ -23,7 +23,7 @@ interface Node { tag: string; props: Record<string, any>; children: unknown[] }
 const flat = (tree: unknown): unknown[] => (Array.isArray(tree) ? tree.flatMap(flat) : [tree]);
 
 class Pane {
-  top = 0; clientHeight = 400; dataset: Record<string, string>; isConnected = true;
+  top = 0; clientHeight = 400; clientWidth = 600; measurements = 0; dataset: Record<string, string>; isConnected = true;
   readonly parts: { kind: 'row' | 'spacer' | 'other'; height: number; dataset: Record<string, string> }[] = [];
   listener: (() => void) | undefined;
   constructor(node: Node, rowHeight: (id: string) => number) {
@@ -46,9 +46,12 @@ class Pane {
   private rect(index: number) {
     let y = 0;
     for (let i = 0; i < index; i++) y += this.parts[i]!.height;
-    return { top: y - this.top, height: this.parts[index]!.height, dataset: this.parts[index]!.dataset, getBoundingClientRect: () => ({ top: y - this.top, height: this.parts[index]!.height }) };
+    const part = this.parts[index]!;
+    // The real glue resizes the top spacer through its style; layout follows from that write.
+    const style = { set height(value: string) { part.height = Number.parseFloat(value); } };
+    return { top: y - this.top, height: part.height, dataset: part.dataset, style, getBoundingClientRect: () => ({ top: y - this.top, height: part.height }) };
   }
-  querySelectorAll(selector: string) { return selector === '[data-row-id]' ? this.parts.flatMap((p, i) => (p.kind === 'row' ? [this.rect(i)] : [])) : []; }
+  querySelectorAll(selector: string) { this.measurements++; return selector === '[data-row-id]' ? this.parts.flatMap((p, i) => (p.kind === 'row' ? [this.rect(i)] : [])) : []; }
   querySelector(selector: string) { return selector.includes('top') ? this.parts.flatMap((p, i) => (p.dataset['msgSpacer'] === 'top' ? [this.rect(i)] : []))[0] ?? null : null; }
   rowTop(id: string): number { const i = this.parts.findIndex(p => p.dataset['rowId'] === id); if (i < 0) throw new Error('row not mounted ' + id); return this.rect(i).top; }
   mountedIds(): string[] { return this.parts.flatMap(p => (p.kind === 'row' ? [p.dataset['rowId']!] : [])); }
@@ -65,20 +68,20 @@ function fixture(initial: UiMessage[], options: { rowHeight?: (id: string) => nu
   let resize = () => {}, stopLayout = () => {};
   const jsonParses: number[] = [0];
   /** How many times the `.msgs` pane (and so every mounted row) was rebuilt. */
-  const built = { count: 0 };
+  const built = { count: 0, rows: 0 };
   let account: { context: typeof OWNER } = { context: owner };
   let conv: Record<string, unknown> = { gid: '', account: null };
   const env: Record<string, unknown> = {
-    visibleReads: { afterRender() {}, retry() {} }, ...viewmodel, historyDiagnostics, messageAlignment, cx, store, S: () => store.get(), PIN_THRESHOLD, sameWindow,
-    messagePaneModel: createMessagePane(),
+    visibleReads: { afterRender() {}, retry() {} }, ...viewmodel, HISTORY_RUNWAY, historyDiagnostics, part: (_name: string, build: () => unknown) => build(), featureRuntime: { renderSlot: () => [] }, messageAlignment, cx, store, S: () => store.get(), PIN_THRESHOLD, sameWindow,
+    messagePaneModel: createMessagePane(), createHistoryLayoutFrames,
     subscribeFrame: subscribeBatched, fillHistoryViewport() {}, syncConversationViewport() {},
     // Like the real app, the account and conversation objects are stable references between renders.
     activeAccount: () => (account.context === owner ? account : (account = { context: owner })),
     activeConv: () => (conv.gid === store.get().activeGid && conv.account === owner ? conv : (conv = { gid: store.get().activeGid, account: owner, waiting_since_ms: null, status: 'active', service_type: 'chat', lang: 'en', title: 'Synthetic Customer', color: '#aaa' })),
     document: { querySelector: () => pane }, getComputedStyle: () => ({ marginBottom: '0px' }), queueMicrotask, Element: class {}, CSS: { escape: encodeURIComponent },
-    composerInput: { deferRender: () => false }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (k: string) => k, icon: () => null, IC: {}, richText: (text: string) => [text],
-    h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => { if (props?.['class'] === 'msgs') built.count++; return { tag, props: props ?? {}, children, dataset: props?.['dataset'] ?? {} }; },
-    netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, langName: (c: string) => c, openConversation: () => {}, loadEarlier: () => {}, setTimeout, clearTimeout,
+    inboundTranslation: { view: () => null, supplier: () => null }, refreshMessageTranslation() {}, composerInput: { deferRender: () => false }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (k: string) => k, icon: () => null, IC: {}, richText: (text: string) => [text],
+    h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => { if (props?.['class'] === 'msgs') built.count++; if (props?.['dataset']?.['rowId']) built.rows++; return { tag, props: props ?? {}, children, dataset: props?.['dataset'] ?? {} }; },
+    netEverConnected: true, netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, langName: (c: string) => c, openConversation: () => {}, loadEarlier: () => {}, setTimeout, clearTimeout,
     stopHistoryLayout: () => stopLayout(),
     startHistoryLayout: (scroll: Pane, capture: () => unknown, restore: (a: unknown) => void, current: () => boolean) => {
       class Observer { constructor(fn: () => void) { resize = fn; } observe() {} disconnect() {} }
@@ -94,17 +97,21 @@ function fixture(initial: UiMessage[], options: { rowHeight?: (id: string) => nu
   // paneGeometry .. persistMessageView/onMessageScroll/withMessageAnchor share module state through env/globals.
   const anchorStart = source.indexOf('function paneGeometry('), anchorEnd = source.indexOf('\nfunction messageRow(', anchorStart);
   const anchorNames = ['paneGeometry', 'measureMessagePane', 'captureMessageAnchor', 'restoreMessageAnchor', 'persistMessageView', 'onMessageScroll', 'withMessageAnchor'];
-  const anchors = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(anchorStart, anchorEnd)) + `\nreturn { ${anchorNames.join(', ')} };`)(...Object.values(env));
-  Object.assign(env, anchors);
   env['messageRow'] = slice('messageRow', 'function translationBar(');
   const cacheStart = source.indexOf('let messagePaneCache:'), cacheEnd = source.indexOf('function chatPane(', cacheStart);
-  env['messagePane'] = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(cacheStart, cacheEnd)) + '\nreturn messagePane;')(...Object.values(env));
+  // Match the module's shared lexical cache: anchor glue must see the current pane revision.
+  const anchors = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(anchorStart, anchorEnd) + '\n' + source.slice(cacheStart, cacheEnd)) + `\nreturn { ${anchorNames.join(', ')}, messagePane };`)(...Object.values(env));
+  Object.assign(env, anchors);
   const chatPane = slice('chatPane', 'function messagesView(');
   const find = (tree: any): Node | null => { if (!tree || typeof tree !== 'object') return null; if (Array.isArray(tree)) { for (const c of tree) { const r = find(c); if (r) return r; } return null; } return tree.props?.dataset?.keepScroll === 'msgs' ? tree : find(tree.children); };
   // What ui-kit rerender does: keep numeric scrollTop, or follow the bottom when the node says so.
+  let previousNode: Node | null = null;
   env['rerender'] = (_root: unknown, build: () => unknown) => {
     const previous = pane?.scrollTop ?? 0;
     const node = find(build());
+    // Morph keeps a node it is handed back on the page, with whatever was written to it since.
+    if (pane && node && node === previousNode) return;
+    previousNode = node;
     pane = node ? new Pane(node, heightOf) : null;
     if (pane) pane.scrollTop = pane.dataset['scrollBottom'] === '1' ? pane.scrollHeight : previous;
   };
@@ -222,4 +229,74 @@ test('the managed pane keeps native anchoring off and rows own their spacing (sp
   assert.match(css.match(/\.msgs\s*\{([^}]+)\}/)?.[1] ?? '', /overflow-anchor\s*:\s*none\b/);
   assert.doesNotMatch(css.match(/\.msgs\s*\{([^}]+)\}/)?.[1] ?? '', /\bgap\s*:/);
   assert.match(css, /\.msgs > \.msg,[^{]*\{[^}]*margin-bottom/);
+});
+
+
+test('retained message DOM avoids row geometry reads on 100 draft/sidebar frames', async () => {
+  const f = fixture(thread(10_000));
+  await f.open();
+  await f.scrollTo(100 * 5000); await f.scrollTo(100 * 5000);
+  const pane = f.pane;
+  pane.measurements = 0;
+  for (let i = 0; i < 100; i++) { f.store.patch({ draft: `draft-${i}`, pkgOpen: i % 2 === 0 }); await f.settle(); }
+  assert.equal(f.pane, pane, 'the same rendered message window remains mounted');
+  assert.equal(pane.measurements, 0, 'no row queries/rect/style reads for unchanged content and geometry');
+  pane.clientWidth -= 120;
+  f.store.patch({}); await f.settle();
+  assert.ok(pane.measurements > 0, 'width change must measure even with the same message array and node');
+});
+
+const restoreWrites = () => historyDiagnostics.snapshot().events.filter(e => e.stage === 'restore').length;
+
+test('a mounted pane is never pulled back by scrollTop: scrolling, a landed page and resolved media all hold the rows through the spacer', async () => {
+  historyDiagnostics.clear(); historyDiagnostics.start();
+  const f = fixture(thread(400, 100), { rowHeight: id => 60 + Number(id.slice(3)) % 7 * 40 });
+  await f.open();
+  await f.scrollTo(f.pane.scrollTop - 4000);
+  const writes = restoreWrites();
+  for (let i = 0; i < 40; i++) await f.scrollTo(f.pane.scrollTop - 90);
+  const reading = f.pane.readingRow(), before = f.pane.rowTop(reading);
+  await f.setMessages(viewmodel.mergeHistory(thread(100), f.store.get().messages[GID]));
+  assert.ok(Math.abs(f.pane.rowTop(reading) - before) < 0.01, 'page landed');
+  const above = f.pane.mountedIds()[f.pane.mountedIds().indexOf(reading) - 1]!;
+  await f.grow(above, 240);
+  assert.ok(Math.abs(f.pane.rowTop(reading) - before) < 0.01, 'media resolved');
+  assert.equal(restoreWrites(), writes, 'no restore wrote scrollTop');
+  historyDiagnostics.clear();
+});
+
+test('an old stored anchor cannot move a retained pane', async () => {
+  const f = fixture(thread(400));
+  await f.open();
+  await f.scrollTo(100 * 200); await f.scrollTo(100 * 200);
+  const stale = f.store.get().messageView.anchor;
+  await f.scrollTo(100 * 150); await f.scrollTo(100 * 150);
+  f.store.patch({ messageView: { ...f.store.get().messageView, anchor: stale } });
+  const reading = f.pane.readingRow(), before = f.pane.rowTop(reading), top = f.pane.scrollTop;
+  (f.env['restoreMessageAnchor'] as (a: unknown) => void)(null);
+  assert.equal(f.pane.scrollTop, top);
+  assert.equal(f.pane.rowTop(reading), before);
+});
+
+test('paging state and a landed page rebuild only the rows that are new', async () => {
+  const f = fixture(thread(100, 300));
+  await f.open();
+  await f.scrollTo(f.pane.scrollTop - 1500); await f.scrollTo(f.pane.scrollTop);
+  f.built.rows = 0;
+  f.store.patch({ history: { [GID]: { hasMore: true, beforeMs: 1, busy: true } } }); await f.settle();
+  assert.equal(f.built.rows, 0, 'the busy flag touches no row');
+  const mounted = new Set(f.pane.mountedIds());
+  await f.setMessages(viewmodel.mergeHistory(thread(100, 200), f.store.get().messages[GID]));
+  const entered = f.pane.mountedIds().filter(id => !mounted.has(id)).length;
+  assert.equal(f.built.rows, entered, 'rows that stayed mounted were reused');
+});
+
+test('a row with an ICCID button is rebuilt when the thread snapshot it is bound to changes', async () => {
+  const iccid = msg('iccid', 5000, { text: '89860012345678901234' });
+  assert.ok(viewmodel.highlightParts(iccid.text).some(part => part.kind === 'iccid'));
+  const f = fixture([...thread(20), iccid]);
+  await f.open();
+  f.built.rows = 0;
+  await f.setMessages([...f.store.get().messages[GID]]);
+  assert.equal(f.built.rows, 1);
 });

@@ -18,7 +18,24 @@ export function packageFailure(error: unknown): { failure: 'login' | 'permission
   if (code === 'net.timeout') return { failure: 'error', error: '查询超时，请手动刷新；不会自动重复请求。' };
   return { failure: 'error', error: '套餐查询未完成，可能是会话、订单或 TSim 身份已变化。请核对后刷新。' };
 }
-export type PackagePlanInfo = Omit<UiPackageInfo, 'remain_pct'> & { readonly remain_pct: number | null; readonly usage_scope?: 'daily' | 'total'; readonly unlimited?: boolean; readonly detail_fields?: readonly UiPackageField[]; readonly live_fields?: readonly UiPackageField[]; readonly cdrs?: readonly (readonly UiPackageField[])[] };
+export type PackagePlanInfo = Omit<UiPackageInfo, 'remain_pct'> & { readonly remain_pct: number | null; readonly usage_scope?: 'daily' | 'total'; readonly unlimited?: boolean; readonly detail_fields?: readonly UiPackageField[]; readonly live_fields?: readonly UiPackageField[]; readonly cdrs?: readonly (readonly UiPackageField[])[]; readonly order_time?: string; readonly reissues?: readonly PackageReissue[] };
+/** 补发套餐：ready 必带完整套餐投影，error 不带任何套餐数据。 */
+export interface PackageReissue { readonly create_time_ms: number | null; readonly state: 'ready' | 'error'; readonly info: PackagePlanInfo | null }
+export const MAX_PACKAGE_REISSUES = 10;
+export function reissuesFrom(value: unknown): readonly PackageReissue[] | null {
+  if (!Array.isArray(value) || value.length > MAX_PACKAGE_REISSUES) return null;
+  const list: PackageReissue[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return null;
+    const { create_time_ms: at, state, info } = item as { create_time_ms?: unknown; state?: unknown; info?: unknown };
+    if (at !== null && !(typeof at === 'number' && Number.isFinite(at) && at > 0)) return null;
+    if (state === 'error') { if (info !== null) return null; list.push({ create_time_ms: at as number | null, state, info: null }); continue; }
+    const projected = state === 'ready' ? packageInfo(info, true) : null;
+    if (!projected) return null;
+    list.push({ create_time_ms: at as number | null, state: 'ready', info: projected });
+  }
+  return list;
+}
 const DETAIL_LABELS = new Set(['ICCID', '业务流水号', '渠道套餐', '来源套餐', '供应商', '渠道', '套餐状态', '查询状态', '支持地区', 'APN', '有效期', 'eSIM状态', 'eSIM更新时间', 'EID', '设备型号', '累计用量（MB）', '当日用量（MB）', '套餐规格']);
 const LIVE_LABELS = new Set(['实时状态', '累计用量（MB）', '当日用量（MB）', '容量（MB）', '套餐规格', 'APN', 'eSIM状态', 'EID', '设备型号', '原始累计用量（MB）']);
 const CDR_LABELS = new Set(['更新时间', '更新时间戳', '日期', '开始时间', '结束时间', '时间', '时长（秒）', '国家/地区', '地区', '运营商', '网络', '上行（MB）', '下行（MB）', '总用量（MB）', '总用量（KB）']);
@@ -56,7 +73,9 @@ function summaryFrom(value: unknown, c: PackageContext): UiOrderPackageSummary |
   const s = value as UiOrderPackageSummary, a = c.account;
   if (s.account?.account_id !== a.account_id || s.account.environment !== a.environment || s.account.session_generation !== a.session_generation || s.gid !== c.conversation.gid || s.order_id !== packageOrderId(c.conversation) || s.context_revision !== c.conversation.assistant_context_revision || s.session_epoch !== c.identity.session_epoch || !s.query_handle || typeof s.query_handle !== 'string' || !Array.isArray(s.plans) || !Number.isSafeInteger(s.total) || s.total < s.plans.length || !Number.isFinite(s.fetched_at_ms)) return null;
   const plans: UiOrderPackagePlan[] = [];
-  for (const plan of s.plans) { const info = packageInfo(plan, true); if (!info || typeof plan.detail_handle !== 'string' || !plan.detail_handle || plans.some(p => p.detail_handle === plan.detail_handle)) return null; plans.push({ ...info, detail_handle: plan.detail_handle }); }
+  for (const plan of s.plans) { const info = packageInfo(plan, true); if (!info || typeof plan.detail_handle !== 'string' || !plan.detail_handle || plans.some(p => p.detail_handle === plan.detail_handle)) return null; const orderTime = (plan as UiOrderPackagePlan).order_time, reissues = (plan as UiOrderPackagePlan).reissues === undefined ? undefined : reissuesFrom((plan as UiOrderPackagePlan).reissues);
+    if (orderTime !== undefined && (typeof orderTime !== 'string' || orderTime.length > 64) || reissues === null) return null;
+    plans.push({ ...info, detail_handle: plan.detail_handle, ...(orderTime ? { order_time: orderTime } : {}), ...(reissues?.length ? { reissues } : {}) }); }
   return { account: { ...a }, gid: s.gid, order_id: s.order_id, context_revision: s.context_revision, session_epoch: s.session_epoch, query_handle: s.query_handle, plans, total: s.total, fetched_at_ms: s.fetched_at_ms };
 }
 

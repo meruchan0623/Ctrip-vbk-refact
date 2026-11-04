@@ -28,13 +28,14 @@ function fixture(messages: UiMessage[], selected: UiMessage | null = original) {
     renderMessageAvatar: () => h('span', null, 'avatar'), document: {},
     activeAccount: () => account, activeConv: () => conv, stillActive: () => true,
     S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) },
-    t: (key: string) => key, icon: () => null, IC: {}, richText: (text: string) => [text],
+    inboundTranslation: { view: () => null, supplier: () => null }, refreshMessageTranslation() {}, t: (key: string) => key, icon: () => null, IC: {}, richText: (text: string) => [text],
     formatDate: () => 'synthetic-date', formatClock: () => 'synthetic-time',
     translationOn: () => false, translationBar: () => null, notWired: (node: unknown) => node,
     isDone: () => false, isAppError: () => false,
     UiCommands: { IM_SEND_TEXT: 'im_send_text' },
     ipc: { invoke: async (command: string, payload: Record<string, unknown>) => { commands.push({ command, payload }); return { kind: 'confirmed', server_message_id: 'synthetic-new-message', server_time_ms: 1800000000100 }; } },
     upsertMessage: (_message: unknown) => true,
+    ctool: (id: string, label: string) => h('button', { dataset: { tool: id } }, label), composerMoreMenu: () => null, formatFileSize: () => '',
   };
   function run(name: string, next: string, async = false): (...args: unknown[]) => unknown {
     const start = source.indexOf(`${async ? 'async ' : ''}function ${name}(`);

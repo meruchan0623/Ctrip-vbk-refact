@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLayout, captureAnchor, findAnchorIndex, layoutTotal, rowId, RowHeights, rowIndexAt, scrollTopFor, windowRange, ROW_ESTIMATE } from './message-window.ts';
+import { buildLayout, captureAnchor, coversViewport, findAnchorIndex, layoutTotal, rowId, RowHeights, rowIndexAt, scrollTopFor, windowRange, ROW_ESTIMATE, ROW_MARGIN, ROW_OVERSCAN } from './message-window.ts';
 import { historyKeyMatchesMessage, historyKeyOf, historyKeyString, historyKeysMatch, parseHistoryKey } from './history-key.ts';
 
 type Row = { message_id: string | null; local_id: string | null; sender_role: string; sender_id?: string; create_time_ms: number; kind: string; text: string };
@@ -12,6 +12,58 @@ test('window range covers the viewport with overscan and clamps at both ends', (
   assert.deepEqual(windowRange(layout, 50_000, 400, 2), { start: 498, end: 506 });
   assert.deepEqual(windowRange(layout, 999_999, 400, 2), { start: 997, end: 1000 });
   assert.deepEqual(windowRange(buildLayout(0, () => 1), 0, 400), { start: 0, end: 0 });
+});
+
+test('a mounted window is kept while it has a row margin on both sides of the viewport', () => {
+  const layout = buildLayout(1000, () => 100);
+  const row = (n: number) => n * 100;
+  // Window computed at row 500 (viewport 400 = rows 500..503): rows 488..515 with the default overscan.
+  const range = windowRange(layout, row(500), 400);
+  assert.deepEqual(range, { start: 500 - ROW_OVERSCAN, end: 504 + ROW_OVERSCAN });
+  assert.ok(ROW_MARGIN < ROW_OVERSCAN, 'a fresh window must always satisfy its own margin');
+  assert.equal(coversViewport(layout, range, row(500), 400), true, 'where it was computed');
+  const slack = ROW_OVERSCAN - ROW_MARGIN;
+  assert.equal(coversViewport(layout, range, row(500 + slack), 400), true, 'down to the last row with a full margin');
+  assert.equal(coversViewport(layout, range, row(500 + slack + 1), 400), false, 'one row further eats into the margin');
+  assert.equal(coversViewport(layout, range, row(500 - slack), 400), true, 'up to the first row with a full margin');
+  assert.equal(coversViewport(layout, range, row(500 - slack - 1), 400), false);
+  assert.equal(coversViewport(layout, range, row(500 + slack) - 1, 400), true);
+  assert.equal(coversViewport(layout, range, row(500 + slack) + 1, 400), false, 'the viewport bottom entering the next row already needs it as margin');
+  // The margin is a parameter: with none, the window lasts until a visible row would be unmounted.
+  assert.equal(coversViewport(layout, range, row(500 + ROW_OVERSCAN), 400, 0), true);
+  assert.equal(coversViewport(layout, range, row(500 + ROW_OVERSCAN + 1), 400, 0), false);
+  // A window built with less overscan than the margin is not kept.
+  assert.equal(coversViewport(layout, windowRange(layout, row(500), 400, 2), row(500), 400), false);
+  assert.equal(coversViewport(layout, windowRange(layout, row(500), 400, 2), row(500), 400, 2), true);
+  // Visible rows outside the range are never acceptable, whatever the margin.
+  assert.equal(coversViewport(layout, { start: 0, end: 502 }, row(500), 400, 0), false);
+  assert.equal(coversViewport(layout, { start: 501, end: 600 }, row(500), 400, 0), false);
+});
+
+test('window margin is clamped at the list ends and a stale range never passes', () => {
+  const layout = buildLayout(1000, () => 100);
+  const head = windowRange(layout, 0, 400);
+  assert.deepEqual(head, { start: 0, end: 4 + ROW_OVERSCAN });
+  assert.equal(coversViewport(layout, head, 0, 400), true, 'no rows above the head are required');
+  assert.equal(coversViewport(layout, head, 100 * (ROW_OVERSCAN - ROW_MARGIN), 400), true);
+  assert.equal(coversViewport(layout, head, 100 * (ROW_OVERSCAN - ROW_MARGIN + 1), 400), false);
+  const tail = windowRange(layout, 999_999, 400);
+  assert.deepEqual(tail, { start: 999 - ROW_OVERSCAN, end: 1000 });
+  assert.equal(coversViewport(layout, tail, 999_999, 400), true, 'no rows below the tail are required');
+  assert.equal(coversViewport(layout, tail, 100 * 996, 400), true);
+  assert.equal(coversViewport(layout, tail, 100 * (999 - ROW_OVERSCAN + ROW_MARGIN) - 1, 400), false);
+  // Pinned at the bottom the last row must be mounted; a window that stops short is replaced.
+  assert.equal(coversViewport(layout, { start: 980, end: 999 }, layoutTotal(layout) - 400, 400), false);
+  // Ranges that do not fit the layout (shrunk list, bad bounds) are never kept.
+  assert.equal(coversViewport(layout, { start: 987, end: 1001 }, 999_999, 400), false);
+  assert.equal(coversViewport(layout, { start: -1, end: 20 }, 0, 400), false);
+  assert.equal(coversViewport(layout, { start: 5, end: 5 }, 0, 400), false);
+  assert.equal(coversViewport(buildLayout(3, () => 100), { start: 0, end: 16 }, 0, 400), false, 'range from a longer list');
+  // Empty layout: only the empty window counts as covering.
+  const empty = buildLayout(0, () => 1);
+  assert.equal(coversViewport(empty, { start: 0, end: 0 }, 0, 400), true);
+  assert.equal(coversViewport(empty, { start: 0, end: 0 }, 5000, 400), true);
+  assert.equal(coversViewport(empty, { start: 0, end: 5 }, 0, 400), false);
 });
 
 test('10k rows mount a bounded window and layout lookups are logarithmic in shape', () => {
@@ -88,4 +140,29 @@ test('history key struct is byte-compatible with the legacy string and parses on
   assert.ok(!historyKeysMatch(key, historyKeyOf('other', row('m', 'l'))));
   assert.ok(historyKeyMatchesMessage(historyKeyOf('s', row(null, 'l')), row('m', 'l')));
   assert.ok(!historyKeyMatchesMessage(historyKeyOf('s', row('m1', 'l')), row('m2', 'l')));
+});
+
+test('anchor lookup reuses immutable-list identity results across offsets and recreated keys', () => {
+  let reads = 0;
+  const list = Array.from({ length: 20_000 }, (_, i) => ({ ...row(`m${i}`, null), get sender_role() { reads++; return 'customer'; } }));
+  const anchor = { scope: 's', key: historyKeyOf('s', row('m10000', null)), offset: 0 };
+  assert.equal(findAnchorIndex(list, anchor), 10_000);
+  assert.equal(reads, 20_000, 'first lookup verifies uniqueness across the complete list');
+  for (let i = 0; i < 10; i++) assert.equal(findAnchorIndex(list, { ...anchor, key: { ...anchor.key }, offset: -i }), 10_000);
+  assert.equal(reads, 20_000, 'repeated identity does not read message fields');
+  assert.equal(findAnchorIndex(list, { ...anchor, scope: 'other', key: { ...anchor.key, scope: 'other' } }), 10_000);
+  assert.equal(reads, 40_000, 'scope has a separate cache entry');
+  assert.equal(findAnchorIndex([...list, row('m10000', 'confirmed')], anchor), -1, 'replacement list rechecks duplicate identities');
+  assert.equal(findAnchorIndex(list, { ...anchor, key: { ...anchor.key, role: 'merchant_self' } }), -1, 'role is part of cached identity');
+});
+
+test('anchor cache keeps server conflicts distinct from local confirmation aliases', () => {
+  const list = [row('server-a', 'local', { sender_id: 'Alice' }), row('server-b', 'local', { sender_id: 'Bob' })];
+  const local = { scope: 's', key: historyKeyOf('s', row(null, 'local')), offset: 0 };
+  assert.equal(findAnchorIndex(list, local), -1);
+  assert.equal(findAnchorIndex(list, local), -1, 'ambiguous result is cached');
+  const confirmed = { ...local, key: historyKeyOf('s', row('server-a', 'local')) };
+  assert.equal(findAnchorIndex(list, confirmed), 0, 'explicit different server id cannot alias by local id');
+  assert.equal(findAnchorIndex(list, { ...local, key: historyKeyOf('s', row(null, 'local', { sender_id: 'alice' })) }), 0);
+  assert.equal(findAnchorIndex(list, { ...local, key: historyKeyOf('s', row(null, 'local', { sender_id: 'bob' })) }), 1);
 });

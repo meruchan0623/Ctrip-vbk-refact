@@ -1,3 +1,6 @@
+import { isUiAccountSnapshot } from '../_shared/guards.ts';
+import { createAccountNavigation } from './account-navigation.ts';
+import { EMPTY_NOTICE_QUERY } from './notice-query.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -22,11 +25,11 @@ function fixture() {
   const rows = [row('customer', 'B2C'), row('customer-finished', 'C2B', 'finished'), row('customer-status-unknown', 'B2MC', 'unknown'), row('enterprise', 'B2B'), row('special-customer', 'O2B', 'active', '2573'), row('ordinary-enterprise', 'O2B'), row('missing'), row('null-type', null, 'finished'), row('future-type', 'FUTURE', 'active')];
   const store = createStore<Record<string, any>>({ accounts: { active_account_id: account.account_id, accounts: [{ context: account, state: 'online' }], max_accounts: 16 }, conversations: rows, business: 'customer', tab: 'doing', query: '', activeGid: 'customer', draft: 'SYNTHETIC DRAFT', drafts: { customer: 'SYNTHETIC DRAFT' }, messages: {}, now: 1000, agent: { status: 'online', confirmed: true }, net: null, ctxMenu: null, meMenu: false });
   const sideEffects: unknown[] = [];
-  const env: Record<string, any> = { ...vm, document: {}, store, S: () => store.get(), cx, activeAccount: () => ({ context: account, state: 'online' }), h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, icon: () => null, IC: {}, accBadge: () => null, formatRelativeTime: () => '', renderMessageAvatar: () => null, formatDuration: () => '', RED_AFTER_SECONDS: 90, waitedSeconds: () => 0, openConversation: (...args: unknown[]) => sideEffects.push(args), ipc: { invoke: (...args: unknown[]) => sideEffects.push(args) } };
+  const env: Record<string, any> = { netEverConnected: true, accountNavigation: createAccountNavigation({ switch: async () => null, snapshot: async () => null, valid: isUiAccountSnapshot }), closeCommerce() {}, noticeQuery: { reset() {} }, ...vm, document: {}, store, part: (_name: string, build: () => unknown) => build(), S: () => store.get(), cx, activeAccount: () => ({ context: account, state: 'online' }), h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, icon: () => null, IC: {}, accBadge: () => null, formatRelativeTime: () => '', renderMessageAvatar: () => null, formatDuration: () => '', RED_AFTER_SECONDS: 90, waitedSeconds: () => 0, openConversation: (...args: unknown[]) => sideEffects.push(args), ipc: { invoke: (...args: unknown[]) => sideEffects.push(args) } };
   const a = source.indexOf('function conversationList('), b = source.indexOf('\nfunction contextMenu(', a);
   const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn conversationList;')(...Object.values(env));
   const resetA = source.indexOf('const ACCOUNT_SCOPED_RESET ='), resetB = source.indexOf('} as const satisfies Partial<MainState>;', resetA) + '} as const satisfies Partial<MainState>;'.length;
-  const reset = new Function('TRANSLATION_IDLE', 'PKG_IDLE', stripTypeScriptTypes(source.slice(resetA, resetB)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {});
+  const reset = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', stripTypeScriptTypes(source.slice(resetA, resetB)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {}, EMPTY_NOTICE_QUERY);
   Object.assign(env, { ACCOUNT_SCOPED_RESET: reset, activeAccount: () => store.get().accounts.accounts.find((a: any) => a.context.account_id === store.get().accounts.active_account_id), peripheral: { close() {} }, receiveDiagnostics: { close() {} }, unknownOutbound: { close() {} }, loadForActiveAccount: async () => undefined });
   const accountA = source.indexOf('function applyAccountSnapshot('), accountB = source.indexOf('\nasync function switchAccount(', accountA);
   const applyAccount = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(accountA, accountB)) + '\nreturn applyAccountSnapshot;')(...Object.values(env));
@@ -47,10 +50,35 @@ test('customer-only list has exactly pending/done tabs and preserves room/draft 
 test('customer counts ignore search and legacy business selection cannot expose enterprise rows', () => {
   const f = fixture(); f.store.patch({ query: 'special', business: 'enterprise' });
   assert.deepEqual(visible(f.tree()), ['special-customer']);
-  assert.equal(nodes(f.tree()).find(n => n.props.dataset?.serving)?.props.dataset.serving, '3');
+  assert.equal(nodes(f.tree()).find(n => n.props.dataset?.tab === 'doing')?.children[0], 'list.doing 3');
+  assert.ok(!nodes(f.tree()).some(n => n.props.dataset?.serving), 'counts appear only in the tabs below the status control');
   const other = { ...account, account_id: 'synthetic-other' };
   f.applyAccount({ active_account_id: other.account_id, max_accounts: 16, accounts: [{ context: other, state: 'online' }] });
   assert.equal(f.store.get().business, 'customer'); assert.equal(f.store.get().tab, 'doing');
+});
+
+test('work status menu opens beside its own button, toggles closed, and resets on account switch', () => {
+  const f = fixture();
+  const toggle = () => {
+    const button = nodes(f.tree()).find(n => n.props.dataset?.fid === 'agent-status-toggle');
+    assert.ok(button);
+    button.props.onclick({ stopPropagation() {} });
+  };
+  toggle();
+  assert.equal(f.store.get().meMenu, 'status');
+  const control = nodes(f.tree()).find(n => n.props.class === 'agent-status-control');
+  assert.ok(control);
+  const menu = nodes(control).find(n => n.props.id === 'agent-status-menu');
+  assert.ok(menu, 'menu is a child of the status button positioning container');
+  assert.deepEqual(nodes(menu).filter(n => n.props.dataset?.agentStatus).map(n => n.props.dataset.agentStatus), vm.AGENT_STATUS_ORDER);
+  assert.equal(nodes(control).find(n => n.props.dataset?.fid === 'agent-status-toggle')?.props['aria-expanded'], 'true');
+  toggle();
+  assert.equal(f.store.get().meMenu, false);
+  toggle();
+  assert.equal(f.store.get().meMenu, 'status');
+  const other = { ...account, account_id: 'synthetic-other' };
+  f.applyAccount({ active_account_id: other.account_id, max_accounts: 16, accounts: [{ context: other, state: 'online' }] });
+  assert.equal(f.store.get().meMenu, false);
 });
 
 test('large lists mount only a viewport and scrolling reaches the end', () => {
@@ -134,4 +162,16 @@ test('an unrelated re-render hands back the same row nodes; only rows whose inpu
   const fourth = rows(f.tree());
   assert.notEqual(fourth.get(changed), third.get(changed), 'a changed conversation rebuilds its row');
   if (other) assert.equal(fourth.get(other), third.get(other), 'an untouched conversation keeps its row');
+});
+
+test('empty server previews fall back to latest visible self or system text and invalidate cached rows', () => {
+  const f = fixture();
+  f.store.patch({ conversations: [{ ...row('customer', 'B2C'), preview: '' }] });
+  const preview = () => nodes(f.tree()).find(n => n.props.class === 'cprev')?.children[0];
+  assert.equal(preview(), '');
+  const message = { gid: 'customer', kind: 'text', sender_role: 'merchant_self', text: '不客气', create_time_ms: 20 };
+  f.store.patch({ messages: { customer: [message, {...message, sender_role: 'customer', text: '谢谢', create_time_ms: 10}] } });
+  assert.equal(preview(), '不客气');
+  f.store.patch({ messages: { customer: [message, {...message, kind: 'system', text: '会话已结束', create_time_ms: 30}] } });
+  assert.equal(preview(), '会话已结束');
 });

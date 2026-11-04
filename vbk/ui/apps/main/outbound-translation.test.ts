@@ -30,10 +30,10 @@ function inbound(text: string): UiMessage {
   return { gid, message_id: 'synthetic-in-1', local_id: null, create_time_ms: 1, sender_role: 'customer', sender_id: 'synthetic-customer', sender_name: null, sender_avatar: null, kind: 'text', text, translation: null, original: null, quote: null, order_id: null, disposition: null };
 }
 
-function fixture(opts: { mode?: 'replace_draft' | 'send_direct'; lang?: string; status?: string; customer?: string } = {}) {
+function fixture(opts: { mode?: 'replace_draft' | 'send_direct'; sendKey?: 'enter' | 'ctrl_enter'; lang?: string; status?: string; customer?: string } = {}) {
   // 官方行 languageInfo.lang = zh_HK → langOf 归为 zh；客户实际写俄语。
   const conv = { gid, account, status: opts.status ?? 'active', unread_count: 0, lang: opts.lang ?? 'zh', draft: '', title: 'SYNTHETIC', color: '#aaa' };
-  const store = createStore({ accounts: { active_account_id: account.account_id, accounts: [{ context: account, state: 'online', color: '#aaa' }] }, conversations: [conv], activeGid: gid, messages: { [gid]: [inbound(opts.customer ?? CUSTOMER_RU)] } as Record<string, UiMessage[]>, history: {}, banners: [], view: 'messages', draft: '', drafts: {} as Record<string, string>, draftVersion: 1, quote: null, attachment: null, attachmentSelection: null, mediaOperation: null, translation: { ...vm.TRANSLATION_IDLE } as vm.TranslationState, prefs: { assistant: { enabled: true, outbound_translation: true, send_mode: opts.mode ?? 'replace_draft' }, keys: { send_key: 'enter', screenshot: '' } }, trBarOff: false, emoOpen: false, hideInboundTr: false });
+  const store = createStore({ accounts: { active_account_id: account.account_id, accounts: [{ context: account, state: 'online', color: '#aaa' }] }, conversations: [conv], activeGid: gid, messages: { [gid]: [inbound(opts.customer ?? CUSTOMER_RU)] } as Record<string, UiMessage[]>, history: {}, banners: [], view: 'messages', draft: '', drafts: {} as Record<string, string>, draftVersion: 1, quote: null, attachment: null, attachmentSelection: null, mediaOperation: null, translation: { ...vm.TRANSLATION_IDLE } as vm.TranslationState, prefs: { assistant: { enabled: true, outbound_translation: true, send_mode: opts.mode ?? 'replace_draft' }, keys: { send_key: opts.sendKey ?? 'enter', screenshot: '' } }, trBarOff: false, emoOpen: false, hideInboundTr: false });
   const calls: { command: string; payload: any }[] = [], notices: string[] = [];
   let translateResult: unknown = null;
   const invoke = async (command: string, payload: any) => {
@@ -42,14 +42,15 @@ function fixture(opts: { mode?: 'replace_draft' | 'send_direct'; lang?: string; 
     if (value instanceof Error) throw value;
     return value;
   };
-  const env: Record<string, any> = { ...vm, ...composerBoundary, settleAccountSend, isAppError, isUiMessage, mergeMessageProfile, cx, store, S: () => store.get(), ipc: { invoke }, invokeSafe: invoke, invokeQuiet: invoke, UiCommands: { IM_SEND_TEXT: 'send', ASSIST_TRANSLATE: 'translate', IM_SEND_MEDIA: 'media' }, toast: (text: string) => notices.push(text), errorMessage: (e: unknown) => (e instanceof Error ? e.message : 'synthetic error'), t: (key: string) => key, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, TR_TARGETS: vm.OUTBOUND_TARGETS, langName: (c: string) => c, notWired: (n: unknown) => n, copyText() {}, openPeripheral() {}, trTimer: null, composerInput: { bind: () => ({}), active: () => false, revision: () => 0 }, visibleReads: { retry() {}, afterRender() {} } };
+  const env: Record<string, any> = { quickReplies: { close() {}, suggest() {} }, quickRepliesView: () => ({ tag: 'div', props: { class: 'synthetic-suggestions' }, children: [] }), replyContext: () => null, ...vm, ...composerBoundary, settleAccountSend, isAppError, isUiMessage, mergeMessageProfile, cx, store, S: () => store.get(), ipc: { invoke }, invokeSafe: invoke, invokeQuiet: invoke, UiCommands: { IM_SEND_TEXT: 'send', ASSIST_TRANSLATE: 'translate', IM_SEND_MEDIA: 'media' }, toast: (text: string) => notices.push(text), errorMessage: (e: unknown) => (e instanceof Error ? e.message : 'synthetic error'), t: (key: string) => key, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, TR_TARGETS: vm.OUTBOUND_TARGETS, langName: (c: string) => c, notWired: (n: unknown) => n, copyText() {}, openPeripheral() {}, trTimer: null, composerInput: { bind: () => ({}), active: () => false, revision: () => 0 }, visibleReads: { retry() {}, afterRender() {} } };
   function actual(name: string): (...args: any[]) => any {
     const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name);
     const tail = source.slice(a), next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z])/.exec(tail); assert.ok(next, name);
     return new Function(...Object.keys(env), stripTypeScriptTypes(tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env));
   }
   for (const name of ['activeAccount', 'activeConv', 'stillActive', 'upsertMessage', 'translationOn', 'translationTarget', 'sendText', 'translateAndSend', 'runPreviewTranslation', 'scheduleTranslation', 'sendMediaAttachment', 'composerInputContext']) env[name] = actual(name);
-  for (const name of ['setDraft', 'handleSend', 'translationBar', 'composer']) env[name] = actual(name);
+  env['setSendMode'] = () => {};
+  for (const name of ['setDraft', 'handleSend', 'translationBar', 'ctool', 'formatFileSize', 'composerMoreMenu', 'composer']) env[name] = actual(name);
   return {
     store, calls, notices, env,
     get state() { return store.get(); },
@@ -116,7 +117,7 @@ test('客户写中文的会话不翻译，直接发出中文', async () => {
   assert.equal(f.translations().length, 0); assert.deepEqual(f.sent(), [{ text: DRAFT, original: null }]);
 });
 
-test('直接发送 + 已结束会话：输入区可用，发送键译后发出', async () => {
+test('直接发送 + 已结束会话：输入区可用，发送键直接发原文', async () => {
   const f = fixture({ mode: 'send_direct', status: 'finished', lang: 'ru' });
   const tree = nodes(f.render());
   const ta = tree.find(n => n.tag === 'textarea')!; const btn = tree.find(n => n.props.dataset?.action === 'send')!;
@@ -124,8 +125,8 @@ test('直接发送 + 已结束会话：输入区可用，发送键译后发出',
   assert.equal(ta.props.placeholder, 'composer.placeholderFinished');
   assert.ok(f.env['composerInputContext'](f.state), '已结束会话的输入可提交到草稿');
   f.type(DRAFT); await f.send(); await flush();
-  assert.equal(f.translations()[0]?.payload.target, 'ru');
-  assert.deepEqual(f.sent(), [{ text: RU, original: DRAFT }]);
+  assert.equal(f.translations().length, 0);
+  assert.deepEqual(f.sent(), [{ text: DRAFT, original: null }]);
 });
 
 test('已结束会话的附件不发送并提示先用文字激活；转出会话整体锁定', async () => {
@@ -140,4 +141,75 @@ test('已结束会话的附件不发送并提示先用文字激活；转出会�
   assert.equal(t.env['composerInputContext'](t.state), null);
   t.store.patch({ draft: DRAFT }); await t.send(); await flush();
   assert.equal(t.calls.length, 0);
+});
+
+
+test('翻译栏提示与实际发送快捷键、模式一致且不再显示供应商品牌', () => {
+  for (const mode of ['replace_draft', 'send_direct'] as const) {
+    for (const sendKey of ['enter', 'ctrl_enter'] as const) {
+      const f = fixture({ mode, sendKey });
+      f.type(DRAFT);
+      const tree = f.render();
+      const bar = nodes(tree).find(n => String(n.props.class).split(' ').includes('trmode'));
+      assert.ok(bar);
+      const text = JSON.stringify(bar.children);
+      assert.ok(text.includes(sendKey === 'enter' ? 'Enter' : 'Ctrl/⌘+Enter'));
+      assert.ok(text.includes(mode === 'send_direct' ? '直接发送输入框原文' : '发送译文'));
+      assert.equal(text.includes('TSim'), false);
+      const textarea = nodes(tree).find(n => n.tag === 'textarea')!;
+      assert.equal(textarea.props.value, DRAFT, '可编辑草稿仍在输入框里');
+    }
+  }
+});
+
+test('开启出站翻译时不再在输入框上方重复展示快捷回复联想内容', () => {
+  const f = fixture();
+  f.store.patch({ quickReplies: { mode: 'suggestions' } } as any);
+  assert.equal(nodes(f.render()).some(n => n.props.class === 'synthetic-suggestions'), false);
+  f.store.patch({ attachment: { name: 'synthetic' } } as any);
+  const hint = nodes(f.render()).find(n => String(n.props.class).split(' ').includes('trmode'))!;
+  assert.ok(JSON.stringify(hint.children).includes('Enter 仅发送附件'));
+  f.store.patch({ attachment: null, trBarOff: true });
+  assert.equal(nodes(f.render()).some(n => n.props.class === 'synthetic-suggestions'), true, '未开启翻译时保留联想功能');
+});
+
+
+test('直接发送的 Enter 和发送按钮忽略已有译文或翻译错误', async () => {
+  for (const status of ['done', 'busy', 'error'] as const) {
+    const f = fixture({ mode: 'send_direct' }); f.type(DRAFT);
+    f.store.patch({ translation: { ...f.state.translation, status, gid, draftVersion: f.state.draftVersion, text: RU } } as any);
+    const editor = nodes(f.render()).find(n => n.tag === 'textarea')!;
+    let prevented = false;
+    editor.props.onkeydown({ key: 'Enter', preventDefault() { prevented = true; } });
+    await flush();
+    assert.equal(prevented, true);
+    assert.deepEqual(f.sent(), [{ text: DRAFT, original: null }]);
+    assert.equal(f.translations().length, 0);
+  }
+});
+
+test('替换草稿模式在翻译返回之前不提交原文', async () => {
+  const f = fixture(); f.type(DRAFT);
+  let resolve!: (value: unknown) => void;
+  f.translate(new Promise(r => { resolve = r; }));
+  const pending = f.send(); await flush();
+  assert.equal(f.sent().length, 0);
+  resolve({ draft_version: f.state.draftVersion, text: RU });
+  await pending; await flush();
+  assert.deepEqual(f.sent(), [{ text: RU, original: DRAFT }]);
+});
+
+test('标题开关关闭后保留开关入口，并使旧译文操作失效', () => {
+  const f = fixture({ mode: 'send_direct' }); f.type(DRAFT);
+  const toggle = () => nodes(f.render()).find(n => n.props.role === 'switch')!;
+  assert.equal(toggle().props['aria-checked'], 'true');
+  toggle().props.onclick();
+  assert.equal(f.state.trBarOff, true);
+  assert.equal(toggle().props['aria-checked'], 'false');
+  assert.equal(nodes(f.render()).some(n => n.props.class === 'trdone'), false);
+  assert.equal(nodes(f.render()).find(n => n.tag === 'select')?.props.disabled, true);
+  toggle().props.onclick();
+  assert.equal(f.state.trBarOff, false);
+  assert.equal(toggle().props['aria-checked'], 'true');
+  assert.equal(f.state.draft, DRAFT);
 });

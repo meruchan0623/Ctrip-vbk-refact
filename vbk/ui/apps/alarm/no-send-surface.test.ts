@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import type { AlarmEntry, AlarmSnapshot } from '../../packages/ipc/src/contracts.ts';
 import { DEFAULT_REMINDER_SETTINGS } from '../../packages/ipc/src/contracts.ts';
 import { NotifyCommands } from '../../packages/ipc/src/commands.ts';
-import { SNOOZE_OPTIONS, entryCommand, hideAllCommand } from './viewmodel.ts';
+import { entryCommand, hideAllCommand } from './viewmodel.ts';
 
 const read = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf8');
 
@@ -27,13 +27,13 @@ const ALLOWED_COMMANDS = new Set<string>([
   NotifyCommands.OPEN_CONVERSATION,
   NotifyCommands.HIDE_ROUND,
   NotifyCommands.HIDE_ALL,
-  NotifyCommands.SNOOZE,
+  NotifyCommands.ALARM_RESIZE,
 ]);
 
 const acc = { account_id: 'a', environment: 'production', session_generation: 1 } as const;
 const entry: AlarmEntry = {
   account: acc, gid: 'g1', round_id: 'r1', version: 2, label: '客户', waiting_since_ms: 1, waited_seconds: 40,
-  level: 'L3', start_confirmed: true, snoozed_until_ms: null,
+  level: 'L3', start_confirmed: true, snoozed_until_ms: null, preview: null,
 };
 const snapshot: AlarmSnapshot = { generated_at_ms: 2, clock_trusted: true, reconciling: false, settings: { ...DEFAULT_REMINDER_SETTINGS }, entries: [entry] };
 
@@ -53,18 +53,19 @@ test('alarm sources never name a send/finish/order command or the IM command gro
     // Every ipc.invoke / run() call site goes through NotifyCommands or the view-model.
     for (const m of src.matchAll(/ipc\.invoke(?:<[^>]*>)?\(\s*([^,)]+)/g)) {
       const arg = (m[1] ?? '').trim();
-      assert.ok(arg === 'NotifyCommands.SNAPSHOT' || arg === 'cmd', `${name}: unexpected invoke target ${arg}`);
+      assert.ok(arg === 'NotifyCommands.SNAPSHOT' || arg === 'NotifyCommands.ALARM_RESIZE' || arg === 'cmd', `${name}: unexpected invoke target ${arg}`);
     }
   }
 });
 
 test('every command the view-model can build is in the closed non-send set', () => {
   const built = new Set<string>();
-  for (const action of [{ kind: 'open' }, { kind: 'hide' }, ...SNOOZE_OPTIONS.map((o) => ({ kind: 'snooze' as const, minutes: o.minutes }))] as const) {
+  for (const action of [{ kind: 'open' }, { kind: 'hide' }] as const) {
     built.add(entryCommand(entry, action).cmd);
   }
   built.add(hideAllCommand(snapshot).cmd);
   built.add(NotifyCommands.SNAPSHOT);
+  built.add(NotifyCommands.ALARM_RESIZE);
   for (const cmd of built) {
     assert.ok(ALLOWED_COMMANDS.has(cmd), `unexpected command ${cmd}`);
     assert.equal(/send|finish|url|open_external/i.test(cmd.replace('notify_open_conversation', '')), false, cmd);
@@ -76,7 +77,7 @@ test('alarm window capability grants no send/finish/URL permission', () => {
   assert.deepEqual(cap.windows, ['alarm']);
   const custom = cap.permissions.filter((p) => p.startsWith('allow-'));
   assert.deepEqual([...custom].sort(), [
-    'allow-contract-hello', 'allow-notify-hide-all', 'allow-notify-hide-round', 'allow-notify-open-conversation', 'allow-notify-snapshot', 'allow-notify-snooze', 'allow-prefs-snapshot',
+    'allow-contract-hello', 'allow-notify-alarm-resize', 'allow-notify-hide-all', 'allow-notify-hide-round', 'allow-notify-open-conversation', 'allow-notify-snapshot', 'allow-prefs-snapshot',
   ]);
   for (const p of cap.permissions) assert.equal(/send|finish|opener|shell|http|fs:/i.test(p), false, p);
 });

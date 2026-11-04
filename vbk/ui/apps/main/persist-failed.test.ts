@@ -38,6 +38,8 @@ function composerFixture(persist_failed: boolean | undefined) {
   env['setDraft'] = new Function(...Object.keys(env), slice('setDraft', 'async function resend(') + '\nreturn setDraft;')(...Object.values(env));
   const a = source.indexOf('const composerInput ='), b = source.indexOf('function scheduleTranslation(', a);
   Object.assign(env, new Function(...Object.keys(env), stripTypeScriptTypes('let trTimer = null;\n' + source.slice(a, b)) + '\nreturn {composerInput, composerInputContext};')(...Object.values(env)));
+  env['setSendMode'] = () => {};
+  for (const [n, e] of [['ctool', 'function formatFileSize('], ['formatFileSize', 'function composerMoreMenu('], ['composerMoreMenu', 'function composer(']] as const) env[n] = new Function(...Object.keys(env), slice(n, e) + `\nreturn ${n};`)(...Object.values(env));
   const composer = new Function(...Object.keys(env), slice('composer', 'function emojiPicker(') + '\nreturn composer;')(...Object.values(env));
   const tree = composer(store.get(), conv);
   return { tree, send: nodes(tree).find((x) => x.props.dataset?.action === 'send')!, hint: nodes(tree).find((x) => x.props.dataset?.persistFailed === '1'), sends: () => sends };
@@ -93,7 +95,7 @@ test('actual handleSend: refuses with a toast while persist_failed, without call
 });
 
 test('actual statusBar: shows the persist_failed notice as an alert only while the flag is set', () => {
-  const env: Record<string, any> = { cx, h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, formatDate: () => 'd', formatClock: () => 'c', agentView: () => ({ known: false }), netView: () => ({ ok: true }), persistFailedView: vm.persistFailedView, activeAccount: () => ({ context: account }), sel: { mock: false }, clockEl: null, openUnknownOutbound() {}, receiveDiagnostics: { open() {} } };
+  const env: Record<string, any> = { cx, h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, formatDate: () => 'd', formatClock: () => 'c', agentView: () => ({ known: false }), netEverConnected: true, netView: () => ({ ok: true }), persistFailedView: vm.persistFailedView, activeAccount: () => ({ context: account }), sel: { mock: false }, clockEl: null, openUnknownOutbound() {}, receiveDiagnostics: { open() {} } };
   const statusBar = new Function(...Object.keys(env), slice('statusBar', 'function unknownOutboundDialog(') + '\nreturn statusBar;')(...Object.values(env));
   const item = (s: unknown) => nodes(statusBar(s)).find((n) => n.props.dataset?.sb === 'persist-failed');
   const shown = item({ now: 1, alarmCount: 0, clockTrusted: true, accounts: { persist_failed: true } });

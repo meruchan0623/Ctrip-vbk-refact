@@ -26,12 +26,12 @@ function fixture(initial: UiConversation[] = [row('100001'), row('100002')]) {
   const listeners = new Map<string, (payload: unknown) => void>();
   const store = createStore<Record<string, any>>({ conversations: initial, activeGid: null, attachment: null, noticeCat: null, noticeCats: [], agent: null, net: null, view: 'messages' });
   const env: Record<string, any> = { store, S: () => store.get(), activeAccount: () => ({ context: account }), sameAccount, stillActive: (candidate: AccountContext) => sameAccount(account, candidate) && account.session_generation === candidate.session_generation,
-    Events, UiCommands, isUiConversation, isUiAgentStatus, isUiNetStatus, isRegisteredMediaAttachment, document: { visibilityState: 'hidden' }, loadNotices: async () => undefined,
+    Events, UiCommands, isUiConversation, isUiAgentStatus, isUiNetStatus, isRegisteredMediaAttachment, document: { visibilityState: 'hidden' }, noticeQuery: { categories: async () => undefined },
     invokeQuiet: async (command: string, payload: unknown) => { calls.push({ command, payload }); return command === UiCommands.IM_CONVERSATIONS ? await (nextRead ?? cache) : command === UiCommands.NOTICE_CATEGORIES ? [] : null; },
     ipc: { listen: (event: string, callback: (payload: unknown) => void) => listeners.set(event, callback) } };
   function actual(name: string, endMarker: string) { const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')), b = source.indexOf('\n' + endMarker, a); assert.ok(a >= 0 && b > a, name); return new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn ' + name)(...Object.values(env)); }
   env['releaseAttachment'] = actual('releaseAttachment', 'async function attach(');
-  const a = source.indexOf('let accountLoadTicket'), b = source.indexOf('\nasync function loadNotices(', a);
+  const a = source.indexOf('let accountLoadTicket'), b = source.indexOf('\nasync function loadPrefs(', a);
   const load = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn loadForActiveAccount;')(...Object.values(env));
   env['loadForActiveAccount'] = () => { const task = load(); pending.push(task); return task; };
   env['upsertConversation'] = actual('upsertConversation', 'async function sendText(');
