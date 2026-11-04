@@ -32,6 +32,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-media"
+version = "0.1.0"
+
+[[package]]
 name = "core-net"
 version = "0.1.0"
 dependencies = [

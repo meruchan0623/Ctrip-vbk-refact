@@ -1,0 +1,10 @@
+[package]
+name = "core-media"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "UNLICENSED"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
