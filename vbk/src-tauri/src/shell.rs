@@ -51,7 +51,9 @@ fn tauri_err(e: tauri::Error) -> AppErrorDto {
 
 #[derive(Clone)]
 struct Attachment {
-    path: PathBuf,
+    path: Option<PathBuf>,
+    /// Created by the host (screenshot temp file); removed on drop of the table.
+    temporary: bool,
     frozen: FrozenAttachment,
 }
 
@@ -60,9 +62,54 @@ struct Attachments {
     items: Mutex<HashMap<String, Attachment>>,
 }
 
+impl Drop for Attachments {
+    fn drop(&mut self) {
+        let items = self.items.get_mut().unwrap_or_else(|p| p.into_inner());
+        for a in items.values().filter(|a| a.temporary) {
+            if let Some(path) = &a.path {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+/// Private per-capture destination. Never reuse the public timestamp path.
+/// Dropping this guard removes temporary bytes on cancellation and all errors.
+#[cfg(any(target_os = "macos", test))]
+struct ScreenshotFile {
+    dir: PathBuf,
+    path: PathBuf,
+}
+#[cfg(any(target_os = "macos", test))]
+impl ScreenshotFile {
+    fn create() -> std::io::Result<Self> {
+        let dir = std::env::temp_dir().join(format!("vbk-screenshot-{}", uuid::Uuid::new_v4()));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        // create_dir fails for an existing entry, including a symlink.
+        builder.create(&dir)?;
+        Ok(Self {
+            path: dir.join("screenshot.png"),
+            dir,
+        })
+    }
+}
+#[cfg(any(target_os = "macos", test))]
+impl Drop for ScreenshotFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+        let _ = std::fs::remove_dir(&self.dir);
+    }
+}
+
 async fn register_attachment(
     app: &AppHandle,
     path: PathBuf,
+    temporary: bool,
     kind: String,
     account: contracts::AccountContext,
     gid: String,
@@ -72,7 +119,7 @@ async fn register_attachment(
     let read_account = account.clone();
     let read_gid = gid.clone();
     let read_target = target.clone();
-    let frozen = tauri::async_runtime::spawn_blocking(move || {
+    let mut frozen = tauri::async_runtime::spawn_blocking(move || {
         FrozenAttachment::read(&read_path, &kind, &read_account, &read_gid, read_target)
     })
     .await
@@ -81,6 +128,19 @@ async fn register_attachment(
     crate::adapter::validate_media_target(app, &account, &gid, &target)
         .await
         .map_err(AppErrorDto::from)?;
+    let persist_app = app.clone();
+    frozen = tauri::async_runtime::spawn_blocking(move || {
+        let owner: contracts::AccountContext = frozen.dto.owner.account.clone().into();
+        frozen.dto.lease_id = Some(crate::adapter::with_outbound(
+            &persist_app,
+            &owner,
+            |journal| journal.persist_attachment(&frozen),
+        )?);
+        Ok::<_, AppError>(frozen)
+    })
+    .await
+    .map_err(|_| invalid_argument("attachment persistence failed"))?
+    .map_err(AppErrorDto::from)?;
     let table = app
         .try_state::<Attachments>()
         .ok_or_else(|| invalid_argument("attachment table unavailable"))?;
@@ -100,7 +160,17 @@ async fn register_attachment(
         ));
     }
     let dto = frozen.dto.clone();
-    items.insert(dto.attachment_id.clone(), Attachment { path, frozen });
+    items.insert(
+        dto.attachment_id.clone(),
+        Attachment {
+            // A screenshot guard owns its temporary path and removes it as
+            // soon as these immutable bytes are frozen. Do not retain a stale
+            // path that could later be replaced with a symlink directory.
+            path: (!temporary).then_some(path),
+            temporary: false,
+            frozen,
+        },
+    );
     Ok(dto)
 }
 
@@ -124,6 +194,117 @@ pub fn frozen_attachment(
         return Err(crate::media_outbound::invalid());
     }
     Ok(item.frozen)
+}
+
+/// Annotation handles must still be live in the table, not merely a clone
+/// retained by a command that was consumed/released while decoding.
+fn annotation_source_is_live(
+    items: &HashMap<String, Attachment>,
+    source: &FrozenAttachment,
+) -> bool {
+    items.get(&source.dto.attachment_id).is_some_and(|item| {
+        !item.frozen.bytes.is_empty()
+            && std::sync::Arc::ptr_eq(&item.frozen.bytes, &source.bytes)
+            && item.frozen.target == source.target
+            && crate::media_outbound::now_ms() - item.frozen.created_ms
+                <= crate::media_outbound::TTL_MS
+    })
+}
+
+pub(crate) fn ensure_annotation_source_live(
+    app: &AppHandle,
+    source: &FrozenAttachment,
+) -> Result<(), AppError> {
+    let table = app
+        .try_state::<Attachments>()
+        .ok_or_else(crate::media_outbound::invalid)?;
+    let items = table.items.lock().unwrap_or_else(|p| p.into_inner());
+    if !annotation_source_is_live(&items, source) {
+        return Err(crate::media_outbound::invalid());
+    }
+    Ok(())
+}
+
+fn insert_derived(
+    items: &mut HashMap<String, Attachment>,
+    source: &FrozenAttachment,
+    derived: FrozenAttachment,
+) -> Result<AttachmentDto, AppError> {
+    if !annotation_source_is_live(items, source)
+        || (source.dto.owner.account != derived.dto.owner.account
+            || source.dto.owner.gid != derived.dto.owner.gid)
+        || source.target.target_token == derived.target.target_token
+        || source.target.identity_sha256 != derived.target.identity_sha256
+        || source.target.sender_id != derived.target.sender_id
+        || items
+            .values()
+            .filter(|item| !item.frozen.bytes.is_empty())
+            .count()
+            >= core_im::media_limits::MAX_FILES_PER_SEND
+        || items.len() >= 128
+    {
+        return Err(crate::media_outbound::invalid());
+    }
+    let dto = derived.dto.clone();
+    items.insert(
+        dto.attachment_id.clone(),
+        Attachment {
+            path: None,
+            temporary: false,
+            frozen: derived,
+        },
+    );
+    Ok(dto)
+}
+
+pub(crate) fn register_derived_attachment(
+    app: &AppHandle,
+    source: &FrozenAttachment,
+    mut derived: FrozenAttachment,
+) -> Result<AttachmentDto, AppError> {
+    let owner: contracts::AccountContext = derived.dto.owner.account.clone().into();
+    derived.dto.lease_id = Some(crate::adapter::with_outbound(app, &owner, |journal| {
+        journal.persist_attachment(&derived)
+    })?);
+    let table = app
+        .try_state::<Attachments>()
+        .ok_or_else(crate::media_outbound::invalid)?;
+    let mut items = table.items.lock().unwrap_or_else(|p| p.into_inner());
+    insert_derived(&mut items, source, derived)
+}
+
+/// Register only bytes reconstructed from an authorized persistent draft.
+/// The caller must revalidate the current account and freshly captured target.
+pub(crate) fn register_restored_attachment(
+    app: &AppHandle,
+    frozen: FrozenAttachment,
+) -> Result<AttachmentDto, AppError> {
+    let table = app
+        .try_state::<Attachments>()
+        .ok_or_else(crate::media_outbound::invalid)?;
+    let mut items = table.items.lock().unwrap_or_else(|p| p.into_inner());
+    items.retain(|_, item| {
+        crate::media_outbound::now_ms() - item.frozen.created_ms <= crate::media_outbound::TTL_MS
+    });
+    if items.len() >= 128
+        || items
+            .values()
+            .filter(|item| !item.frozen.bytes.is_empty())
+            .count()
+            >= core_im::media_limits::MAX_FILES_PER_SEND
+    {
+        return Err(crate::media_outbound::invalid());
+    }
+    let dto = frozen.dto.clone();
+    items.insert(
+        dto.attachment_id.clone(),
+        Attachment {
+            path: None,
+            temporary: false,
+            frozen,
+        },
+    );
+    Ok(dto)
 }
 
 /// Keep only body-free in-memory manifest metadata for correct same-ID replay;
@@ -346,7 +527,7 @@ pub async fn shell_export_diagnostics(
             .map_err(|_| diagnostic_error("无法准备诊断信息"))?
             .map_err(|_| diagnostic_error("无法读取诊断日志"))?;
     let checklist = format!(
-        "{}\n仅包含版本、平台和日志时间/级别。日志正文、账号、凭据、数据库均不导出。",
+        "{}\n仅包含版本、平台、日志时间/级别及已验证的异常标记。日志正文、账号、凭据、数据库均不导出。",
         bundle.manifest.render()
     );
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -427,6 +608,82 @@ pub async fn shell_open_data_directory(
 
 // ------------------------------------------------------------------ media
 
+#[tauri::command]
+pub async fn media_screenshot(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+) -> CmdResult<Option<AttachmentDto>> {
+    guard(&state, &window, "media_screenshot")?;
+    #[cfg(target_os = "macos")]
+    {
+        let account: contracts::AccountContext = account.into();
+        state
+            .lock()
+            .accounts
+            .validate(&account)
+            .map_err(AppErrorDto::from)?;
+        let target = crate::adapter::capture_media_target(&app, &account, &gid)
+            .await
+            .map_err(AppErrorDto::from)?;
+        // Interactive selection (-i), no shutter sound (-x). Each process
+        // writes a fresh file inside its own randomly named 0700 directory.
+        let capture = tauri::async_runtime::spawn_blocking(move || {
+            let capture = ScreenshotFile::create()?;
+            let status = std::process::Command::new("/usr/sbin/screencapture")
+                .args(["-i", "-x"])
+                .arg(&capture.path)
+                .status()?;
+            let written = std::fs::symlink_metadata(&capture.path)
+                .map(|m| m.is_file() && !m.file_type().is_symlink() && m.len() > 0)
+                .unwrap_or(false);
+            Ok::<_, std::io::Error>((capture, status.success() && written))
+        })
+        .await;
+        let (capture, written) = match capture {
+            Ok(Ok(capture)) => capture,
+            _ => {
+                crate::adapter::release_media_target(&app, &account, &gid, &target).await;
+                return Err(AppError::new(codes::HOST_UNSUPPORTED, "screencapture failed").into());
+            }
+        };
+        if !written {
+            crate::adapter::release_media_target(&app, &account, &gid, &target).await;
+            return Ok(None);
+        }
+        let result = register_attachment(
+            &app,
+            capture.path.clone(),
+            true,
+            "image".into(),
+            account.clone(),
+            gid.clone(),
+            target.clone(),
+        )
+        .await;
+        // The immutable memory snapshot now owns the selected bytes, including
+        // when a late target validation rejects the selection.
+        tauri::async_runtime::spawn_blocking(move || drop(capture))
+            .await
+            .map_err(|_| invalid_argument("screenshot cleanup failed"))?;
+        if result.is_err() {
+            crate::adapter::release_media_target(&app, &account, &gid, &target).await;
+        }
+        result.map(Some)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, account, gid);
+        Err(AppError::new(
+            codes::HOST_UNSUPPORTED,
+            "screenshot is not available on this platform",
+        )
+        .into())
+    }
+}
+
 fn filter_for(kind: &str) -> Result<Option<(&'static str, &'static [&'static str])>, AppErrorDto> {
     match kind {
         // Matches the content check in `media_outbound`, so the picker never offers
@@ -479,6 +736,7 @@ pub async fn media_pick(
     let result = register_attachment(
         &app,
         path,
+        false,
         kind,
         account.clone(),
         gid.clone(),
@@ -584,6 +842,7 @@ pub async fn media_accept_drop(
     let mut result = register_attachment(
         &app,
         path.clone(),
+        false,
         kind.to_string(),
         account.clone(),
         gid.clone(),
@@ -595,6 +854,7 @@ pub async fn media_accept_drop(
         result = register_attachment(
             &app,
             path,
+            false,
             "file".into(),
             account.clone(),
             gid.clone(),
@@ -632,7 +892,19 @@ pub async fn media_release(
         items.remove(&attachment_id)
     };
     if let Some(item) = removed {
+        if item.temporary {
+            if let Some(path) = item.path {
+                let _ = std::fs::remove_file(path);
+            }
+        }
         crate::adapter::release_media_target(&app, &account, &gid, &item.frozen.target).await;
+        let release_app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::adapter::release_unused_attachment(&release_app, &item.frozen)
+        })
+        .await
+        .map_err(|_| invalid_argument("attachment cleanup failed"))?
+        .map_err(AppErrorDto::from)?;
     }
     Ok(())
 }
@@ -656,7 +928,7 @@ pub fn platform() -> &'static str {
 pub fn attachment_path(app: &AppHandle, id: &str) -> Option<PathBuf> {
     let table = app.try_state::<Attachments>()?;
     let items = table.items.lock().unwrap_or_else(|p| p.into_inner());
-    items.get(id).map(|a| a.path.clone())
+    items.get(id).and_then(|a| a.path.clone())
 }
 
 #[cfg(test)]
@@ -731,5 +1003,131 @@ mod tests {
         assert_eq!(kind("clip.mp4"), "file");
         assert_eq!(kind("a.heic"), "file");
         assert_eq!(kind("no-extension"), "file");
+    }
+
+    fn annotation_fixture() -> (
+        HashMap<String, Attachment>,
+        FrozenAttachment,
+        FrozenAttachment,
+    ) {
+        use contracts::{AccountContext, AccountId, Environment};
+        let account = AccountContext::new(
+            AccountId::new("synthetic-account"),
+            Environment::named("synthetic-env"),
+            1,
+        );
+        let target = |token: &str| MediaTarget {
+            target_token: token.into(),
+            identity_sha256: "a".repeat(64),
+            sender_id: "self".into(),
+        };
+        // These tests exercise table liveness/token ownership; the boundary
+        // decoder tests validate complete PNG compression separately.
+        let source = FrozenAttachment::from_annotated_png(
+            b"\x89PNG\r\n\x1a\nsource".to_vec(),
+            &account,
+            "room",
+            target("source-token"),
+        )
+        .unwrap();
+        let derived = FrozenAttachment::from_annotated_png(
+            b"\x89PNG\r\n\x1a\nresult".to_vec(),
+            &account,
+            "room",
+            target("derived-token"),
+        )
+        .unwrap();
+        let items = [(
+            source.dto.attachment_id.clone(),
+            Attachment {
+                path: None,
+                temporary: false,
+                frozen: source.clone(),
+            },
+        )]
+        .into_iter()
+        .collect();
+        (items, source, derived)
+    }
+
+    #[test]
+    fn derived_attachment_has_no_path_and_source_release_cannot_revoke_its_independent_target() {
+        let (mut items, source, derived) = annotation_fixture();
+        let dto = insert_derived(&mut items, &source, derived).unwrap();
+        assert_ne!(dto.attachment_id, source.dto.attachment_id);
+        let released = items.remove(&source.dto.attachment_id).unwrap();
+        let derived = &items[&dto.attachment_id];
+        assert!(derived.path.is_none());
+        assert!(!derived.temporary);
+        assert_ne!(
+            released.frozen.target.target_token,
+            derived.frozen.target.target_token
+        );
+        assert!(!derived.frozen.bytes.is_empty());
+        let owner = derived.frozen.dto.owner.account.clone().into();
+        derived.frozen.validate(&owner, "room").unwrap();
+    }
+
+    #[test]
+    fn released_consumed_expired_or_cross_owner_source_cannot_admit_a_derived_handle() {
+        let (mut items, source, derived) = annotation_fixture();
+        items
+            .get_mut(&source.dto.attachment_id)
+            .unwrap()
+            .frozen
+            .bytes = std::sync::Arc::new(Vec::new());
+        assert!(insert_derived(&mut items, &source, derived.clone()).is_err());
+        assert_eq!(items.len(), 1);
+        let (mut items, source, derived) = annotation_fixture();
+        items
+            .get_mut(&source.dto.attachment_id)
+            .unwrap()
+            .frozen
+            .created_ms -= crate::media_outbound::TTL_MS + 1;
+        assert!(insert_derived(&mut items, &source, derived).is_err());
+        let (mut items, source, mut derived) = annotation_fixture();
+        derived.dto.owner.gid = "foreign-room".into();
+        assert!(insert_derived(&mut items, &source, derived).is_err());
+        let (mut items, source, mut derived) = annotation_fixture();
+        derived.dto.owner.account.session_generation += 1;
+        assert!(insert_derived(&mut items, &source, derived).is_err());
+        let (mut items, source, derived) = annotation_fixture();
+        items.clear();
+        assert!(insert_derived(&mut items, &source, derived).is_err());
+    }
+
+    #[test]
+    fn derived_table_rejects_shared_tokens_or_changed_target_identity() {
+        let (mut items, source, mut derived) = annotation_fixture();
+        derived.target.target_token = source.target.target_token.clone();
+        assert!(insert_derived(&mut items, &source, derived).is_err());
+        let (mut items, source, mut derived) = annotation_fixture();
+        derived.target.identity_sha256 = "b".repeat(64);
+        assert!(insert_derived(&mut items, &source, derived).is_err());
+        let (mut items, source, mut derived) = annotation_fixture();
+        derived.target.sender_id = "foreign-self".into();
+        assert!(insert_derived(&mut items, &source, derived).is_err());
+    }
+    #[test]
+    fn screenshot_temp_paths_are_unique_private_and_raii_cleaned() {
+        let a = ScreenshotFile::create().unwrap();
+        let b = ScreenshotFile::create().unwrap();
+        assert_ne!(a.path, b.path);
+        assert!(!a.path.exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&a.dir).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
+        std::fs::write(&a.path, b"synthetic screenshot").unwrap();
+        let dir = a.dir.clone();
+        drop(a);
+        assert!(!dir.exists());
+        let dir = b.dir.clone();
+        drop(b);
+        assert!(!dir.exists());
     }
 }

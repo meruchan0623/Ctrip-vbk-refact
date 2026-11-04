@@ -26,6 +26,25 @@ pub struct ViewerAttachment {
     pub url: String,
     pub name: String,
     pub thumbnail: Option<String>,
+    /// Whether "另存" is offered: an image message whose original the host can
+    /// re-resolve from its own cache. The identity itself never reaches the renderer.
+    pub saveable: bool,
+    #[serde(skip)]
+    origin: Option<SaveOrigin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SaveOrigin {
+    gid: String,
+    message_id: String,
+}
+
+/// What a save command may act on: resolved by the host from its own binding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SaveSource {
+    pub owner: AccountContext,
+    pub gid: String,
+    pub message_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -78,7 +97,23 @@ fn attachment_of_message(message: &UiMessageDto) -> Result<ViewerAttachment, App
         .filter(|name| !name.trim().is_empty())
         .or(is_file.then_some(message.text.as_str()))
         .unwrap_or_default();
+    let origin = (message.kind == "image")
+        .then(|| {
+            Some(SaveOrigin {
+                gid: message.gid.clone(),
+                message_id: message.message_id.clone()?,
+            })
+        })
+        .flatten()
+        .filter(|_| {
+            message
+                .media_url
+                .as_deref()
+                .is_some_and(|url| !url.is_empty())
+        });
     Ok(ViewerAttachment {
+        saveable: origin.is_some(),
+        origin,
         kind: message.kind.clone(),
         url: url.to_string(),
         name: name.to_string(),
@@ -92,6 +127,8 @@ fn attachment_of_message(message: &UiMessageDto) -> Result<ViewerAttachment, App
 
 fn attachment_of_emoji(emoji: SavedEmoji) -> Result<ViewerAttachment, AppError> {
     Ok(ViewerAttachment {
+        saveable: false,
+        origin: None,
         kind: "image".into(),
         url: check_external_url(&emoji.url)
             .map_err(|_| invalid())?
@@ -218,7 +255,7 @@ async fn present(
     Ok(())
 }
 
-fn current(app: &AppHandle) -> Result<ViewerGallery, AppError> {
+fn bound(app: &AppHandle) -> Result<(AccountContext, ViewerGallery), AppError> {
     // Released before the login lock: BINDING never nests with account state.
     let (owner, visit_epoch, gallery) = {
         let binding = BINDING.lock().unwrap_or_else(|e| e.into_inner());
@@ -232,7 +269,38 @@ fn current(app: &AppHandle) -> Result<ViewerGallery, AppError> {
     if !still_active(app, &owner, visit_epoch) {
         return Err(stale());
     }
-    Ok(gallery)
+    Ok((owner, gallery))
+}
+
+fn current(app: &AppHandle) -> Result<ViewerGallery, AppError> {
+    bound(app).map(|(_, gallery)| gallery)
+}
+
+/// The original behind gallery item `index`, from the host binding alone.
+pub(crate) fn save_source(app: &AppHandle, index: usize) -> Result<SaveSource, AppError> {
+    let (owner, gallery) = bound(app)?;
+    let origin = gallery
+        .items
+        .get(index)
+        .and_then(|item| item.origin.as_ref())
+        .ok_or_else(invalid)?;
+    Ok(SaveSource {
+        owner,
+        gid: origin.gid.clone(),
+        message_id: origin.message_id.clone(),
+    })
+}
+
+/// Fails when the visit ended or the gallery changed since `source` was taken.
+pub(crate) fn save_source_still_bound(
+    app: &AppHandle,
+    index: usize,
+    source: &SaveSource,
+) -> Result<(), AppError> {
+    if &save_source(app, index)? != source {
+        return Err(stale());
+    }
+    Ok(())
 }
 
 /// ACCOUNT_CHANGED also fires for unread/remark refreshes; only a different

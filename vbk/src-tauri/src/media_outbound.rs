@@ -1,4 +1,5 @@
-//! Local immutable attachment snapshots. No path, bytes or resource URL is persisted.
+//! Short-lived authorized handles over immutable attachment snapshots.
+//! Durable leases contain no page target credentials or session generations.
 use crate::adapter::display::UiMessageDto;
 use crate::dto::{AccountContextDto, SendDispositionDto};
 use contracts::{AccountContext, AppError};
@@ -29,6 +30,8 @@ pub type MediaAttachmentDto = AttachmentDto;
 #[derive(Clone, Serialize)]
 pub struct AttachmentDto {
     pub attachment_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_id: Option<String>,
     pub name: String,
     pub kind: String,
     pub mime: String,
@@ -353,6 +356,7 @@ impl FrozenAttachment {
         Ok(Self {
             dto: AttachmentDto {
                 attachment_id: uuid::Uuid::new_v4().to_string(),
+                lease_id: None,
                 name,
                 kind: kind.into(),
                 mime,
@@ -370,6 +374,47 @@ impl FrozenAttachment {
             created_ms: now_ms(),
         })
     }
+    /// Construct a fresh in-memory PNG handle. The annotation boundary must
+    /// fully decode and validate the PNG first; this helper freezes its exact
+    /// submitted bytes and never reads a path or falls back to a source image.
+    pub fn from_annotated_png(
+        bytes: Vec<u8>,
+        account: &AccountContext,
+        gid: &str,
+        target: MediaTarget,
+    ) -> Result<Self, AppError> {
+        check_size("image", bytes.len() as u64)?;
+        if bytes.is_empty()
+            || !bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+            || gid.is_empty()
+            || target.target_token.is_empty()
+            || target.sender_id.is_empty()
+            || !valid_hash(&target.identity_sha256)
+        {
+            return Err(invalid());
+        }
+        Ok(Self {
+            dto: AttachmentDto {
+                preview_data_url: None,
+                attachment_id: uuid::Uuid::new_v4().to_string(),
+                lease_id: None,
+                name: "annotated-screenshot.png".into(),
+                kind: "image".into(),
+                mime: "image/png".into(),
+                size: bytes.len(),
+                content_sha256: sha256(&bytes),
+                owner: AttachmentOwner {
+                    account: account.into(),
+                    gid: gid.into(),
+                },
+                supported: true,
+            },
+            target,
+            bytes: Arc::new(bytes),
+            created_ms: now_ms(),
+        })
+    }
+
     pub fn validate(&self, account: &AccountContext, gid: &str) -> Result<(), AppError> {
         if !self.owns(account, gid)
             || now_ms() - self.created_ms > TTL_MS
