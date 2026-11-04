@@ -30,6 +30,7 @@ import { jidLocal, jidSender, normalizeTimeMs, type HttpMessageObject, type Memb
 import { recordOrNull } from './soa.ts';
 import { effectiveMessageSender } from './message-body.ts';
 import { parseVoiceMessage } from './voice.ts';
+import { webAdapterStrings as copy, webAdapterUpstreamLabels as upstream } from './web-adapter-copy/strings.ts';
 
 // ------------------------------------------------------------- small readers
 
@@ -155,11 +156,11 @@ export function colorOf(gid: string): string {
 }
 
 /** Observed business lines only; anything else shows the raw serviceType. */
-export const SERVICE_TYPE_LABELS: Readonly<Record<string, string>> = { '1513': '门票活动' };
+export const SERVICE_TYPE_LABELS: Readonly<Record<string, string>> = { '1513': copy['web-adapter.display.ticketsActivities'] };
 
 export function bizLabel(serviceType: string): string {
   if (serviceType === '') return '';
-  return SERVICE_TYPE_LABELS[serviceType] ?? `业务线 ${serviceType}`;
+  return SERVICE_TYPE_LABELS[serviceType] ?? copy['web-adapter.display.serviceType'](serviceType);
 }
 
 export function markOf(raw: unknown): MarkAction {
@@ -210,7 +211,7 @@ export function messageText(msgtype: unknown, body: unknown): string {
     if (inner?.['action'] === 'CTL01' && Array.isArray(ext?.['dataInfoList'])) {
       const rows = ext['dataInfoList'].flatMap(item => {
         const row = recordOrNull(item), label = str(row?.['title']), value = str(row?.['text']);
-        return value ? [label ? `${label}：${value}` : value] : [];
+        return value ? [label ? copy['web-adapter.display.labelledValue'](label, value) : value] : [];
       });
       if (rows.length) return [str(ext['title']), str(ext['desc']), ...rows].filter(Boolean).join('\n');
     }
@@ -243,19 +244,19 @@ export function previewOf(msg: HttpMessageObject | null, selfUid?: string): stri
   const type = msgTypeNumber(msg.msgtype), inner = parseJsonObject(msg.messageBody);
   const ext = recordOrNull(inner?.['ext']);
   const action = inner?.['action'];
-  const summaries: Record<string, string> = { CBZ03: '[订单]', CBZ09: '[语音]', CBZ04: '[问答消息]', CBZ58: '[商品]', CBZ59: '[内容]' };
+  const summaries: Record<string, string> = { CBZ03: copy['web-adapter.display.summaryOrder'], CBZ09: copy['web-adapter.display.summaryVoice'], CBZ04: copy['web-adapter.display.summaryQa'], CBZ58: copy['web-adapter.display.summaryProduct'], CBZ59: copy['web-adapter.display.summaryContent'] };
   if (type === 7 && typeof action === 'string' && summaries[action]) return summaries[action]!;
   let text = '';
   switch (type) {
     case 0: text = typeof msg.messageBody === 'string' ? msg.messageBody : ''; break;
-    case 1: return '[图片]';
-    case 2: return '[卡片]';
-    case 3: return '[视频]';
-    case 4: return '[语音]';
-    case 5: return '[文件]';
-    case 6: return '[位置]';
+    case 1: return copy['web-adapter.display.image'];
+    case 2: return copy['web-adapter.display.card'];
+    case 3: return copy['web-adapter.display.video'];
+    case 4: return copy['web-adapter.display.voice'];
+    case 5: return copy['web-adapter.display.file'];
+    case 6: return copy['web-adapter.display.location'];
     case 9: text = typeof msg.messageBody === 'string' ? msg.messageBody : ''; break;
-    case 1009: text = `${str(inner?.['operatorName']) ?? '系统'} 撤回了一条消息`; break;
+    case 1009: text = copy['web-adapter.display.recalledMessage'](str(inner?.['operatorName']) ?? copy['web-adapter.display.systemOperator']); break;
     case 7: text = str(inner?.['title']) ?? str(ext?.['title']) ?? ''; break;
     case 1007: text = str(inner?.['title']) ?? ''; break;
     default: return '';
@@ -296,14 +297,15 @@ export function orderSummaryFromMessage(msg: HttpMessageObject): UiOrderSummary 
       const row = recordOrNull(item), label = str(row?.['title']), value = str(row?.['text']);
       if (label && value) byLabel.set(label.replace(/[：:\s]/g, ''), value);
     }
-    const product = byLabel.get('产品名称') ?? byLabel.get('產品名稱');
+    const labelValue = (pair: readonly [string, string]) => byLabel.get(pair[0]) ?? byLabel.get(pair[1]);
+    const product = labelValue(upstream.productName);
     if (!product) return null;
     return { order_id: '', product, use_date: '', quantity: '', status: '', contact: '',
       source_title: title, source_description: str(ext['desc']) ?? '',
-      source_channel: byLabel.get('来源渠道') ?? byLabel.get('來源渠道') ?? '',
-      product_id: byLabel.get('产品ID') ?? byLabel.get('產品ID') ?? '',
-      customer_language: byLabel.get('客户语言') ?? byLabel.get('客戶語言') ?? '',
-      product_price: byLabel.get('产品价格') ?? byLabel.get('產品價格') ?? '' };
+      source_channel: labelValue(upstream.sourceChannel) ?? '',
+      product_id: labelValue(upstream.productId) ?? '',
+      customer_language: labelValue(upstream.customerLanguage) ?? '',
+      product_price: labelValue(upstream.productPrice) ?? '' };
   }
   if (!/^\d{1,32}$/.test(id)) return null;
   return {
@@ -326,7 +328,7 @@ export function toDisplayConversation(row: ConversationListItem, isFullSnapshot:
   if (!fact || !view) return null;
   // groupTitle describes the product/group, not the person. Member enrichment
   // replaces this identity fallback only after matching the row's customer uid.
-  const title = view.customerUid ?? '访客';
+  const title = view.customerUid ?? copy['web-adapter.display.visitor'];
   const order = orderSummary(view.orderId);
   return {
     ...fact,
@@ -477,15 +479,15 @@ export function previewOfUi(m: UiMessage): string {
     case 'text':
       return m.text.replace(/\s+/g, ' ').slice(0, 200);
     case 'image':
-      return '[图片]';
+      return copy['web-adapter.display.image'];
     case 'video':
-      return '[视频]';
+      return copy['web-adapter.display.video'];
     case 'file':
-      return m.text ? `[文件] ${m.text}` : '[文件]';
+      return m.text ? copy['web-adapter.display.fileNamed'](m.text) : copy['web-adapter.display.file'];
     case 'voice':
-      return '[语音]';
+      return copy['web-adapter.display.voice'];
     default:
-      return m.text ? m.text.slice(0, 200) : '[消息]';
+      return m.text ? m.text.slice(0, 200) : copy['web-adapter.display.message'];
   }
 }
 

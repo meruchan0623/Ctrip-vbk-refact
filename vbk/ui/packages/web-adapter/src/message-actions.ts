@@ -12,6 +12,7 @@ import { recordOrNull } from './soa.ts';
 import { roomJidFromMessage } from './stores.ts';
 import { mediaMessageJson, submitIntent, type SendIntent } from './send.ts';
 import { facadeMessage } from './sdkGlue.ts';
+import { webAdapterStrings as copy } from './web-adapter-copy/strings.ts';
 
 export interface MessageActionReply { readonly disposition: SendDisposition; readonly message: UiMessage }
 export class MessageActionRpcError extends Error {
@@ -112,7 +113,7 @@ export function createMessageActionsRpc(ctx: RpcContext) {
       local_id: localId, create_time_ms: disposition.kind === 'confirmed' ? disposition.server_time_ms : createdAtMs,
       sender_role: 'merchant_self', sender_id: self, sender_name: profile.name, sender_avatar: profile.avatar,
       platform_type: Number(msgtype),
-      kind: preview?.kind ?? 'text', text: preview?.text ?? (msgtype === '8' ? '[表情]' : '[提及消息]'),
+      kind: preview?.kind ?? 'text', text: preview?.text ?? (msgtype === '8' ? copy['web-adapter.display.sticker'] : copy['web-adapter.display.mentionMessage']),
       ...(preview?.media_url ? { media_url: preview.media_url } : {}),
       ...(preview?.media_thumbnail ? { media_thumbnail: preview.media_thumbnail } : {}),
       ...(preview?.media_filename ? { media_filename: preview.media_filename } : {}),
