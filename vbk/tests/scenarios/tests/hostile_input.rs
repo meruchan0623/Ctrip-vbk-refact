@@ -629,7 +629,12 @@ fn notify_time_extremes_do_not_panic() {
     let _ = n.handle_command(
         contracts::AlarmCommand::HideAll {
             seen: (0..10_000)
-                .map(|i| (GID.to_string(), i.to_string(), u64::MAX))
+                .map(|i| WaitingRoundRef {
+                    account: acc(1),
+                    gid: GID.to_string(),
+                    round_id: i.to_string(),
+                    version: u64::MAX,
+                })
                 .collect(),
         },
         core_notify::CommandSource::Alarm,

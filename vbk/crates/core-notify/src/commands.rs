@@ -78,13 +78,9 @@ impl NotifyCore {
             }
             AlarmCommand::HideAll { seen } => {
                 let mut count = 0usize;
-                for (gid, round_id, version) in &seen {
+                for seen_round in &seen {
                     for r in self.rounds_mut() {
-                        if r.round.gid == *gid
-                            && r.round.round_id == *round_id
-                            && r.round.version == *version
-                            && !r.is_hidden()
-                        {
+                        if r.round == *seen_round && !r.is_hidden() {
                             r.hide();
                             count += 1;
                         }

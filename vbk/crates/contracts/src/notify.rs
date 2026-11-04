@@ -144,7 +144,7 @@ pub enum AlarmCommand {
     },
     HideAll {
         /// Versions snapshot the user saw; rounds newer than listed stay.
-        seen: Vec<(String, String, u64)>,
+        seen: Vec<crate::WaitingRoundRef>,
     },
     Snooze {
         account: AccountContext,

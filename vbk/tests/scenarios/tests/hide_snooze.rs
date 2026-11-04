@@ -131,11 +131,16 @@ fn hide_all_only_hides_the_versions_the_user_saw() {
         );
     }
     drive(&mut n, &t0, 0, 31);
-    let seen: Vec<(String, String, u64)> = n
+    let seen: Vec<WaitingRoundRef> = n
         .snapshot(&t0.plus_ms(31_000))
         .entries
         .iter()
-        .map(|e| (e.gid.clone(), e.round_id.clone(), e.version))
+        .map(|e| WaitingRoundRef {
+            account: e.account.clone(),
+            gid: e.gid.clone(),
+            round_id: e.round_id.clone(),
+            version: e.version,
+        })
         .collect();
     assert_eq!(seen.len(), 2);
     // GID2 changed version after the snapshot the user is looking at.

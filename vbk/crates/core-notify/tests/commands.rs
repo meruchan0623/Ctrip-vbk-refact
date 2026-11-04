@@ -124,10 +124,7 @@ fn hide_all_hides_exactly_the_listed_versions() {
     let (ack, fx) = core
         .handle_command(
             AlarmCommand::HideAll {
-                seen: vec![
-                    ("ga".into(), "r-ga".into(), 1),
-                    ("gb".into(), "r-gb".into(), 1),
-                ],
+                seen: vec![rref(&a, "ga", "r-ga", 1), rref(&a, "gb", "r-gb", 1)],
             },
             CommandSource::Alarm,
             &at,
@@ -147,10 +144,7 @@ fn hide_all_hides_exactly_the_listed_versions() {
     let (ack, fx) = core
         .handle_command(
             AlarmCommand::HideAll {
-                seen: vec![
-                    ("gb".into(), "r-gb".into(), 2),
-                    ("gc".into(), "r-gc".into(), 1),
-                ],
+                seen: vec![rref(&a, "gb", "r-gb", 2), rref(&a, "gc", "r-gc", 1)],
             },
             CommandSource::Alarm,
             &at,
@@ -397,4 +391,46 @@ fn snooze_rejects_stale_version() {
         .expect_err("stale");
     assert!(err.is(codes::NOTIFY_ROUND_VERSION_MISMATCH));
     assert!(core.alarm_visible());
+}
+
+#[test]
+fn hide_all_isolates_accounts_environments_and_generations() {
+    let mut core = NotifyCore::new();
+    let a = acc("a", 1);
+    let b = acc("b", 1);
+    let other_env = contracts::AccountContext::new(
+        a.account_id.clone(),
+        contracts::Environment::named("other"),
+        1,
+    );
+    let base = t0();
+    for account in [&a, &b, &other_env] {
+        open_round(&mut core, account, "same", &base);
+    }
+    let _ = drive(&mut core, &base, 0, 40);
+    let at = base.plus_ms(41_000);
+    let old_generation = acc("a", 0);
+    let (ack, _) = core
+        .handle_command(
+            AlarmCommand::HideAll {
+                seen: vec![rref(&old_generation, "same", "r-same", 1)],
+            },
+            CommandSource::Alarm,
+            &at,
+        )
+        .expect("stale bulk click is ignored");
+    assert_eq!(ack, CommandAck::Hidden { count: 0 });
+    let (ack, _) = core
+        .handle_command(
+            AlarmCommand::HideAll {
+                seen: vec![rref(&a, "same", "r-same", 1)],
+            },
+            CommandSource::Alarm,
+            &at,
+        )
+        .expect("hide exact identity");
+    assert_eq!(ack, CommandAck::Hidden { count: 1 });
+    let remaining = core.snapshot(&at).entries;
+    assert_eq!(remaining.len(), 2);
+    assert!(remaining.iter().all(|e| e.account != a));
 }
