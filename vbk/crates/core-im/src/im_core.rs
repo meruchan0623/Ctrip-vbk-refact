@@ -14,12 +14,12 @@ use contracts::{
 
 use crate::codes;
 use crate::conversations::ConversationRegistry;
-use crate::dedup::{MessageIndex, MessageRecord};
+use crate::dedup::MessageIndex;
 use crate::ingest::{DropReason, Fact, FactEnvelope, IngestReport, StreamId, TransportState};
 use crate::outbox::{Outbox, OutboxEntry, ReconcileOutcome, SendIntent, SendState};
 use crate::rounds::{
-    evaluate, BusinessLineRule, BusinessLineRules, Coverage, Eligibility, Evaluation,
-    PersistedRound, RoundState, RoundTracker,
+    BusinessLineRule, BusinessLineRules, DefaultCoverage, Eligibility, Evaluation, PersistedRound,
+    RoundState, RoundTracker,
 };
 use crate::watermarks::{SyncStateSnapshot, SyncWatermarks};
 
@@ -38,9 +38,24 @@ pub struct PersistedImState {
 }
 
 /// IM domain state of one account generation.
+/// How long a first message may wait for the facts that make it notifiable.
+/// The conversation list polls every 5 s, with backoff only on failures.
+const DEFERRED_NOTICE_WINDOW_MS: u64 = 30_000;
+const MAX_DEFERRED_NOTICES: usize = 64;
+
+#[derive(Debug, Clone)]
+struct DeferredNotice {
+    gid: String,
+    message_id: String,
+    first_checked_ms: Option<u64>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ImCore {
     account: AccountContext,
+    /// Live messages that arrived before their sender or conversation was
+    /// known; they may notify once both settle (`take_ready_notices`).
+    deferred_notices: Vec<DeferredNotice>,
     cursors: BTreeMap<StreamId, StreamCursor>,
     /// Streams whose cursor broke (gap / epoch change); envelopes are dropped
     /// until `resync_complete`.
@@ -66,6 +81,7 @@ impl ImCore {
         Self {
             rounds: RoundTracker::new(account.clone()),
             account,
+            deferred_notices: Vec::new(),
             cursors: BTreeMap::new(),
             cursor_broken: BTreeSet::new(),
             required_resyncs: BTreeSet::new(),
@@ -216,9 +232,106 @@ impl ImCore {
         self.rounds.drain_events()
     }
 
-    /// `Active && agent_in_group` and not excluded by a business-line rule.
+    /// Active, assigned to this agent, in group, and allowed by business rules.
     pub fn eligible_for_reminder(&self, gid: &str) -> bool {
         matches!(self.eligibility(gid), Eligibility::Eligible)
+    }
+
+    /// Only newly inserted realtime customer business messages can notify.
+    /// Replays, compensation, duplicate pushes and task queue messages stay silent.
+    pub fn should_notify_message(
+        &self,
+        fact: &contracts::MessageFact,
+        report: &IngestReport,
+    ) -> bool {
+        report.applied
+            && matches!(report.message, Some(crate::dedup::MergeOutcome::Inserted))
+            && fact.source == contracts::MessageSource::Realtime
+            && fact.sender_role == contracts::SenderRole::Customer
+            && fact.kind == contracts::MsgKind::Business
+            && fact.message_id.is_some()
+            && fact.disposition.as_ref().map_or(true, |d| d.is_confirmed())
+            && !self.is_reconciling()
+            && self.eligible_for_reminder(&fact.gid)
+    }
+
+    /// A new realtime business message whose sender or conversation is still
+    /// unknown is neither notifiable nor excluded yet.
+    fn defer_notice_if_unsettled(&mut self, fact: &contracts::MessageFact) {
+        let Some(message_id) = &fact.message_id else {
+            return;
+        };
+        let role_known = match fact.sender_role {
+            contracts::SenderRole::Customer => true,
+            contracts::SenderRole::Unknown => false,
+            _ => return,
+        };
+        if fact.source != contracts::MessageSource::Realtime
+            || fact.kind != contracts::MsgKind::Business
+            || !fact.disposition.as_ref().map_or(true, |d| d.is_confirmed())
+            || self.is_reconciling()
+        {
+            return;
+        }
+        match self.eligibility(&fact.gid) {
+            Eligibility::NotEligible(_) => return,
+            Eligibility::Eligible if role_known => return,
+            _ => {}
+        }
+        if self.deferred_notices.len() >= MAX_DEFERRED_NOTICES {
+            self.deferred_notices.remove(0);
+        }
+        self.deferred_notices.push(DeferredNotice {
+            gid: fact.gid.clone(),
+            message_id: message_id.clone(),
+            first_checked_ms: None,
+        });
+    }
+
+    pub fn has_deferred_notices(&self) -> bool {
+        !self.deferred_notices.is_empty()
+    }
+
+    /// Gids of deferred messages now confirmed as owned customer messages, one
+    /// entry per message and each only once. The host calls this after every
+    /// ingested fact, so the first check happens on arrival: `allowed_now`
+    /// then decides for good, keeping "no catch-up after going back online".
+    pub fn take_ready_notices(&mut self, now_ms: u64, allowed_now: bool) -> Vec<String> {
+        let notices = std::mem::take(&mut self.deferred_notices);
+        if self.is_reconciling() {
+            return Vec::new();
+        }
+        let mut ready = Vec::new();
+        for mut notice in notices {
+            let first_checked = match notice.first_checked_ms {
+                Some(at) => at,
+                None if allowed_now => *notice.first_checked_ms.insert(now_ms),
+                None => continue,
+            };
+            if now_ms.saturating_sub(first_checked) > DEFERRED_NOTICE_WINDOW_MS {
+                continue;
+            }
+            let role = self
+                .index
+                .ordered(&notice.gid)
+                .iter()
+                .find(|record| record.message_id.as_deref() == Some(notice.message_id.as_str()))
+                .map(|record| record.sender_role);
+            match (role, self.eligibility(&notice.gid)) {
+                (Some(contracts::SenderRole::Customer), Eligibility::Eligible) => {
+                    ready.push(notice.gid);
+                }
+                (
+                    Some(contracts::SenderRole::Customer | contracts::SenderRole::Unknown),
+                    Eligibility::Unknown,
+                )
+                | (Some(contracts::SenderRole::Unknown), Eligibility::Eligible) => {
+                    self.deferred_notices.push(notice);
+                }
+                _ => {}
+            }
+        }
+        ready
     }
 
     pub fn unread(&self, gid: &str) -> u32 {
@@ -310,8 +423,17 @@ impl ImCore {
 
         let before = self.rounds.pending_events();
         match env.fact {
-            Fact::Message(fact) => {
+            Fact::Message(mut fact) => {
+                // Local send ids correlate only our outbound business
+                // messages. A customer, notice or unresolved sender may use
+                // the same opaque id; it must not upgrade an outbox alias.
+                if fact.sender_role != SenderRole::MerchantSelf || fact.kind != MsgKind::Business {
+                    fact.local_id = None;
+                }
                 let outcome = self.index.merge(&fact)?;
+                if matches!(outcome, crate::dedup::MergeOutcome::Inserted) {
+                    self.defer_notice_if_unsettled(&fact);
+                }
                 if outcome.is_change() {
                     self.watermarks
                         .note_message_seen(&fact.gid, fact.create_time_ms);
@@ -407,6 +529,7 @@ impl ImCore {
             .collect();
         self.outbox = Outbox::from_entries(kept);
         self.account = new_ctx;
+        self.deferred_notices.clear();
         self.cursors.clear();
         self.cursor_broken.clear();
         self.index = MessageIndex::new();
@@ -554,7 +677,14 @@ impl ImCore {
         let (Some(lid), Some(mid)) = (&fact.local_id, &fact.message_id) else {
             return;
         };
-        if self.outbox.get(lid).is_none() {
+        let Some(entry) = self.outbox.get(lid) else {
+            return;
+        };
+        if fact.gid != entry.intent.gid
+            || fact.sender_role != SenderRole::MerchantSelf
+            || fact.kind != MsgKind::Business
+            || matches!(fact.disposition, Some(SendDisposition::Rejected { .. }))
+        {
             return;
         }
         // Server evidence also overrides a local rejection (the SDK said
@@ -668,63 +798,32 @@ impl ImCore {
 
     fn evaluate_gid(&self, gid: &str) -> (Evaluation, bool) {
         let ordered = self.index.ordered(gid);
-        let positions: BTreeMap<&str, usize> = ordered
-            .iter()
-            .enumerate()
-            .filter_map(|(i, m)| m.message_id.as_deref().map(|id| (id, i)))
-            .collect();
-        let outbox = &self.outbox;
-        let coverage = |reply: &MessageRecord, customer: &MessageRecord| -> Coverage {
-            let by_time = if customer.create_time_ms < reply.create_time_ms {
-                Coverage::Covered
-            } else if customer.create_time_ms == reply.create_time_ms {
-                Coverage::Ambiguous
-            } else {
-                Coverage::NotCovered
-            };
-            let Some(intent) = reply.local_id.as_deref().and_then(|lid| outbox.get(lid)) else {
-                return by_time;
-            };
-            // Own send with a frozen boundary: covers only customer messages
-            // the agent could have seen when composing.
-            let Some(boundary) = intent.intent.customer_boundary_message_id.as_deref() else {
-                // No customer message was known when the intent was created
-                // (proactive message, or the index was empty right after a
-                // restart / re-auth). There is no boundary to compare, so the
-                // server order decides: a customer message stamped before the
-                // reply is covered, a later one is not, equal stamps stay
-                // ambiguous. Returning NotCovered here turned every reply
-                // sent before the history read-back into a false alarm.
-                return by_time;
-            };
-            let (Some(bpos), Some(cpos)) = (
-                positions.get(boundary),
-                customer
-                    .message_id
-                    .as_deref()
-                    .and_then(|id| positions.get(id)),
-            ) else {
-                return if by_time == Coverage::NotCovered {
-                    Coverage::NotCovered
-                } else {
-                    Coverage::Ambiguous
-                };
-            };
-            if cpos > bpos {
-                return Coverage::NotCovered;
-            }
-            match by_time {
-                Coverage::Covered | Coverage::Ambiguous => Coverage::Covered,
-                Coverage::NotCovered => Coverage::Ambiguous,
-            }
-        };
-        let eval = evaluate(&ordered, self.watermarks.paged_history(gid), &coverage);
+        let coverage = DefaultCoverage::new(&ordered, |reply| {
+            reply
+                .local_id
+                .as_deref()
+                .and_then(|lid| self.outbox.get(lid))
+                .filter(|entry| entry.intent.gid == reply.gid)
+                .and_then(|entry| entry.intent.customer_boundary_message_id.as_deref())
+        });
+        let mut eval = coverage.evaluate(&ordered, self.watermarks.paged_history(gid));
         let start_known = self
             .rounds
             .state(gid)
             .round()
             .and_then(|r| r.start_message_id.as_deref())
-            .is_some_and(|id| positions.contains_key(id));
+            .is_some_and(|id| coverage.contains_message(id));
+        // After restart the first waiting message may be outside the loaded
+        // tail. A late own-send acknowledgement still obeys its frozen
+        // boundary; its later server timestamp alone cannot close the round.
+        if !start_known {
+            if let Some(round) = self.rounds.state(gid).round() {
+                if let Some(create_time_ms) = round.start_time_ms {
+                    eval.latest_reply_time_ms =
+                        coverage.latest_reply_covering_missing_start(create_time_ms);
+                }
+            }
+        }
         (eval, start_known)
     }
 

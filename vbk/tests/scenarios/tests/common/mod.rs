@@ -55,7 +55,8 @@ pub fn conv_for(
         gid: gid.into(),
         status,
         agent_in_group: in_group,
-        is_owner: true,
+        // Captured shape: active rows in the agent's group report isOwner=false.
+        is_owner: false,
         service_type: "1513".into(),
         last_message_time_ms: None,
         last_update_time_ms: Some(1_000),

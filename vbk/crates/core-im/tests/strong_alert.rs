@@ -64,14 +64,19 @@ struct Harness {
 }
 
 impl Harness {
-    fn new() -> Self {
+    /// No conversation known yet.
+    fn empty() -> Self {
         let account = ctx(1);
-        let mut h = Self {
+        Self {
             core: ImCore::new(account.clone()),
             account,
             epoch: 1,
             seq: [0; 3],
-        };
+        }
+    }
+
+    fn new() -> Self {
+        let mut h = Self::empty();
         h.push(
             StreamId::Conversation,
             Fact::Conversation(conv(ConversationStatus::Active, true, false)),
@@ -132,6 +137,97 @@ fn ended_reason(events: &[RoundEvent]) -> Option<RoundEndReason> {
         RoundEvent::Ended { reason, .. } => Some(*reason),
         _ => None,
     })
+}
+
+#[test]
+fn only_owned_realtime_customer_messages_notify_once() {
+    let mut h = Harness::new();
+    let message = customer("new", 10_000);
+    let report = h.message(message.clone());
+    assert!(h.core.should_notify_message(&message, &report));
+    let duplicate = h.message(message.clone());
+    assert!(!h.core.should_notify_message(&message, &duplicate));
+
+    for (i, source) in [
+        MessageSource::Init,
+        MessageSource::History,
+        MessageSource::Compensation,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let message = msg(&format!("replay-{i}"), 20_000, SenderRole::Customer, source);
+        let report = h.message(message.clone());
+        assert!(!h.core.should_notify_message(&message, &report));
+    }
+    for (i, role) in [
+        SenderRole::MerchantSelf,
+        SenderRole::MerchantOther,
+        SenderRole::Robot,
+        SenderRole::System,
+        SenderRole::CtripAgent,
+        SenderRole::Unknown,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let message = msg(&format!("role-{i}"), 30_000, role, MessageSource::Realtime);
+        let report = h.message(message.clone());
+        assert!(!h.core.should_notify_message(&message, &report));
+    }
+}
+
+/// Every captured active row with `inGroup=1` has `isOwner=false`, and the
+/// official `rF` ignores the field: it must not gate reminders.
+#[test]
+fn is_owner_false_rows_still_start_rounds_and_notify() {
+    let mut h = Harness::new();
+    let mut row = conv(ConversationStatus::Active, true, false);
+    row.is_owner = false;
+    h.conversation(row);
+    assert!(h.core.eligible_for_reminder(GID));
+    let message = customer("captured-shape", 10_000);
+    let report = h.message(message.clone());
+    assert!(h.core.should_notify_message(&message, &report));
+    assert_eq!(h.waiting().start_time_ms, Some(10_000));
+}
+
+#[test]
+fn outside_the_group_is_silent_and_leaving_it_ends_the_alert() {
+    let mut h = Harness::new();
+    let task = conv(ConversationStatus::Active, false, false);
+    h.conversation(task.clone());
+    let message = customer("task", 10_000);
+    let report = h.message(message.clone());
+    assert!(!h.core.should_notify_message(&message, &report));
+    assert!(!h.core.eligible_for_reminder(GID));
+    assert!(matches!(h.core.round_state(GID), RoundState::Idle));
+
+    h.conversation(conv(ConversationStatus::Active, true, false));
+    let message = customer("mine", 20_000);
+    let report = h.message(message.clone());
+    assert!(h.core.should_notify_message(&message, &report));
+    h.waiting();
+    h.events();
+    h.conversation(task);
+    assert_eq!(ended_reason(&h.events()), Some(RoundEndReason::NotEligible));
+    assert!(
+        !h.core.should_notify_message(&message, &report),
+        "queued notifications are invalid after leaving the group"
+    );
+}
+
+#[test]
+fn system_notices_and_stream_gaps_do_not_notify() {
+    let mut h = Harness::new();
+    let mut message = customer("notice", 10_000);
+    message.kind = MsgKind::Control;
+    let report = h.message(message.clone());
+    assert!(!h.core.should_notify_message(&message, &report));
+    h.seq[0] += 1;
+    let message = customer("gap", 20_000);
+    let report = h.message(message.clone());
+    assert!(!h.core.should_notify_message(&message, &report));
 }
 
 // ------------------------------------------------------------ §7 "30 秒等待"
@@ -431,6 +527,56 @@ fn echo_before_ack_confirms_send_and_clears_round() {
 }
 
 // ------------------------------------------- §7 "多角色与会话状态"
+
+#[test]
+fn customer_attributed_notices_never_start_or_reset_waiting() {
+    let mut h = Harness::new();
+    for (i, source) in [
+        MessageSource::Realtime,
+        MessageSource::Compensation,
+        MessageSource::History,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut notice = msg(
+            &format!("notice-{i}"),
+            10_000 + i as i64,
+            SenderRole::Customer,
+            source,
+        );
+        notice.kind = MsgKind::Control;
+        h.message(notice);
+        assert!(h.core.round_state(GID).is_idle());
+        assert!(h.events().is_empty());
+    }
+    h.message(customer("real-question", 20_000));
+    let original = h.waiting().clone();
+    h.events();
+    for role in [
+        SenderRole::Customer,
+        SenderRole::MerchantSelf,
+        SenderRole::MerchantOther,
+    ] {
+        let mut notice = msg(
+            &format!("later-{role:?}"),
+            21_000,
+            role,
+            MessageSource::Realtime,
+        );
+        notice.kind = MsgKind::Control;
+        h.message(notice);
+        assert_eq!(h.waiting(), &original);
+        assert!(h.events().is_empty());
+    }
+    h.message(msg(
+        "real-reply",
+        22_000,
+        SenderRole::MerchantSelf,
+        MessageSource::Realtime,
+    ));
+    assert!(h.core.round_state(GID).is_idle());
+}
 
 #[test]
 fn robot_system_ctrip_and_control_frames_never_clear() {
@@ -1476,4 +1622,250 @@ fn reply_sent_before_the_customer_message_was_indexed_is_judged_by_server_order(
         .unwrap();
     h2.message(customer("c3", 5_000));
     assert!(!h2.pending().start_confirmed);
+}
+
+// Restart read-back is often only a recent tail of the conversation. Missing
+// the persisted first message never proves a newer message is the first wait.
+#[test]
+fn restored_round_keeps_first_wait_when_only_newer_customer_is_read_back() {
+    let mut h = Harness::new();
+    h.message(customer("first", 10_000));
+    let original = h.waiting().clone();
+    h.core = ImCore::restore(h.core.persisted_state());
+    h.events();
+    h.core
+        .resync_complete(StreamId::Message, StreamCursor::new(1, 1));
+    h.core
+        .resync_complete(StreamId::Conversation, StreamCursor::new(1, 1));
+    h.conversation(conv(ConversationStatus::Active, true, true));
+    h.message(customer("newer", 20_000));
+    let r = h.pending();
+    assert_eq!(r.round_id, original.round_id);
+    assert_eq!(r.start_message_id, original.start_message_id);
+    assert_eq!(r.start_time_ms, original.start_time_ms);
+    assert!(h.events().is_empty());
+    // Fresh read-back of the original message can safely confirm it.
+    h.message(msg(
+        "first",
+        10_000,
+        SenderRole::Customer,
+        MessageSource::History,
+    ));
+    assert_eq!(h.waiting().start_time_ms, Some(10_000));
+}
+
+#[test]
+fn restored_round_is_not_cleared_by_reply_at_the_same_timestamp() {
+    let mut h = Harness::new();
+    h.message(customer("first", 10_000));
+    h.core = ImCore::restore(h.core.persisted_state());
+    h.events();
+    h.core
+        .resync_complete(StreamId::Message, StreamCursor::new(1, 1));
+    h.core
+        .resync_complete(StreamId::Conversation, StreamCursor::new(1, 1));
+    h.conversation(conv(ConversationStatus::Active, true, true));
+    h.message(msg(
+        "reply",
+        10_000,
+        SenderRole::MerchantOther,
+        MessageSource::Init,
+    ));
+    assert!(h.core.round_state(GID).is_pending());
+    assert!(h.events().is_empty());
+}
+
+#[test]
+fn inbound_local_id_cannot_confirm_another_conversation_or_sender() {
+    let mut h = Harness::new();
+    h.message(customer("first", 10_000));
+    let intent = h.core.create_send_intent(GID, 11_000).unwrap();
+    h.core.mark_submitted(&intent.local_id).unwrap();
+    let mut other_group = msg(
+        "foreign",
+        12_000,
+        SenderRole::MerchantSelf,
+        MessageSource::Realtime,
+    );
+    other_group.local_id = Some(intent.local_id.clone());
+    other_group.gid = "another-conversation".into();
+    h.message(other_group);
+    assert_eq!(
+        h.core.outbox().get(&intent.local_id).unwrap().state,
+        SendState::Submitted
+    );
+    let mut unrelated = customer("unrelated", 13_000);
+    unrelated.local_id = Some(intent.local_id.clone());
+    h.message(unrelated);
+    assert_eq!(
+        h.core.outbox().get(&intent.local_id).unwrap().state,
+        SendState::Submitted
+    );
+    assert_eq!(h.waiting().start_time_ms, Some(10_000));
+}
+
+#[test]
+fn restored_round_is_not_cleared_by_late_reply_with_missing_frozen_boundary() {
+    let mut h = Harness::new();
+    h.message(customer("first", 10_000));
+    let intent = h.core.create_send_intent(GID, 11_000).unwrap();
+    h.core.mark_submitted(&intent.local_id).unwrap();
+    h.message(customer("newer", 12_000));
+    h.core
+        .apply_send_result(
+            &intent.local_id,
+            SendDisposition::Confirmed {
+                server_message_id: "reply".into(),
+                server_time_ms: 13_000,
+            },
+        )
+        .unwrap();
+    assert_eq!(h.waiting().start_message_id.as_deref(), Some("newer"));
+    h.core = ImCore::restore(h.core.persisted_state());
+    h.events();
+    h.core
+        .resync_complete(StreamId::Message, StreamCursor::new(1, 2));
+    h.core
+        .resync_complete(StreamId::Conversation, StreamCursor::new(1, 1));
+    h.conversation(conv(ConversationStatus::Active, true, true));
+    let mut reply = msg(
+        "reply",
+        13_000,
+        SenderRole::MerchantSelf,
+        MessageSource::Init,
+    );
+    reply.local_id = Some(intent.local_id.clone());
+    h.message(reply);
+    assert!(h.core.round_state(GID).is_pending());
+    assert_eq!(h.pending().start_time_ms, Some(12_000));
+}
+
+#[test]
+fn foreign_conversation_local_id_does_not_apply_its_frozen_boundary() {
+    let mut h = Harness::new();
+    h.message(customer("first", 10_000));
+    let intent = h.core.create_send_intent(GID, 11_000).unwrap();
+    let other = "other-group";
+    let mut conversation = conv(ConversationStatus::Active, true, false);
+    conversation.gid = other.into();
+    h.conversation(conversation);
+    let mut c = customer("other-customer", 12_000);
+    c.gid = other.into();
+    h.message(c);
+    let mut reply = msg(
+        "other-reply",
+        13_000,
+        SenderRole::MerchantSelf,
+        MessageSource::Realtime,
+    );
+    reply.gid = other.into();
+    reply.local_id = Some(intent.local_id.clone());
+    h.message(reply);
+    assert!(h.core.round_state(other).is_idle());
+    assert_eq!(h.waiting().start_time_ms, Some(10_000));
+    assert_eq!(
+        h.core.outbox().get(&intent.local_id).unwrap().state,
+        SendState::Pending
+    );
+}
+
+const ALLOWED: bool = true;
+
+#[test]
+fn first_message_of_an_unknown_conversation_notifies_once_when_it_is_owned() {
+    let mut h = Harness::empty();
+    let message = customer("first", 10_000);
+    let report = h.message(message.clone());
+    assert!(!h.core.should_notify_message(&message, &report));
+    assert!(h.core.take_ready_notices(0, ALLOWED).is_empty());
+
+    h.conversation(conv(ConversationStatus::Active, true, false));
+    assert_eq!(h.core.take_ready_notices(5_000, ALLOWED), vec![GID]);
+    assert!(h.core.take_ready_notices(5_001, ALLOWED).is_empty());
+    assert!(!h.core.has_deferred_notices());
+}
+
+#[test]
+fn unresolved_sender_notifies_only_after_a_copy_names_the_customer() {
+    let mut h = Harness::empty();
+    let unresolved = msg(
+        "first",
+        10_000,
+        SenderRole::Unknown,
+        MessageSource::Realtime,
+    );
+    h.message(unresolved);
+    h.conversation(conv(ConversationStatus::Active, true, false));
+    assert!(h.core.take_ready_notices(0, ALLOWED).is_empty());
+
+    h.message(customer("first", 10_000));
+    assert_eq!(h.core.take_ready_notices(5_000, ALLOWED), vec![GID]);
+    h.message(customer("first", 10_000));
+    assert!(h.core.take_ready_notices(6_000, ALLOWED).is_empty());
+}
+
+#[test]
+fn deferred_messages_that_settle_as_not_notifiable_stay_silent() {
+    let mut h = Harness::empty();
+    h.message(customer("task", 10_000));
+    assert!(h.core.take_ready_notices(0, ALLOWED).is_empty());
+    h.conversation(conv(ConversationStatus::Active, false, false));
+    assert!(h.core.take_ready_notices(1, ALLOWED).is_empty());
+    h.conversation(conv(ConversationStatus::Active, true, false));
+    assert!(
+        h.core.take_ready_notices(2, ALLOWED).is_empty(),
+        "accepting a task later is not a new message"
+    );
+
+    let mut h = Harness::empty();
+    h.conversation(conv(ConversationStatus::Active, true, false));
+    h.message(msg(
+        "colleague",
+        10_000,
+        SenderRole::Unknown,
+        MessageSource::Realtime,
+    ));
+    assert!(h.core.take_ready_notices(0, ALLOWED).is_empty());
+    h.message(msg(
+        "colleague",
+        10_000,
+        SenderRole::MerchantOther,
+        MessageSource::Compensation,
+    ));
+    assert!(h.core.take_ready_notices(1, ALLOWED).is_empty());
+    assert!(!h.core.has_deferred_notices());
+}
+
+#[test]
+fn deferred_messages_expire_and_never_catch_up_after_silence_or_gaps() {
+    let mut h = Harness::empty();
+    h.message(customer("old", 10_000));
+    assert!(h.core.take_ready_notices(0, ALLOWED).is_empty());
+    h.conversation(conv(ConversationStatus::Active, true, false));
+    assert!(h.core.take_ready_notices(30_001, ALLOWED).is_empty());
+
+    let mut h = Harness::empty();
+    h.message(customer("while-away", 10_000));
+    assert!(h.core.take_ready_notices(0, false).is_empty());
+    h.conversation(conv(ConversationStatus::Active, true, false));
+    assert!(
+        h.core.take_ready_notices(1, ALLOWED).is_empty(),
+        "arrived while notifications were not allowed"
+    );
+
+    let mut h = Harness::empty();
+    for i in 0..3 {
+        h.message(msg(
+            &format!("replay-{i}"),
+            10_000,
+            SenderRole::Customer,
+            MessageSource::Compensation,
+        ));
+    }
+    assert!(!h.core.has_deferred_notices());
+    h.message(customer("before-gap", 10_000));
+    h.seq[0] += 1;
+    h.message(customer("after-gap", 20_000));
+    assert!(h.core.take_ready_notices(0, ALLOWED).is_empty());
+    assert!(!h.core.has_deferred_notices());
 }

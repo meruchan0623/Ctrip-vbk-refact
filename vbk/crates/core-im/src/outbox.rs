@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use contracts::{AccountContext, AppError, MessageFact, SendDisposition};
+use contracts::{AccountContext, AppError, MessageFact, MsgKind, SendDisposition, SenderRole};
 
 use crate::codes;
 
@@ -279,9 +279,12 @@ impl Outbox {
             SendState::Submitted | SendState::Unknown => {}
         }
         let gid = entry.intent.gid.as_str();
-        let matching = server_facts
-            .iter()
-            .filter(|f| f.gid == gid && f.local_id.as_deref() == Some(local_id));
+        let matching = server_facts.iter().filter(|f| {
+            f.gid == gid
+                && f.local_id.as_deref() == Some(local_id)
+                && f.sender_role == SenderRole::MerchantSelf
+                && f.kind == MsgKind::Business
+        });
         let mut rejected: Option<(String, String)> = None;
         for fact in matching {
             match (&fact.message_id, &fact.disposition) {
@@ -468,6 +471,32 @@ mod tests {
             .reconcile_unknown("l2", &[server_fact(Some("l2"), None, Some(rej))])
             .unwrap();
         assert!(matches!(out, ReconcileOutcome::Rejected { .. }));
+    }
+
+    #[test]
+    fn unknown_reconciliation_requires_own_business_message() {
+        let mut ob = Outbox::new();
+        ob.insert(intent("l1")).unwrap();
+        ob.mark_submitted("l1").unwrap();
+        for role in [
+            SenderRole::Customer,
+            SenderRole::MerchantOther,
+            SenderRole::Robot,
+            SenderRole::Unknown,
+        ] {
+            let mut fact = server_fact(Some("l1"), Some("unrelated"), None);
+            fact.sender_role = role;
+            assert_eq!(
+                ob.reconcile_unknown("l1", &[fact]).unwrap(),
+                ReconcileOutcome::StillUnknown
+            );
+        }
+        let mut fact = server_fact(Some("l1"), Some("notice"), None);
+        fact.kind = MsgKind::Control;
+        assert_eq!(
+            ob.reconcile_unknown("l1", &[fact]).unwrap(),
+            ReconcileOutcome::StillUnknown
+        );
     }
 
     #[test]

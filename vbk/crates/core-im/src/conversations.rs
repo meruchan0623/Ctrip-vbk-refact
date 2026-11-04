@@ -55,8 +55,10 @@ impl ConversationEntry {
         }
     }
 
-    /// `Active && agent_in_group` (strong-alert §4.1). Uses the last known
-    /// status even while missing from a snapshot.
+    /// `Active && agent_in_group`, matching the official `rF` (strong-alert
+    /// §4.1). `is_owner` is deliberately absent: captured active rows of the
+    /// agent's own conversations all report `isOwner=false`. Uses the last
+    /// known status even while missing from a snapshot.
     pub fn is_reminder_eligible(&self) -> bool {
         self.status == ConversationStatus::Active && self.agent_in_group
     }

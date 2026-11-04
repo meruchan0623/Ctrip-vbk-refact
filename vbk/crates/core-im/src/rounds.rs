@@ -28,7 +28,7 @@
 //! * (h) business-line rules are explicit (`BusinessLineRules`); nothing
 //!   unverified (`CAR_TIMEOUT`) is applied silently.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use contracts::{AccountContext, ClockReading, RoundEndReason, RoundEvent, WaitingRoundRef};
 
@@ -206,30 +206,176 @@ pub fn evaluate(
         .copied()
         .filter(|m| m.is_confirmed_merchant_reply())
         .collect();
-    let latest_reply_time_ms = replies.iter().map(|r| r.create_time_ms).max();
-    let unresolved_times: Vec<i64> = ordered
-        .iter()
-        .filter(|m| m.is_unresolved_business())
-        .map(|m| m.create_time_ms)
-        .collect();
+    let summary = EvaluationSummary::new(ordered);
+    evaluate_status(ordered, window, &summary, &|m| {
+        let mut status = Coverage::NotCovered;
+        for r in &replies {
+            match coverage(r, m) {
+                Coverage::Covered => return Coverage::Covered,
+                Coverage::Ambiguous => status = Coverage::Ambiguous,
+                Coverage::NotCovered => {}
+            }
+        }
+        status
+    })
+}
 
+#[derive(Debug, Default)]
+struct EvaluationSummary {
+    latest_reply_time_ms: Option<i64>,
+    earliest_reply_time_ms: Option<i64>,
+    latest_unresolved_time_ms: Option<i64>,
+}
+
+impl EvaluationSummary {
+    fn new(ordered: &[&MessageRecord]) -> Self {
+        let mut summary = Self::default();
+        for m in ordered {
+            if m.is_confirmed_merchant_reply() {
+                summary.latest_reply_time_ms =
+                    summary.latest_reply_time_ms.max(Some(m.create_time_ms));
+                summary.earliest_reply_time_ms = Some(
+                    summary
+                        .earliest_reply_time_ms
+                        .map_or(m.create_time_ms, |t| t.min(m.create_time_ms)),
+                );
+            }
+            if m.is_unresolved_business() {
+                summary.latest_unresolved_time_ms = summary
+                    .latest_unresolved_time_ms
+                    .max(Some(m.create_time_ms));
+            }
+        }
+        summary
+    }
+}
+
+/// Aggregated coverage for ImCore's time / frozen intent boundary rule.
+///
+/// A located boundary covers positions <= its own position. For a customer
+/// at p, the maximum reply time among boundaries >= p proves coverage iff
+/// it is >= the customer's time; any such boundary otherwise is ambiguous.
+/// Unbounded replies use strict time ordering; unplaceable boundaries can
+/// only establish ambiguity. Keeping these three classes separate preserves
+/// older replies whose wider boundaries cover more than the latest reply.
+/// Construction and evaluation are O(N) expected time with O(N) storage,
+/// plus the caller's per-reply boundary lookup cost.
+#[derive(Debug)]
+pub(crate) struct DefaultCoverage<'a> {
+    positions: HashMap<&'a str, usize>,
+    boundary_suffix: Vec<Option<i64>>,
+    latest_unbounded: Option<i64>,
+    latest_unplaceable: Option<i64>,
+    latest_bounded: Option<i64>,
+    summary: EvaluationSummary,
+}
+
+impl<'a> DefaultCoverage<'a> {
+    pub(crate) fn new(
+        ordered: &[&'a MessageRecord],
+        boundary: impl Fn(&MessageRecord) -> Option<&'a str>,
+    ) -> Self {
+        let positions: HashMap<&str, usize> = ordered
+            .iter()
+            .enumerate()
+            .filter_map(|(i, m)| m.message_id.as_deref().map(|id| (id, i)))
+            .collect();
+        let mut result = Self {
+            positions,
+            boundary_suffix: vec![None; ordered.len()],
+            latest_unbounded: None,
+            latest_unplaceable: None,
+            latest_bounded: None,
+            summary: EvaluationSummary::new(ordered),
+        };
+        for reply in ordered.iter().filter(|m| m.is_confirmed_merchant_reply()) {
+            let time = Some(reply.create_time_ms);
+            match boundary(reply) {
+                None => result.latest_unbounded = result.latest_unbounded.max(time),
+                Some(id) => {
+                    result.latest_bounded = result.latest_bounded.max(time);
+                    if let Some(&pos) = result.positions.get(id) {
+                        result.boundary_suffix[pos] = result.boundary_suffix[pos].max(time);
+                    } else {
+                        result.latest_unplaceable = result.latest_unplaceable.max(time);
+                    }
+                }
+            }
+        }
+        let mut latest = None;
+        for time in result.boundary_suffix.iter_mut().rev() {
+            latest = latest.max(*time);
+            *time = latest;
+        }
+        result
+    }
+
+    pub(crate) fn contains_message(&self, id: &str) -> bool {
+        self.positions.contains_key(id)
+    }
+
+    fn status(&self, customer: &MessageRecord) -> Coverage {
+        let time = customer.create_time_ms;
+        if self.latest_unbounded.is_some_and(|t| t > time) {
+            return Coverage::Covered;
+        }
+        let position = customer
+            .message_id
+            .as_deref()
+            .and_then(|id| self.positions.get(id));
+        let bounded = position.and_then(|&p| self.boundary_suffix[p]);
+        if bounded.is_some_and(|t| t >= time) {
+            return Coverage::Covered;
+        }
+        let unplaceable = if position.is_some() {
+            self.latest_unplaceable
+        } else {
+            self.latest_bounded
+        };
+        if bounded.is_some()
+            || self.latest_unbounded == Some(time)
+            || unplaceable.is_some_and(|t| t >= time)
+        {
+            Coverage::Ambiguous
+        } else {
+            Coverage::NotCovered
+        }
+    }
+
+    pub(crate) fn evaluate(
+        &self,
+        ordered: &[&MessageRecord],
+        window: Option<&HistoryWindow>,
+    ) -> Evaluation {
+        evaluate_status(ordered, window, &self.summary, &|m| self.status(m))
+    }
+
+    /// An absent start cannot be placed against any frozen boundary. Only
+    /// an unbounded reply strictly after it can prove closure after restore.
+    pub(crate) fn latest_reply_covering_missing_start(&self, time: i64) -> Option<i64> {
+        self.latest_unbounded
+            .filter(|&reply_time| reply_time > time)
+    }
+}
+
+fn evaluate_status(
+    ordered: &[&MessageRecord],
+    window: Option<&HistoryWindow>,
+    summary: &EvaluationSummary,
+    coverage: &dyn Fn(&MessageRecord) -> Coverage,
+) -> Evaluation {
+    let latest_reply_time_ms = summary.latest_reply_time_ms;
     let mut first_open: Option<(&MessageRecord, Coverage)> = None;
     let mut live_evidence = false;
     let mut covered_before_open = false;
 
     for m in ordered.iter().copied().filter(|m| m.is_customer_business()) {
-        let mut status = Coverage::NotCovered;
-        for r in &replies {
-            match coverage(r, m) {
-                Coverage::Covered => {
-                    status = Coverage::Covered;
-                    break;
-                }
-                Coverage::Ambiguous => status = Coverage::Ambiguous,
-                Coverage::NotCovered => {}
-            }
-        }
-        if status != Coverage::Covered && unresolved_times.iter().any(|t| *t >= m.create_time_ms) {
+        let mut status = coverage(m);
+        if status != Coverage::Covered
+            && summary
+                .latest_unresolved_time_ms
+                .is_some_and(|t| t >= m.create_time_ms)
+        {
             status = Coverage::Ambiguous;
         }
         if status == Coverage::Covered {
@@ -253,7 +399,9 @@ pub fn evaluate(
             latest_reply_time_ms,
         };
     };
-    let reply_before = replies.iter().any(|r| r.create_time_ms < c.create_time_ms);
+    let reply_before = summary
+        .earliest_reply_time_ms
+        .is_some_and(|t| t < c.create_time_ms);
     let sufficient =
         window.map_or(true, HistoryWindow::is_complete) || reply_before || covered_before_open;
     let candidate = StartCandidate {
@@ -505,7 +653,6 @@ impl RoundTracker {
                     if *sufficient {
                         if Self::is_earlier(&r, start)
                             || Self::same_start(&r, start)
-                            || !start_known
                             || r.start_message_id.is_none()
                         {
                             self.confirm_start(gid, r, start, RoundState::Waiting);
@@ -555,13 +702,14 @@ impl RoundTracker {
 
     /// Whether the loaded list is evidence that `r`'s start was answered.
     /// With the start message present, the evaluation already proves it;
-    /// otherwise a confirmed reply at or after the start time is required.
+    /// otherwise a confirmed reply strictly after the start time is required.
+    /// Equal timestamps cannot prove reply ordering.
     fn may_close(r: &Round, eval: &Evaluation, start_known: bool) -> bool {
         if r.start_message_id.is_some() && start_known {
             return true;
         }
         match (r.start_time_ms, eval.latest_reply_time_ms) {
-            (Some(t), Some(lr)) => lr >= t,
+            (Some(t), Some(lr)) => lr > t,
             (None, Some(_)) => true,
             (_, None) => false,
         }
@@ -755,3 +903,7 @@ mod tests {
         assert_eq!(t.account().session_generation, 2);
     }
 }
+
+#[cfg(test)]
+#[path = "rounds_coverage_tests.rs"]
+mod coverage_tests;
