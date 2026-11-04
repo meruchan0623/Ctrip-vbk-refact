@@ -353,6 +353,51 @@ pub fn cdr_fields(detail: &JsonValue, supplement: Option<&JsonValue>) -> Vec<Vec
         .filter(|r| !r.is_empty())
         .collect()
 }
+/// Upper bound of linked reissue packages followed per original plan.
+pub const MAX_REISSUES: usize = 10;
+
+/// `reissue_list` of a package `detail`: `(card_dataplan_id, create_time_ms)`
+/// ascending by `create_time` (missing counts as 0, ties keep source order).
+/// Items without a valid id are skipped, as are repeated ids. `create_time`
+/// is in seconds and kept only for finite values in `(0, 1e11)`.
+pub fn reissue_refs(detail: &JsonValue) -> Vec<(String, Option<i64>)> {
+    fn seconds(value: Option<&JsonValue>) -> Option<f64> {
+        let n = match value? {
+            JsonValue::Number { value, .. } => *value,
+            JsonValue::String(s) => s.trim().parse::<f64>().ok()?,
+            _ => return None,
+        };
+        (n.is_finite() && n > 0.0 && n < 1e11).then_some(n)
+    }
+    let Some(rows) = detail.get("reissue_list").and_then(JsonValue::as_array) else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut refs: Vec<(String, Option<i64>)> = Vec::new();
+    for row in rows {
+        let Some(id) = row.get("card_dataplan_id").and_then(id_from_json) else {
+            continue;
+        };
+        if validate_query_id(&id).is_err() || !seen.insert(id.clone()) {
+            continue;
+        }
+        let ms = seconds(row.get("create_time")).map(|n| (n * 1000.0).round() as i64);
+        refs.push((id, ms));
+    }
+    refs.sort_by_key(|(_, ms)| ms.unwrap_or(0));
+    refs
+}
+
+/// Order time of the original package: the `order` event of the live
+/// `planTimeLine`.
+pub fn order_time(live: Option<&JsonValue>) -> Option<String> {
+    live?
+        .get("planTimeLine")?
+        .as_array()?
+        .iter()
+        .find(|event| event.get("name").and_then(JsonValue::as_str) == Some("order"))
+        .and_then(|event| scalar(event.get("date")))
+}
 pub fn order_summary(detail: &JsonValue, live: Option<&JsonValue>) -> PackageSummary {
     let mut result = summarize("", detail, live);
     // `status`/`query_status` describe the upstream query, not the package.
@@ -405,6 +450,47 @@ mod tests {
     fn j(value: &str) -> JsonValue {
         JsonValue::parse(value).unwrap()
     }
+    #[test]
+    fn reissue_refs_sorts_dedupes_and_skips_invalid_items() {
+        let detail = j(
+            r#"{"reissue_list":[{"card_dataplan_id":"b","create_time":200},{"card_dataplan_id":"a","create_time":"100"},{"card_dataplan_id":"b","create_time":50},{"card_dataplan_id":"bad id","create_time":1},{"create_time":5},{"card_dataplan_id":900719925474099,"create_time":0},{"card_dataplan_id":"c"},{"card_dataplan_id":"d","create_time":1e12}]}"#,
+        );
+        assert_eq!(
+            reissue_refs(&detail),
+            [
+                ("900719925474099".to_string(), None),
+                ("c".to_string(), None),
+                ("d".to_string(), None),
+                ("a".to_string(), Some(100_000)),
+                ("b".to_string(), Some(200_000)),
+            ]
+        );
+        assert!(reissue_refs(&j(r#"{"reissue_list":"x"}"#)).is_empty());
+        assert!(reissue_refs(&j(r#"{}"#)).is_empty());
+    }
+
+    #[test]
+    fn order_time_reads_only_the_order_event() {
+        let live = j(
+            r#"{"planTimeLine":[{"name":"activated","date":"2026-11-02 08:00:00"},{"name":"order","date":"2026-11-01 09:30:00"}]}"#,
+        );
+        assert_eq!(
+            order_time(Some(&live)).as_deref(),
+            Some("2026-11-01 09:30:00")
+        );
+        assert_eq!(
+            order_time(Some(&j(r#"{"planTimeLine":[{"name":"order"}]}"#))),
+            None
+        );
+        assert_eq!(
+            order_time(Some(&j(
+                r#"{"planTimeLine":[{"name":"activated","date":"x"}]}"#
+            ))),
+            None
+        );
+        assert_eq!(order_time(None), None);
+    }
+
     #[test]
     fn all_plans_and_exact_large_identifiers_are_retained() {
         let rows =
