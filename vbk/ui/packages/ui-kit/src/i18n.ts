@@ -202,7 +202,7 @@ const zhCN = {
   'tr.provider': 'TSim 出站翻译',
   'tr.modeReplace': '替换草稿：发送键发出译文，也可先「替换」再修改',
   'tr.modeDirect': '直接发送：发送键直接发送输入框原文',
-  'tr.idle': '输入中文后约 0.5 秒自动生成译文预览。',
+  'tr.idle': '输入内容后约 0.5 秒自动生成译文预览。',
   'tr.busy': '翻译中…',
   'tr.stale': '草稿已改动，正在重新翻译',
   'tr.replace': '替换',
@@ -393,7 +393,7 @@ const zhCN = {
 
   'set.asst.enabled': '启用商家助手',
   'set.asst.outbound': '出站翻译',
-  'set.asst.outboundDesc': '外语会话输入中文后约 0.5 秒生成 TSim 译文预览；客户语言自动识别，可手动改目标语言',
+  'set.asst.outboundDesc': '外语会话输入内容后约 0.5 秒生成 TSim 译文预览；客户语言自动识别，可手动改目标语言',
   'set.asst.tsim': 'TSim 登录',
   'set.asst.tsimLoggedIn': '已登录：{user}',
   'set.asst.tsimLoggedOut': '未登录',

@@ -19,7 +19,7 @@ pub const TARGET_LANGS: [&str; 17] = [
 pub const MAX_TEXT_CHARS: usize = 20_000;
 pub const MAX_TRANSLATED_CHARS: usize = 50_000;
 pub const MAX_COMPOSER_VERSION_CHARS: usize = 25_000;
-pub const SOURCE_LANG: &str = "zh";
+pub const SOURCE_LANG: &str = "auto";
 pub const PURPOSE: &str = "outbound";
 /// TSim usage attribution, shown there as 旅游商家助手.
 pub const CLIENT_SOURCE: &str = "travel_merchant_companion";
@@ -56,7 +56,7 @@ pub struct TranslateParams {
 }
 
 /// Builds `POST /agent/translate` with exactly
-/// `text, target_lang, source_lang:"zh", purpose:"outbound",
+/// `text, target_lang, source_lang:"auto", purpose:"outbound",
 /// draft_request_id, composer_content_version, client_source`.
 pub fn translate_request(
     session: &TsimSession,
@@ -507,7 +507,7 @@ mod tests {
         );
         assert_eq!(
             doc.get("source_lang").and_then(JsonValue::as_str),
-            Some("zh")
+            Some("auto")
         );
         assert_eq!(
             doc.get("purpose").and_then(JsonValue::as_str),

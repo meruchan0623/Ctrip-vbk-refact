@@ -105,9 +105,25 @@ test('翻译失败不静默发送原文，草稿保留并给出「发送原文 /
   assert.ok(bar.some(n => n.props.dataset?.tr === 'send-original') && bar.some(n => n.props.dataset?.tr === 'retry'));
 });
 
-test('已替换成外文的草稿按原样发送，不再翻译；空译文视为失败', async () => {
-  const f = fixture(); f.type(RU); await f.send(); await flush();
-  assert.deepEqual(f.sent(), [{ text: RU, original: null }]); assert.equal(f.translations().length, 0);
+test('非中文草稿也预览并发送客户目标语言，替换后复用译文', async () => {
+  for (const draft of ['Hello, please try again.', 'ご予約ありがとうございます', '안녕하세요', 'Bonjour']) {
+    const timers = mock.timers; timers.enable({ apis: ['setTimeout'] });
+    try {
+      const f = fixture(); f.type(draft); timers.tick(500); await flush();
+      assert.equal(f.translations()[0]!.payload.text, draft);
+      assert.equal(f.translations()[0]!.payload.target, 'ru');
+      await f.send(); await flush();
+      assert.deepEqual(f.sent(), [{ text: RU, original: draft }]);
+    } finally { timers.reset(); }
+  }
+  const f = fixture(); f.type(DRAFT); await f.env['runPreviewTranslation']();
+  nodes(f.env['translationBar'](f.state, f.state.conversations[0])).find(n => n.props.dataset?.tr === 'replace')!.props.onclick();
+  await f.send(); await flush();
+  assert.equal(f.translations().length, 1);
+  assert.deepEqual(f.sent(), [{ text: RU, original: null }]);
+});
+
+test('空译文视为失败', async () => {
   const g = fixture(); g.translate({ draft_version: 2, text: '   ' }); g.type(DRAFT); await g.send(); await flush();
   assert.equal(g.sent().length, 0); assert.equal(g.state.translation.status, 'error');
 });

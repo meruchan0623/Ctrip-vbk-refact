@@ -293,14 +293,9 @@ export function outboundTarget(lang: string): string {
   return OUTBOUND_TARGETS.includes(lang) ? lang : 'en';
 }
 
-const HAN = /[㐀-䶿一-鿿豈-﫿]/;
-const KANA_OR_HANGUL = /[ぁ-ヿㇰ-ㇿｦ-ﾟ가-힯ᄀ-ᇿ㄰-㆏]/;
-/**
- * 出站翻译只处理客服输入的中文；不含汉字、或含假名/谚文（例如已「替换」成
- * 日文/韩文译文的草稿）按原样发送，不把外文再当中文翻一遍。
- */
+/** 输入语言由 TSim 自动识别，所有非空草稿都可译成客户目标语言。 */
 export function needsOutboundTranslation(text: string): boolean {
-  return HAN.test(text) && !KANA_OR_HANGUL.test(text);
+  return text.trim().length > 0;
 }
 
 export { customerLanguage, suggestLanguage, LANGUAGE_SCAN_LIMIT } from '../../packages/ipc/src/customer-language.ts';

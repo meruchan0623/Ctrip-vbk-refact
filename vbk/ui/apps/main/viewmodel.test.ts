@@ -413,8 +413,8 @@ test('客户语言：行上 zh（zh_HK/缺失）时按最近客户文字消息�
   assert.equal(outboundTarget('ru'), 'ru');
   assert.equal(outboundTarget('fil'), 'en', '不支持的目标退回英语');
   assert.equal(needsOutboundTranslation('您好，购买后无法更改。'), true);
-  assert.equal(needsOutboundTranslation('Hello'), false);
-  assert.equal(needsOutboundTranslation('ご予約ありがとうございます'), false, '已替换成日文的草稿不再翻译');
+  assert.equal(needsOutboundTranslation('Hello'), true);
+  assert.equal(needsOutboundTranslation('ご予約ありがとうございます'), true, '日文草稿也需要翻译');
   assert.equal(composerLocked(conv('g', { status: 'finished' })), false);
   assert.equal(composerLocked(conv('g', { status: 'transferred_out' })), true);
 });

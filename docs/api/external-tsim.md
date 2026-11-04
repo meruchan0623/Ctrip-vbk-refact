@@ -45,7 +45,7 @@
 | --- | --- |
 | `text` | 必填 `StrictStr`；客户端要求非空；翻译服务文本上限 20,000 字符 |
 | `target_lang` | 服务端模型为必填 `str`；当前客户端允许 `zh,en,ja,ko,es,fr,de,ru,pt,it,ar,th,vi,id,ms,zh-TW,tr`，不要将客户端列表冒充服务端 Pydantic Literal |
-| `source_lang` | 服务端默认 `"auto"`；当前出站客户端传 `"zh"` |
+| `source_lang` | 服务端默认 `"auto"`；VBK 出站客户端传 `"auto"` 自动识别输入语言，companion 示例仍为 `"zh"` |
 | `purpose` | 可选 `inbound / outbound / sent_message_review`；当前流程传 `outbound` |
 | `draft_request_id` | 服务端可选 `StrictStr`；当前客户端总传，校验 1–100 位 `[-a-z0-9]` |
 | `composer_content_version` | 服务端可选 `StrictStr`；当前客户端总传且限制不超过 25,000 字符；必须与当前编辑版本绑定 |

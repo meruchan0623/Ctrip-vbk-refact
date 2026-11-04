@@ -1070,7 +1070,7 @@ async function handleSend(): Promise<void> {
       if (s.prefs?.assistant.send_mode === 'send_direct') { await sendText(text, null); return; }
       if (needsOutboundTranslation(text)) {
         const now = S(), tr = now.translation;
-        if (tr.status === 'done' && tr.gid === conv.gid && tr.draftVersion === now.draftVersion && tr.text.trim()) await sendText(tr.text, text);
+        if (tr.status === 'done' && tr.gid === conv.gid && tr.draftVersion === now.draftVersion && tr.text.trim()) await sendText(tr.text, tr.text === text ? null : text);
         else if (tr.status === 'busy' && tr.gid === conv.gid && tr.draftVersion === now.draftVersion) {
           // 预览翻译请求还在途：预定发送，译文返回后自动发出，不另起请求；改动草稿即取消。
           const owner = activeAccount(now)?.context;
@@ -2306,7 +2306,7 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
         { class: 'trrow' },
         h('span', { class: 'sp' }),
         h('button', { class: 'btn sm', onclick: () => copyText(tr.text) }, t('tr.copy')),
-        h('button', { class: 'btn sm', dataset: { tr: 'replace', fid: 'tr:replace' } , onclick: () => { if (applies()) store.patch({ draft: tr.text, drafts: { ...S().drafts, [conv.gid]: tr.text }, draftVersion: S().draftVersion + 1, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target } }); } }, t('tr.replace')),
+        h('button', { class: 'btn sm', dataset: { tr: 'replace', fid: 'tr:replace' } , onclick: () => { if (applies()) store.patch({ draft: tr.text, drafts: { ...S().drafts, [conv.gid]: tr.text }, draftVersion: S().draftVersion + 1, translation: { ...tr, draftVersion: S().draftVersion + 1 } }); } }, t('tr.replace')),
         h('button', { class: 'btn sm pri', dataset: { tr: 'send', fid: 'tr:send' } , onclick: () => { if (applies()) void sendText(tr.text, S().draft.trim()); } }, t('tr.sendTranslated')),
       ),
     );
