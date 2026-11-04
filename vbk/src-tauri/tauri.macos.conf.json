@@ -26,7 +26,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "VBooking 商家客户端",
+        "title": "旅游商家IM",
         "url": "apps/main/index.html",
         "width": 1280,
         "height": 820,

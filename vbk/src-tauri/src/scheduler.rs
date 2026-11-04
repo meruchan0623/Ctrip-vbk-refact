@@ -237,8 +237,8 @@ fn set_taskbar_badge(app: &AppHandle, text: Option<&str>, total: u32) {
         #[cfg(not(target_os = "macos"))]
         let _ = total;
         let title = match text {
-            Some(t) => format!("({t}) VBooking 商家客户端"),
-            None => "VBooking 商家客户端".to_string(),
+            Some(t) => format!("({t}) 旅游商家IM"),
+            None => "旅游商家IM".to_string(),
         };
         let _ = win.set_title(&title);
     }

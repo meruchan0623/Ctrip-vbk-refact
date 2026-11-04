@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "VBooking 商家客户端",
+  "productName": "旅游商家IM",
   "version": "0.1.0",
   "identifier": "tech.tsim.vbk.client",
   "build": {
@@ -18,7 +18,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "VBooking 商家客户端",
+        "title": "旅游商家IM",
         "url": "apps/main/index.html",
         "width": 1280,
         "height": 820,

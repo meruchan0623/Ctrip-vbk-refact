@@ -39,7 +39,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("VBooking 商家客户端")
+        .tooltip("旅游商家IM")
         .on_menu_event(|app, event| match event.id().as_ref() {
             MENU_SHOW => windows::show_main(app),
             MENU_SETTING => {
@@ -78,8 +78,8 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
 pub fn set_unread_tooltip(app: &AppHandle, unread_text: Option<&str>) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let text = match unread_text {
-            Some(n) => format!("VBooking 商家客户端 · 未读 {n}"),
-            None => "VBooking 商家客户端".to_string(),
+            Some(n) => format!("旅游商家IM · 未读 {n}"),
+            None => "旅游商家IM".to_string(),
         };
         let _ = tray.set_tooltip(Some(text));
     }
