@@ -36,6 +36,9 @@ pub struct AttachmentDto {
     pub content_sha256: String,
     pub owner: AttachmentOwner,
     pub supported: bool,
+    /// Small composer thumbnail (`data:image/jpeg`); images only, None if undecodable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_data_url: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MediaTarget {
@@ -103,6 +106,23 @@ pub fn invalid() -> AppError {
         "attachment format, size, scope or lifetime is invalid (nothing submitted)",
     )
 }
+/// Same contract code as [`invalid`], but says which check refused the attachment
+/// and logs that check. Neither the path nor the file name reaches the log.
+pub fn refused(check: &str, message: &str) -> AppError {
+    log::warn!("attachment refused: {check}");
+    AppError::new("media.invalid_attachment", message)
+}
+fn unreadable(step: &str, error: &std::io::Error) -> AppError {
+    log::warn!(
+        "attachment refused: {step} failed ({:?}, os {:?})",
+        error.kind(),
+        error.raw_os_error()
+    );
+    AppError::new(
+        "media.invalid_attachment",
+        "无法读取所选文件，未发送。请确认文件可访问后重新选择。",
+    )
+}
 /// Local limit rejection: the contract code, nothing submitted.
 pub fn limit_error(violation: LimitViolation) -> AppError {
     AppError::new(
@@ -137,7 +157,7 @@ fn official_url(value: Option<&str>) -> bool {
                 && url.username().is_empty()
                 && url.password().is_none()
                 && url.port().map_or(true, |p| p == 443)
-                && url.host_str().map_or(false, |host| {
+                && url.host_str().is_some_and(|host| {
                     ["ctrip.com", "c-ctrip.com", "tripcdn.com"]
                         .iter()
                         .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
@@ -156,10 +176,10 @@ pub fn validate_body(body: &str, kind: &str, name: &str, size: usize) -> bool {
                 && official_url(value["thumbUrl"].as_str())
                 && value["width"]
                     .as_f64()
-                    .map_or(false, |n| n.is_finite() && n > 0.0)
+                    .is_some_and(|n| n.is_finite() && n > 0.0)
                 && value["height"]
                     .as_f64()
-                    .map_or(false, |n| n.is_finite() && n > 0.0)
+                    .is_some_and(|n| n.is_finite() && n > 0.0)
                 && value["ext"]["channel"] == "im_business"
                 && value["ext"]["scene"] == "cqDA0M7F6aAGHF06jzBe"
         }
@@ -175,11 +195,11 @@ pub fn validate_body(body: &str, kind: &str, name: &str, size: usize) -> bool {
                 && official_url(value["video"]["cover"].as_str())
                 && value["video"]["filename"]
                     .as_str()
-                    .map_or(false, |s| !s.is_empty())
+                    .is_some_and(|s| !s.is_empty())
                 && value["video"]["size"].as_u64() == Some(size as u64)
                 && value["video"]["duration"]
                     .as_f64()
-                    .map_or(false, |n| n.is_finite() && n > 0.0 && n <= 180.0)
+                    .is_some_and(|n| n.is_finite() && n > 0.0 && n <= 180.0)
         }
         _ => false,
     }
@@ -229,6 +249,24 @@ pub fn validate_message(
             _ => false,
         }
 }
+/// Composer preview only; the bytes that get sent stay the frozen original.
+fn image_preview(bytes: &[u8]) -> Option<String> {
+    use base64::Engine as _;
+    const EDGE: u32 = 240;
+    let image = image::load_from_memory(bytes).ok()?.thumbnail(EDGE, EDGE);
+    let mut jpeg = Vec::new();
+    image
+        .into_rgb8()
+        .write_to(
+            &mut std::io::Cursor::new(&mut jpeg),
+            image::ImageFormat::Jpeg,
+        )
+        .ok()?;
+    Some(format!(
+        "data:image/jpeg;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(jpeg)
+    ))
+}
 fn mime(kind: &str, bytes: &[u8]) -> Result<&'static str, AppError> {
     match kind {
         "image" if bytes.starts_with(b"\x89PNG\r\n\x1a\n") => Ok("image/png"),
@@ -240,6 +278,14 @@ fn mime(kind: &str, bytes: &[u8]) -> Result<&'static str, AppError> {
         "video" if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" => Ok("video/mp4"),
         "file" if bytes.starts_with(b"%PDF-") => Ok("application/pdf"),
         "file" => Ok("application/octet-stream"),
+        "image" => Err(refused(
+            "image content is not png/jpeg/gif/webp",
+            "图片仅支持 PNG、JPEG、GIF、WebP，未发送。其他格式可通过“文件”发送。",
+        )),
+        "video" => Err(refused(
+            "video content is not mp4",
+            "视频仅支持 MP4，未发送。",
+        )),
         _ => Err(invalid()),
     }
 }
@@ -262,37 +308,45 @@ impl FrozenAttachment {
             use std::os::windows::fs::OpenOptionsExt;
             options.share_mode(1);
         }
-        let file = options.open(path).map_err(|_| invalid())?;
-        let before = file.metadata().map_err(|_| invalid())?;
+        let file = options.open(path).map_err(|e| unreadable("open", &e))?;
+        let before = file.metadata().map_err(|e| unreadable("metadata", &e))?;
         if !before.is_file() {
-            return Err(invalid());
+            return Err(refused("not a regular file", "只能发送普通文件，未发送。"));
         }
         check_size(kind, before.len())?;
         let mut bytes = Vec::new();
         (&file)
             .take(LOCAL_CAP as u64 + 1)
             .read_to_end(&mut bytes)
-            .map_err(|_| invalid())?;
-        let after = file.metadata().map_err(|_| invalid())?;
+            .map_err(|e| unreadable("read", &e))?;
+        let after = file.metadata().map_err(|e| unreadable("metadata", &e))?;
         if bytes.len() != before.len() as usize
             || after.len() != before.len()
             || after.modified().ok() != before.modified().ok()
         {
-            return Err(invalid());
+            return Err(refused(
+                "file changed while reading",
+                "文件在读取时发生了变化，未发送。请重新选择。",
+            ));
         }
         let name = path
             .file_name()
             .and_then(|s| s.to_str())
-            .ok_or_else(invalid)?
+            .filter(|name| {
+                !name.is_empty()
+                    && name.len() <= 512
+                    && !name
+                        .chars()
+                        .any(|c| c.is_control() || c == '/' || c == '\\')
+            })
+            .ok_or_else(|| {
+                refused(
+                    "file name not accepted",
+                    "文件名包含不支持的字符或过长，未发送。请改名后重新选择。",
+                )
+            })?
             .to_string();
-        if name.is_empty()
-            || name.len() > 512
-            || name
-                .chars()
-                .any(|c| c.is_control() || c == '/' || c == '\\')
-            || gid.is_empty()
-            || !valid_hash(&target.identity_sha256)
-        {
+        if gid.is_empty() || !valid_hash(&target.identity_sha256) {
             return Err(invalid());
         }
         let mime = mime(kind, &bytes)?.to_string();
@@ -309,6 +363,7 @@ impl FrozenAttachment {
                     gid: gid.into(),
                 },
                 supported: true,
+                preview_data_url: (kind == "image").then(|| image_preview(&bytes)).flatten(),
             },
             target,
             bytes: Arc::new(bytes),
@@ -454,8 +509,22 @@ mod tests {
             "media.chunked_upload_unsupported"
         );
         let file = LocalFile::new(b"arbitrary bytes named like an image");
-        assert!(FrozenAttachment::read(&file.0, "image", &account(1), "room", target()).is_err());
-        assert!(FrozenAttachment::read(&file.0, "video", &account(1), "room", target()).is_err());
+        let image = FrozenAttachment::read(&file.0, "image", &account(1), "room", target())
+            .err()
+            .expect("unsupported image content is refused");
+        assert_eq!(image.code, "media.invalid_attachment");
+        assert!(image.message.contains("PNG"));
+        let video = FrozenAttachment::read(&file.0, "video", &account(1), "room", target())
+            .err()
+            .expect("unsupported video content is refused");
+        assert_eq!(video.code, "media.invalid_attachment");
+        assert!(video.message.contains("MP4"));
+        let missing = std::env::temp_dir().join(format!("vbk-missing-{}", uuid::Uuid::new_v4()));
+        let unreadable = FrozenAttachment::read(&missing, "file", &account(1), "room", target())
+            .err()
+            .expect("an unreadable path is refused");
+        assert_eq!(unreadable.code, "media.invalid_attachment");
+        assert!(unreadable.message.contains("无法读取"));
         let mut frozen =
             FrozenAttachment::read(&file.0, "file", &account(1), "room", target()).unwrap();
         assert!(frozen.validate(&account(2), "room").is_err());

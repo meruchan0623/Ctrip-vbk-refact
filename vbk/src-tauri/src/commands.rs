@@ -14,9 +14,8 @@ use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, State, Window};
 
 use crate::dto::{
-    hide_all_cmd, hide_round_cmd, open_conversation_cmd, snooze_cmd, snooze_from_minutes,
-    AdapterFactEnvelopeDto, AlarmSnapshotDto, AppErrorDto, ReminderSettingsDto, RoundRefDto,
-    SeenRoundDto,
+    hide_all_cmd, hide_round_cmd, open_conversation_cmd, AdapterFactEnvelopeDto, AlarmSnapshotDto,
+    AppErrorDto, ReminderSettingsDto, RoundRefDto, SeenRoundDto,
 };
 use crate::state::HostState;
 use crate::views;
@@ -101,9 +100,27 @@ fn err(e: AppError) -> AppErrorDto {
 // ------------------------------------------------------------------ notify
 
 #[tauri::command]
-pub fn notify_snapshot(window: Window, state: State<'_, HostState>) -> CmdResult<AlarmSnapshotDto> {
+pub fn notify_snapshot(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+) -> CmdResult<AlarmSnapshotDto> {
     guard(&state, &window, "notify_snapshot")?;
-    Ok(AlarmSnapshotDto::from(&state.alarm_snapshot()))
+    Ok(crate::adapter::alarm_snapshot(&app))
+}
+
+/// The alarm window hugs its rows, growing up from its corner. Only ever sizes itself.
+#[tauri::command]
+pub fn notify_alarm_resize(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+    height: f64,
+) -> CmdResult<()> {
+    guard(&state, &window, "notify_alarm_resize")?;
+    let corner = windows::Corner::from_bottom_right(state.settings().position_bottom_right);
+    windows::resize_alarm(&app, corner, height)
+        .map_err(|e| err(AppError::new("notify.alarm_resize", e.to_string())))
 }
 
 #[derive(Debug, Serialize)]
@@ -195,21 +212,6 @@ pub fn notify_hide_all(
 }
 
 #[tauri::command]
-pub fn notify_snooze(
-    window: Window,
-    state: State<'_, HostState>,
-    round: RoundRefDto,
-    minutes: u32,
-) -> CmdResult<AckDto> {
-    guard(&state, &window, "notify_snooze")?;
-    let m = snooze_from_minutes(minutes).map_err(err)?;
-    state
-        .alarm_command(snooze_cmd(round, m), source_for(&window))
-        .map(ack_dto)
-        .map_err(err)
-}
-
-#[tauri::command]
 pub fn notify_set_enabled(
     window: Window,
     state: State<'_, HostState>,
@@ -220,6 +222,68 @@ pub fn notify_set_enabled(
         .alarm_command(AlarmCommand::SetEnabled(enabled), source_for(&window))
         .map(ack_dto)
         .map_err(err)
+}
+
+/// The conversation main is showing, so its new messages need no notification
+/// while main has focus. Holds no account authority: it only suppresses L2.
+#[tauri::command]
+pub fn notify_set_viewing(
+    window: Window,
+    state: State<'_, HostState>,
+    gid: Option<String>,
+) -> CmdResult<()> {
+    guard(&state, &window, "notify_set_viewing")?;
+    if let Some(gid) = &gid {
+        core_im::feature_rules::validate_gid(gid).map_err(err)?;
+    }
+    state.update_system_state(|system| system.viewing_gid = gid);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn notice_open(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+    account: crate::dto::AccountContextDto,
+    gid: String,
+) -> CmdResult<()> {
+    guard(&state, &window, "notice_open")?;
+    core_im::feature_rules::validate_gid(&gid).map_err(err)?;
+    crate::notifications::open(&app, account.into(), gid);
+    Ok(())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn notice_open_category(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+    account: crate::dto::AccountContextDto,
+    category_id: String,
+) -> CmdResult<()> {
+    guard(&state, &window, "notice_open_category")?;
+    if !crate::prefs::is_notice_category_id(&category_id) {
+        return Err(err(AppError::new(
+            "notice.invalid_category",
+            "invalid notice category id",
+        )));
+    }
+    crate::notifications::open_category(&app, account.into(), category_id);
+    Ok(())
+}
+
+/// The notice window fits its stack; 0 hides it. Only ever sizes itself.
+#[tauri::command]
+pub fn notice_resize(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+    height: f64,
+) -> CmdResult<()> {
+    guard(&state, &window, "notice_resize")?;
+    windows::resize_notice(&app, height)
+        .map_err(|e| err(AppError::new("notice.resize", e.to_string())))
 }
 
 // JS sends snake_case keys (`{t1_seconds}` / `{attempt_id}`), not camelCase.

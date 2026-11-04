@@ -1,5 +1,6 @@
 [package]
 name = "vbk-host"
+default-run = "vbk-host"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.80"
@@ -32,10 +33,13 @@ core-diag = { path = "../crates/core-diag" }
 # FND-01 locks exact versions on the first Windows build; these are the
 # minimum majors the code is written against (Tauri 2.x with work_area()).
 # `unstable`: multi-webview windows (login window = local header + remote page).
-tauri = { version = "2", features = ["tray-icon", "image-png", "unstable"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png", "unstable"] }
 tauri-plugin-dialog = "2"
+arboard = { version = "3.6.1", default-features = false, features = ["image-data"] }
+base64 = "0.22"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 # HTTP for core-assistant (TSim) requests built by the std-only core.
-reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "system-proxy"] }
 # macOS Keychain / Windows Credential Manager for SecretStore.
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 tokio = { version = "1", features = ["time", "sync"] }
@@ -50,9 +54,25 @@ sha2 = "=0.10.9"
 fs2 = "=0.4.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# The transparent notice window; pairs with macOSPrivateApi in tauri.macos.conf.json.
+tauri = { version = "2", features = ["macos-private-api"] }
 security-framework = "=3.7.0"
+rusqlite = { version = "0.38", features = ["bundled"] }
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+pbkdf2 = "0.12"
+sha1 = "0.10"
+zeroize = "1"
+block2 = "0.6"
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSDate", "NSHTTPCookie", "NSString"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKHTTPCookieStore"] }
 
 [features]
 default = []
 # Dev builds may open devtools; release builds never do (archive §5).
 devtools = ["tauri/devtools"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_Shell"] }

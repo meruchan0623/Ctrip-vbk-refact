@@ -1,4 +1,4 @@
-//! Durable safety boundary for invite, transfer and finish; never a retry queue.
+//! Durable safety boundary for peripheral writes; never a retry queue.
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::future::Future;
@@ -20,6 +20,11 @@ pub enum Action {
     Invite,
     Transfer,
     Finish,
+    /// finishConversation with a non-empty venAgentUids. Its own barrier: an
+    /// uncertain removal must not lock (or be unlocked by) ending the room.
+    Remove,
+    /// Product recommendation cards share the durable room/action barrier.
+    ProductCard,
 }
 
 pub struct Intent {
@@ -147,8 +152,9 @@ fn identity(intent: &Intent) -> Result<(String, String), AppError> {
         || targets.windows(2).any(|pair| pair[0] == pair[1])
         || match intent.action {
             Action::Invite => targets.is_empty(),
-            Action::Transfer => targets.len() != 1,
+            Action::Transfer | Action::ProductCard => targets.len() != 1,
             Action::Finish => !targets.is_empty(),
+            Action::Remove => targets.is_empty(),
         };
     if invalid {
         return Err(AppError::new(
@@ -933,6 +939,46 @@ mod tests {
     }
 
     #[test]
+    fn remove_requires_targets_and_has_its_own_barrier_apart_from_finish() {
+        let root = TempDir::new();
+        let journal = open(&root);
+        let calls = AtomicUsize::new(0);
+        let mut empty = intent("remove-token");
+        empty.action = Action::Remove;
+        empty.targets = vec![];
+        assert!(run(dispatch_once(&journal, &account(1), &empty, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(outcome(Kind::Confirmed))
+        }))
+        .is_err());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "an empty removal never reaches the page"
+        );
+        let mut remove = intent("remove-token");
+        remove.action = Action::Remove;
+        run(dispatch_once(&journal, &account(1), &remove, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(outcome(Kind::Unknown))
+        }))
+        .unwrap();
+        let mut finish = intent("finish-token");
+        finish.action = Action::Finish;
+        finish.targets = vec![];
+        let result = run(dispatch_once(&journal, &account(1), &finish, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(outcome(Kind::Confirmed))
+        }))
+        .unwrap();
+        assert!(
+            result.kind == Kind::Confirmed,
+            "an uncertain removal does not lock ending the room"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
     fn released_intent_hash_includes_canonical_targets_as_well_as_selection_token() {
         for kind in [Kind::Confirmed, Kind::NotSubmitted] {
             let root = TempDir::new();
@@ -955,5 +1001,101 @@ mod tests {
             }
             assert_eq!(calls.load(Ordering::SeqCst), 2, "same payload replays; changed selected targets form a distinct intent only after release");
         }
+    }
+    #[test]
+    fn product_card_requires_exactly_one_product_before_any_dispatch() {
+        let root = TempDir::new();
+        let journal = open(&root);
+        let calls = AtomicUsize::new(0);
+        for targets in [vec![], vec![""], vec!["product-a", "product-b"]] {
+            let mut next = intent("product-selection");
+            next.action = Action::ProductCard;
+            next.targets = targets.into_iter().map(str::to_owned).collect();
+            assert!(run(dispatch_once(&journal, &account(1), &next, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(outcome(Kind::Confirmed))
+            }))
+            .is_err());
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn product_card_uncertainty_blocks_double_click_and_new_products_after_reopen() {
+        for kind in [Kind::Unknown, Kind::Accepted] {
+            let root = TempDir::new();
+            let first = open(&root);
+            let calls = AtomicUsize::new(0);
+            let mut initial = intent("initial-product-selection");
+            initial.action = Action::ProductCard;
+            initial.targets = vec!["product-a".into()];
+            run(dispatch_once(&first, &account(1), &initial, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                // A second click during the outstanding RPC must not dispatch.
+                let second = open(&root);
+                let blocked = run(dispatch_once(&second, &account(1), &initial, || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(outcome(Kind::Confirmed))
+                }))
+                .unwrap();
+                assert!(blocked.kind == Kind::Unknown);
+                Ok(outcome(kind.clone()))
+            }))
+            .unwrap();
+            drop(first);
+            let reopened = open(&root);
+            for (token, product) in [
+                ("initial-product-selection", "product-a"),
+                ("new-selection", "product-b"),
+            ] {
+                let mut next = intent(token);
+                next.action = Action::ProductCard;
+                next.targets = vec![product.into()];
+                let result = run(dispatch_once(&reopened, &account(9), &next, || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(outcome(Kind::Confirmed))
+                }))
+                .unwrap();
+                assert!(result.kind == kind);
+            }
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            // The fence remains scoped to its account and action.
+            let other = AccountContext::new(
+                AccountId::new("other-account"),
+                Environment::named("test"),
+                1,
+            );
+            run(dispatch_once(&reopened, &other, &initial, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(outcome(Kind::Confirmed))
+            }))
+            .unwrap();
+            let invite = intent("separate-invite-selection");
+            run(dispatch_once(&reopened, &account(9), &invite, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(outcome(Kind::Confirmed))
+            }))
+            .unwrap();
+            assert_eq!(calls.load(Ordering::SeqCst), 3);
+        }
+    }
+
+    #[test]
+    fn product_card_confirmation_replays_old_selection_but_allows_a_new_explicit_selection() {
+        let root = TempDir::new();
+        let journal = open(&root);
+        let calls = AtomicUsize::new(0);
+        for token in ["first", "first", "second", "first"] {
+            let mut next = intent(token);
+            next.action = Action::ProductCard;
+            next.targets = vec!["900719925474099312345".into()];
+            let result = run(dispatch_once(&journal, &account(1), &next, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(outcome(Kind::Confirmed))
+            }))
+            .unwrap();
+            assert!(result.kind == Kind::Confirmed);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 }

@@ -126,7 +126,16 @@ mod tests {
     #[test]
     fn profile_dir_rejects_traversal_and_foreign_names() {
         let base = Path::new("/data");
-        for bad in ["", "p_", "../p_1", "p_../x", "p_a/b", "q_1", "p_a b", "EBWebView"] {
+        for bad in [
+            "",
+            "p_",
+            "../p_1",
+            "p_../x",
+            "p_a/b",
+            "q_1",
+            "p_a b",
+            "EBWebView",
+        ] {
             assert!(profile_dir(base, bad).is_none(), "{bad:?}");
             assert!(!is_profile_dir_name(bad), "{bad:?}");
         }
@@ -136,7 +145,10 @@ mod tests {
     #[test]
     fn backup_name_keeps_the_original_name() {
         let p = Path::new("/x/accounts.json");
-        assert_eq!(backup_path(p, 42), Path::new("/x/accounts.json.unreadable-42"));
+        assert_eq!(
+            backup_path(p, 42),
+            Path::new("/x/accounts.json.unreadable-42")
+        );
     }
 
     #[test]
@@ -145,7 +157,10 @@ mod tests {
         let path = dir.join("prefs.json");
         std::fs::write(&path, b"{not json").expect("write");
         let backup = preserve_unreadable_at(&path, 7).expect("backup");
-        assert_eq!(std::fs::read(&backup).expect("backup readable"), b"{not json");
+        assert_eq!(
+            std::fs::read(&backup).expect("backup readable"),
+            b"{not json"
+        );
         assert!(path.is_file(), "the original stays in place");
         assert!(preserve_unreadable_at(&dir.join("missing.json"), 8).is_none());
         let _ = std::fs::remove_dir_all(&dir);

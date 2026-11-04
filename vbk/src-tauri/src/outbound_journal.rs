@@ -236,7 +236,7 @@ impl OutboundJournal {
         }
         if let Some(kind) = &row.media_kind {
             if !matches!(kind.as_str(), "image" | "file" | "video")
-                || row.message_sha256.as_ref().map_or(false, |hash| {
+                || row.message_sha256.as_ref().is_some_and(|hash| {
                     hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit())
                 })
                 || (row.send_started && row.message_sha256.is_none())
@@ -410,7 +410,7 @@ impl OutboundJournal {
             || payload
                 .map(payload_hash)
                 .transpose()?
-                .map_or(false, |hash| row.payload_sha256 != hash)
+                .is_some_and(|hash| row.payload_sha256 != hash)
         {
             return Err(AppError::new(
                 "im.intent_conflict",

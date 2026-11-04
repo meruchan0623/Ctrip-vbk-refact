@@ -85,17 +85,23 @@ fn transport_error(e: &reqwest::Error) -> AppError {
 #[derive(Clone)]
 pub struct ReqwestExecutor {
     client: Option<reqwest::Client>,
+    /// Used while `network.system_proxy` is off; the switch is read per request.
+    direct: Option<reqwest::Client>,
 }
 
 impl ReqwestExecutor {
     pub fn new() -> Self {
-        Self::from_builder(
+        let base = || {
             reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .https_only(true)
                 .timeout(REQUEST_TIMEOUT)
-                .connect_timeout(CONNECT_TIMEOUT),
-        )
+                .connect_timeout(CONNECT_TIMEOUT)
+        };
+        Self {
+            direct: Self::from_builder(base().no_proxy()).client,
+            ..Self::from_builder(base())
+        }
     }
 
     fn from_builder(builder: reqwest::ClientBuilder) -> Self {
@@ -106,7 +112,10 @@ impl ReqwestExecutor {
                 None
             }
         };
-        Self { client }
+        Self {
+            client,
+            direct: None,
+        }
     }
 
     async fn execute_with<F, Fut>(
@@ -118,7 +127,12 @@ impl ReqwestExecutor {
         F: FnOnce(reqwest::Client, TsimRequest) -> Fut + Send,
         Fut: Future<Output = Result<HttpResponse, AppError>> + Send,
     {
-        let client = self.client.clone().ok_or_else(|| {
+        let selected = if crate::net_policy::use_system_proxy() {
+            &self.client
+        } else {
+            &self.direct
+        };
+        let client = selected.clone().ok_or_else(|| {
             AppError::new(
                 "assistant.service_unavailable",
                 "assistant HTTP initialization failed",

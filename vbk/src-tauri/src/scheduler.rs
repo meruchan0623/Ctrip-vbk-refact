@@ -13,10 +13,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use contracts::{ClockQuality, ClockReading};
-use core_notify::{Effect, Pacer, Sound};
+use core_notify::{Effect, Pacer, Sound, BANNER_STAY_MS};
 use tauri::{AppHandle, Emitter, Manager, UserAttentionType};
 
-use crate::dto::AlarmSnapshotDto;
+use crate::attention;
 use crate::events;
 use crate::prefs;
 use crate::state::HostState;
@@ -27,6 +27,8 @@ use crate::windows::{self, Corner};
 pub const TICK: Duration = Duration::from_millis(1000);
 pub const FLASH_PHASE: Duration = Duration::from_millis(500);
 pub const ALARM_SNAPSHOT_EVENT: &str = events::ALARM_SNAPSHOT;
+/// Ticks between OS environment reads (full-screen windows, focus state).
+const OS_READ_EVERY_TICKS: u32 = 3;
 
 pub fn start(app: AppHandle) {
     thread::Builder::new()
@@ -48,6 +50,8 @@ fn run(app: AppHandle) {
     let origin = Instant::now();
     let now_ms = move || i64::try_from(origin.elapsed().as_millis()).unwrap_or(i64::MAX);
     let mut pacer = Pacer::new(now_ms());
+    let mut os_attention = attention::OsAttention::default();
+    let mut ticks_since_os_read = OS_READ_EVERY_TICKS;
     loop {
         let state = app.state::<HostState>();
         if state.quit_requested() {
@@ -64,6 +68,13 @@ fn run(app: AppHandle) {
             continue;
         }
         crate::adapter::expire_agent_statuses(&app);
+        if ticks_since_os_read >= OS_READ_EVERY_TICKS {
+            ticks_since_os_read = 0;
+            os_attention = attention::read();
+        }
+        ticks_since_os_read += 1;
+        // Also the quiet-hours edge, hence every tick.
+        attention::sync(&app, os_attention);
         let mut effects = state.tick();
         let failed_now = state.persist_failed();
         if failed_now != persist_failed {
@@ -84,13 +95,8 @@ fn run(app: AppHandle) {
             }
             match effect {
                 Effect::ShowAlarm { raise } => {
-                    let bottom_right = state.settings().position_bottom_right;
-                    let corner = if bottom_right {
-                        Corner::BottomRight
-                    } else {
-                        Corner::BottomLeft
-                    };
-                    if let Err(e) = windows::show_alarm(&app, corner, 320.0, raise) {
+                    let corner = Corner::from_bottom_right(state.settings().position_bottom_right);
+                    if let Err(e) = windows::show_alarm(&app, corner, raise) {
                         log::warn!("show alarm failed: {e}");
                     }
                     snapshot_changed = true;
@@ -121,36 +127,20 @@ fn run(app: AppHandle) {
                     gid,
                     count,
                     stay_ms,
-                } => {
-                    let _ = app.emit_to(
-                        views::MAIN,
-                        events::NOTIFY_BANNER,
-                        serde_json::json!({
-                            "account": crate::dto::AccountContextDto::from(&account),
-                            "gid": gid, "count": count, "stay_ms": stay_ms
-                        }),
-                    );
-                }
+                } => crate::notifications::show(&app, &account, &gid, count, stay_ms),
                 Effect::SystemToast {
                     account,
                     gid,
                     count,
-                } => {
-                    // System toast integration is REL/NTF-05; until then the
-                    // main window shows a plain banner.
-                    let _ = app.emit_to(
-                        views::MAIN,
-                        events::NOTIFY_BANNER,
-                        serde_json::json!({
-                            "account": crate::dto::AccountContextDto::from(&account),
-                            "gid": gid, "count": count, "stay_ms": 6000, "system": true
-                        }),
-                    );
-                }
+                } => crate::notifications::show(&app, &account, &gid, count, BANNER_STAY_MS),
             }
         }
-        if snapshot_changed {
-            let snap = AlarmSnapshotDto::from(&state.alarm_snapshot());
+        let alarm_shown = windows::alarm_is_visible(&app);
+        if snapshot_changed || alarm_shown {
+            let snap = crate::adapter::alarm_snapshot(&app);
+            if must_hide_alarm(alarm_shown, snap.entries.len()) {
+                windows::hide_alarm(&app);
+            }
             // Directed emit: only local windows (alarm, and main for its
             // alert counters) receive customer-adjacent data, never a
             // remote webview.
@@ -167,6 +157,11 @@ fn run(app: AppHandle) {
         }
         thread::sleep(Duration::from_millis(pacer.sleep_ms(now_ms(), fast)));
     }
+}
+
+/// Whatever opened the alarm window, it never stays up with nothing to list.
+fn must_hide_alarm(shown: bool, listed: usize) -> bool {
+    shown && listed == 0
 }
 
 /// Wire shape of `ClockReading` (contracts.ts).
@@ -201,12 +196,14 @@ fn play_sound(app: &AppHandle, sound: Sound) {
     // Audio output is a platform concern (MED/NTF-04). The main window
     // plays bundled clips on this event; nothing else is required for the
     // escalation semantics to be verifiable.
-    let name = match sound {
-        Sound::NewMessage => "new_message",
-        Sound::Timeout => "timeout",
-        Sound::Loop => "loop",
+    // The new-message chime plays in the notice window, in step with its card
+    // and independent of whether main is hidden. Effect order: card, then chime.
+    let (window, name) = match sound {
+        Sound::NewMessage => (views::NOTICE, "new_message"),
+        Sound::Timeout => (views::MAIN, "timeout"),
+        Sound::Loop => (views::MAIN, "loop"),
     };
-    let _ = app.emit_to(views::MAIN, events::NOTIFY_PLAY_SOUND, name);
+    let _ = app.emit_to(window, events::NOTIFY_PLAY_SOUND, name);
 }
 
 fn stop_sound(app: &AppHandle) {
@@ -217,14 +214,14 @@ fn stop_sound(app: &AppHandle) {
 /// bounces the Dock icon once (`Informational`, not the repeating
 /// `Critical`). `false` cancels the request. Never focuses a window.
 fn request_attention(app: &AppHandle, on: bool) {
-    if let Some(win) = app.get_webview_window(views::MAIN) {
+    if let Some(win) = app.get_window(views::MAIN) {
         let kind = on.then_some(UserAttentionType::Informational);
         let _ = win.request_user_attention(kind);
     }
 }
 
 fn set_taskbar_badge(app: &AppHandle, text: Option<&str>, total: u32) {
-    if let Some(win) = app.get_webview_window(views::MAIN) {
+    if let Some(win) = app.get_window(views::MAIN) {
         // macOS: Dock badge. `set_badge_count` is unsupported on Windows
         // (Tauri documents `set_overlay_icon` instead, which needs a badge
         // asset — a later NTF-04 task), so Windows keeps the title fallback.
@@ -244,5 +241,17 @@ fn set_taskbar_badge(app: &AppHandle, text: Option<&str>, total: u32) {
             None => "VBooking 商家客户端".to_string(),
         };
         let _ = win.set_title(&title);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::must_hide_alarm;
+
+    #[test]
+    fn alarm_window_hides_only_when_shown_with_an_empty_list() {
+        assert!(must_hide_alarm(true, 0));
+        assert!(!must_hide_alarm(true, 1));
+        assert!(!must_hide_alarm(false, 0));
     }
 }

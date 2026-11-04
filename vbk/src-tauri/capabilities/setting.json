@@ -22,11 +22,16 @@
     "allow-shell-window",
     "allow-shell-open-window",
     "allow-shell-open-external",
+    "allow-shell-open-webview",
+    "allow-shell-export-diagnostics",
+    "allow-shell-open-data-directory",
     "allow-assistant-tsim-status",
     "allow-assistant-tsim-login",
     "allow-assistant-tsim-logout",
     "allow-assistant-tsim-import-session",
     "allow-assistant-tsim-browser-profiles",
-    "allow-assistant-tsim-browser-connect"
+    "allow-assistant-tsim-browser-connect",
+    "allow-shell-read-clipboard-text",
+    "allow-shell-write-clipboard-text"
   ]
 }

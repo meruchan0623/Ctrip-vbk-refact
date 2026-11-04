@@ -21,6 +21,9 @@ const MAX_QUERIES: usize = 16;
 
 const SUMMARY_CONCURRENCY: usize = 4;
 const SUMMARY_HTTP_BUDGET: Duration = Duration::from_secs(45);
+/// Linked reissue packages are an enrichment: they get their own budget after
+/// the order's own plans and may fail one by one without failing the summary.
+const REISSUE_HTTP_BUDGET: Duration = Duration::from_secs(20);
 
 struct SummaryRead {
     deadline: tokio::time::Instant,
@@ -55,10 +58,17 @@ impl SummaryRead {
 struct SummaryPlan {
     info: OrderPackageInfo,
     reusable: bool,
+    order_time: Option<String>,
+    reissue_refs: Vec<(String, Option<i64>)>,
+}
+type SlotResult = Result<SummaryPlan, AppError>;
+struct LinkedReissues {
+    per_plan: Vec<Vec<OrderReissue>>,
+    reusable: bool,
 }
 type PendingSummary<'a> = (
     usize,
-    Pin<Box<dyn Future<Output = Result<SummaryPlan, AppError>> + Send + 'a>>,
+    Pin<Box<dyn Future<Output = SlotResult> + Send + 'a>>,
 );
 
 #[derive(Clone, PartialEq, Eq)]
@@ -98,21 +108,45 @@ impl OrderPackageInfo {
             supplier: sum.supplier,
             apn: sum.apn,
             fetched_at_ms: now,
-            detail_fields: order::detail_fields(detail).into_iter()
-                .filter(|field| field.label != "当日用量（MB）" || order::daily_usage_available(detail, live))
-                .map(Into::into).collect(),
-            live_fields: live.map(order::live_fields).unwrap_or_default().into_iter().map(Into::into).collect(),
-            cdrs: order::cdr_fields(detail, None).into_iter().map(|row| row.into_iter().map(Into::into).collect()).collect(),
+            detail_fields: order::detail_fields(detail)
+                .into_iter()
+                .filter(|field| {
+                    field.label != "当日用量（MB）" || order::daily_usage_available(detail, live)
+                })
+                .map(Into::into)
+                .collect(),
+            live_fields: live
+                .map(order::live_fields)
+                .unwrap_or_default()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            cdrs: order::cdr_fields(detail, None)
+                .into_iter()
+                .map(|row| row.into_iter().map(Into::into).collect())
+                .collect(),
             usage_scope: order::usage_scope(detail, live),
             unlimited: order::unlimited(detail, live),
         }
     }
+}
+/// A package linked to an original plan through `detail.reissue_list`.
+#[derive(Clone, Serialize)]
+pub struct OrderReissue {
+    pub create_time_ms: Option<i64>,
+    /// `ready` (info present) or `error` (detail could not be read).
+    pub state: &'static str,
+    pub info: Option<OrderPackageInfo>,
 }
 #[derive(Clone, Serialize)]
 pub struct OrderPlan {
     pub detail_handle: String,
     #[serde(flatten)]
     pub info: OrderPackageInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_time: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reissues: Vec<OrderReissue>,
 }
 #[derive(Clone, Serialize)]
 pub struct OrderSummary {
@@ -280,16 +314,22 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
         let hydrated = self
             .enrich_plans(&session, epoch, &ids, &rows, validate, &read)
             .await?;
-        let reusable = hydrated.iter().all(|plan| plan.reusable);
+        let mut reusable = hydrated.iter().all(|plan| plan.reusable);
+        let mut linked = self
+            .hydrate_reissues(&session, epoch, &ids, &hydrated, validate)
+            .await?;
+        reusable &= linked.reusable;
         let fetched = self.service.now_ms();
         let mut cards = Vec::new();
         let mut plans = Vec::new();
-        for (id, hydrated) in ids.into_iter().zip(hydrated) {
+        for (index, (id, hydrated)) in ids.into_iter().zip(hydrated).enumerate() {
             let handle = uuid::Uuid::new_v4().to_string();
             cards.push((handle.clone(), id));
             plans.push(OrderPlan {
                 detail_handle: handle,
                 info: hydrated.info,
+                order_time: hydrated.order_time,
+                reissues: std::mem::take(&mut linked.per_plan[index]),
             });
         }
         let summary = OrderSummary {
@@ -414,25 +454,48 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
         let mut info = OrderPackageInfo::project(&detail, live.as_ref(), self.service.now_ms());
         // Match the original companion: supplemental CDR rows take precedence
         // over detail.cdr_list, under the same scope and total read budget.
-        let cdr = self.summary_request(epoch, cdr_more_request(session, card), validate, read).await;
+        let cdr = self
+            .summary_request(epoch, cdr_more_request(session, card), validate, read)
+            .await;
         let (cdr, cdr_reusable) = match cdr {
             Ok(response) => {
                 if response.status == 403 {
-                    return Err(AppError::new(codes::FORBIDDEN, "package CDR is not permitted"));
+                    return Err(AppError::new(
+                        codes::FORBIDDEN,
+                        "package CDR is not permitted",
+                    ));
                 }
                 let value = parse_supplement(response.status, &response.body)
                     .map_err(|e| self.service.auth_error(epoch, e))?;
                 let reusable = value.is_some();
                 (value, reusable)
             }
-            Err(error) if read.check().is_ok() && [contracts::codes::NET_OFFLINE, contracts::codes::NET_TIMEOUT, contracts::codes::NET_PAYLOAD_TOO_LARGE].contains(&error.code.as_str()) => (None, false),
+            Err(error)
+                if read.check().is_ok()
+                    && [
+                        contracts::codes::NET_OFFLINE,
+                        contracts::codes::NET_TIMEOUT,
+                        contracts::codes::NET_PAYLOAD_TOO_LARGE,
+                    ]
+                    .contains(&error.code.as_str()) =>
+            {
+                (None, false)
+            }
             Err(error) => return Err(error),
         };
-        info.cdrs = order::cdr_fields(&detail, cdr.as_ref()).into_iter().map(|row| row.into_iter().map(Into::into).collect()).collect();
+        info.cdrs = order::cdr_fields(&detail, cdr.as_ref())
+            .into_iter()
+            .map(|row| row.into_iter().map(Into::into).collect())
+            .collect();
         if info.iccid.is_empty() {
             info.iccid = OrderPackageInfo::project(row, None, info.fetched_at_ms).iccid;
         }
-        Ok(SummaryPlan { info, reusable: reusable && cdr_reusable })
+        Ok(SummaryPlan {
+            info,
+            reusable: reusable && cdr_reusable,
+            order_time: order::order_time(live.as_ref()),
+            reissue_refs: order::reissue_refs(&detail),
+        })
     }
     async fn enrich_plans<F, Fut>(
         &self,
@@ -447,18 +510,132 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
         F: Fn() -> Fut + Sync,
         Fut: Future<Output = Result<(), AppError>> + Send,
     {
-        let mut pending: Vec<PendingSummary<'_>> = Vec::new();
-        let mut result = vec![None; ids.len()];
-        let mut next = 0;
-        let mut failure = None;
-        std::future::poll_fn(|cx| loop {
-            if failure.is_none() {
-                if let Err(error) = read.check() {
-                    read.stop();
-                    failure = Some(error);
+        self.enrich_inner(session, epoch, ids, rows, validate, read, false)
+            .await?
+            .into_iter()
+            .collect()
+    }
+    /// Hydrates the packages linked through each plan's `reissue_list`. They
+    /// enrich the order but never decide it: a slot that cannot be read is
+    /// reported as `error` instead of failing the summary.
+    async fn hydrate_reissues<F, Fut>(
+        &self,
+        session: &TsimSession,
+        epoch: u64,
+        ids: &[String],
+        hydrated: &[SummaryPlan],
+        validate: &F,
+    ) -> Result<LinkedReissues, AppError>
+    where
+        F: Fn() -> Fut + Sync,
+        Fut: Future<Output = Result<(), AppError>> + Send,
+    {
+        let mut unique: Vec<String> = Vec::new();
+        let mut wanted: Vec<Vec<(String, Option<i64>)>> = Vec::with_capacity(hydrated.len());
+        for (id, plan) in ids.iter().zip(hydrated) {
+            let refs: Vec<_> = plan
+                .reissue_refs
+                .iter()
+                .filter(|(linked, _)| linked != id && !ids.contains(linked))
+                .take(order::MAX_REISSUES)
+                .cloned()
+                .collect();
+            for (linked, _) in &refs {
+                if !unique.contains(linked) {
+                    unique.push(linked.clone());
                 }
             }
-            if failure.is_none() {
+            wanted.push(refs);
+        }
+        let mut result = LinkedReissues {
+            per_plan: vec![Vec::new(); hydrated.len()],
+            reusable: true,
+        };
+        if unique.is_empty() {
+            return Ok(result);
+        }
+        let rows = vec![JsonValue::Null; unique.len()];
+        let read = SummaryRead::new(REISSUE_HTTP_BUDGET);
+        let slots = self
+            .enrich_inner(session, epoch, &unique, &rows, validate, &read, true)
+            .await?;
+        for (index, refs) in wanted.into_iter().enumerate() {
+            for (linked, create_time_ms) in refs {
+                let slot = unique
+                    .iter()
+                    .position(|id| *id == linked)
+                    .and_then(|position| slots.get(position));
+                result.per_plan[index].push(match slot {
+                    Some(Ok(plan)) => {
+                        result.reusable &= plan.reusable;
+                        OrderReissue {
+                            create_time_ms,
+                            state: "ready",
+                            info: Some(plan.info.clone()),
+                        }
+                    }
+                    _ => {
+                        result.reusable = false;
+                        OrderReissue {
+                            create_time_ms,
+                            state: "error",
+                            info: None,
+                        }
+                    }
+                });
+            }
+        }
+        Ok(result)
+    }
+    /// With `tolerant`, a slot failing for a data/network reason is kept as
+    /// that slot's `Err` and an exhausted budget leaves the unread slots as
+    /// timeouts; identity/auth failures still fail the whole call.
+    #[allow(clippy::too_many_arguments)]
+    async fn enrich_inner<F, Fut>(
+        &self,
+        session: &TsimSession,
+        epoch: u64,
+        ids: &[String],
+        rows: &[JsonValue],
+        validate: &F,
+        read: &SummaryRead,
+        tolerant: bool,
+    ) -> Result<Vec<SlotResult>, AppError>
+    where
+        F: Fn() -> Fut + Sync,
+        Fut: Future<Output = Result<(), AppError>> + Send,
+    {
+        fn slot_error(error: &AppError) -> bool {
+            [
+                contracts::codes::NET_OFFLINE,
+                contracts::codes::NET_TIMEOUT,
+                contracts::codes::NET_PAYLOAD_TOO_LARGE,
+                codes::MALFORMED_RESPONSE,
+                codes::PACKAGE_NOT_FOUND,
+                codes::FORBIDDEN,
+                codes::SERVICE_UNAVAILABLE,
+                codes::HTTP_ERROR,
+                codes::UPSTREAM_FAILURE,
+            ]
+            .contains(&error.code.as_str())
+        }
+        let mut pending: Vec<PendingSummary<'_>> = Vec::new();
+        let mut result: Vec<Option<SlotResult>> = (0..ids.len()).map(|_| None).collect();
+        let mut next = 0;
+        let mut failure = None;
+        let mut exhausted = false;
+        std::future::poll_fn(|cx| loop {
+            if failure.is_none() && !exhausted {
+                if let Err(error) = read.check() {
+                    read.stop();
+                    if tolerant {
+                        exhausted = true;
+                    } else {
+                        failure = Some(error);
+                    }
+                }
+            }
+            if failure.is_none() && !exhausted {
                 while pending.len() < SUMMARY_CONCURRENCY && next < ids.len() {
                     let index = next;
                     next += 1;
@@ -484,7 +661,8 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
                 let (slot, _) = pending.swap_remove(index);
                 progressed = true;
                 match ready {
-                    Ok(value) => result[slot] = Some(value),
+                    Ok(value) => result[slot] = Some(Ok(value)),
+                    Err(error) if tolerant && slot_error(&error) => result[slot] = Some(Err(error)),
                     Err(error) => {
                         if failure.is_none() {
                             read.stop();
@@ -493,16 +671,20 @@ impl<E: Executor, V: Vault> OrderBook<E, V> {
                     }
                 }
             }
-            if pending.is_empty() && (failure.is_some() || next == ids.len()) {
+            if pending.is_empty() && (failure.is_some() || exhausted || next == ids.len()) {
                 return Poll::Ready(match failure.take() {
                     Some(error) => Err(error),
                     None => result
                         .iter_mut()
-                        .map(Option::take)
-                        .collect::<Option<Vec<_>>>()
-                        .ok_or_else(|| {
-                            AppError::new(codes::MALFORMED_RESPONSE, "incomplete package summary")
-                        }),
+                        .map(|slot| match slot.take() {
+                            Some(value) => Ok(value),
+                            None if tolerant => Ok(Err(SummaryRead::timeout())),
+                            None => Err(AppError::new(
+                                codes::MALFORMED_RESPONSE,
+                                "incomplete package summary",
+                            )),
+                        })
+                        .collect::<Result<Vec<_>, AppError>>(),
                 });
             }
             // Do not drop started futures on the first failure: drain their
@@ -743,9 +925,16 @@ mod tests {
             assert_eq!(summary.plans.len(), 2);
             assert_eq!(summary.plans[1].info.iccid, "synthetic-iccid-2");
             assert!(summary.plans.iter().all(|p| p.info.remain_pct.is_none()));
-            assert!(summary.plans[0].info.detail_fields.iter().any(|field| field.label == "渠道套餐" && field.value == "synthetic-plan-1"));
+            assert!(summary.plans[0]
+                .info
+                .detail_fields
+                .iter()
+                .any(|field| field.label == "渠道套餐" && field.value == "synthetic-plan-1"));
             let summary_wire = serde_json::to_string(&summary).unwrap();
-            assert!(!summary_wire.contains("FORBIDDEN_SECRET") && !summary_wire.contains("activation_code"));
+            assert!(
+                !summary_wire.contains("FORBIDDEN_SECRET")
+                    && !summary_wire.contains("activation_code")
+            );
             assert_eq!(
                 *http.paths.lock().unwrap(),
                 [
@@ -833,6 +1022,146 @@ mod tests {
             let count = http.paths.lock().unwrap().len();
             assert!(book.detail(&plan, &valid).await.is_err());
             assert_eq!(http.paths.lock().unwrap().len(), count);
+        });
+    }
+    /// Original card with a reissue chain: out-of-order, a self reference,
+    /// a repeat, and one reissue whose detail the upstream cannot serve.
+    #[derive(Clone, Default)]
+    struct Linked {
+        http: Http,
+        fail: Option<&'static str>,
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+    impl Executor for Linked {
+        async fn execute(&self, req: &TsimRequest) -> Result<HttpResponse, AppError> {
+            let route = path(req);
+            if !route.starts_with("/agent/package-query/") || route.ends_with("/perform") {
+                return self.http.execute(req).await;
+            }
+            let card = req
+                .url
+                .split("card_dataplan_id=")
+                .nth(1)
+                .unwrap_or_default()
+                .to_string();
+            self.calls.lock().unwrap().push(format!("{route}?{card}"));
+            match route {
+                "/agent/package-query/dataplan-list" => reply(
+                    r#"{"code":1,"result":[{"card_dataplan_id":"orig","iccid":"iccid-orig"}]}"#,
+                ),
+                "/agent/package-query/detail" if Some(card.as_str()) == self.fail => Ok(
+                    HttpResponse {
+                        status: 503,
+                        body: "{}".into(),
+                    },
+                ),
+                "/agent/package-query/detail" => reply(
+                    &serde_json::json!({"code":1,"result":{
+                        "card_dataplan_id":card,"iccid":format!("iccid-{card}"),"package_status":"using",
+                        "reissue_list":if card == "orig" {serde_json::json!([
+                            {"card_dataplan_id":"re-b","create_time":1_793_000_200},
+                            {"card_dataplan_id":"orig","create_time":1},
+                            {"card_dataplan_id":"re-a","create_time":1_793_000_100},
+                            {"card_dataplan_id":"re-b","create_time":1_793_000_050}
+                        ])} else {serde_json::json!([{"card_dataplan_id":"deeper","create_time":1}])}
+                    }})
+                    .to_string(),
+                ),
+                "/agent/package-query/live-detail" if card == "orig" => reply(
+                    r#"{"code":1,"result":{"volume":2048,"data_usage":512,"planTimeLine":[{"name":"order","date":"2026-11-01 09:30:00"}]}}"#,
+                ),
+                "/agent/package-query/live-detail" => {
+                    reply(r#"{"code":1,"result":{"volume":2048,"data_usage":512}}"#)
+                }
+                "/agent/package-query/cdr-more" => reply(r#"{"code":1,"result":[]}"#),
+                _ => panic!("unexpected endpoint {route}"),
+            }
+        }
+    }
+    async fn linked_summary(linked: &Linked) -> (OrderBook<Linked, MemoryVault>, OrderSummary, u64) {
+        let svc = Arc::new(Service::new(
+            linked.clone(),
+            MemoryVault::default(),
+            Box::new(|| 1_793_000_000_000),
+        ));
+        let epoch = svc
+            .login("synthetic-user", "synthetic-password".into())
+            .await
+            .unwrap()
+            .session_epoch;
+        let book = OrderBook::new(svc);
+        let valid = || async { Ok(()) };
+        let summary = book.summary(scope(), epoch, &valid).await.unwrap();
+        (book, summary, epoch)
+    }
+    #[test]
+    fn reissues_follow_the_original_ascending_without_self_or_repeats() {
+        run(async {
+            let linked = Linked::default();
+            let (book, summary, epoch) = linked_summary(&linked).await;
+            assert_eq!(summary.plans.len(), 1);
+            let plan = &summary.plans[0];
+            assert_eq!(plan.order_time.as_deref(), Some("2026-11-01 09:30:00"));
+            let chain: Vec<_> = plan
+                .reissues
+                .iter()
+                .map(|r| (r.create_time_ms, r.state, r.info.as_ref().map(|i| i.iccid.clone())))
+                .collect();
+            assert_eq!(
+                chain,
+                [
+                    (Some(1_793_000_100_000), "ready", Some("iccid-re-a".to_string())),
+                    (Some(1_793_000_200_000), "ready", Some("iccid-re-b".to_string())),
+                ]
+            );
+            let calls = linked.calls.lock().unwrap().clone();
+            for card in ["re-a", "re-b"] {
+                assert_eq!(
+                    calls.iter().filter(|c| c.ends_with(&format!("?{card}"))).count(),
+                    3,
+                    "{card}: detail + live + cdr once"
+                );
+            }
+            assert!(calls.iter().all(|c| !c.ends_with("?deeper")));
+            let wire = serde_json::to_value(&summary).unwrap();
+            assert_eq!(wire["plans"][0]["reissues"][0]["state"], "ready");
+            assert_eq!(wire["plans"][0]["reissues"][0]["info"]["iccid"], "iccid-re-a");
+            // Fully read chains stay reusable: a second summary makes no new calls.
+            let before = calls.len();
+            let valid = || async { Ok(()) };
+            book.summary(scope_of(&summary), epoch, &valid).await.unwrap();
+            assert_eq!(linked.calls.lock().unwrap().len(), before);
+        });
+    }
+    fn scope_of(summary: &OrderSummary) -> OrderScope {
+        OrderScope {
+            account: AccountContext::new(
+                AccountId::new("synthetic-account"),
+                Environment::named("synthetic-env"),
+                1,
+            ),
+            gid: summary.gid.clone(),
+            order_id: summary.order_id.clone(),
+            context_revision: summary.context_revision.clone(),
+        }
+    }
+    #[test]
+    fn a_reissue_that_cannot_be_read_is_an_error_chip_not_a_failed_summary() {
+        run(async {
+            let linked = Linked {
+                fail: Some("re-a"),
+                ..Linked::default()
+            };
+            let (book, summary, epoch) = linked_summary(&linked).await;
+            let states: Vec<_> = summary.plans[0].reissues.iter().map(|r| r.state).collect();
+            assert_eq!(states, ["error", "ready"]);
+            assert!(summary.plans[0].reissues[0].info.is_none());
+            assert_eq!(summary.plans[0].reissues[0].create_time_ms, Some(1_793_000_100_000));
+            // Incomplete chains are not reused: refresh reads them again.
+            let before = linked.calls.lock().unwrap().len();
+            let valid = || async { Ok(()) };
+            book.summary(scope_of(&summary), epoch, &valid).await.unwrap();
+            assert!(linked.calls.lock().unwrap().len() > before);
         });
     }
     #[derive(Clone)]

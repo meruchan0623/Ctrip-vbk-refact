@@ -269,7 +269,7 @@ fn translate_requires_login_and_makes_no_request() {
 }
 
 #[test]
-fn translate_sends_six_fields_and_reuses_cache() {
+fn translate_sends_seven_fields_and_reuses_cache() {
     let f = logged_in();
     let t = run(f.svc.translate(&acct(1), 3, "你好", "en", &accept_all)).expect("translate");
     assert_eq!(t, "Hello");
@@ -280,6 +280,7 @@ fn translate_sends_six_fields_and_reuses_cache() {
     assert_eq!(
         keys,
         [
+            "client_source",
             "composer_content_version",
             "draft_request_id",
             "purpose",
@@ -583,15 +584,25 @@ impl Executor for GateExecutor {
 #[test]
 fn identity_logout_cancels_a_login_already_waiting_on_http() {
     run(async {
-        let exec = GateExecutor { path: "/agent/login", paths: Arc::default(), entered: Arc::default(), release: Arc::default() };
+        let exec = GateExecutor {
+            path: "/agent/login",
+            paths: Arc::default(),
+            entered: Arc::default(),
+            release: Arc::default(),
+        };
         let vault = MemVault::default();
         let svc = Arc::new(Service::new(exec.clone(), vault.clone(), Box::new(|| T0)));
         let login_svc = svc.clone();
-        let pending = tauri::async_runtime::spawn(async move { login_svc.login("alice", "synthetic-password".into()).await });
+        let pending = tauri::async_runtime::spawn(async move {
+            login_svc.login("alice", "synthetic-password".into()).await
+        });
         exec.entered.notified().await;
         svc.logout().await.expect("logout");
         exec.release.notify_one();
-        assert!(pending.await.unwrap().is_err(), "logout must cancel the earlier login intent");
+        assert!(
+            pending.await.unwrap().is_err(),
+            "logout must cancel the earlier login intent"
+        );
         assert!(!svc.status().logged_in);
         assert!(vault.load().unwrap().is_none());
     });
@@ -599,11 +610,18 @@ fn identity_logout_cancels_a_login_already_waiting_on_http() {
 #[test]
 fn identity_logout_during_profile_never_persists_or_returns_replacement_identity() {
     run(async {
-        let exec = GateExecutor { path: "/agent/profile", paths: Arc::default(), entered: Arc::default(), release: Arc::default() };
+        let exec = GateExecutor {
+            path: "/agent/profile",
+            paths: Arc::default(),
+            entered: Arc::default(),
+            release: Arc::default(),
+        };
         let vault = MemVault::default();
         let svc = Arc::new(Service::new(exec.clone(), vault.clone(), Box::new(|| T0)));
         let login_svc = svc.clone();
-        let pending = tauri::async_runtime::spawn(async move { login_svc.login("alice", "synthetic-password".into()).await });
+        let pending = tauri::async_runtime::spawn(async move {
+            login_svc.login("alice", "synthetic-password".into()).await
+        });
         exec.entered.notified().await;
         svc.logout().await.expect("logout");
         exec.release.notify_one();
@@ -615,46 +633,75 @@ fn identity_logout_during_profile_never_persists_or_returns_replacement_identity
 #[derive(Clone, Default)]
 struct FailingSaveVault(MemVault);
 impl Vault for FailingSaveVault {
-    fn load(&self) -> Result<Option<String>, AppError> { self.0.load() }
-    fn save(&self, _: &str) -> Result<(), AppError> { Err(AppError::new(shared::STORE_IO, "synthetic vault failure")) }
-    fn clear(&self) -> Result<(), AppError> { self.0.clear() }
+    fn load(&self) -> Result<Option<String>, AppError> {
+        self.0.load()
+    }
+    fn save(&self, _: &str) -> Result<(), AppError> {
+        Err(AppError::new(shared::STORE_IO, "synthetic vault failure"))
+    }
+    fn clear(&self) -> Result<(), AppError> {
+        self.0.clear()
+    }
 }
 #[test]
 fn identity_vault_save_failure_never_reports_a_durable_login() {
-    let svc = Service::new(Mock::new(tsim), FailingSaveVault::default(), Box::new(|| T0));
-    let error = run(svc.login("alice", "synthetic-password".into())).expect_err("failed storage must surface");
+    let svc = Service::new(
+        Mock::new(tsim),
+        FailingSaveVault::default(),
+        Box::new(|| T0),
+    );
+    let error = run(svc.login("alice", "synthetic-password".into()))
+        .expect_err("failed storage must surface");
     assert!(error.is(shared::STORE_IO));
     assert!(!svc.status().logged_in);
 }
 
+type SaveGate = (
+    std::sync::mpsc::SyncSender<()>,
+    std::sync::mpsc::Receiver<()>,
+);
+
 #[derive(Clone)]
 struct BlockingSaveVault {
     memory: MemVault,
-    gate: Arc<Mutex<Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>>>,
+    gate: Arc<Mutex<Option<SaveGate>>>,
 }
 impl Vault for BlockingSaveVault {
-    fn load(&self) -> Result<Option<String>, AppError> { self.memory.load() }
+    fn load(&self) -> Result<Option<String>, AppError> {
+        self.memory.load()
+    }
     fn save(&self, value: &str) -> Result<(), AppError> {
         if let Some((entered, release)) = self.gate.lock().unwrap().take() {
-            entered.send(()).unwrap(); release.recv().unwrap();
+            entered.send(()).unwrap();
+            release.recv().unwrap();
         }
         self.memory.save(value)
     }
-    fn clear(&self) -> Result<(), AppError> { self.memory.clear() }
+    fn clear(&self) -> Result<(), AppError> {
+        self.memory.clear()
+    }
 }
 #[test]
 fn identity_persistence_and_logout_are_one_serial_state_boundary() {
     let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
     let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
     let memory = MemVault::default();
-    let vault = BlockingSaveVault { memory: memory.clone(), gate: Arc::new(Mutex::new(Some((entered_tx, release_rx)))) };
+    let vault = BlockingSaveVault {
+        memory: memory.clone(),
+        gate: Arc::new(Mutex::new(Some((entered_tx, release_rx)))),
+    };
     let svc = Arc::new(Service::new(Mock::new(tsim), vault, Box::new(|| T0)));
     let login_svc = svc.clone();
-    let login = std::thread::spawn(move || run(login_svc.login("alice", "synthetic-password".into())));
+    let login =
+        std::thread::spawn(move || run(login_svc.login("alice", "synthetic-password".into())));
     entered_rx.recv().unwrap();
     let logout_svc = svc.clone();
     let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
-    let logout = std::thread::spawn(move || { let result = run(logout_svc.logout()); done_tx.send(()).unwrap(); result });
+    let logout = std::thread::spawn(move || {
+        let result = run(logout_svc.logout());
+        done_tx.send(()).unwrap();
+        result
+    });
     // If clear is allowed to race with a blocked save, it finishes here and the
     // old save subsequently resurrects the persisted session.
     let _ = done_rx.recv_timeout(std::time::Duration::from_millis(100));
@@ -662,20 +709,34 @@ fn identity_persistence_and_logout_are_one_serial_state_boundary() {
     let _ = login.join().unwrap();
     logout.join().unwrap().expect("logout");
     assert!(!svc.status().logged_in);
-    assert!(memory.load().unwrap().is_none(), "an old save cannot run after logout clear");
+    assert!(
+        memory.load().unwrap().is_none(),
+        "an old save cannot run after logout clear"
+    );
 }
 #[derive(Clone)]
 struct FailingClearVault(MemVault);
 impl Vault for FailingClearVault {
-    fn load(&self) -> Result<Option<String>, AppError> { self.0.load() }
-    fn save(&self, value: &str) -> Result<(), AppError> { self.0.save(value) }
-    fn clear(&self) -> Result<(), AppError> { Err(AppError::new(shared::STORE_IO, "synthetic clear failure")) }
+    fn load(&self) -> Result<Option<String>, AppError> {
+        self.0.load()
+    }
+    fn save(&self, value: &str) -> Result<(), AppError> {
+        self.0.save(value)
+    }
+    fn clear(&self) -> Result<(), AppError> {
+        Err(AppError::new(shared::STORE_IO, "synthetic clear failure"))
+    }
 }
 #[test]
 fn identity_logout_storage_failure_is_visible_and_old_generation_is_revoked() {
     let old = logged_in();
-    let svc = Service::new(Mock::new(tsim), FailingClearVault(old.vault.clone()), Box::new(|| T0));
-    svc.restore(); let epoch = svc.status().session_epoch;
+    let svc = Service::new(
+        Mock::new(tsim),
+        FailingClearVault(old.vault.clone()),
+        Box::new(|| T0),
+    );
+    svc.restore();
+    let epoch = svc.status().session_epoch;
     let error = run(svc.logout()).expect_err("clear failure must surface");
     assert!(error.is(shared::STORE_IO));
     assert!(!svc.status().logged_in);
@@ -683,53 +744,92 @@ fn identity_logout_storage_failure_is_visible_and_old_generation_is_revoked() {
 }
 #[test]
 fn identity_observer_reports_same_name_login_and_logout_generations_without_secrets() {
-    let events = Arc::new(Mutex::new(Vec::new())); let sink = events.clone();
-    let svc = Service::new(Mock::new(tsim), MemVault::default(), Box::new(|| T0)).with_status_observer(move |s| sink.lock().unwrap().push(s));
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = events.clone();
+    let svc = Service::new(Mock::new(tsim), MemVault::default(), Box::new(|| T0))
+        .with_status_observer(move |s| sink.lock().unwrap().push(s));
     run(svc.login("alice", "synthetic-password".into())).unwrap();
     run(svc.logout()).unwrap();
     run(svc.login("alice", "synthetic-password".into())).unwrap();
     let events = events.lock().unwrap();
     let logged: Vec<_> = events.iter().filter(|s| s.logged_in).collect();
-    assert_eq!(logged.len(), 2); assert_ne!(logged[0].session_epoch, logged[1].session_epoch);
+    assert_eq!(logged.len(), 2);
+    assert_ne!(logged[0].session_epoch, logged[1].session_epoch);
     let wire = serde_json::to_string(&*events).unwrap();
-    assert!(!wire.contains("tok-1") && !wire.contains("synthetic-password") && !wire.contains("s1"));
+    assert!(
+        !wire.contains("tok-1") && !wire.contains("synthetic-password") && !wire.contains("s1")
+    );
 }
 
 #[test]
 fn identity_package_http_chain_stops_at_the_first_await_after_logout() {
     run(async {
-        let exec = GateExecutor { path: "/agent/package-query/perform", paths: Arc::default(), entered: Arc::default(), release: Arc::default() };
-        let svc = Arc::new(Service::new(exec.clone(), MemVault::default(), Box::new(|| T0)));
-        svc.login("alice", "synthetic-password".into()).await.unwrap();
+        let exec = GateExecutor {
+            path: "/agent/package-query/perform",
+            paths: Arc::default(),
+            entered: Arc::default(),
+            release: Arc::default(),
+        };
+        let svc = Arc::new(Service::new(
+            exec.clone(),
+            MemVault::default(),
+            Box::new(|| T0),
+        ));
+        svc.login("alice", "synthetic-password".into())
+            .await
+            .unwrap();
         exec.paths.lock().unwrap().clear();
         let query_svc = svc.clone();
-        let pending = tauri::async_runtime::spawn(async move { query_svc.package_quick_view("89860000000000000001").await });
+        let pending = tauri::async_runtime::spawn(async move {
+            query_svc.package_quick_view("89860000000000000001").await
+        });
         exec.entered.notified().await;
         svc.logout().await.unwrap();
         exec.release.notify_one();
         assert!(pending.await.unwrap().is_err());
-        assert_eq!(*exec.paths.lock().unwrap(), ["/agent/package-query/perform", "/agent/logout"]);
+        assert_eq!(
+            *exec.paths.lock().unwrap(),
+            ["/agent/package-query/perform", "/agent/logout"]
+        );
     });
 }
 
 #[test]
 fn identity_logout_revokes_logins_already_queued_on_the_login_lock() {
     run(async {
-        let exec = GateExecutor { path: "/agent/login", paths: Arc::default(), entered: Arc::default(), release: Arc::default() };
-        let svc = Arc::new(Service::new(exec.clone(), MemVault::default(), Box::new(|| T0)));
+        let exec = GateExecutor {
+            path: "/agent/login",
+            paths: Arc::default(),
+            entered: Arc::default(),
+            release: Arc::default(),
+        };
+        let svc = Arc::new(Service::new(
+            exec.clone(),
+            MemVault::default(),
+            Box::new(|| T0),
+        ));
         let first_svc = svc.clone();
-        let first = tauri::async_runtime::spawn(async move { first_svc.login("alice", "synthetic-password".into()).await });
+        let first = tauri::async_runtime::spawn(async move {
+            first_svc.login("alice", "synthetic-password".into()).await
+        });
         exec.entered.notified().await;
         let mut queued = Box::pin(svc.login("bob", "synthetic-password".into()));
         std::future::poll_fn(|cx| {
-            assert!(queued.as_mut().poll(cx).is_pending(), "second login is actually polled and queued behind the first");
+            assert!(
+                queued.as_mut().poll(cx).is_pending(),
+                "second login is actually polled and queued behind the first"
+            );
             std::task::Poll::Ready(())
-        }).await;
+        })
+        .await;
         svc.logout().await.unwrap();
         exec.release.notify_one();
         assert!(first.await.unwrap().is_err());
         exec.release.notify_one();
-        assert!(queued.await.is_err(), "logout also revokes submitted queued login intents");
+        assert!(
+            queued.await.is_err(),
+            "logout also revokes submitted queued login intents"
+        );
         assert!(!svc.status().logged_in);
         assert_eq!(*exec.paths.lock().unwrap(), ["/agent/login"]);
     });
@@ -738,25 +838,50 @@ fn identity_logout_revokes_logins_already_queued_on_the_login_lock() {
 #[test]
 fn identity_status_stays_logged_out_until_profile_and_persistence_complete() {
     run(async {
-        let exec = GateExecutor { path: "/agent/profile", paths: Arc::default(), entered: Arc::default(), release: Arc::default() };
-        let svc = Arc::new(Service::new(exec.clone(), MemVault::default(), Box::new(|| T0)));
+        let exec = GateExecutor {
+            path: "/agent/profile",
+            paths: Arc::default(),
+            entered: Arc::default(),
+            release: Arc::default(),
+        };
+        let svc = Arc::new(Service::new(
+            exec.clone(),
+            MemVault::default(),
+            Box::new(|| T0),
+        ));
         let login_svc = svc.clone();
-        let pending = tauri::async_runtime::spawn(async move { login_svc.login("alice", "synthetic-password".into()).await });
+        let pending = tauri::async_runtime::spawn(async move {
+            login_svc.login("alice", "synthetic-password".into()).await
+        });
         exec.entered.notified().await;
         let provisional = svc.status();
         exec.release.notify_one();
         let result = pending.await.unwrap().unwrap();
-        assert!(!provisional.logged_in && provisional.user.is_none(), "a reopened settings window must not see a provisional login as complete");
+        assert!(
+            !provisional.logged_in && provisional.user.is_none(),
+            "a reopened settings window must not see a provisional login as complete"
+        );
         assert!(result.logged_in && svc.status().logged_in);
     });
 }
 #[test]
 fn identity_status_never_exposes_a_provisional_login_when_vault_save_will_fail() {
     run(async {
-        let exec = GateExecutor { path: "/agent/profile", paths: Arc::default(), entered: Arc::default(), release: Arc::default() };
-        let svc = Arc::new(Service::new(exec.clone(), FailingSaveVault::default(), Box::new(|| T0)));
+        let exec = GateExecutor {
+            path: "/agent/profile",
+            paths: Arc::default(),
+            entered: Arc::default(),
+            release: Arc::default(),
+        };
+        let svc = Arc::new(Service::new(
+            exec.clone(),
+            FailingSaveVault::default(),
+            Box::new(|| T0),
+        ));
         let login_svc = svc.clone();
-        let pending = tauri::async_runtime::spawn(async move { login_svc.login("alice", "synthetic-password".into()).await });
+        let pending = tauri::async_runtime::spawn(async move {
+            login_svc.login("alice", "synthetic-password".into()).await
+        });
         exec.entered.notified().await;
         let provisional = svc.status();
         exec.release.notify_one();
@@ -769,47 +894,93 @@ fn identity_status_never_exposes_a_provisional_login_when_vault_save_will_fail()
 #[test]
 fn identity_refresh_queue_cannot_rebind_an_old_translation_to_a_new_login() {
     run(async {
-        let exec = GateExecutor { path: "/agent/auth/refresh", paths: Arc::default(), entered: Arc::default(), release: Arc::default() };
-        let clock = Arc::new(AtomicI64::new(T0)); let now = clock.clone();
-        let svc = Arc::new(Service::new(exec.clone(), MemVault::default(), Box::new(move || now.load(Ordering::SeqCst))));
-        svc.login("alice", "synthetic-password".into()).await.unwrap();
+        let exec = GateExecutor {
+            path: "/agent/auth/refresh",
+            paths: Arc::default(),
+            entered: Arc::default(),
+            release: Arc::default(),
+        };
+        let clock = Arc::new(AtomicI64::new(T0));
+        let now = clock.clone();
+        let svc = Arc::new(Service::new(
+            exec.clone(),
+            MemVault::default(),
+            Box::new(move || now.load(Ordering::SeqCst)),
+        ));
+        svc.login("alice", "synthetic-password".into())
+            .await
+            .unwrap();
         clock.store(T0 + 31 * 60 * 1000, Ordering::SeqCst);
         let refresh_svc = svc.clone();
         let refresh = tauri::async_runtime::spawn(async move { refresh_svc.ensure_fresh().await });
         exec.entered.notified().await;
         let account = acct(1);
-        let mut old_translate = Box::pin(svc.translate(&account, 1, "synthetic old intent", "en", &accept_all));
-        std::future::poll_fn(|cx| { assert!(old_translate.as_mut().poll(cx).is_pending()); std::task::Poll::Ready(()) }).await;
+        let mut old_translate =
+            Box::pin(svc.translate(&account, 1, "synthetic old intent", "en", &accept_all));
+        std::future::poll_fn(|cx| {
+            assert!(old_translate.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
         svc.login("bob", "synthetic-password".into()).await.unwrap();
-        exec.release.notify_one(); assert!(refresh.await.unwrap().is_err());
-        assert!(old_translate.await.is_err(), "refresh wait must keep its original identity");
+        exec.release.notify_one();
+        assert!(refresh.await.unwrap().is_err());
+        assert!(
+            old_translate.await.is_err(),
+            "refresh wait must keep its original identity"
+        );
         assert_eq!(svc.status().user.as_deref(), Some("bob"));
-        assert!(!exec.paths.lock().unwrap().iter().any(|p| p == "/agent/translate"));
+        assert!(!exec
+            .paths
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p == "/agent/translate"));
     });
 }
 #[derive(Clone)]
 struct DueLoginExecutor(GateExecutor);
 impl Executor for DueLoginExecutor {
     async fn execute(&self, req: &TsimRequest) -> Result<HttpResponse, AppError> {
-        if path_of(req) == "/agent/login" { return ok(r#"{"success":true,"data":{"access_token":"synthetic-expired-token","token_type":"bearer","session_ref":"synthetic-ref","expires_at":"2000-01-01T00:00:00Z"}}"#); }
+        if path_of(req) == "/agent/login" {
+            return ok(
+                r#"{"success":true,"data":{"access_token":"synthetic-expired-token","token_type":"bearer","session_ref":"synthetic-ref","expires_at":"2000-01-01T00:00:00Z"}}"#,
+            );
+        }
         self.0.execute(req).await
     }
 }
 #[test]
 fn identity_refresh_during_login_cannot_promote_ready_before_first_profile() {
     run(async {
-        let gate = GateExecutor { path: "/agent/profile", paths: Arc::default(), entered: Arc::default(), release: Arc::default() };
-        let svc = Arc::new(Service::new(DueLoginExecutor(gate.clone()), MemVault::default(), Box::new(|| T0)));
+        let gate = GateExecutor {
+            path: "/agent/profile",
+            paths: Arc::default(),
+            entered: Arc::default(),
+            release: Arc::default(),
+        };
+        let svc = Arc::new(Service::new(
+            DueLoginExecutor(gate.clone()),
+            MemVault::default(),
+            Box::new(|| T0),
+        ));
         let login_svc = svc.clone();
-        let pending = tauri::async_runtime::spawn(async move { login_svc.login("alice", "synthetic-password".into()).await });
+        let pending = tauri::async_runtime::spawn(async move {
+            login_svc.login("alice", "synthetic-password".into()).await
+        });
         gate.entered.notified().await;
-        let provisional = svc.status(); gate.release.notify_one();
+        let provisional = svc.status();
+        gate.release.notify_one();
         assert!(pending.await.unwrap().unwrap().logged_in);
         assert!(!provisional.logged_in && provisional.user.is_none());
-        assert!(gate.paths.lock().unwrap().iter().any(|p| p == "/agent/auth/refresh"));
+        assert!(gate
+            .paths
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p == "/agent/auth/refresh"));
     });
 }
-
 
 #[test]
 fn browser_binding_change_and_storage_failure_clear_only_local_session() {
@@ -820,13 +991,25 @@ fn browser_binding_change_and_storage_failure_clear_only_local_session() {
             let mut g = f.svc.lock();
             g.borrowed_session = true;
             g.browser_profile = Some(crate::assistant::browser_storage::BrowserProfile {
-                id: "edge:Default".into(), label: "Edge Default".into(), directory: "synthetic-only".into(),
+                id: "edge:Default".into(),
+                label: "Edge Default".into(),
+                directory: "synthetic-only".into(),
             });
         }
-        assert!(f.svc.check_browser_binding_with(epoch, |_| Ok(Some(SecretString::new("tok-1")))).is_ok());
-        let result = f.svc.check_browser_binding_with(epoch, |_| if failure {
-            Err(AppError::new("assistant.browser_storage_unavailable", "synthetic"))
-        } else { Ok(None) });
+        assert!(f
+            .svc
+            .check_browser_binding_with(epoch, |_| Ok(Some(SecretString::new("tok-1"))))
+            .is_ok());
+        let result = f.svc.check_browser_binding_with(epoch, |_| {
+            if failure {
+                Err(AppError::new(
+                    "assistant.browser_storage_unavailable",
+                    "synthetic",
+                ))
+            } else {
+                Ok(None)
+            }
+        });
         assert!(result.is_err());
         assert!(!f.svc.status().logged_in);
         assert!(f.http.paths().is_empty());
@@ -842,7 +1025,9 @@ fn browser_tokens_are_memory_only_and_disconnect_never_calls_server_logout() {
         let mut g = f.svc.lock();
         g.borrowed_session = true;
         g.browser_profile = Some(crate::assistant::browser_storage::BrowserProfile {
-            id: "edge:Default".into(), label: "Edge Default".into(), directory: "synthetic-only".into(),
+            id: "edge:Default".into(),
+            label: "Edge Default".into(),
+            directory: "synthetic-only".into(),
         });
     }
     f.svc.persist_current(epoch, true).unwrap();

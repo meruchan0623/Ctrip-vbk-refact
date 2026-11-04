@@ -15,12 +15,12 @@
 //!   the request, so an old `session_generation` is rejected;
 //! * nothing is retried automatically (a timeout surfaces as `net.timeout`).
 
+#[path = "browser_session.rs"]
+mod browser_session;
 #[path = "order_service.rs"]
 pub mod orders;
 #[path = "session_import.rs"]
 pub mod session_import;
-#[path = "browser_session.rs"]
-mod browser_session;
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -86,8 +86,14 @@ struct StoredSession {
 /// Only internal, typed persisted sessions choose a credential slot. No UI flag
 /// or JWT claim can select shared-session ownership.
 pub(super) fn stored_is_borrowed(raw: &str) -> Result<bool, AppError> {
-    serde_json::from_str::<StoredSession>(raw).map(|s| s.borrowed_session)
-        .map_err(|_| AppError::new(contracts::codes::STORE_CORRUPT, "stored assistant session is invalid"))
+    serde_json::from_str::<StoredSession>(raw)
+        .map(|s| s.borrowed_session)
+        .map_err(|_| {
+            AppError::new(
+                contracts::codes::STORE_CORRUPT,
+                "stored assistant session is invalid",
+            )
+        })
 }
 
 #[derive(Default)]
@@ -139,21 +145,36 @@ impl<E: Executor, V: Vault> Service<E, V> {
         }
     }
 
-    pub fn with_status_observer(mut self, observer: impl Fn(TsimStatus) + Send + Sync + 'static) -> Self {
+    pub fn with_status_observer(
+        mut self,
+        observer: impl Fn(TsimStatus) + Send + Sync + 'static,
+    ) -> Self {
         self.observer = Some(Box::new(observer));
         self
     }
 
     fn publish(&self, g: &Inner) {
         if let Some(observer) = &self.observer {
-            observer(TsimStatus { logged_in: g.login_ready && g.session.is_some(), user: if g.login_ready { g.session.as_ref().and(g.user.clone()) } else { None }, session_epoch: g.epoch });
+            observer(TsimStatus {
+                logged_in: g.login_ready && g.session.is_some(),
+                user: if g.login_ready {
+                    g.session.as_ref().and(g.user.clone())
+                } else {
+                    None
+                },
+                session_epoch: g.epoch,
+            });
         }
     }
 
     async fn check_epoch(&self, epoch: u64) -> Result<(), AppError> {
         self.check_browser_binding(epoch).await?;
         let g = self.lock();
-        if g.epoch == epoch && g.session.is_some() { Ok(()) } else { Err(not_logged_in("tsim identity changed")) }
+        if g.epoch == epoch && g.session.is_some() {
+            Ok(())
+        } else {
+            Err(not_logged_in("tsim identity changed"))
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -168,7 +189,11 @@ impl<E: Executor, V: Vault> Service<E, V> {
         let g = self.lock();
         TsimStatus {
             logged_in: g.login_ready && g.session.is_some(),
-            user: if g.login_ready { g.session.as_ref().and(g.user.clone()) } else { None },
+            user: if g.login_ready {
+                g.session.as_ref().and(g.user.clone())
+            } else {
+                None
+            },
             session_epoch: g.epoch,
         }
     }
@@ -177,17 +202,27 @@ impl<E: Executor, V: Vault> Service<E, V> {
     /// can neither save an old token after logout nor clear a replacement login.
     fn persist_current(&self, epoch: u64, complete_login: bool) -> Result<(), AppError> {
         let mut g = self.lock();
-        if g.epoch != epoch { return Err(not_logged_in("tsim identity changed before persistence")); }
-        let s = g.session.as_ref().ok_or_else(|| not_logged_in("tsim login required"))?;
+        if g.epoch != epoch {
+            return Err(not_logged_in("tsim identity changed before persistence"));
+        }
+        let s = g
+            .session
+            .as_ref()
+            .ok_or_else(|| not_logged_in("tsim login required"))?;
         if g.browser_profile.is_some() {
-            if complete_login { g.login_ready = true; }
+            if complete_login {
+                g.login_ready = true;
+            }
             self.publish(&g);
             return Ok(());
         }
         let stored = StoredSession {
             borrowed_session: g.borrowed_session,
-            user: g.user.clone().unwrap_or_default(), access_token: s.access_token.expose().to_string(),
-            session_ref: s.session_ref.clone(), expires_at_ms: s.expires_at_ms, issued_at_ms: s.issued_at_ms,
+            user: g.user.clone().unwrap_or_default(),
+            access_token: s.access_token.expose().to_string(),
+            session_ref: s.session_ref.clone(),
+            expires_at_ms: s.expires_at_ms,
+            issued_at_ms: s.issued_at_ms,
         };
         let result = serde_json::to_string(&stored)
             .map_err(|_| AppError::new(codes::MALFORMED_RESPONSE, "encode session"))
@@ -198,7 +233,9 @@ impl<E: Executor, V: Vault> Service<E, V> {
             let _ = self.vault.clear();
             return Err(error);
         }
-        if complete_login { g.login_ready = true; }
+        if complete_login {
+            g.login_ready = true;
+        }
         self.publish(&g);
         Ok(())
     }
@@ -296,7 +333,10 @@ impl<E: Executor, V: Vault> Service<E, V> {
             .ok_or_else(|| not_logged_in("tsim login required"))?;
         self.check_epoch(epoch).await?;
         if self.lock().browser_profile.is_some() {
-            if s.is_expired(now) { self.clear_if(epoch); return Err(not_logged_in("browser session expired; reconnect required")); }
+            if s.is_expired(now) {
+                self.clear_if(epoch);
+                return Err(not_logged_in("browser session expired; reconnect required"));
+            }
             return Self::usable(s, epoch, now);
         }
         if !s.refresh_due(now) || now < self.lock().refresh_not_before_ms {
@@ -307,7 +347,11 @@ impl<E: Executor, V: Vault> Service<E, V> {
         let (s, epoch) = self
             .snapshot()
             .ok_or_else(|| not_logged_in("tsim login required"))?;
-        if epoch != original_epoch { return Err(not_logged_in("tsim identity changed while waiting for refresh")); }
+        if epoch != original_epoch {
+            return Err(not_logged_in(
+                "tsim identity changed while waiting for refresh",
+            ));
+        }
         let now = self.now_ms();
         if !s.refresh_due(now) || now < self.lock().refresh_not_before_ms {
             return Self::usable(s, epoch, now);
@@ -394,6 +438,44 @@ impl<E: Executor, V: Vault> Service<E, V> {
         Ok((out, epoch))
     }
 
+    /// A handoff grant is created only after the current browser binding and
+    /// remote profile were verified. Its caller must also validate its UI scope.
+    pub async fn operator_session(&self, expected_epoch: u64) -> Result<TsimSession, AppError> {
+        if !self.status().logged_in || self.status().session_epoch != expected_epoch {
+            return Err(not_logged_in(
+                "tsim identity changed before operator handoff",
+            ));
+        }
+        let (session, epoch) = self.load_profile().await?;
+        if epoch != expected_epoch {
+            return Err(not_logged_in(
+                "tsim identity changed during operator handoff",
+            ));
+        }
+        self.check_epoch(epoch).await?;
+        self.operator_session_current(epoch, &session.access_token)
+    }
+
+    /// No await after this final comparison: a queued reply cannot reuse an
+    /// earlier bearer after login, logout or refresh replaced it.
+    pub fn operator_session_current(
+        &self,
+        expected_epoch: u64,
+        token: &SecretString,
+    ) -> Result<TsimSession, AppError> {
+        let g = self.lock();
+        if !g.login_ready || g.epoch != expected_epoch {
+            return Err(not_logged_in(
+                "tsim identity changed during operator handoff",
+            ));
+        }
+        g.session
+            .as_ref()
+            .filter(|session| &session.access_token == token)
+            .cloned()
+            .ok_or_else(|| not_logged_in("tsim session changed during operator handoff"))
+    }
+
     /// Background upkeep: refresh when due and load the profile once.
     pub async fn maintain(&self) {
         if !self.status().logged_in {
@@ -422,8 +504,13 @@ impl<E: Executor, V: Vault> Service<E, V> {
         let _serial = self.login_lock.lock().await;
         let (epoch, previous) = {
             let mut g = self.lock();
-            if g.login_revocation != submitted { return Err(not_logged_in("tsim queued login was cancelled")); }
-            let previous = g.session.take().and_then(|s| (!g.borrowed_session).then_some(s.access_token));
+            if g.login_revocation != submitted {
+                return Err(not_logged_in("tsim queued login was cancelled"));
+            }
+            let previous = g
+                .session
+                .take()
+                .and_then(|s| (!g.borrowed_session).then_some(s.access_token));
             self.reset_identity(&mut g);
             self.vault.clear()?;
             (g.epoch, previous)
@@ -444,7 +531,9 @@ impl<E: Executor, V: Vault> Service<E, V> {
         let now = self.now_ms();
         {
             let mut g = self.lock();
-            if g.epoch != epoch { return Err(not_logged_in("tsim login was cancelled")); }
+            if g.epoch != epoch {
+                return Err(not_logged_in("tsim login was cancelled"));
+            }
             g.session = Some(TsimSession::from_token(token, now, epoch));
             g.user = Some(user.to_string());
         }
@@ -454,7 +543,9 @@ impl<E: Executor, V: Vault> Service<E, V> {
         }
         self.check_epoch(epoch).await?;
         match self.load_profile().await {
-            Ok((_, profile_epoch)) if profile_epoch == epoch => self.persist_current(epoch, true)?,
+            Ok((_, profile_epoch)) if profile_epoch == epoch => {
+                self.persist_current(epoch, true)?
+            }
             Ok(_) => return Err(not_logged_in("tsim identity changed during login")),
             Err(e) if e.is(codes::NOT_LOGGED_IN) || e.is(codes::FORBIDDEN) => return Err(e),
             Err(e) => {
@@ -471,7 +562,10 @@ impl<E: Executor, V: Vault> Service<E, V> {
     pub async fn logout(&self) -> Result<TsimStatus, AppError> {
         let (token, cleared) = {
             let mut g = self.lock();
-            let token = g.session.take().and_then(|s| (!g.borrowed_session).then_some(s.access_token));
+            let token = g
+                .session
+                .take()
+                .and_then(|s| (!g.borrowed_session).then_some(s.access_token));
             self.reset(&mut g);
             (token, self.vault.clear())
         };
@@ -501,9 +595,13 @@ impl<E: Executor, V: Vault> Service<E, V> {
     ) -> Result<String, AppError> {
         validate(account)?;
         let identity = self.status();
-        if !identity.logged_in { return Err(not_logged_in("tsim login has not completed")); }
+        if !identity.logged_in {
+            return Err(not_logged_in("tsim login has not completed"));
+        }
         let (session, epoch) = self.ensure_fresh().await?;
-        if epoch != identity.session_epoch { return Err(not_logged_in("tsim identity changed before translation")); }
+        if epoch != identity.session_epoch {
+            return Err(not_logged_in("tsim identity changed before translation"));
+        }
         let now = self.now_ms();
         let claim = self.lock().translations.claim(account, text, target, now);
         let owned = match claim {
@@ -561,14 +659,18 @@ impl<E: Executor, V: Vault> Service<E, V> {
     pub async fn package_quick_view(&self, iccid: &str) -> Result<PackageInfo, AppError> {
         let identifier = validate_order_nums(iccid)?;
         let identity = self.status();
-        if !identity.logged_in { return Err(not_logged_in("tsim login has not completed")); }
+        if !identity.logged_in {
+            return Err(not_logged_in("tsim login has not completed"));
+        }
         let profile_loaded = self.lock().profile_loaded;
         let (session, epoch) = if profile_loaded {
             self.ensure_fresh().await?
         } else {
             self.load_profile().await?
         };
-        if epoch != identity.session_epoch { return Err(not_logged_in("tsim identity changed before package query")); }
+        if epoch != identity.session_epoch {
+            return Err(not_logged_in("tsim identity changed before package query"));
+        }
         PackagePermission::evaluate(&session).check()?;
         self.check_epoch(epoch).await?;
         let key = AccountContext::new(AccountId::new("tsim"), Environment::named("tsim"), epoch);

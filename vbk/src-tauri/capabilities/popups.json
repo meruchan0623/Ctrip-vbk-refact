@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "popups",
-  "description": "alarm window: snapshot and versioned round actions only; no send, no finish, no arbitrary URL",
+  "description": "alarm window: snapshot, versioned round actions and fitting its own height only; no send, no finish, no arbitrary URL",
   "windows": [
     "alarm"
   ],
@@ -14,7 +14,7 @@
     "allow-notify-open-conversation",
     "allow-notify-hide-round",
     "allow-notify-hide-all",
-    "allow-notify-snooze",
+    "allow-notify-alarm-resize",
     "allow-prefs-snapshot"
   ]
 }

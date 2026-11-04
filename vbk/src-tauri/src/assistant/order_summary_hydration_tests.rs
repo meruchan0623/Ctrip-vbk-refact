@@ -161,10 +161,9 @@ impl Executor for Http {
                     ),
                 }
             }
-            "/agent/package-query/cdr-more" => reply(
-                200,
-                serde_json::json!({"code":1,"result":[]}),
-            ),
+            "/agent/package-query/cdr-more" => {
+                reply(200, serde_json::json!({"code":1,"result":[]}))
+            }
             _ => panic!("unexpected synthetic endpoint"),
         }
     }

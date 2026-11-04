@@ -7,20 +7,20 @@
 //! TSim identity is independent of the Ctrip accounts; passwords are never
 //! stored or logged, tokens never logged.
 
-#[path = "assistant/http.rs"]
-pub mod http;
-#[path = "assistant/service.rs"]
-pub mod service;
-#[path = "assistant/order_commands.rs"]
-pub mod order_commands;
-#[path = "assistant/tsim_order.rs"]
-pub mod tsim_order;
-#[path = "assistant/public_error.rs"]
-pub mod public_error;
-#[path = "assistant/session_storage.rs"]
-mod session_storage;
 #[path = "assistant/browser_storage.rs"]
 pub mod browser_storage;
+#[path = "assistant/http.rs"]
+pub mod http;
+#[path = "assistant/order_commands.rs"]
+pub mod order_commands;
+#[path = "assistant/public_error.rs"]
+pub mod public_error;
+#[path = "assistant/service.rs"]
+pub mod service;
+#[path = "assistant/session_storage.rs"]
+mod session_storage;
+#[path = "assistant/tsim_order.rs"]
+pub mod tsim_order;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -62,9 +62,15 @@ fn keyring_error(_e: keyring::Error) -> AppError {
 }
 
 impl Vault for KeyringVault {
-    fn load(&self) -> Result<Option<String>, AppError> { session_storage::Storage(session_storage::KeyringBackend).load() }
-    fn save(&self, value: &str) -> Result<(), AppError> { session_storage::Storage(session_storage::KeyringBackend).save(value) }
-    fn clear(&self) -> Result<(), AppError> { session_storage::Storage(session_storage::KeyringBackend).clear() }
+    fn load(&self) -> Result<Option<String>, AppError> {
+        session_storage::Storage(session_storage::KeyringBackend).load()
+    }
+    fn save(&self, value: &str) -> Result<(), AppError> {
+        session_storage::Storage(session_storage::KeyringBackend).save(value)
+    }
+    fn clear(&self) -> Result<(), AppError> {
+        session_storage::Storage(session_storage::KeyringBackend).clear()
+    }
 }
 
 type HostService = Service<ReqwestExecutor, KeyringVault>;
@@ -83,23 +89,24 @@ fn wall_ms() -> i64 {
 /// credential store and starts the refresh upkeep.
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let event_app = app.clone();
-    let svc = Arc::new(Service::new(
-        ReqwestExecutor::new(),
-        KeyringVault,
-        Box::new(wall_ms),
-    ).with_status_observer(move |status| {
-        order_commands::on_tsim_status(&event_app, &status);
-        tsim_order::on_tsim_status(&event_app, &status);
-        for label in event_app.webview_windows().keys() {
-            if label == crate::views::MAIN || label == crate::views::SETTING || label.starts_with(crate::views::PACKAGE_DETAIL_PREFIX) {
-                let _ = event_app.emit_to(label, "assistant://tsim-status", status.clone());
-            }
-        }
-    }));
+    let svc = Arc::new(
+        Service::new(ReqwestExecutor::new(), KeyringVault, Box::new(wall_ms)).with_status_observer(
+            move |status| {
+                order_commands::on_tsim_status(&event_app, &status);
+                for label in event_app.webviews().keys() {
+                    if label == crate::views::MAIN
+                        || label == crate::views::SETTING
+                        || label.starts_with(crate::views::PACKAGE_DETAIL_PREFIX)
+                    {
+                        let _ = event_app.emit_to(label, "assistant://tsim-status", status.clone());
+                    }
+                }
+            },
+        ),
+    );
     svc.restore();
     app.manage(AssistantState(Arc::clone(&svc)));
     order_commands::init(app, Arc::clone(&svc));
-    app.manage(tsim_order::TsimOrderWindows::default());
     tauri::async_runtime::spawn(async move {
         loop {
             svc.maintain().await;
@@ -148,10 +155,16 @@ pub async fn assistant_tsim_login(
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn assistant_tsim_import_session(
-    app: AppHandle, window: Window, state: State<'_, HostState>, access_token: String,
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+    access_token: String,
 ) -> CmdResult<TsimStatus> {
     guard(&state, &window, "assistant_tsim_import_session")?;
-    require(&app)?.import_session(access_token).await.map_err(public_error::to_dto)
+    require(&app)?
+        .import_session(access_token)
+        .await
+        .map_err(public_error::to_dto)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -166,39 +179,77 @@ pub async fn assistant_tsim_logout(
 
 // Serialize bounded local-store scans off the async executor; the permit stays
 // with the worker even if its requesting command is cancelled.
-async fn browser_work<T: Send + 'static>(work: impl FnOnce() -> Result<T, AppError> + Send + 'static) -> Result<T, AppError> {
+async fn browser_work<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, AppError> + Send + 'static,
+) -> Result<T, AppError> {
     static SCANS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
-    let permit = SCANS.acquire().await.map_err(|_| AppError::new("assistant.browser_storage_unavailable", "browser read unavailable"))?;
-    tauri::async_runtime::spawn_blocking(move || { let _permit = permit; work() }).await
-        .map_err(|_| AppError::new("assistant.browser_storage_unavailable", "browser read failed"))?
+    let permit = SCANS.acquire().await.map_err(|_| {
+        AppError::new(
+            "assistant.browser_storage_unavailable",
+            "browser read unavailable",
+        )
+    })?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        work()
+    })
+    .await
+    .map_err(|_| {
+        AppError::new(
+            "assistant.browser_storage_unavailable",
+            "browser read failed",
+        )
+    })?
 }
 
 #[derive(Serialize)]
-pub struct BrowserChoice { id: String, label: String }
+pub struct BrowserChoice {
+    id: String,
+    label: String,
+}
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn assistant_tsim_browser_profiles(window: Window, state: State<'_, HostState>) -> CmdResult<Vec<BrowserChoice>> {
+pub async fn assistant_tsim_browser_profiles(
+    window: Window,
+    state: State<'_, HostState>,
+) -> CmdResult<Vec<BrowserChoice>> {
     guard(&state, &window, "assistant_tsim_browser_profiles")?;
     browser_work(|| {
         let mut choices = Vec::new();
         let mut failed = None;
         for profile in browser_storage::discover_profiles()? {
             match browser_storage::read_token(&profile.directory) {
-                Ok(Some(_)) => choices.push(BrowserChoice { id: profile.id, label: profile.label }),
-                Ok(None) => {},
+                Ok(Some(_)) => choices.push(BrowserChoice {
+                    id: profile.id,
+                    label: profile.label,
+                }),
+                Ok(None) => {}
                 Err(e) => failed = Some(e),
             }
         }
-        if choices.is_empty() { if let Some(e) = failed { return Err(e); } }
+        if choices.is_empty() {
+            if let Some(e) = failed {
+                return Err(e);
+            }
+        }
         Ok(choices)
-    }).await.map_err(public_error::to_dto)
+    })
+    .await
+    .map_err(public_error::to_dto)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn assistant_tsim_browser_connect(app: AppHandle, window: Window, state: State<'_, HostState>, profile_id: String) -> CmdResult<TsimStatus> {
+pub async fn assistant_tsim_browser_connect(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+    profile_id: String,
+) -> CmdResult<TsimStatus> {
     guard(&state, &window, "assistant_tsim_browser_connect")?;
     let svc = require(&app)?;
-    svc.connect_browser(&profile_id).await.map_err(public_error::to_dto)
+    svc.connect_browser(&profile_id)
+        .await
+        .map_err(public_error::to_dto)
 }
 
 #[derive(Debug, Clone, Serialize)]

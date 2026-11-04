@@ -7,7 +7,7 @@
 use contracts::{
     AccountContext, AccountId, AlarmCommand, AlarmEntry, AlarmLevel, AlarmSnapshot, AppError,
     ConversationFact, ConversationStatus, Environment, MessageFact, MessageSource, MsgKind,
-    ReminderSettings, SendDisposition, SenderRole, SnoozeMinutes,
+    ReminderSettings, SendDisposition, SenderRole,
 };
 use serde::{Deserialize, Serialize};
 
@@ -115,7 +115,7 @@ fn level_str(l: AlarmLevel) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AlarmEntryDto {
     pub account: AccountContextDto,
     pub gid: String,
@@ -127,6 +127,33 @@ pub struct AlarmEntryDto {
     pub level: String,
     pub start_confirmed: bool,
     pub snoozed_until_ms: Option<i64>,
+    /// Latest message preview from the in-memory display cache, filled by
+    /// `adapter::alarm_snapshot` for local windows. Customer text: never logged.
+    #[serde(default)]
+    pub preview: Option<String>,
+}
+
+impl std::fmt::Debug for AlarmEntryDto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AlarmEntryDto")
+            .field("gid", &self.gid)
+            .field("round_id", &self.round_id)
+            .field("version", &self.version)
+            .field("level", &self.level)
+            .field("has_preview", &self.preview.is_some())
+            .finish()
+    }
+}
+
+/// Single-line, bounded form of a list preview; `None` when there is no text.
+pub fn alarm_preview(raw: &str) -> Option<String> {
+    const MAX_CHARS: usize = 200;
+    let mut text = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if let Some((end, _)) = text.char_indices().nth(MAX_CHARS) {
+        text.truncate(end);
+        text.push('…');
+    }
+    (!text.is_empty()).then_some(text)
 }
 
 impl From<&AlarmEntry> for AlarmEntryDto {
@@ -142,6 +169,7 @@ impl From<&AlarmEntry> for AlarmEntryDto {
             level: level_str(e.level).to_string(),
             start_confirmed: e.start_confirmed,
             snoozed_until_ms: e.snoozed_until_ms,
+            preview: None,
         }
     }
 }
@@ -178,21 +206,10 @@ pub struct RoundRefDto {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SeenRoundDto {
+    pub account: AccountContextDto,
     pub gid: String,
     pub round_id: String,
     pub version: u64,
-}
-
-pub fn snooze_from_minutes(minutes: u32) -> Result<SnoozeMinutes, AppError> {
-    match minutes {
-        5 => Ok(SnoozeMinutes::Five),
-        10 => Ok(SnoozeMinutes::Ten),
-        30 => Ok(SnoozeMinutes::Thirty),
-        other => Err(AppError::new(
-            "notify.invalid_snooze",
-            format!("snooze of {other} minutes is not offered"),
-        )),
-    }
 }
 
 pub fn open_conversation_cmd(r: RoundRefDto) -> AlarmCommand {
@@ -217,18 +234,13 @@ pub fn hide_all_cmd(seen: Vec<SeenRoundDto>) -> AlarmCommand {
     AlarmCommand::HideAll {
         seen: seen
             .into_iter()
-            .map(|s| (s.gid, s.round_id, s.version))
+            .map(|s| contracts::WaitingRoundRef {
+                account: s.account.into(),
+                gid: s.gid,
+                round_id: s.round_id,
+                version: s.version,
+            })
             .collect(),
-    }
-}
-
-pub fn snooze_cmd(r: RoundRefDto, minutes: SnoozeMinutes) -> AlarmCommand {
-    AlarmCommand::Snooze {
-        account: r.account.into(),
-        gid: r.gid,
-        round_id: r.round_id,
-        version: r.version,
-        minutes,
     }
 }
 
@@ -487,7 +499,61 @@ pub struct AdapterFactEnvelopeDto {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn alarm_preview_is_single_line_and_bounded() {
+        assert_eq!(super::alarm_preview("  a\n b\t c "), Some("a b c".into()));
+        assert_eq!(super::alarm_preview(" \n "), None);
+        let long = super::alarm_preview(&"客".repeat(500)).expect("text");
+        assert_eq!(long.chars().count(), 201);
+        assert!(long.ends_with('…'));
+    }
+
+    #[test]
+    fn alarm_entry_debug_never_prints_the_preview() {
+        let entry = super::AlarmEntryDto {
+            account: super::AccountContextDto {
+                account_id: "a".into(),
+                environment: "test".into(),
+                session_generation: 1,
+            },
+            gid: "g".into(),
+            round_id: "r".into(),
+            version: 1,
+            label: "l".into(),
+            waiting_since_ms: None,
+            waited_seconds: 1,
+            level: "L3".into(),
+            start_confirmed: true,
+            snoozed_until_ms: None,
+            preview: Some("synthetic-secret".into()),
+        };
+        let printed = format!("{entry:?}");
+        assert!(!printed.contains("synthetic-secret"));
+        assert!(printed.contains("has_preview: true"));
+    }
+
     use super::*;
+
+    #[test]
+    fn hide_all_requires_identity_and_preserves_it() {
+        let legacy = r#"{"gid":"g","round_id":"r","version":1}"#;
+        assert!(serde_json::from_str::<SeenRoundDto>(legacy).is_err());
+        let current = r#"{"account":{"account_id":"a","environment":"production","session_generation":2},"gid":"g","round_id":"r","version":1}"#;
+        let dto: SeenRoundDto =
+            serde_json::from_str(current).expect("current identity is required");
+        let account: AccountContext = dto.account.clone().into();
+        assert_eq!(
+            hide_all_cmd(vec![dto]),
+            AlarmCommand::HideAll {
+                seen: vec![contracts::WaitingRoundRef {
+                    account,
+                    gid: "g".into(),
+                    round_id: "r".into(),
+                    version: 1
+                }]
+            }
+        );
+    }
 
     #[test]
     fn fact_envelope_json_shape_matches_ts() {

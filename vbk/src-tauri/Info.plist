@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>读取你选择或拖入的文件，作为消息附件发送。</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>读取你选择或拖入的文件，作为消息附件发送。</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>读取你选择或拖入的文件，作为消息附件发送。</string>
+  <key>NSRemovableVolumesUsageDescription</key>
+  <string>读取你从移动存储设备选择或拖入的文件，作为消息附件发送。</string>
+  <key>NSNetworkVolumesUsageDescription</key>
+  <string>读取你从网络存储选择或拖入的文件，作为消息附件发送。</string>
+</dict>
+</plist>

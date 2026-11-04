@@ -6,23 +6,44 @@
 //!   area and clamped into the visible region after monitor changes.
 //! * `setting`, `update`: singletons; same D1 chrome as `main`
 //!   (macOS overlay title bar + traffic lights, Windows undecorated).
+//! * `media-viewer`: singleton attachment viewer, same chrome; reused across
+//!   attachments and destroyed on close so playback stops with the window.
 //!
 //! All windows are created here; other modules only submit policy.
 
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+use tauri::{
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
+};
 
 use crate::views;
 
 /// Alarm window size in logical px (prototype: ≤ 60% of work-area height).
 pub const ALARM_WIDTH: f64 = 380.0;
 pub const ALARM_MAX_HEIGHT_RATIO: f64 = 0.6;
-pub const ALARM_MIN_HEIGHT: f64 = 220.0;
+pub const ALARM_MIN_HEIGHT: f64 = 72.0;
+/// Header plus one row, until the page reports its real content height.
+const ALARM_FIRST_HEIGHT: u32 = 112;
+/// Last content height the page reported, kept across hide/show.
+static ALARM_HEIGHT: AtomicU32 = AtomicU32::new(ALARM_FIRST_HEIGHT);
 const MARGIN: f64 = 12.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Corner {
     BottomRight,
     BottomLeft,
+}
+
+impl Corner {
+    pub fn from_bottom_right(bottom_right: bool) -> Self {
+        if bottom_right {
+            Self::BottomRight
+        } else {
+            Self::BottomLeft
+        }
+    }
 }
 
 /// Rectangle in physical pixels.
@@ -67,7 +88,7 @@ pub fn place_alarm(
 }
 
 fn work_area_of_primary(app: &AppHandle) -> Option<(Rect, f64)> {
-    let main = app.get_webview_window(views::MAIN)?;
+    let main = app.get_window(views::MAIN)?;
     let monitor = main
         .current_monitor()
         .ok()
@@ -97,7 +118,7 @@ pub fn ensure_alarm(app: &AppHandle) -> tauri::Result<()> {
         WebviewUrl::App("apps/alarm/index.html".into()),
     )
     .title("回复超时提醒")
-    .inner_size(ALARM_WIDTH, 320.0)
+    .inner_size(ALARM_WIDTH, f64::from(ALARM_FIRST_HEIGHT))
     .resizable(false)
     .decorations(false)
     .always_on_top(true)
@@ -122,21 +143,12 @@ pub fn ensure_alarm(app: &AppHandle) -> tauri::Result<()> {
 
 /// Shows the alarm window without activating it (strong-alert §6: 置顶、不
 /// 激活显示). `raise` re-applies always-on-top once (level change only).
-pub fn show_alarm(
-    app: &AppHandle,
-    corner: Corner,
-    wanted_height_logical: f64,
-    raise: bool,
-) -> tauri::Result<()> {
+pub fn show_alarm(app: &AppHandle, corner: Corner, raise: bool) -> tauri::Result<()> {
     ensure_alarm(app)?;
     let Some(win) = app.get_webview_window(views::ALARM) else {
         return Ok(());
     };
-    if let Some((area, scale)) = work_area_of_primary(app) {
-        let r = place_alarm(area, scale, corner, wanted_height_logical);
-        win.set_size(PhysicalSize::new(r.w, r.h))?;
-        win.set_position(PhysicalPosition::new(r.x, r.y))?;
-    }
+    fit_alarm(app, &win, corner)?;
     if !win.is_visible().unwrap_or(false) {
         // `show` on a window built with `focused(false)` does not activate it
         // on Windows; we never call `set_focus` here.
@@ -148,14 +160,148 @@ pub fn show_alarm(
     Ok(())
 }
 
+fn fit_alarm(app: &AppHandle, win: &WebviewWindow, corner: Corner) -> tauri::Result<()> {
+    if let Some((area, scale)) = work_area_of_primary(app) {
+        let height = f64::from(ALARM_HEIGHT.load(Ordering::Relaxed));
+        let r = place_alarm(area, scale * crate::ui_zoom::factor(), corner, height);
+        win.set_size(PhysicalSize::new(r.w, r.h))?;
+        win.set_position(PhysicalPosition::new(r.x, r.y))?;
+    }
+    Ok(())
+}
+
+/// Records the page's content height; `place_alarm` bounds it to the screen.
+pub fn resize_alarm(app: &AppHandle, corner: Corner, height: f64) -> tauri::Result<()> {
+    if !height.is_finite() || height <= 0.0 {
+        return Ok(());
+    }
+    ALARM_HEIGHT.store(height.ceil() as u32, Ordering::Relaxed);
+    match app.get_webview_window(views::ALARM) {
+        Some(win) => fit_alarm(app, &win, corner),
+        None => Ok(()),
+    }
+}
+
+/// Moves the alarm window to the configured corner at the current zoom.
+pub fn refit_alarm(app: &AppHandle) {
+    let bottom_right = app
+        .state::<crate::state::HostState>()
+        .settings()
+        .position_bottom_right;
+    if let Some(win) = app.get_webview_window(views::ALARM) {
+        if let Err(e) = fit_alarm(app, &win, Corner::from_bottom_right(bottom_right)) {
+            log::warn!("refit alarm failed: {e}");
+        }
+    }
+}
+
+/// The floating windows size themselves from content heights in CSS px, which
+/// do not change with the zoom, so the host has to re-place them.
+pub fn refit_floating(app: &AppHandle) {
+    refit_alarm(app);
+    let visible = app
+        .get_webview_window(views::NOTICE)
+        .is_some_and(|win| win.is_visible().unwrap_or(false));
+    if visible {
+        let height = f64::from(NOTICE_HEIGHT.load(Ordering::Relaxed));
+        if let Err(e) = place_notice(app, height) {
+            log::warn!("refit notice failed: {e}");
+        }
+    }
+}
+
+pub fn alarm_is_visible(app: &AppHandle) -> bool {
+    app.get_webview_window(views::ALARM)
+        .is_some_and(|win| win.is_visible().unwrap_or(false))
+}
+
 pub fn hide_alarm(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(views::ALARM) {
         let _ = win.hide();
     }
 }
 
+const NOTICE_WIDTH: f64 = 372.0;
+const NOTICE_MAX_HEIGHT: f64 = 480.0;
+/// One card (`ui/apps/notice/viewmodel.ts` stackHeight); the page refines it.
+const NOTICE_FIRST_HEIGHT: f64 = 104.0;
+const NOTICE_MARGIN: f64 = 6.0;
+/// Last stack height the page reported, for re-placing on a zoom change.
+static NOTICE_HEIGHT: AtomicU32 = AtomicU32::new(NOTICE_FIRST_HEIGHT as u32);
+
+/// Pre-created hidden so the first notice is instant. Never focusable, so a
+/// notice cannot take focus from what the user is typing in; first-mouse makes
+/// the first click on it count while another app is active.
+pub fn ensure_notice(app: &AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window(views::NOTICE).is_some() {
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(
+        app,
+        views::NOTICE,
+        WebviewUrl::App("apps/notice/index.html".into()),
+    )
+    .title("新消息通知")
+    .inner_size(NOTICE_WIDTH, NOTICE_FIRST_HEIGHT)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .visible_on_all_workspaces(true)
+    .skip_taskbar(true)
+    .focusable(false)
+    .focused(false)
+    .accept_first_mouse(true)
+    .visible(false)
+    .build()?;
+    Ok(())
+}
+
+/// Top-right of the work area; the stack only ever grows downward from there.
+fn place_notice(app: &AppHandle, height: f64) -> tauri::Result<()> {
+    let Some(win) = app.get_webview_window(views::NOTICE) else {
+        return Ok(());
+    };
+    NOTICE_HEIGHT.store(height.ceil() as u32, Ordering::Relaxed);
+    if let Some((area, scale)) = work_area_of_primary(app) {
+        let scale = scale * crate::ui_zoom::factor();
+        let w = (NOTICE_WIDTH * scale).round() as u32;
+        let h = (height.min(NOTICE_MAX_HEIGHT) * scale).round() as u32;
+        let margin = (NOTICE_MARGIN * scale).round() as i32;
+        win.set_size(PhysicalSize::new(w, h))?;
+        win.set_position(PhysicalPosition::new(
+            area.x + area.w as i32 - w as i32 - margin,
+            area.y + margin,
+        ))?;
+    }
+    Ok(())
+}
+
+pub fn show_notice(app: &AppHandle) -> tauri::Result<()> {
+    ensure_notice(app)?;
+    let Some(win) = app.get_webview_window(views::NOTICE) else {
+        return Ok(());
+    };
+    if !win.is_visible().unwrap_or(false) {
+        place_notice(app, NOTICE_FIRST_HEIGHT)?;
+        win.show()?;
+    }
+    Ok(())
+}
+
+pub fn resize_notice(app: &AppHandle, height: f64) -> tauri::Result<()> {
+    let Some(win) = app.get_webview_window(views::NOTICE) else {
+        return Ok(());
+    };
+    if !height.is_finite() || height <= 0.0 {
+        return win.hide();
+    }
+    place_notice(app, height)
+}
+
 pub fn show_main(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window(views::MAIN) {
+    if let Some(win) = app.get_window(views::MAIN) {
         let _ = win.show();
         let _ = win.unminimize();
         let _ = win.set_focus();
@@ -163,7 +309,7 @@ pub fn show_main(app: &AppHandle) {
 }
 
 pub fn toggle_main(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window(views::MAIN) {
+    if let Some(win) = app.get_window(views::MAIN) {
         if win.is_visible().unwrap_or(false) && win.is_focused().unwrap_or(false) {
             let _ = win.hide();
         } else {
@@ -204,6 +350,7 @@ pub async fn open_singleton(
             win.set_focus()?;
             return Ok(());
         }
+        let (w, h) = crate::ui_zoom::scaled_size(&app, w, h);
         let builder = WebviewWindowBuilder::new(&app, label, WebviewUrl::App(url.into()))
             .title(title)
             .inner_size(w, h);
@@ -249,6 +396,31 @@ pub async fn open_setting(app: &AppHandle) -> tauri::Result<()> {
         900.0,
         640.0,
     )
+    .await
+}
+
+pub async fn open_media_viewer(app: &AppHandle) -> tauri::Result<()> {
+    let app = app.clone();
+    dispatch_secondary_window(move || {
+        if let Some(win) = app.get_webview_window(views::MEDIA_VIEWER) {
+            win.show()?;
+            let _ = win.unminimize();
+            win.set_focus()?;
+            return Ok(());
+        }
+        let builder = WebviewWindowBuilder::new(
+            &app,
+            views::MEDIA_VIEWER,
+            WebviewUrl::App("apps/media-viewer/index.html".into()),
+        )
+        // Generic on purpose: file names are customer data and this title reaches the OS window list.
+        .title("附件查看器")
+        .inner_size(1120.0, 820.0)
+        .min_inner_size(520.0, 400.0)
+        .background_color(tauri::webview::Color(16, 22, 33, 255));
+        with_platform_chrome(builder).build()?;
+        Ok(())
+    })
     .await
 }
 

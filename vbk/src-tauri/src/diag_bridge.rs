@@ -31,7 +31,11 @@ impl log::Log for Bridge {
             return;
         }
         if let Some(logger) = core_diag::global() {
-            logger.log_text(map(record.level()), record.target(), &record.args().to_string());
+            logger.log_text(
+                map(record.level()),
+                record.target(),
+                &record.args().to_string(),
+            );
         }
     }
 

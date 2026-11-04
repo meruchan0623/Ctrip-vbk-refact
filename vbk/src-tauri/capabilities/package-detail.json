@@ -13,6 +13,8 @@
     "core:window:allow-internal-toggle-maximize",
     "allow-shell-window",
     "allow-assistant-tsim-status",
-    "allow-assistant-package-detail"
+    "allow-assistant-package-detail",
+    "allow-shell-read-clipboard-text",
+    "allow-shell-write-clipboard-text"
   ]
 }

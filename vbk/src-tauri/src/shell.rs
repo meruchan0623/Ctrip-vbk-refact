@@ -52,8 +52,6 @@ fn tauri_err(e: tauri::Error) -> AppErrorDto {
 #[derive(Clone)]
 struct Attachment {
     path: PathBuf,
-    /// Created by the host (screenshot temp file); removed on drop of the table.
-    temporary: bool,
     frozen: FrozenAttachment,
 }
 
@@ -62,19 +60,9 @@ struct Attachments {
     items: Mutex<HashMap<String, Attachment>>,
 }
 
-impl Drop for Attachments {
-    fn drop(&mut self) {
-        let items = self.items.get_mut().unwrap_or_else(|p| p.into_inner());
-        for a in items.values().filter(|a| a.temporary) {
-            let _ = std::fs::remove_file(&a.path);
-        }
-    }
-}
-
 async fn register_attachment(
     app: &AppHandle,
     path: PathBuf,
-    temporary: bool,
     kind: String,
     account: contracts::AccountContext,
     gid: String,
@@ -112,14 +100,7 @@ async fn register_attachment(
         ));
     }
     let dto = frozen.dto.clone();
-    items.insert(
-        dto.attachment_id.clone(),
-        Attachment {
-            path,
-            temporary,
-            frozen,
-        },
-    );
+    items.insert(dto.attachment_id.clone(), Attachment { path, frozen });
     Ok(dto)
 }
 
@@ -168,9 +149,10 @@ pub fn consume_attachment(
 /// Called once from `lib.rs` setup. Register module state with `app.manage(..)` here.
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     app.manage(Attachments::default());
+    app.manage(DroppedFiles::default());
     // `lib.rs` already turns main's close into hide-to-tray. When the user
     // chose "退出程序" the native close (macOS red light, Alt+F4) quits.
-    if let Some(main) = app.get_webview_window(views::MAIN) {
+    if let Some(main) = app.get_window(views::MAIN) {
         let handle = app.clone();
         main.on_window_event(move |event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -228,6 +210,16 @@ pub async fn shell_open_window(
 ) -> CmdResult<()> {
     guard(&state, &window, "shell_open_window")?;
     match label.as_str() {
+        views::ALARM => {
+            if state.alarm_snapshot().entries.is_empty() {
+                return Ok(());
+            }
+            let corner = windows::Corner::from_bottom_right(state.settings().position_bottom_right);
+            let app = app.clone();
+            windows::dispatch_secondary_window(move || windows::show_alarm(&app, corner, true))
+                .await
+                .map_err(tauri_err)
+        }
         views::SETTING => windows::open_setting(&app).await.map_err(tauri_err),
         views::UPDATE => windows::open_update(&app).await.map_err(tauri_err),
         other => Err(invalid_argument(format!(
@@ -274,13 +266,16 @@ pub fn check_external_url(raw: &str) -> Result<Url, AppError> {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     if !(host_in(&host, CTRIP_DOMAIN)
         || host_in(&host, TSIM_DOMAIN)
-        || OFFICIAL_MEDIA_DOMAINS.iter().any(|domain| host_in(&host, domain))) {
+        || OFFICIAL_MEDIA_DOMAINS
+            .iter()
+            .any(|domain| host_in(&host, domain)))
+    {
         return Err(reject("host is not an official domain"));
     }
     Ok(url)
 }
 
-fn open_in_browser(url: &Url) -> Result<(), AppError> {
+pub(crate) fn open_in_browser(url: &Url) -> Result<(), AppError> {
     let spawned = {
         #[cfg(target_os = "macos")]
         {
@@ -333,96 +328,110 @@ pub fn shell_open_external(
     Ok(())
 }
 
-// ------------------------------------------------------------------ media
-
+/// Export only host-generated metadata after native checklist and save dialogs.
+/// No caller-provided paths or file selection are accepted.
 #[tauri::command]
-pub async fn media_screenshot(
+pub async fn shell_export_diagnostics(
     app: AppHandle,
     window: Window,
     state: State<'_, HostState>,
-    account: AccountContextDto,
-    gid: String,
-) -> CmdResult<Option<AttachmentDto>> {
-    guard(&state, &window, "media_screenshot")?;
-    #[cfg(target_os = "macos")]
-    {
-        let account: contracts::AccountContext = account.into();
-        state
-            .lock()
-            .accounts
-            .validate(&account)
-            .map_err(AppErrorDto::from)?;
-        let target = crate::adapter::capture_media_target(&app, &account, &gid)
+) -> CmdResult<bool> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    guard(&state, &window, "shell_export_diagnostics")?;
+    let dir = app.path().app_data_dir().map_err(tauri_err)?;
+    let version = app.package_info().version.to_string();
+    let bundle =
+        tauri::async_runtime::spawn_blocking(move || crate::diagnostics::prepare(&dir, &version))
             .await
-            .map_err(AppErrorDto::from)?;
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        let dir = std::env::temp_dir().join("vbk-screenshots");
-        let path = dir.join(format!("screenshot-{stamp}.png"));
-        let screenshot_path = path.clone();
-        // Interactive selection (-i), no shutter sound (-x). Cancelling with
-        // Esc exits without writing the file.
-        let status = tauri::async_runtime::spawn_blocking(move || {
-            std::fs::create_dir_all(&dir)?;
-            std::process::Command::new("/usr/sbin/screencapture")
-                .args(["-i", "-x"])
-                .arg(&screenshot_path)
-                .status()
-        })
-        .await
-        .map_err(|e| AppError::new(codes::HOST_UNSUPPORTED, e.to_string()))?
-        .map_err(|e| {
-            AppError::new(
-                codes::HOST_UNSUPPORTED,
-                format!("screencapture failed: {e}"),
-            )
-        })?;
-        let written = std::fs::metadata(&path)
-            .map(|m| m.len() > 0)
-            .unwrap_or(false);
-        if !status.success() || !written {
-            let _ = std::fs::remove_file(&path);
-            crate::adapter::release_media_target(&app, &account, &gid, &target).await;
-            return Ok(None);
-        }
-        let result = register_attachment(
-            &app,
-            path.clone(),
-            true,
-            "image".into(),
-            account.clone(),
-            gid.clone(),
-            target.clone(),
-        )
-        .await;
-        // The immutable memory snapshot now owns the selected bytes, including
-        // when a late target validation rejects the selection.
-        let _ = std::fs::remove_file(&path);
-        if result.is_err() {
-            crate::adapter::release_media_target(&app, &account, &gid, &target).await;
-        }
-        result.map(Some)
+            .map_err(|_| diagnostic_error("无法准备诊断信息"))?
+            .map_err(|_| diagnostic_error("无法读取诊断日志"))?;
+    let checklist = format!(
+        "{}\n仅包含版本、平台和日志时间/级别。日志正文、账号、凭据、数据库均不导出。",
+        bundle.manifest.render()
+    );
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .message(checklist)
+        .title("导出诊断信息")
+        .parent(&window)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "选择保存位置".into(),
+            "取消".into(),
+        ))
+        .show(move |confirmed| {
+            let _ = tx.send(confirmed);
+        });
+    if !rx.await.unwrap_or(false) {
+        return Ok(false);
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (app, account, gid);
-        Err(AppError::new(
-            codes::HOST_UNSUPPORTED,
-            "screenshot is not available on this platform",
-        )
-        .into())
-    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_parent(&window)
+        .set_title("保存诊断信息")
+        .set_file_name("vbooking-diagnostics.txt")
+        .add_filter("诊断文本", &["txt"])
+        .save_file(move |picked| {
+            let _ = tx.send(picked);
+        });
+    let Some(path) = rx.await.ok().flatten() else {
+        return Ok(false);
+    };
+    let path = path
+        .into_path()
+        .map_err(|_| diagnostic_error("无法使用该保存位置"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let text = crate::diagnostics::render(&bundle)?;
+        std::fs::write(path, text)
+    })
+    .await
+    .map_err(|_| diagnostic_error("无法保存诊断信息"))?
+    .map_err(|_| diagnostic_error("无法保存诊断信息"))?;
+    Ok(true)
 }
+
+fn diagnostic_error(message: &str) -> AppErrorDto {
+    // OS errors can include user paths; keep those out of IPC responses.
+    AppError::new(codes::HOST_UNSUPPORTED, message).into()
+}
+
+/// Open the fixed app data directory, never an arbitrary path from JavaScript.
+#[tauri::command]
+pub async fn shell_open_data_directory(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+) -> CmdResult<()> {
+    guard(&state, &window, "shell_open_data_directory")?;
+    let dir = app.path().app_data_dir().map_err(tauri_err)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::create_dir_all(&dir)?;
+        #[cfg(target_os = "macos")]
+        let mut command = std::process::Command::new("/usr/bin/open");
+        #[cfg(target_os = "windows")]
+        let mut command = std::process::Command::new("explorer.exe");
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let mut command = std::process::Command::new("xdg-open");
+        // Pass as one process argument, never through a command shell.
+        let status = command.arg(&dir).status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(std::io::Error::other("directory launcher failed"))
+        }
+    })
+    .await
+    .map_err(|_| diagnostic_error("无法打开数据目录"))?
+    .map_err(|_| diagnostic_error("无法打开数据目录"))
+}
+
+// ------------------------------------------------------------------ media
 
 fn filter_for(kind: &str) -> Result<Option<(&'static str, &'static [&'static str])>, AppErrorDto> {
     match kind {
-        "image" => Ok(Some((
-            "图片",
-            &["png", "jpg", "jpeg", "gif", "webp", "bmp", "heic"],
-        ))),
-        "video" => Ok(Some(("视频", &["mp4", "mov", "m4v", "avi", "webm"]))),
+        // Matches the content check in `media_outbound`, so the picker never offers
+        // a format the snapshot refuses (BMP/HEIC can still go through "文件").
+        "image" => Ok(Some(("图片", &["png", "jpg", "jpeg", "gif", "webp"]))),
         "file" => Ok(None),
         other => Err(invalid_argument(format!("unknown media kind {other:?}"))),
     }
@@ -470,13 +479,129 @@ pub async fn media_pick(
     let result = register_attachment(
         &app,
         path,
-        false,
         kind,
         account.clone(),
         gid.clone(),
         target.clone(),
     )
     .await;
+    if result.is_err() {
+        crate::adapter::release_media_target(&app, &account, &gid, &target).await;
+    }
+    result.map(Some)
+}
+
+/// Paths the OS handed to the main window in the latest drop. The page only gets
+/// a name and count, and redeems `drop_id` for an attachment in its current
+/// conversation; it can never name a path itself.
+#[derive(Default)]
+struct DroppedFiles(Mutex<Option<(u64, PathBuf)>>);
+static DROP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+const MEDIA_DRAG: &str = "media://drag"; // {active}
+const MEDIA_DROPPED: &str = "media://dropped"; // {drop_id, name, count}
+
+/// Images go out as image messages; everything else, videos included, as files.
+fn kind_for_dropped(path: &std::path::Path) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp") {
+        "image"
+    } else {
+        "file"
+    }
+}
+
+pub fn on_main_drag_drop(app: &AppHandle, event: &tauri::DragDropEvent) {
+    use tauri::DragDropEvent as D;
+    // macOS also reports drags without files (selected text in the page).
+    let active = matches!(event, D::Enter { paths, .. } if !paths.is_empty());
+    if !matches!(event, D::Over { .. }) {
+        crate::events::to_main(app, MEDIA_DRAG, serde_json::json!({ "active": active }));
+    }
+    let D::Drop { paths, .. } = event else {
+        return;
+    };
+    if paths.is_empty() {
+        return;
+    }
+    let files: Vec<&PathBuf> = paths.iter().filter(|p| p.is_file()).collect();
+    let Some(first) = files.first() else {
+        crate::events::toast(app, "只能拖入文件，不支持文件夹");
+        return;
+    };
+    let id = DROP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    let name = first
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if let Some(table) = app.try_state::<DroppedFiles>() {
+        *table.0.lock().unwrap_or_else(|p| p.into_inner()) = Some((id, (*first).clone()));
+    }
+    crate::events::to_main(
+        app,
+        MEDIA_DROPPED,
+        serde_json::json!({ "drop_id": id, "name": name, "count": files.len() }),
+    );
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn media_accept_drop(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    drop_id: u64,
+) -> CmdResult<Option<AttachmentDto>> {
+    guard(&state, &window, "media_accept_drop")?;
+    let account: contracts::AccountContext = account.into();
+    state
+        .lock()
+        .accounts
+        .validate(&account)
+        .map_err(AppErrorDto::from)?;
+    let path = app.try_state::<DroppedFiles>().and_then(|table| {
+        let mut slot = table.0.lock().unwrap_or_else(|p| p.into_inner());
+        match slot.take() {
+            Some((id, path)) if id == drop_id => Some(path),
+            other => {
+                *slot = other;
+                None
+            }
+        }
+    });
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let target = crate::adapter::capture_media_target(&app, &account, &gid)
+        .await
+        .map_err(AppErrorDto::from)?;
+    let kind = kind_for_dropped(&path);
+    let mut result = register_attachment(
+        &app,
+        path.clone(),
+        kind.to_string(),
+        account.clone(),
+        gid.clone(),
+        target.clone(),
+    )
+    .await;
+    // An image the image rules refuse (too large, content mismatch) can still go as a file.
+    if kind == "image" && result.is_err() {
+        result = register_attachment(
+            &app,
+            path,
+            "file".into(),
+            account.clone(),
+            gid.clone(),
+            target.clone(),
+        )
+        .await;
+    }
     if result.is_err() {
         crate::adapter::release_media_target(&app, &account, &gid, &target).await;
     }
@@ -507,9 +632,6 @@ pub async fn media_release(
         items.remove(&attachment_id)
     };
     if let Some(item) = removed {
-        if item.temporary {
-            let _ = std::fs::remove_file(item.path);
-        }
         crate::adapter::release_media_target(&app, &account, &gid, &item.frozen.target).await;
     }
     Ok(())
@@ -529,7 +651,7 @@ pub fn platform() -> &'static str {
     }
 }
 
-/// Local file behind an `attachment_id` from `media_pick` / `media_screenshot`
+/// Local file behind an `attachment_id` from `media_pick` / `media_accept_drop`
 /// (for the later send path). None when unknown.
 pub fn attachment_path(app: &AppHandle, id: &str) -> Option<PathBuf> {
     let table = app.try_state::<Attachments>()?;
@@ -540,6 +662,18 @@ pub fn attachment_path(app: &AppHandle, id: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_picker_offers_only_formats_the_snapshot_accepts() {
+        let (_, extensions) = filter_for("image").ok().flatten().unwrap();
+        assert_eq!(extensions, ["png", "jpg", "jpeg", "gif", "webp"]);
+        for extension in extensions {
+            assert_eq!(
+                kind_for_dropped(std::path::Path::new(&format!("a.{extension}"))),
+                "image"
+            );
+        }
+    }
 
     #[test]
     fn official_https_urls_pass() {
@@ -584,8 +718,18 @@ mod tests {
     #[test]
     fn media_kinds() {
         assert!(filter_for("image").unwrap().is_some());
-        assert!(filter_for("video").unwrap().is_some());
         assert!(filter_for("file").unwrap().is_none());
+        assert!(filter_for("video").is_err());
         assert!(filter_for("exe").is_err());
+    }
+
+    #[test]
+    fn dropped_videos_and_unknown_types_become_files() {
+        let kind = |name: &str| kind_for_dropped(std::path::Path::new(name));
+        assert_eq!(kind("a.PNG"), "image");
+        assert_eq!(kind("a.jpeg"), "image");
+        assert_eq!(kind("clip.mp4"), "file");
+        assert_eq!(kind("a.heic"), "file");
+        assert_eq!(kind("no-extension"), "file");
     }
 }

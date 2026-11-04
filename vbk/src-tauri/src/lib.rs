@@ -12,24 +12,36 @@
 //! settings are in `tauri.macos.conf.json`.
 
 pub mod adapter;
-pub mod clock_anchor;
-pub mod peripheral_journal;
-pub mod media_outbound;
 pub mod assistant;
+mod attention;
+mod browser_bridge;
+pub mod browser_tabs;
+mod chrome_cookie_store;
+pub mod clock_anchor;
 pub mod commands;
 pub mod data_guard;
 pub mod diag_bridge;
+mod diagnostics;
 pub mod dto;
 pub mod events;
 pub mod features;
 pub mod local_tz;
 pub mod login;
+pub mod media_outbound;
+pub mod media_viewer;
+pub mod message_media;
+mod net_policy;
+mod notice_watch;
+pub mod notifications;
+pub mod peripheral_journal;
 pub mod prefs;
 pub mod scheduler;
 pub mod shell;
 pub mod startup_args;
 pub mod state;
+pub mod system_integration;
 pub mod tray;
+mod ui_zoom;
 pub mod views;
 pub mod windows;
 
@@ -54,6 +66,8 @@ pub fn run() {
         // Second instance: forward args (deep links are a later SHL-04
         // task) and bring the main window up.
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if startup_args::allows(args.into_iter().skip(1)) {
                 windows::show_main(app);
@@ -65,9 +79,11 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 commands::contract_forget(window.label());
+                media_viewer::on_window_destroyed(window.label());
             }
         })
         .on_page_load(|webview, payload| {
+            ui_zoom::on_page_load(webview);
             if payload.event() != tauri::webview::PageLoadEvent::Started {
                 return;
             }
@@ -75,7 +91,10 @@ pub fn run() {
             // webview takes no handshake, and a child webview navigating must
             // not reset its host window's verdict.
             let label = webview.label();
-            let local = !matches!(views::Role::for_label(label), None | Some(views::Role::Adapter));
+            let local = !matches!(
+                views::Role::for_label(label),
+                None | Some(views::Role::Adapter)
+            );
             if local && webview.window().label() == label {
                 commands::contract_forget(label);
             }
@@ -96,15 +115,18 @@ pub fn run() {
                 for label in [
                     views::MAIN,
                     views::ALARM,
+                    views::NOTICE,
                     views::SETTING,
                     views::UPDATE,
                     views::LOGIN,
+                    views::MEDIA_VIEWER,
                 ] {
                     cores.views.register(label);
                 }
             }
             app.manage(state);
             app.manage(clock_anchor::ClockAnchors::default());
+            app.manage(notifications::RecentNotices::default());
 
             let handle = app.handle().clone();
             // Main window: close → hide to tray (docs/dev/01-shell.md).
@@ -115,22 +137,26 @@ pub fn run() {
                         api.prevent_close();
                         let _ = h.hide();
                     }
+                    if let tauri::WindowEvent::DragDrop(drop) = event {
+                        shell::on_main_drag_drop(h.app_handle(), drop);
+                    }
                     if let tauri::WindowEvent::Focused(focused) = event {
-                        let app = h.app_handle();
-                        let state = app.state::<HostState>();
-                        let mut sys = state.lock().notify.system_state().clone();
-                        sys.main_window_focused = *focused;
-                        state.set_system_state(sys);
+                        let state = h.app_handle().state::<HostState>();
+                        state.update_system_state(|sys| sys.main_window_focused = *focused);
                     }
                 });
                 let _ = main.show();
             }
+            app.manage(browser_tabs::BrowserTabs::default());
             shell::init(&handle)?;
             prefs::init(&handle)?;
+            system_integration::init(&handle);
             login::init(&handle)?;
             adapter::init(&handle)?;
             assistant::init(&handle)?;
+            notice_watch::init(&handle);
             windows::ensure_alarm(&handle)?;
+            windows::ensure_notice(&handle)?;
             tray::install(&handle)?;
             scheduler::start(handle);
             Ok(())
@@ -147,8 +173,12 @@ pub fn run() {
             commands::notify_open_conversation,
             commands::notify_hide_round,
             commands::notify_hide_all,
-            commands::notify_snooze,
+            commands::notify_alarm_resize,
             commands::notify_set_enabled,
+            commands::notify_set_viewing,
+            commands::notice_open,
+            commands::notice_open_category,
+            commands::notice_resize,
             commands::notify_set_threshold,
             commands::notify_set_sound_enabled,
             commands::im_push_fact,
@@ -157,6 +187,8 @@ pub fn run() {
             commands::order_validate_im_url,
             login::account_snapshot,
             login::account_start_login,
+            login::account_browser_profiles,
+            login::account_browser_connect,
             login::account_cancel_login,
             login::account_switch,
             login::account_suspend,
@@ -176,17 +208,32 @@ pub fn run() {
             adapter::im_unknown_outbound,
             adapter::im_outbound_lookup,
             adapter::im_message_page,
+            adapter::im_translate_messages,
             adapter::im_send_text,
+            message_media::shell_read_clipboard_text,
+            message_media::shell_write_clipboard_text,
+            message_media::im_copy_message_image,
+            message_media::im_save_message_image,
+            adapter::message_actions::im_forward_message,
+            adapter::message_actions::im_saved_emojis,
+            adapter::message_actions::im_add_saved_emoji,
+            adapter::message_actions::im_update_saved_emoji,
+            adapter::message_actions::im_send_saved_emoji,
             adapter::im_send_media,
             adapter::im_mark_read,
             adapter::im_set_top,
             adapter::im_set_mark,
             adapter::im_customer_scripts,
+            adapter::im_quick_reply_categories,
+            adapter::im_recommend_products,
+            adapter::im_recommend_cities,
+            adapter::im_send_product_card,
             adapter::im_members,
             adapter::im_invite_candidates,
             adapter::im_invite,
             adapter::im_transfer,
             adapter::im_finish,
+            adapter::im_remove,
             adapter::notice_categories,
             adapter::notice_list,
             adapter::notice_mark_read,
@@ -196,8 +243,13 @@ pub fn run() {
             shell::shell_window,
             shell::shell_open_window,
             shell::shell_open_external,
-            shell::media_screenshot,
+            shell::shell_export_diagnostics,
+            shell::shell_open_data_directory,
+            browser_tabs::browser_show,
+            browser_tabs::browser_nav,
+            browser_tabs::browser_close,
             shell::media_pick,
+            shell::media_accept_drop,
             shell::media_release,
             prefs::prefs_snapshot,
             prefs::prefs_set,
@@ -213,6 +265,10 @@ pub fn run() {
             assistant::order_commands::assistant_package_detail_open,
             assistant::order_commands::assistant_package_detail,
             assistant::tsim_order::assistant_tsim_order_open,
+            media_viewer::media_viewer_open_message,
+            media_viewer::media_viewer_open_emoji,
+            media_viewer::media_viewer_current,
+            media_viewer::media_viewer_open_external,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the VBooking host")

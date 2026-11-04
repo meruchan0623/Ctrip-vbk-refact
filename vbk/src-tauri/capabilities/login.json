@@ -14,8 +14,12 @@
     "core:window:allow-internal-toggle-maximize",
     "allow-account-snapshot",
     "allow-account-start-login",
+    "allow-account-browser-profiles",
+    "allow-account-browser-connect",
     "allow-account-cancel-login",
     "allow-prefs-snapshot",
-    "allow-shell-window"
+    "allow-shell-window",
+    "allow-shell-read-clipboard-text",
+    "allow-shell-write-clipboard-text"
   ]
 }

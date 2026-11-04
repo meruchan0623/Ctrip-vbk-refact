@@ -45,7 +45,11 @@ pub(super) fn invalid() -> AppError {
         "package query or local view is no longer current",
     )
 }
-pub(super) fn capture(state: &HostState, window: &Window, command: &str) -> Result<ViewContext, AppError> {
+pub(super) fn capture(
+    state: &HostState,
+    window: &Window,
+    command: &str,
+) -> Result<ViewContext, AppError> {
     // Role ACL plus the contract handshake (I-03) first, exactly like every
     // other module's guard; then the generation-bound context for the reply.
     state.authorize(window.label(), command)?;
@@ -65,7 +69,11 @@ fn current(app: &AppHandle, view: &ViewContext) -> Result<(), AppError> {
     }
     Ok(())
 }
-pub(super) async fn validate(app: &AppHandle, view: &ViewContext, scope: &OrderScope) -> Result<(), AppError> {
+pub(super) async fn validate(
+    app: &AppHandle,
+    view: &ViewContext,
+    scope: &OrderScope,
+) -> Result<(), AppError> {
     current(app, view)?;
     if !owner_is_current(&scope.account, crate::login::active_context(app).as_ref()) {
         return Err(invalid());
@@ -85,6 +93,7 @@ pub(super) async fn validate(app: &AppHandle, view: &ViewContext, scope: &OrderS
     Ok(())
 }
 #[tauri::command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)] // Tauri-injected handles plus the existing IPC contract.
 pub async fn assistant_order_summary(
     app: AppHandle,
     window: Window,

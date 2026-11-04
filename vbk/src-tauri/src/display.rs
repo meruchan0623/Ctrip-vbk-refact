@@ -47,6 +47,12 @@ pub struct UiOrderSummaryDto {
     #[serde(default)]
     pub source_channel: String,
     #[serde(default)]
+    pub product_id: String,
+    #[serde(default)]
+    pub customer_language: String,
+    #[serde(default)]
+    pub product_price: String,
+    #[serde(default)]
     pub total_amount: String,
     #[serde(default)]
     pub remark_name: String,
@@ -119,6 +125,8 @@ pub struct UiMessageDto {
     #[serde(default)]
     pub sender_avatar: Option<String>,
     pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform_type: Option<i32>,
     pub text: String,
     #[serde(default)]
     pub media_url: Option<String>,
@@ -126,6 +134,9 @@ pub struct UiMessageDto {
     pub media_thumbnail: Option<String>,
     #[serde(default)]
     pub media_filename: Option<String>,
+    /// `kind: "voice"` only: whole seconds from the message body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_duration_s: Option<u32>,
     #[serde(default)]
     pub recalled_message_id: Option<String>,
     #[serde(default)]
@@ -182,6 +193,14 @@ pub struct UiAgentStatusDto {
     pub confirmed: bool,
 }
 
+impl UiAgentStatusDto {
+    /// Hanging up pauses new assignments, but existing owned customers still
+    /// need attention. Away/off-duty and unconfirmed states stay silent.
+    pub fn allows_notifications(self) -> bool {
+        self.confirmed && matches!(self.status, AgentStatusDto::Online | AgentStatusDto::Hangup)
+    }
+}
+
 /// Mirrors `TransportState` (contracts.ts).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -218,78 +237,153 @@ impl UiNetStatusDto {
 // a free error, identifier, URL, or message field returned by the remote page.
 #[derive(Clone, Default, Serialize)]
 pub struct HostReceiveDiagnosticsDto {
-    pub display_entered: u64, pub display_decode_rejected: u64, pub display_apply_rejected: u64,
-    pub message_items: u64, pub changed_messages: u64, pub main_emit_attempts: u64,
+    pub display_entered: u64,
+    pub display_decode_rejected: u64,
+    pub display_apply_rejected: u64,
+    pub message_items: u64,
+    pub changed_messages: u64,
+    pub main_emit_attempts: u64,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum DiagnosticGlobalState { Emitter, Missing, Invalid, Unreadable, Disposed }
+pub enum DiagnosticGlobalState {
+    Emitter,
+    Missing,
+    Invalid,
+    Unreadable,
+    Disposed,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum DiagnosticListenerHealth { Verified, Missing, Unsupported, Detached }
+pub enum DiagnosticListenerHealth {
+    Verified,
+    Missing,
+    Unsupported,
+    Detached,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DiagnosticBinding {
-    pub global_state: DiagnosticGlobalState, pub listener_health: DiagnosticListenerHealth,
-    pub attached: bool, pub can_rebind: bool, pub binding_generation: u64, pub attach_count: u64, pub repair_count: u64,
+    pub global_state: DiagnosticGlobalState,
+    pub listener_health: DiagnosticListenerHealth,
+    pub attached: bool,
+    pub can_rebind: bool,
+    pub binding_generation: u64,
+    pub attach_count: u64,
+    pub repair_count: u64,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DiagnosticSdkCounters { pub callbacks: u64, pub stale_callbacks: u64, pub messages: u64, pub acks: u64, pub ignored: u64, pub listener_errors: u64 }
+pub struct DiagnosticSdkCounters {
+    pub callbacks: u64,
+    pub stale_callbacks: u64,
+    pub messages: u64,
+    pub acks: u64,
+    pub ignored: u64,
+    pub listener_errors: u64,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DiagnosticSdk { pub binding: DiagnosticBinding, pub counters: DiagnosticSdkCounters, pub last_stanza_ms: Option<u64> }
+pub struct DiagnosticSdk {
+    pub binding: DiagnosticBinding,
+    pub counters: DiagnosticSdkCounters,
+    pub last_stanza_ms: Option<u64>,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DiagnosticSession {
-    pub received: u64, pub ui_mapped: u64, pub ui_dropped: u64, pub display_batches: u64,
-    pub display_items: u64, pub display_resolved: u64, pub display_rejected: u64,
+    pub received: u64,
+    pub ui_mapped: u64,
+    pub ui_dropped: u64,
+    pub display_batches: u64,
+    pub display_items: u64,
+    pub display_resolved: u64,
+    pub display_rejected: u64,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DiagnosticOutcomes { pub success: u64, pub business_failure: u64, pub auth_invalid: u64, pub http_error: u64, pub malformed: u64, pub network_error: u64, pub timeout: u64, pub unknown: u64 }
+pub struct DiagnosticOutcomes {
+    pub success: u64,
+    pub business_failure: u64,
+    pub auth_invalid: u64,
+    pub http_error: u64,
+    pub malformed: u64,
+    pub network_error: u64,
+    pub timeout: u64,
+    pub unknown: u64,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum DiagnosticCompensationMode { Normal, Frequent, Stopped }
+pub enum DiagnosticCompensationMode {
+    Normal,
+    Frequent,
+    Stopped,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DiagnosticCompensation {
-    pub running: bool, pub mode: DiagnosticCompensationMode, pub cursor_ms: u64, pub last_outcome_ms: Option<u64>,
-    pub outcomes: DiagnosticOutcomes, pub rows: u64, pub mapped: u64, pub dropped: u64,
+    pub running: bool,
+    pub mode: DiagnosticCompensationMode,
+    pub cursor_ms: u64,
+    pub last_outcome_ms: Option<u64>,
+    pub outcomes: DiagnosticOutcomes,
+    pub rows: u64,
+    pub mapped: u64,
+    pub dropped: u64,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PageReceiveDiagnosticsDto {
-    pub version: u8, pub captured_at_ms: u64, pub running: bool, pub run_generation: u64,
-    pub sdk: Option<DiagnosticSdk>, pub session: DiagnosticSession, pub compensation: DiagnosticCompensation,
+    pub version: u8,
+    pub captured_at_ms: u64,
+    pub running: bool,
+    pub run_generation: u64,
+    pub sdk: Option<DiagnosticSdk>,
+    pub session: DiagnosticSession,
+    pub compensation: DiagnosticCompensation,
 }
 impl PageReceiveDiagnosticsDto {
     pub fn decode(value: serde_json::Value) -> Option<Self> {
         fn safe(value: &serde_json::Value) -> bool {
             match value {
-                serde_json::Value::Number(n) => n.as_u64().is_some_and(|n| n <= 9_007_199_254_740_991),
+                serde_json::Value::Number(n) => {
+                    n.as_u64().is_some_and(|n| n <= 9_007_199_254_740_991)
+                }
                 serde_json::Value::Array(_) => false,
                 serde_json::Value::Object(o) => o.values().all(safe),
                 _ => true,
             }
         }
-        if !safe(&value) { return None; }
+        if !safe(&value) {
+            return None;
+        }
         let page: Self = serde_json::from_value(value).ok()?;
         (page.version == 1).then_some(page)
     }
 }
 #[derive(Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum DiagnosticAvailability { Ready, NoAccount, Timeout, Unavailable, Invalid }
+pub enum DiagnosticAvailability {
+    Ready,
+    NoAccount,
+    Timeout,
+    Unavailable,
+    Invalid,
+}
 #[derive(Clone, Serialize)]
 pub struct ReceiveDiagnosticsDto {
-    pub version: u8, pub captured_at_ms: u64, pub availability: DiagnosticAvailability,
-    pub page: Option<PageReceiveDiagnosticsDto>, pub host: Option<HostReceiveDiagnosticsDto>,
+    pub version: u8,
+    pub captured_at_ms: u64,
+    pub availability: DiagnosticAvailability,
+    pub page: Option<PageReceiveDiagnosticsDto>,
+    pub host: Option<HostReceiveDiagnosticsDto>,
 }
 #[derive(Serialize)]
 pub struct NetStatusResult {
-    #[serde(flatten)] pub status: UiNetStatusDto,
-    #[serde(skip_serializing_if = "Option::is_none")] pub diagnostics: Option<ReceiveDiagnosticsDto>,
+    #[serde(flatten)]
+    pub status: UiNetStatusDto,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<ReceiveDiagnosticsDto>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -300,6 +394,15 @@ pub struct MessageProfilePatch {
     pub sender_id: String,
     pub sender_name: Option<String>,
     pub sender_avatar: Option<String>,
+}
+
+/// Receipt-only updates never replay message text or local aliases.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageReadStatusPatch {
+    pub message_id: String,
+    pub sender_id: String,
+    pub read_status: String,
 }
 
 /// Mirrors `AdapterDisplayPayload` (adapterProtocol.ts).
@@ -320,6 +423,10 @@ pub enum DisplayPayload {
     MessageProfiles {
         gid: String,
         items: Vec<MessageProfilePatch>,
+    },
+    MessageReadStatuses {
+        gid: String,
+        items: Vec<MessageReadStatusPatch>,
     },
     AgentStatus {
         status: AgentStatusDto,
@@ -347,6 +454,12 @@ pub enum DisplayDelta {
         /// New or changed messages, in thread order.
         changed: Vec<UiMessageDto>,
     },
+    /// Preserve validated receipt-only patches even for rows evicted from the
+    /// bounded host cache: the main UI may still show older history.
+    MessageReadStatuses {
+        gid: String,
+        items: Vec<MessageReadStatusPatch>,
+    },
     AgentStatus(UiAgentStatusDto),
     Transport(TransportDto),
     NoticeCategories,
@@ -365,6 +478,10 @@ impl std::fmt::Debug for DisplayDelta {
                 .debug_struct("Messages")
                 .field("changed", &changed.len())
                 .finish(),
+            DisplayDelta::MessageReadStatuses { items, .. } => f
+                .debug_struct("MessageReadStatuses")
+                .field("items", &items.len())
+                .finish(),
             DisplayDelta::AgentStatus(s) => f.debug_tuple("AgentStatus").field(s).finish(),
             DisplayDelta::Transport(t) => f.debug_tuple("Transport").field(t).finish(),
             DisplayDelta::NoticeCategories => f.write_str("NoticeCategories"),
@@ -374,18 +491,31 @@ impl std::fmt::Debug for DisplayDelta {
 
 // ------------------------------------------------------------------ validation
 
-const MESSAGE_KINDS: [&str; 6] = ["text", "image", "file", "video", "order_card", "system"];
+const MESSAGE_KINDS: [&str; 7] = [
+    "text",
+    "image",
+    "file",
+    "video",
+    "voice",
+    "order_card",
+    "system",
+];
 
 fn validate_conversation(c: &DisplayConversationDto) -> Result<(), AppError> {
-    if c.conversation_type.as_deref().is_some_and(|value| value.encode_utf16().count() > 64
-        || value.chars().all(|c| c.is_whitespace() || c == '\u{feff}')
-        || value.chars().any(char::is_control)) {
+    if c.conversation_type.as_deref().is_some_and(|value| {
+        value.encode_utf16().count() > 64
+            || value.chars().all(|c| c.is_whitespace() || c == '\u{feff}')
+            || value.chars().any(char::is_control)
+    }) {
         return Err(invalid("invalid conversation type"));
     }
     if c.fact.gid.is_empty() {
         return Err(invalid("conversation gid is empty"));
     }
-    if c.read_target_message_id.as_ref().is_some_and(|id| id.trim().is_empty() || id.encode_utf16().count() > 512) {
+    if c.read_target_message_id
+        .as_ref()
+        .is_some_and(|id| id.trim().is_empty() || id.encode_utf16().count() > 512)
+    {
         return Err(invalid("invalid read target message id"));
     }
     if c.mark > 5 {
@@ -432,16 +562,36 @@ fn same_message(a: &UiMessageDto, b: &UiMessageDto) -> bool {
     if a.gid != b.gid {
         return false;
     }
-    match (
+    if let (Some(a_id), Some(b_id)) = (
         known_message_id(&a.message_id),
         known_message_id(&b.message_id),
     ) {
-        (Some(a_id), Some(b_id)) => return a_id == b_id,
-        _ => {}
+        return a_id == b_id;
     }
     compatible_alias_group(a, b)
         && matches!((known_message_id(&a.local_id), known_message_id(&b.local_id)),
             (Some(a_id), Some(b_id)) if a_id == b_id)
+}
+
+fn read_status_rank(status: Option<&str>) -> u8 {
+    match status {
+        Some("read") => 2,
+        Some("unread") => 1,
+        _ => 0,
+    }
+}
+
+/// A server correction may replace identity; only the same canonical message
+/// and compatible sender can inherit an earlier read observation.
+fn preserve_read_status(existing: &UiMessageDto, incoming: &mut UiMessageDto) {
+    if compatible_sender(existing, incoming)
+        && matches!((known_message_id(&existing.message_id), known_message_id(&incoming.message_id)),
+            (Some(a), Some(b)) if a == b)
+        && read_status_rank(existing.read_status.as_deref())
+            > read_status_rank(incoming.read_status.as_deref())
+    {
+        incoming.read_status = existing.read_status.clone();
+    }
 }
 
 fn matching_confirmation(m: &UiMessageDto, server_id: Option<&str>) -> bool {
@@ -452,32 +602,74 @@ fn matching_confirmation(m: &UiMessageDto, server_id: Option<&str>) -> bool {
 
 /// Exact server IDs anchor reconciliation. Local IDs are only aliases within
 /// a pairwise compatible sender/server group, never authority to join senders.
+/// Stable slots keep existing scan order while merges remove aliases. Both
+/// indexes include gid; local IDs only narrow candidates, never prove identity.
+#[derive(Default)]
+struct MessageIndex {
+    server: HashMap<(String, String), BTreeSet<usize>>,
+    local: HashMap<(String, String), BTreeSet<usize>>,
+}
+
+impl MessageIndex {
+    fn update(&mut self, slot: usize, message: &UiMessageDto, insert: bool) {
+        for (map, id) in [
+            (&mut self.server, known_message_id(&message.message_id)),
+            (&mut self.local, known_message_id(&message.local_id)),
+        ] {
+            let Some(id) = id else { continue };
+            let key = (message.gid.clone(), id.to_string());
+            if insert {
+                map.entry(key).or_default().insert(slot);
+            } else if let Some(slots) = map.get_mut(&key) {
+                slots.remove(&slot);
+                if slots.is_empty() {
+                    map.remove(&key);
+                }
+            }
+        }
+    }
+
+    fn candidates(&self, message: &UiMessageDto) -> (Vec<usize>, Vec<usize>) {
+        let find = |map: &HashMap<(String, String), BTreeSet<usize>>, id: &Option<String>| {
+            known_message_id(id)
+                .and_then(|id| map.get(&(message.gid.clone(), id.to_string())))
+                .map(|slots| slots.iter().copied().collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        (
+            find(&self.server, &message.message_id),
+            find(&self.local, &message.local_id),
+        )
+    }
+}
+
 fn merge_messages(
     thread: &mut Vec<UiMessageDto>,
     incoming: Vec<UiMessageDto>,
 ) -> Vec<UiMessageDto> {
+    merge_messages_indexed(thread, incoming, |_| {})
+}
+
+fn merge_messages_indexed(
+    thread: &mut Vec<UiMessageDto>,
+    incoming: Vec<UiMessageDto>,
+    mut note_candidates: impl FnMut(usize),
+) -> Vec<UiMessageDto> {
+    let mut index = MessageIndex::default();
+    for (slot, message) in thread.iter().enumerate() {
+        index.update(slot, message, true);
+    }
+    let mut removed = BTreeSet::new();
     let mut changed = Vec::new();
     for mut m in incoming {
-        let mut selected: Vec<usize> = thread
-            .iter()
-            .enumerate()
-            .filter_map(|(index, old)| {
-                (old.gid == m.gid
-                    && matches!(
-                        (known_message_id(&old.message_id), known_message_id(&m.message_id)),
-                        (Some(old_id), Some(new_id)) if old_id == new_id
-                    ))
-                .then_some(index)
-            })
-            .collect();
-        let aliases: Vec<usize> = thread
-            .iter()
-            .enumerate()
-            .filter_map(|(index, old)| {
-                (!selected.contains(&index)
-                    && same_message(old, &m)
-                    && compatible_alias_group(old, &m))
-                .then_some(index)
+        let (mut selected, local_candidates) = index.candidates(&m);
+        note_candidates(selected.len() + local_candidates.len());
+        let aliases: Vec<usize> = local_candidates
+            .into_iter()
+            .filter(|slot| {
+                selected.binary_search(slot).is_err()
+                    && same_message(&thread[*slot], &m)
+                    && compatible_alias_group(&thread[*slot], &m)
             })
             .collect();
         if selected.is_empty() {
@@ -491,19 +683,26 @@ fn merge_messages(
                 selected = aliases;
             }
         } else {
-            let aliases: Vec<usize> = aliases.into_iter().filter(|index| {
-                selected
-                    .iter()
-                    .all(|old| compatible_alias_group(&thread[*old], &thread[*index]))
-            }).collect();
+            let aliases: Vec<usize> = aliases
+                .into_iter()
+                .filter(|index| {
+                    selected
+                        .iter()
+                        .all(|old| compatible_alias_group(&thread[*old], &thread[*index]))
+                })
+                .collect();
             // A server anchor with no known UID does not identify which of
             // several conflicting local groups owns that server message.
-            if aliases.iter().all(|a| aliases.iter().all(|b|
-                compatible_alias_group(&thread[*a], &thread[*b]))) {
+            if aliases.iter().all(|a| {
+                aliases
+                    .iter()
+                    .all(|b| compatible_alias_group(&thread[*a], &thread[*b]))
+            }) {
                 selected.extend(aliases);
             }
         }
         if selected.is_empty() {
+            index.update(thread.len(), &m, true);
             thread.push(m.clone());
             changed.push(m);
             continue;
@@ -517,6 +716,9 @@ fn merge_messages(
                     .all(|b| compatible_alias_group(&thread[*a], &thread[*b]))
         });
         if can_inherit {
+            for index in &selected {
+                preserve_read_status(&thread[*index], &mut m);
+            }
             for index in &selected {
                 let old = &thread[*index];
                 if known_message_id(&m.message_id).is_none() {
@@ -563,14 +765,24 @@ fn merge_messages(
         selected.sort_unstable();
         let first = selected[0];
         let was_changed = selected.len() > 1 || thread[first] != m;
-        for index in selected.into_iter().skip(1).rev() {
-            thread.remove(index);
+        for slot in &selected {
+            index.update(*slot, &thread[*slot], false);
         }
+        for slot in selected.into_iter().skip(1) {
+            removed.insert(slot);
+        }
+        index.update(first, &m, true);
         thread[first] = m.clone();
         if was_changed {
             changed.push(m);
         }
     }
+    let mut slot = 0;
+    thread.retain(|_| {
+        let keep = !removed.contains(&slot);
+        slot += 1;
+        keep
+    });
     thread.sort_by_key(|m| m.create_time_ms);
     if thread.len() > MAX_MESSAGES_PER_THREAD {
         let drop = thread.len() - MAX_MESSAGES_PER_THREAD;
@@ -586,6 +798,8 @@ fn merge_messages(
 struct AccountDisplay {
     generation: u64,
     conversations: BTreeMap<String, DisplayConversationDto>,
+    // At most MAX_CONVERSATIONS u32 values; retain the exact sum across saturation.
+    unread_total: u64,
     threads: HashMap<String, Vec<UiMessageDto>>,
     /// Thread insertion order for eviction.
     thread_order: VecDeque<String>,
@@ -696,12 +910,31 @@ impl DisplayCache {
                 }
                 items.iter().try_for_each(|m| validate_message(gid, m))?;
             }
-            DisplayPayload::MessageProfiles { gid, items } => {
-                if gid.is_empty() || items.iter().any(|p| p.sender_id.trim().is_empty()
-                    || (!p.message_id.as_ref().is_some_and(|s| !s.is_empty())
-                        && !p.local_id.as_ref().is_some_and(|s| !s.is_empty()))) {
-                    return Err(invalid("message profile needs thread, message, and sender identities"));
+            DisplayPayload::MessageReadStatuses { gid, items } => {
+                if gid.trim().is_empty()
+                    || items.len() > 2000
+                    || items.iter().any(|p| {
+                        p.message_id.trim().is_empty()
+                            || p.message_id.len() > 512
+                            || p.sender_id.trim().is_empty()
+                            || p.sender_id.len() > 512
+                            || !matches!(p.read_status.as_str(), "read" | "unread")
+                    })
+                {
+                    return Err(invalid("invalid message read statuses"));
                 }
+            }
+            DisplayPayload::MessageProfiles { gid, items }
+                if gid.is_empty()
+                    || items.iter().any(|p| {
+                        p.sender_id.trim().is_empty()
+                            || (!p.message_id.as_ref().is_some_and(|s| !s.is_empty())
+                                && !p.local_id.as_ref().is_some_and(|s| !s.is_empty()))
+                    }) =>
+            {
+                return Err(invalid(
+                    "message profile needs thread, message, and sender identities",
+                ));
             }
             _ => {}
         }
@@ -728,7 +961,9 @@ impl DisplayCache {
                     }
                 }
                 for gid in &removed {
-                    acc.conversations.remove(gid);
+                    if let Some(old) = acc.conversations.remove(gid) {
+                        acc.unread_total -= u64::from(old.fact.unread_count);
+                    }
                 }
                 let mut changed = Vec::new();
                 for c in items {
@@ -739,7 +974,10 @@ impl DisplayCache {
                         {
                             continue;
                         }
-                        acc.conversations.insert(gid.clone(), c);
+                        acc.unread_total += u64::from(c.fact.unread_count);
+                        if let Some(old) = acc.conversations.insert(gid.clone(), c) {
+                            acc.unread_total -= u64::from(old.fact.unread_count);
+                        }
                         changed.push(gid);
                     }
                 }
@@ -757,9 +995,33 @@ impl DisplayCache {
                         .threads
                         .insert(gid.clone(), fresh.clone())
                         .unwrap_or_default();
+                    let mut by_identity: HashMap<
+                        (&str, Option<&str>, Option<&str>),
+                        Vec<&UiMessageDto>,
+                    > = HashMap::new();
+                    for message in &old {
+                        by_identity
+                            .entry((
+                                message.gid.as_str(),
+                                message.message_id.as_deref(),
+                                message.local_id.as_deref(),
+                            ))
+                            .or_default()
+                            .push(message);
+                    }
                     fresh
                         .into_iter()
-                        .filter(|m| !old.iter().any(|o| o == m))
+                        .filter(|message| {
+                            !by_identity
+                                .get(&(
+                                    message.gid.as_str(),
+                                    message.message_id.as_deref(),
+                                    message.local_id.as_deref(),
+                                ))
+                                .is_some_and(|candidates| {
+                                    candidates.iter().any(|old| *old == message)
+                                })
+                        })
                         .collect()
                 } else {
                     let thread = acc.threads.entry(gid.clone()).or_default();
@@ -767,6 +1029,31 @@ impl DisplayCache {
                 };
                 acc.touch_thread(&gid);
                 DisplayDelta::Messages { gid, changed }
+            }
+            DisplayPayload::MessageReadStatuses { gid, items } => {
+                if let Some(thread) = acc.threads.get_mut(&gid) {
+                    for m in thread.iter_mut() {
+                        if let Some(status) = items
+                            .iter()
+                            .filter(|p| {
+                                m.gid == gid
+                                    && m.message_id.as_deref() == Some(p.message_id.as_str())
+                                    && !m.sender_id.trim().is_empty()
+                                    && m.sender_id.trim().to_lowercase()
+                                        == p.sender_id.trim().to_lowercase()
+                            })
+                            .map(|p| p.read_status.as_str())
+                            .max_by_key(|status| read_status_rank(Some(status)))
+                        {
+                            if read_status_rank(Some(status))
+                                > read_status_rank(m.read_status.as_deref())
+                            {
+                                m.read_status = Some(status.to_string());
+                            }
+                        }
+                    }
+                }
+                DisplayDelta::MessageReadStatuses { gid, items }
             }
             DisplayPayload::MessageProfiles { gid, items } => {
                 let mut changed = Vec::new();
@@ -784,20 +1071,38 @@ impl DisplayCache {
                         });
                         if let Some(m) = existing {
                             let before = m.clone();
-                            if p.sender_name.is_some() { m.sender_name = p.sender_name; }
-                            if p.sender_avatar.is_some() { m.sender_avatar = p.sender_avatar; }
-                            if *m != before { changed.push(m.clone()); }
+                            if p.sender_name.is_some() {
+                                m.sender_name = p.sender_name;
+                            }
+                            if p.sender_avatar.is_some() {
+                                m.sender_avatar = p.sender_avatar;
+                            }
+                            if *m != before {
+                                changed.push(m.clone());
+                            }
                         }
                     }
                 }
                 DisplayDelta::Messages { gid, changed }
             }
-            DisplayPayload::AgentStatus { status, confirmed, status_epoch, status_seq } => {
+            DisplayPayload::AgentStatus {
+                status,
+                confirmed,
+                status_epoch,
+                status_seq,
+            } => {
                 let cursor = (status_epoch, status_seq);
-                if status_epoch == 0 || status_seq == 0 || status_epoch > 9_007_199_254_740_991 || status_seq > 9_007_199_254_740_991 {
+                if status_epoch == 0
+                    || status_seq == 0
+                    || status_epoch > 9_007_199_254_740_991
+                    || status_seq > 9_007_199_254_740_991
+                {
                     return Err(invalid("invalid agent status cursor"));
                 }
-                if acc.agent_status_cursor.is_some_and(|previous| cursor <= previous) {
+                if acc
+                    .agent_status_cursor
+                    .is_some_and(|previous| cursor <= previous)
+                {
                     return Err(invalid("superseded agent status observation"));
                 }
                 acc.agent_status_cursor = Some(cursor);
@@ -851,11 +1156,7 @@ impl DisplayCache {
         self.entry(ctx)
             .ok()
             .flatten()
-            .map(|a| {
-                a.conversations
-                    .values()
-                    .fold(0u32, |acc, c| acc.saturating_add(c.fact.unread_count))
-            })
+            .map(|a| u32::try_from(a.unread_total).unwrap_or(u32::MAX))
             .unwrap_or(0)
     }
 
@@ -934,6 +1235,39 @@ impl DisplayCache {
         let merged = thread.clone();
         acc.touch_thread(gid);
         Ok(merged)
+    }
+
+    /// Records fetched platform translations so thread re-reads keep them, and
+    /// returns how many were only an echo of the original. Echoes are not kept,
+    /// and neither are flagged bodies: the main window decides whether to show those.
+    pub fn set_translations(
+        &mut self,
+        ctx: &AccountContext,
+        gid: &str,
+        items: &[UiMessageTranslationDto],
+    ) -> Result<usize, AppError> {
+        let acc = self.entry_mut(ctx)?;
+        let Some(thread) = acc.threads.get_mut(gid) else {
+            return Ok(0);
+        };
+        let mut echoes = 0;
+        for item in items {
+            let Some(text) = item.translation.as_ref() else {
+                continue;
+            };
+            let flagged = item.reason.as_deref() == Some("flagged");
+            for m in thread
+                .iter_mut()
+                .filter(|m| m.message_id.as_deref() == Some(item.message_id.as_str()))
+            {
+                if m.text.trim() == text.trim() {
+                    echoes += 1;
+                } else if !flagged {
+                    m.translation = Some(text.clone());
+                }
+            }
+        }
+        Ok(echoes)
     }
 
     /// Local echo after a confirmed `im.set_mark`.
@@ -1036,7 +1370,10 @@ impl PinnedTable {
 fn write_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), AppError> {
     let bad_path = || AppError::new(codes::STORE_IO, "pinned table: path has no file name");
     let dir = path.parent().ok_or_else(bad_path)?;
-    let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(bad_path)?;
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(bad_path)?;
     let bytes = serde_json::to_vec(value)
         .map_err(|e| AppError::new(codes::STORE_IO, format!("pinned table: {e}")))?;
     core_store::write_atomic(dir, name, &bytes)
@@ -1047,6 +1384,30 @@ fn write_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notification_status_policy() {
+        for status in [
+            AgentStatusDto::Online,
+            AgentStatusDto::Hangup,
+            AgentStatusDto::Leaving,
+            AgentStatusDto::Getoff,
+        ] {
+            assert!(!UiAgentStatusDto {
+                status,
+                confirmed: false
+            }
+            .allows_notifications());
+            assert_eq!(
+                UiAgentStatusDto {
+                    status,
+                    confirmed: true
+                }
+                .allows_notifications(),
+                matches!(status, AgentStatusDto::Online | AgentStatusDto::Hangup)
+            );
+        }
+    }
 
     fn ctx(gen: u64) -> AccountContext {
         AccountContext::new(AccountId::new("a1"), Environment::production(), gen)
@@ -1074,7 +1435,10 @@ mod tests {
         raw["read_target_message_id"] = serde_json::json!("x".repeat(512));
         let valid: DisplayConversationDto = serde_json::from_value(raw.clone()).unwrap();
         assert!(validate_conversation(&valid).is_ok());
-        assert_eq!(serde_json::to_value(&valid).unwrap()["read_target_message_id"], raw["read_target_message_id"]);
+        assert_eq!(
+            serde_json::to_value(&valid).unwrap()["read_target_message_id"],
+            raw["read_target_message_id"]
+        );
         for id in ["".to_owned(), " ".to_owned(), "x".repeat(513)] {
             raw["read_target_message_id"] = serde_json::json!(id);
             let invalid: DisplayConversationDto = serde_json::from_value(raw.clone()).unwrap();
@@ -1095,6 +1459,7 @@ mod tests {
 
     fn msg(gid: &str, mid: Option<&str>, lid: Option<&str>, t: i64, text: &str) -> UiMessageDto {
         UiMessageDto {
+            platform_type: Some(0),
             gid: gid.into(),
             message_id: mid.map(Into::into),
             local_id: lid.map(Into::into),
@@ -1108,6 +1473,7 @@ mod tests {
             media_url: None,
             media_thumbnail: None,
             media_filename: None,
+            voice_duration_s: None,
             recalled_message_id: None,
             read_status: None,
             translation: None,
@@ -1131,7 +1497,9 @@ mod tests {
                     "media_url": source, "media_thumbnail": thumb, "media_filename": "synthetic.pdf" }]
             });
             let mut cache = DisplayCache::new();
-            cache.apply(&ctx(1), serde_json::from_value(raw).unwrap()).unwrap();
+            cache
+                .apply(&ctx(1), serde_json::from_value(raw).unwrap())
+                .unwrap();
             let rows = cache.messages(&ctx(1), "synthetic-room").unwrap().unwrap();
             let encoded = serde_json::to_value(&rows[0]).unwrap();
             assert_eq!(encoded["media_url"], source);
@@ -1140,6 +1508,36 @@ mod tests {
             assert_eq!(encoded["message_id"], "900719925474099312345");
             assert_eq!(encoded["kind"], kind);
         }
+    }
+
+    #[test]
+    fn voice_message_survives_display_cache_with_duration_and_url() {
+        let source = "https://example.c-ctrip.com/synthetic.aac";
+        let raw = serde_json::json!({
+            "kind": "messages", "gid": "synthetic-room", "replace": false,
+            "items": [
+                { "gid": "synthetic-room", "message_id": "voice-1", "local_id": null,
+                  "create_time_ms": 1700000000000_i64, "sender_role": "customer", "kind": "voice",
+                  "text": "SYNTHETIC TRANSCRIPT", "media_url": source, "voice_duration_s": 5 },
+                { "gid": "synthetic-room", "message_id": "voice-2", "local_id": null,
+                  "create_time_ms": 1700000000001_i64, "sender_role": "customer", "kind": "voice",
+                  "text": "", "media_url": null, "voice_duration_s": null }
+            ]
+        });
+        let mut cache = DisplayCache::new();
+        cache
+            .apply(&ctx(1), serde_json::from_value(raw).unwrap())
+            .unwrap();
+        let rows = cache.messages(&ctx(1), "synthetic-room").unwrap().unwrap();
+        let playable = serde_json::to_value(&rows[0]).unwrap();
+        assert_eq!(playable["kind"], "voice");
+        assert_eq!(playable["media_url"], source);
+        assert_eq!(playable["voice_duration_s"], 5);
+        assert_eq!(playable["text"], "SYNTHETIC TRANSCRIPT");
+        let unplayable = serde_json::to_value(&rows[1]).unwrap();
+        assert_eq!(unplayable["kind"], "voice");
+        assert!(unplayable["media_url"].is_null());
+        assert!(unplayable.get("voice_duration_s").is_none());
     }
 
     #[test]
@@ -1152,7 +1550,10 @@ mod tests {
         });
         let decoded: UiMessageDto = serde_json::from_value(raw).unwrap();
         let encoded = serde_json::to_value(decoded).unwrap();
-        assert_eq!(encoded.get("recalled_message_id").and_then(|v| v.as_str()), Some(target));
+        assert_eq!(
+            encoded.get("recalled_message_id").and_then(|v| v.as_str()),
+            Some(target)
+        );
     }
 
     #[test]
@@ -1243,6 +1644,73 @@ mod tests {
         assert_eq!(rows[0].fact.gid, "g2");
         // The previous generation no longer sees anything.
         assert!(c.conversations(&ctx(2)).is_err());
+    }
+
+    #[test]
+    fn fetched_translations_survive_a_thread_reread() {
+        let mut c = DisplayCache::new();
+        let thread = vec![
+            msg("g", Some("m1"), None, 10, "Да"),
+            msg("g", Some("m2"), None, 20, "Нет"),
+        ];
+        c.merge_thread(&ctx(1), "g", thread.clone()).expect("merge");
+        let item = |id: &str, translation: Option<&str>| UiMessageTranslationDto {
+            message_id: id.into(),
+            status: if translation.is_some() {
+                "translated"
+            } else {
+                "missing"
+            }
+            .into(),
+            translation: translation.map(str::to_string),
+            source_kind: translation.map(|_| "text".to_string()),
+            reason: None,
+        };
+        c.set_translations(
+            &ctx(1),
+            "g",
+            &[
+                item("m1", Some("是的")),
+                item("m2", None),
+                item("absent", Some("x")),
+            ],
+        )
+        .expect("translations");
+        // An unknown thread is not an error: the row can arrive later.
+        c.set_translations(&ctx(1), "other", &[item("m1", Some("是的"))])
+            .expect("no thread");
+        let merged = c.merge_thread(&ctx(1), "g", thread).expect("re-read");
+        assert_eq!(merged[0].translation.as_deref(), Some("是的"));
+        assert_eq!(merged[1].translation, None);
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn echoed_and_flagged_translations_are_not_kept_for_rereads() {
+        let mut c = DisplayCache::new();
+        let thread = vec![
+            msg("g", Some("m1"), None, 10, "Да"),
+            msg("g", Some("m2"), None, 20, "Нет"),
+        ];
+        c.merge_thread(&ctx(1), "g", thread.clone()).expect("merge");
+        let item = |id: &str, text: &str, reason: Option<&str>| UiMessageTranslationDto {
+            message_id: id.into(),
+            status: "translated".into(),
+            translation: Some(text.into()),
+            source_kind: Some("text".into()),
+            reason: reason.map(str::to_string),
+        };
+        let echoes = c
+            .set_translations(
+                &ctx(1),
+                "g",
+                &[item("m1", "Да", None), item("m2", "不是", Some("flagged"))],
+            )
+            .expect("translations");
+        assert_eq!(echoes, 1);
+        let merged = c.merge_thread(&ctx(1), "g", thread).expect("re-read");
+        assert_eq!(merged[0].translation, None);
+        assert_eq!(merged[1].translation, None);
     }
 
     #[test]
@@ -1560,15 +2028,30 @@ mod tests {
         let mut a = alias_message(None, Some("local-shared"), "person-a", "merchant_other", 15);
         a.original = Some("synthetic A original".into());
         let b = alias_message(None, Some("local-shared"), "person-b", "merchant_other", 16);
-        cache.merge_thread(&ctx(1), "g", vec![server, a, b]).unwrap();
-        let bridge = alias_message(Some("server-a"), Some("local-shared"), "", "merchant_other", 20);
+        cache
+            .merge_thread(&ctx(1), "g", vec![server, a, b])
+            .unwrap();
+        let bridge = alias_message(
+            Some("server-a"),
+            Some("local-shared"),
+            "",
+            "merchant_other",
+            20,
+        );
         let merged = cache.merge_thread(&ctx(1), "g", vec![bridge]).unwrap();
         assert_eq!(merged.len(), 3);
-        let server = merged.iter().find(|m| m.message_id.as_deref() == Some("server-a")).unwrap();
+        let server = merged
+            .iter()
+            .find(|m| m.message_id.as_deref() == Some("server-a"))
+            .unwrap();
         assert!(server.sender_id.is_empty());
         assert!(server.original.is_none());
-        assert!(merged.iter().any(|m| m.message_id.is_none() && m.sender_id == "person-a"));
-        assert!(merged.iter().any(|m| m.message_id.is_none() && m.sender_id == "person-b"));
+        assert!(merged
+            .iter()
+            .any(|m| m.message_id.is_none() && m.sender_id == "person-a"));
+        assert!(merged
+            .iter()
+            .any(|m| m.message_id.is_none() && m.sender_id == "person-b"));
     }
 
     #[test]
@@ -1602,22 +2085,49 @@ mod tests {
     #[test]
     fn profile_patch_preserves_confirmed_content_and_rejects_cross_identity() {
         let mut cache = DisplayCache::new();
-        let mut confirmed = msg("g", Some("server"), Some("local"), 20, "synthetic confirmed body");
+        let mut confirmed = msg(
+            "g",
+            Some("server"),
+            Some("local"),
+            20,
+            "synthetic confirmed body",
+        );
         confirmed.sender_id = "self".into();
         confirmed.sender_role = "merchant_self".into();
         confirmed.original = Some("synthetic original".into());
         confirmed.quote = Some("synthetic quote".into());
-        confirmed.disposition = Some(SendDispositionDto::Confirmed { server_message_id: "server".into(), server_time_ms: 20 });
-        cache.apply(&ctx(1), DisplayPayload::Messages { gid: "g".into(), replace: false, items: vec![confirmed.clone()] }).unwrap();
+        confirmed.disposition = Some(SendDispositionDto::Confirmed {
+            server_message_id: "server".into(),
+            server_time_ms: 20,
+        });
+        cache
+            .apply(
+                &ctx(1),
+                DisplayPayload::Messages {
+                    gid: "g".into(),
+                    replace: false,
+                    items: vec![confirmed.clone()],
+                },
+            )
+            .unwrap();
         let patch = |sender: &str, id: &str| serde_json::json!({ "kind": "message_profiles", "gid": "g", "items": [{ "message_id": id, "local_id": "local", "sender_id": sender, "sender_name": "API Self", "sender_avatar": "https://example.invalid/self.png" }] });
-        let delta = cache.apply(&ctx(1), serde_json::from_value(patch("self", "server")).unwrap()).unwrap();
+        let delta = cache
+            .apply(
+                &ctx(1),
+                serde_json::from_value(patch("self", "server")).unwrap(),
+            )
+            .unwrap();
         let mut expected = confirmed.clone();
         expected.sender_name = Some("API Self".into());
         expected.sender_avatar = Some("https://example.invalid/self.png".into());
-        assert!(matches!(delta, DisplayDelta::Messages { changed, .. } if changed == vec![expected.clone()]));
+        assert!(
+            matches!(delta, DisplayDelta::Messages { changed, .. } if changed == vec![expected.clone()])
+        );
         assert!(cache.messages(&ctx(1), "g").unwrap().unwrap() == vec![expected.clone()]);
         for (sender, id) in [("other-person", "server"), ("self", "other-server")] {
-            let delta = cache.apply(&ctx(1), serde_json::from_value(patch(sender, id)).unwrap()).unwrap();
+            let delta = cache
+                .apply(&ctx(1), serde_json::from_value(patch(sender, id)).unwrap())
+                .unwrap();
             assert!(matches!(delta, DisplayDelta::Messages { changed, .. } if changed.is_empty()));
         }
         assert!(cache.messages(&ctx(1), "g").unwrap().unwrap() == vec![expected]);
@@ -1664,7 +2174,8 @@ mod tests {
             p,
             DisplayPayload::AgentStatus {
                 status: AgentStatusDto::Hangup,
-                confirmed: true, ..
+                confirmed: true,
+                ..
             }
         ));
         let p: DisplayPayload = serde_json::from_value(
@@ -1710,22 +2221,50 @@ mod tests {
     fn agent_status_rejects_reverse_ipc_delivery_duplicate_and_old_boot() {
         let mut cache = DisplayCache::new();
         let packet = |epoch, seq, status, confirmed| DisplayPayload::AgentStatus {
-            status_epoch: epoch, status_seq: seq, status, confirmed,
+            status_epoch: epoch,
+            status_seq: seq,
+            status,
+            confirmed,
         };
-        cache.apply(&ctx(1), packet(10, 2, AgentStatusDto::Getoff, true)).unwrap();
+        cache
+            .apply(&ctx(1), packet(10, 2, AgentStatusDto::Getoff, true))
+            .unwrap();
         for (epoch, seq) in [(10, 1), (10, 2), (9, 999), (0, 1), (11, 0)] {
-            assert!(cache.apply(&ctx(1), packet(epoch, seq, AgentStatusDto::Online, true)).is_err());
-            assert_eq!(cache.agent_status(&ctx(1)).unwrap().status, AgentStatusDto::Getoff);
+            assert!(cache
+                .apply(&ctx(1), packet(epoch, seq, AgentStatusDto::Online, true))
+                .is_err());
+            assert_eq!(
+                cache.agent_status(&ctx(1)).unwrap().status,
+                AgentStatusDto::Getoff
+            );
         }
         // A watchdog can revoke certainty without forgetting the last cursor.
-        cache.set_agent_status(&ctx(1), UiAgentStatusDto { status: AgentStatusDto::Getoff, confirmed: false }).unwrap();
-        assert!(cache.apply(&ctx(1), packet(10, 2, AgentStatusDto::Online, true)).is_err());
+        cache
+            .set_agent_status(
+                &ctx(1),
+                UiAgentStatusDto {
+                    status: AgentStatusDto::Getoff,
+                    confirmed: false,
+                },
+            )
+            .unwrap();
+        assert!(cache
+            .apply(&ctx(1), packet(10, 2, AgentStatusDto::Online, true))
+            .is_err());
         assert!(!cache.agent_status(&ctx(1)).unwrap().confirmed);
-        cache.apply(&ctx(1), packet(11, 1, AgentStatusDto::Hangup, true)).unwrap();
-        assert!(cache.apply(&ctx(1), packet(10, 999, AgentStatusDto::Online, true)).is_err());
+        cache
+            .apply(&ctx(1), packet(11, 1, AgentStatusDto::Hangup, true))
+            .unwrap();
+        assert!(cache
+            .apply(&ctx(1), packet(10, 999, AgentStatusDto::Online, true))
+            .is_err());
         // Account generations remain an independent boundary.
-        cache.apply(&ctx(2), packet(12, 1, AgentStatusDto::Getoff, false)).unwrap();
-        assert!(cache.apply(&ctx(1), packet(13, 1, AgentStatusDto::Online, true)).is_err());
+        cache
+            .apply(&ctx(2), packet(12, 1, AgentStatusDto::Getoff, false))
+            .unwrap();
+        assert!(cache
+            .apply(&ctx(1), packet(13, 1, AgentStatusDto::Online, true))
+            .is_err());
     }
 
     #[test]
@@ -1744,6 +2283,503 @@ mod tests {
         assert!(!PinnedTable::load(path.clone()).is_top(&ctx(1), "g"));
         let _ = std::fs::remove_dir_all(dir);
     }
+    fn read_patches(gid: &str, patches: &[(&str, &str, &str)]) -> DisplayPayload {
+        DisplayPayload::MessageReadStatuses {
+            gid: gid.into(),
+            items: patches
+                .iter()
+                .map(
+                    |(message_id, sender_id, read_status)| MessageReadStatusPatch {
+                        message_id: (*message_id).into(),
+                        sender_id: (*sender_id).into(),
+                        read_status: (*read_status).into(),
+                    },
+                )
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn receipt_patches_match_exact_server_sender_and_scope_and_are_monotonic() {
+        let mut cache = DisplayCache::new();
+        cache
+            .merge_thread(
+                &ctx(1),
+                "g",
+                vec![msg("g", Some("m"), Some("local"), 1, "body")],
+            )
+            .unwrap();
+        cache
+            .merge_thread(
+                &ctx(1),
+                "other",
+                vec![msg("other", Some("m"), None, 1, "other body")],
+            )
+            .unwrap();
+        let delta = cache
+            .apply(
+                &ctx(1),
+                read_patches(
+                    "g",
+                    &[("m", " CUSTOMER ", "unread"), ("m", "customer", "read")],
+                ),
+            )
+            .unwrap();
+        assert!(
+            matches!(delta, DisplayDelta::MessageReadStatuses { items, .. } if items.len() == 2)
+        );
+        let cached = cache.messages(&ctx(1), "g").unwrap().unwrap();
+        assert_eq!(cached[0].read_status.as_deref(), Some("read"));
+        assert_eq!(cached[0].text, "body");
+        for patches in [
+            vec![("m", "customer", "read")],
+            vec![("m", "customer", "unread")],
+            vec![("m", "someone-else", "read")],
+            vec![("local", "customer", "read")],
+            vec![("absent", "customer", "read")],
+        ] {
+            assert!(
+                matches!(cache.apply(&ctx(1), read_patches("g", &patches)).unwrap(), DisplayDelta::MessageReadStatuses { items, .. } if items.len() == patches.len())
+            );
+            assert!(
+                cache.messages(&ctx(1), "g").unwrap().unwrap()[0]
+                    .read_status
+                    .as_deref()
+                    == Some("read")
+            );
+        }
+        assert!(cache.messages(&ctx(1), "other").unwrap().unwrap()[0]
+            .read_status
+            .is_none());
+        assert!(
+            matches!(cache.apply(&ctx(1), read_patches("missing-thread", &[("m", "customer", "read")])).unwrap(), DisplayDelta::MessageReadStatuses { gid, items } if gid == "missing-thread" && items.len() == 1)
+        );
+        assert!(cache.messages(&ctx(1), "missing-thread").unwrap().is_none());
+        assert!(cache
+            .apply(&ctx(0), read_patches("g", &[("m", "customer", "read")]))
+            .is_err());
+    }
+
+    #[test]
+    fn receipt_for_evicted_history_still_reaches_the_ui_without_creating_a_cache_row() {
+        let mut cache = DisplayCache::new();
+        let messages = (0..=MAX_MESSAGES_PER_THREAD)
+            .map(|i| msg("g", Some(&format!("m-{i}")), None, i as i64, "body"))
+            .collect();
+        cache.merge_thread(&ctx(1), "g", messages).unwrap();
+        assert!(cache
+            .messages(&ctx(1), "g")
+            .unwrap()
+            .unwrap()
+            .iter()
+            .all(|m| m.message_id.as_deref() != Some("m-0")));
+        let delta = cache
+            .apply(&ctx(1), read_patches("g", &[("m-0", "customer", "read")]))
+            .unwrap();
+        assert!(
+            matches!(delta, DisplayDelta::MessageReadStatuses { gid, items } if gid == "g" && items.len() == 1 && items[0].message_id == "m-0" && items[0].read_status == "read")
+        );
+        let cached = cache.messages(&ctx(1), "g").unwrap().unwrap();
+        assert_eq!(cached.len(), MAX_MESSAGES_PER_THREAD);
+        assert!(cached
+            .iter()
+            .all(|m| m.message_id.as_deref() != Some("m-0")));
+    }
+
+    #[test]
+    fn receipt_patch_validation_is_atomic_and_bounded() {
+        let mut cache = DisplayCache::new();
+        cache
+            .merge_thread(&ctx(1), "g", vec![msg("g", Some("m"), None, 1, "body")])
+            .unwrap();
+        for invalid_patch in [
+            ("", "customer", "read"),
+            ("m", " ", "read"),
+            ("m", "customer", "unknown"),
+        ] {
+            assert!(cache
+                .apply(
+                    &ctx(1),
+                    read_patches("g", &[("m", "customer", "read"), invalid_patch])
+                )
+                .is_err());
+            assert!(cache.messages(&ctx(1), "g").unwrap().unwrap()[0]
+                .read_status
+                .is_none());
+        }
+        assert!(cache.apply(&ctx(1), read_patches(" ", &[])).is_err());
+        assert!(cache
+            .apply(
+                &ctx(1),
+                read_patches("g", &vec![("m", "customer", "read"); 2001])
+            )
+            .is_err());
+        let invalid = serde_json::json!({ "kind": "message_read_statuses", "gid": "g", "items": [{ "message_id": "m", "sender_id": "customer", "read_status": true }] });
+        assert!(serde_json::from_value::<DisplayPayload>(invalid).is_err());
+    }
+
+    #[test]
+    fn read_status_survives_late_sparse_history_but_never_crosses_identity() {
+        for status in [None, Some("unknown"), Some("unread")] {
+            let mut cache = DisplayCache::new();
+            let mut old = msg("g", Some("m"), Some("local"), 1, "body");
+            old.read_status = Some("read".into());
+            cache.merge_thread(&ctx(1), "g", vec![old]).unwrap();
+            let mut incoming = msg("g", Some("m"), Some("local"), 1, "updated body");
+            incoming.read_status = status.map(Into::into);
+            let merged = cache
+                .merge_thread(&ctx(1), "g", vec![incoming.clone()])
+                .unwrap();
+            assert_eq!(merged[0].read_status.as_deref(), Some("read"));
+            assert_eq!(merged[0].text, "updated body");
+            incoming.sender_id = "other-customer".into();
+            let merged = cache.merge_thread(&ctx(1), "g", vec![incoming]).unwrap();
+            assert_eq!(merged[0].read_status.as_deref(), status);
+        }
+        let mut old = msg("g", Some("m"), Some("local"), 1, "body");
+        old.read_status = Some("read".into());
+        let mut thread = vec![old];
+        merge_messages(
+            &mut thread,
+            vec![msg("g", None, Some("local"), 1, "sparse local")],
+        );
+        assert!(
+            thread[0].read_status.is_none(),
+            "local alias alone is not receipt authority"
+        );
+    }
+
+    // Frozen pre-index implementation is an oracle for identity/alias semantics.
+    fn reference_merge_messages(
+        thread: &mut Vec<UiMessageDto>,
+        incoming: Vec<UiMessageDto>,
+    ) -> Vec<UiMessageDto> {
+        let mut changed = Vec::new();
+        for mut m in incoming {
+            let mut selected: Vec<usize> = thread
+                .iter()
+                .enumerate()
+                .filter_map(|(index, old)| {
+                    (old.gid == m.gid
+                        && matches!(
+                            (known_message_id(&old.message_id), known_message_id(&m.message_id)),
+                            (Some(old_id), Some(new_id)) if old_id == new_id
+                        ))
+                    .then_some(index)
+                })
+                .collect();
+            let aliases: Vec<usize> = thread
+                .iter()
+                .enumerate()
+                .filter_map(|(index, old)| {
+                    (!selected.contains(&index)
+                        && same_message(old, &m)
+                        && compatible_alias_group(old, &m))
+                    .then_some(index)
+                })
+                .collect();
+            if selected.is_empty() {
+                // A missing UID can match several known UIDs independently. It
+                // cannot choose a group or bridge those incompatible identities.
+                if aliases.iter().all(|a| {
+                    aliases
+                        .iter()
+                        .all(|b| compatible_alias_group(&thread[*a], &thread[*b]))
+                }) {
+                    selected = aliases;
+                }
+            } else {
+                let aliases: Vec<usize> = aliases
+                    .into_iter()
+                    .filter(|index| {
+                        selected
+                            .iter()
+                            .all(|old| compatible_alias_group(&thread[*old], &thread[*index]))
+                    })
+                    .collect();
+                // A server anchor with no known UID does not identify which of
+                // several conflicting local groups owns that server message.
+                if aliases.iter().all(|a| {
+                    aliases
+                        .iter()
+                        .all(|b| compatible_alias_group(&thread[*a], &thread[*b]))
+                }) {
+                    selected.extend(aliases);
+                }
+            }
+            if selected.is_empty() {
+                thread.push(m.clone());
+                changed.push(m);
+                continue;
+            }
+            // Exact server IDs may correct an explicit sender conflict. Keep the
+            // incoming record, but inherit nothing from the conflicting identity.
+            let can_inherit = selected.iter().all(|a| {
+                compatible_alias_group(&thread[*a], &m)
+                    && selected
+                        .iter()
+                        .all(|b| compatible_alias_group(&thread[*a], &thread[*b]))
+            });
+            if can_inherit {
+                for index in &selected {
+                    preserve_read_status(&thread[*index], &mut m);
+                }
+                for index in &selected {
+                    let old = &thread[*index];
+                    if known_message_id(&m.message_id).is_none() {
+                        m.message_id = old.message_id.clone();
+                    }
+                    if known_message_id(&m.local_id).is_none() {
+                        m.local_id = old.local_id.clone();
+                    }
+                    m.original = m.original.or_else(|| old.original.clone());
+                    m.translation = m.translation.or_else(|| old.translation.clone());
+                    if !old.sender_id.trim().is_empty() {
+                        m.sender_name = m.sender_name.or_else(|| old.sender_name.clone());
+                        m.sender_avatar = m.sender_avatar.or_else(|| old.sender_avatar.clone());
+                        if m.sender_id.trim().is_empty() {
+                            m.sender_id = old.sender_id.clone();
+                        }
+                    }
+                }
+                let server_id = known_message_id(&m.message_id);
+                if !matching_confirmation(&m, server_id) {
+                    if let Some(old) = selected
+                        .iter()
+                        .map(|index| &thread[*index])
+                        .find(|old| matching_confirmation(old, server_id))
+                    {
+                        m.disposition = old.disposition.clone();
+                    } else if m.disposition.is_none() {
+                        m.disposition =
+                            selected
+                                .iter()
+                                .find_map(|index| match &thread[*index].disposition {
+                                    Some(SendDispositionDto::Confirmed { .. }) => None,
+                                    disposition => disposition.clone(),
+                                });
+                    }
+                }
+            }
+            // A confirmation must always refer to this canonical server message.
+            if matches!(&m.disposition, Some(SendDispositionDto::Confirmed { .. }))
+                && !matching_confirmation(&m, known_message_id(&m.message_id))
+            {
+                m.disposition = Some(SendDispositionDto::Unknown);
+            }
+            selected.sort_unstable();
+            let first = selected[0];
+            let was_changed = selected.len() > 1 || thread[first] != m;
+            for index in selected.into_iter().skip(1).rev() {
+                thread.remove(index);
+            }
+            thread[first] = m.clone();
+            if was_changed {
+                changed.push(m);
+            }
+        }
+        thread.sort_by_key(|m| m.create_time_ms);
+        if thread.len() > MAX_MESSAGES_PER_THREAD {
+            let drop = thread.len() - MAX_MESSAGES_PER_THREAD;
+            thread.drain(..drop);
+        }
+        changed.sort_by_key(|m| m.create_time_ms);
+        changed
+    }
+
+    #[test]
+    fn indexed_merge_matches_reference_across_alias_conflicts_and_batches() {
+        let mut seed = 0x52dce729u64;
+        let mut next = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (seed >> 32) as u32
+        };
+        let mut indexed = Vec::new();
+        let mut reference = Vec::new();
+        for batch in 0..150 {
+            let incoming: Vec<_> = (0..24)
+                .map(|_| {
+                    let server = next() % 24;
+                    let local = next() % 20;
+                    let mut message = msg("g", None, None, i64::from(next() % 100), "body");
+                    message.message_id = (server > 3).then(|| format!("s{server}"));
+                    message.local_id = (local > 2).then(|| format!("l{local}"));
+                    message.sender_id = ["", "Alice", "alice", "Bob"][(next() % 4) as usize].into();
+                    message.sender_role = ["customer", "agent"][(next() % 2) as usize].into();
+                    message.text = format!("content-{}", next() % 4);
+                    if next() % 3 == 0 {
+                        message.disposition = Some(SendDispositionDto::Unknown);
+                    }
+                    message
+                })
+                .collect();
+            let expected = reference_merge_messages(&mut reference, incoming.clone());
+            let actual = merge_messages(&mut indexed, incoming);
+            assert!(
+                actual == expected,
+                "changed messages differ in batch {batch}"
+            );
+            assert!(
+                indexed == reference,
+                "cached messages differ in batch {batch}"
+            );
+        }
+    }
+
+    #[test]
+    fn indexed_replace_preserves_exact_full_object_equality() {
+        let mut cache = DisplayCache::new();
+        let account = ctx(1);
+        let old = vec![
+            msg("g", Some("s1"), Some("l1"), 1, "same"),
+            msg("g", Some("s2"), None, 2, "old"),
+            msg("g", None, None, 3, "anonymous"),
+            msg("g", Some(""), Some(""), 4, "blank"),
+        ];
+        cache.replace_thread(&account, "g", old.clone()).unwrap();
+        let incoming = vec![
+            old[0].clone(),
+            msg("g", Some("s2"), None, 2, "new"),
+            old[2].clone(),
+            old[3].clone(),
+            msg("g", Some("s3"), Some("l3"), 5, "added"),
+        ];
+        let mut fresh = Vec::new();
+        reference_merge_messages(&mut fresh, incoming.clone());
+        let expected: Vec<_> = fresh
+            .iter()
+            .filter(|m| !old.iter().any(|o| o == *m))
+            .cloned()
+            .collect();
+        let delta = cache
+            .apply(
+                &account,
+                DisplayPayload::Messages {
+                    gid: "g".into(),
+                    replace: true,
+                    items: incoming,
+                },
+            )
+            .unwrap();
+        let DisplayDelta::Messages { changed, .. } = delta else {
+            panic!("message delta")
+        };
+        assert!(
+            changed == expected,
+            "replace changed-message equality differs"
+        );
+        assert!(
+            cache.messages(&account, "g").unwrap() == Some(fresh),
+            "replace cached-message equality differs"
+        );
+    }
+
+    #[test]
+    fn unread_aggregate_excludes_rows_rejected_at_conversation_cap() {
+        let mut cache = DisplayCache::new();
+        let account = ctx(1);
+        for i in 0..=MAX_CONVERSATIONS {
+            cache
+                .apply(
+                    &account,
+                    convs(false, &[(format!("g{i}").as_str(), 2)], &[]),
+                )
+                .unwrap();
+        }
+        assert_eq!(cache.total_unread(&account), (MAX_CONVERSATIONS * 2) as u32);
+        assert_eq!(
+            cache.conversations(&account).unwrap().len(),
+            MAX_CONVERSATIONS
+        );
+        cache
+            .apply(&account, convs(false, &[("g0", 9)], &[]))
+            .unwrap();
+        assert_eq!(
+            cache.total_unread(&account),
+            (MAX_CONVERSATIONS * 2 + 7) as u32
+        );
+    }
+
+    #[test]
+    fn indexed_merge_large_unique_batch_visits_only_matching_candidates() {
+        let mut thread = Vec::new();
+        let items: Vec<_> = (0..5_000)
+            .map(|i| {
+                msg(
+                    "g",
+                    Some(&format!("s{i}")),
+                    Some(&format!("l{i}")),
+                    i,
+                    "body",
+                )
+            })
+            .collect();
+        let mut candidates = 0;
+        let changed = merge_messages_indexed(&mut thread, items, |count| candidates += count);
+        assert_eq!(changed.len(), 5_000);
+        assert_eq!(thread.len(), MAX_MESSAGES_PER_THREAD);
+        assert_eq!(thread[0].create_time_ms, 4_500);
+        assert_eq!(
+            candidates, 0,
+            "unique identities must not scan unrelated slots"
+        );
+        let replay = thread.clone();
+        let mut candidates = 0;
+        let changed = merge_messages_indexed(&mut thread, replay, |count| candidates += count);
+        assert!(changed.is_empty());
+        assert_eq!(candidates, MAX_MESSAGES_PER_THREAD * 2);
+    }
+
+    #[test]
+    fn unread_aggregate_matches_scan_after_full_increment_remove_and_reset() {
+        let mut cache = DisplayCache::new();
+        let a = ctx(1);
+        cache
+            .apply(
+                &a,
+                convs(true, &[("a", u32::MAX), ("b", u32::MAX), ("c", 5)], &[]),
+            )
+            .unwrap();
+        assert_eq!(cache.total_unread(&a), u32::MAX);
+        cache.apply(&a, convs(false, &[], &["a"])).unwrap();
+        assert_eq!(cache.total_unread(&a), u32::MAX);
+        cache.apply(&a, convs(false, &[], &["b", "b"])).unwrap();
+        assert_eq!(cache.total_unread(&a), 5);
+        for i in 0..100u32 {
+            let gid = format!("g{}", i % 17);
+            let removed = format!("g{}", (i + 5) % 17);
+            cache
+                .apply(
+                    &a,
+                    convs(
+                        i % 11 == 0,
+                        &[(gid.as_str(), i.saturating_mul(50_000_000))],
+                        &[removed.as_str()],
+                    ),
+                )
+                .unwrap();
+            let expected: u64 = cache
+                .conversations(&a)
+                .unwrap()
+                .iter()
+                .map(|c| u64::from(c.fact.unread_count))
+                .sum();
+            assert_eq!(
+                cache.total_unread(&a),
+                u32::try_from(expected).unwrap_or(u32::MAX)
+            );
+        }
+        let b = other();
+        cache.apply(&b, convs(true, &[("other", 9)], &[])).unwrap();
+        cache
+            .apply(&ctx(2), convs(false, &[("new", 3)], &[]))
+            .unwrap();
+        assert_eq!(cache.total_unread(&ctx(2)), 3);
+        assert_eq!(cache.total_unread(&a), 0);
+        assert_eq!(cache.total_unread(&b), 9);
+        cache.remove(&ctx(2));
+        assert_eq!(cache.total_unread(&ctx(2)), 0);
+    }
 }
 
 // Peripheral command results (client.ts). Display-only, never persisted.
@@ -1755,11 +2791,40 @@ pub struct UiMemberDto {
     pub nickname: Option<String>,
     pub status: String,
     pub roles: Vec<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub present: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_self: Option<bool>,
     pub can_transfer: bool,
+    #[serde(default)]
+    pub can_remove: bool,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UiMessageTranslationDto {
+    pub message_id: String,
+    pub status: String,
+    #[serde(default)]
+    pub translation: Option<String>,
+    #[serde(default)]
+    pub source_kind: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiMessageTranslationsDto {
+    pub items: Vec<UiMessageTranslationDto>,
+    #[serde(default)]
+    pub supplier: Option<String>,
+    #[serde(default)]
+    pub session_tag: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct UiMembersDto {
     pub members: Vec<UiMemberDto>,
+    #[serde(default)]
+    pub self_is_master: bool,
     pub fetched_at_ms: i64,
     pub selection_token: String,
     pub expires_at_ms: i64,
@@ -1775,6 +2840,18 @@ pub struct UiInviteAgentDto {
     pub avatar: Option<String>,
     pub uid: String,
     pub nickname: Option<String>,
+    #[serde(default)]
+    pub in_group: bool,
+    #[serde(default)]
+    pub status: Option<u16>,
+    #[serde(default)]
+    pub duty_status: Option<u16>,
+    #[serde(default)]
+    pub job_position: Option<String>,
+    #[serde(default)]
+    pub job_position_type: Option<u16>,
+    #[serde(default)]
+    pub skill_group_full_name: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct UiInviteCandidatesDto {
@@ -1786,13 +2863,28 @@ pub struct UiInviteCandidatesDto {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CustomerScriptsKindDto {
+    Ready,
     Empty,
     Unsupported,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub enum QuickReplyCategoryTypeDto {
+    VAGENT,
+    VSKILLGROUP,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiQuickReplyScriptDto {
+    pub id: String,
+    pub content: String,
+    pub short_cut: String,
+    pub r#type: String,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct UiCustomerScriptsDto {
     pub kind: CustomerScriptsKindDto,
     pub raw_count: u64,
+    #[serde(default)]
+    pub items: Vec<UiQuickReplyScriptDto>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -1812,55 +2904,126 @@ pub struct UiPeripheralWriteDto {
     pub reason: Option<String>,
 }
 
-
 #[cfg(test)]
 mod conversation_business_tests {
     use super::*;
-    fn account() -> AccountContext { AccountContext::new(AccountId::new("synthetic-business"), Environment::production(), 1) }
+    fn account() -> AccountContext {
+        AccountContext::new(
+            AccountId::new("synthetic-business"),
+            Environment::production(),
+            1,
+        )
+    }
     fn row() -> serde_json::Value {
         serde_json::json!({"gid":"synthetic-room","status":"active","agent_in_group":false,"is_owner":false,"service_type":"2573","last_message_time_ms":10,"last_update_time_ms":10,"unread_count":0,"is_full_snapshot":false,"title":"Synthetic","mark":0})
     }
     fn payload(value: serde_json::Value) -> Result<DisplayPayload, serde_json::Error> {
-        serde_json::from_value(serde_json::json!({"kind":"conversations","full":false,"items":[value],"removed_gids":[]}))
+        serde_json::from_value(
+            serde_json::json!({"kind":"conversations","full":false,"items":[value],"removed_gids":[]}),
+        )
     }
     #[test]
-    fn business_display_preserves_exact_known_and_unknown_types_through_real_cache_and_projection() {
-        for value in ["B2C", "C2B", "B2MC", "B2O", "O2B", "B2B", "SYNTHETIC_UNKNOWN", " B2C ", "未知类型"] {
-            let mut r = row(); r["conversation_type"] = serde_json::json!(value);
-            let mut cache = DisplayCache::default(); cache.apply(&account(), payload(r).unwrap()).unwrap();
-            let stored = cache.conversation(&account(), "synthetic-room").unwrap().unwrap();
-            let dto = UiConversationDto { display: stored, account: (&account()).into(), draft:String::new(), is_top:false, waiting_since_ms:None, waiting_confirmed:false };
+    fn business_display_preserves_exact_known_and_unknown_types_through_real_cache_and_projection()
+    {
+        for value in [
+            "B2C",
+            "C2B",
+            "B2MC",
+            "B2O",
+            "O2B",
+            "B2B",
+            "SYNTHETIC_UNKNOWN",
+            " B2C ",
+            "未知类型",
+        ] {
+            let mut r = row();
+            r["conversation_type"] = serde_json::json!(value);
+            let mut cache = DisplayCache::default();
+            cache.apply(&account(), payload(r).unwrap()).unwrap();
+            let stored = cache
+                .conversation(&account(), "synthetic-room")
+                .unwrap()
+                .unwrap();
+            let dto = UiConversationDto {
+                display: stored,
+                account: (&account()).into(),
+                draft: String::new(),
+                is_top: false,
+                waiting_since_ms: None,
+                waiting_confirmed: false,
+            };
             let wire = serde_json::to_value(dto).unwrap();
-            assert_eq!(wire.get("conversation_type"), Some(&serde_json::json!(value)));
+            assert_eq!(
+                wire.get("conversation_type"),
+                Some(&serde_json::json!(value))
+            );
             assert_eq!(wire["service_type"], "2573");
         }
     }
     #[test]
     fn business_display_legacy_missing_type_is_accepted_and_reprojected_as_explicit_null() {
-        let mut cache = DisplayCache::default(); cache.apply(&account(),payload(row()).unwrap()).unwrap();
-        let stored = cache.conversation(&account(),"synthetic-room").unwrap().unwrap();
-        assert_eq!(serde_json::to_value(stored).unwrap().get("conversation_type"),Some(&serde_json::Value::Null));
+        let mut cache = DisplayCache::default();
+        cache.apply(&account(), payload(row()).unwrap()).unwrap();
+        let stored = cache
+            .conversation(&account(), "synthetic-room")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(stored)
+                .unwrap()
+                .get("conversation_type"),
+            Some(&serde_json::Value::Null)
+        );
     }
     #[test]
     fn business_display_rejects_invalid_type_atomically_without_changing_a_valid_cached_row() {
-        for value in [String::new(), "  ".into(), "X".repeat(65), "\u{feff}".into(), format!("B2C{}", '\0'), format!("B2C{}", '\u{0085}')] {
-            let mut cache = DisplayCache::default(); cache.apply(&account(),payload(row()).unwrap()).unwrap();
-            let mut invalid = row(); invalid["conversation_type"] = serde_json::json!(value); invalid["title"] = serde_json::json!("must not replace");
-            assert!(cache.apply(&account(),payload(invalid).unwrap()).is_err());
-            assert_eq!(cache.conversation(&account(),"synthetic-room").unwrap().unwrap().title,"Synthetic");
+        for value in [
+            String::new(),
+            "  ".into(),
+            "X".repeat(65),
+            "\u{feff}".into(),
+            format!("B2C{}", '\0'),
+            format!("B2C{}", '\u{0085}'),
+        ] {
+            let mut cache = DisplayCache::default();
+            cache.apply(&account(), payload(row()).unwrap()).unwrap();
+            let mut invalid = row();
+            invalid["conversation_type"] = serde_json::json!(value);
+            invalid["title"] = serde_json::json!("must not replace");
+            assert!(cache.apply(&account(), payload(invalid).unwrap()).is_err());
+            assert_eq!(
+                cache
+                    .conversation(&account(), "synthetic-room")
+                    .unwrap()
+                    .unwrap()
+                    .title,
+                "Synthetic"
+            );
         }
     }
     #[test]
     fn business_display_non_string_type_is_rejected_at_the_wire_boundary() {
-        for value in [serde_json::json!(123), serde_json::json!({"type":"B2C"}), serde_json::json!(["B2C"])] {
-            let mut r = row(); r["conversation_type"] = value; assert!(payload(r).is_err());
+        for value in [
+            serde_json::json!(123),
+            serde_json::json!({"type":"B2C"}),
+            serde_json::json!(["B2C"]),
+        ] {
+            let mut r = row();
+            r["conversation_type"] = value;
+            assert!(payload(r).is_err());
         }
     }
     #[test]
     fn business_display_size_limit_matches_typescript_utf16_units() {
         for value in ["X".repeat(64), "😀".repeat(32)] {
-            let mut r=row();r["conversation_type"]=serde_json::json!(value);let mut cache=DisplayCache::default();cache.apply(&account(),payload(r).unwrap()).unwrap();
+            let mut r = row();
+            r["conversation_type"] = serde_json::json!(value);
+            let mut cache = DisplayCache::default();
+            cache.apply(&account(), payload(r).unwrap()).unwrap();
         }
-        let mut r=row();r["conversation_type"]=serde_json::json!("😀".repeat(33));let mut cache=DisplayCache::default();assert!(cache.apply(&account(),payload(r).unwrap()).is_err());
+        let mut r = row();
+        r["conversation_type"] = serde_json::json!("😀".repeat(33));
+        let mut cache = DisplayCache::default();
+        assert!(cache.apply(&account(), payload(r).unwrap()).is_err());
     }
 }

@@ -41,8 +41,8 @@ use crate::dto::{
 };
 use crate::events;
 use crate::login;
-use crate::peripheral_journal;
 use crate::media_outbound::{self, MediaSendResult, MediaTarget};
+use crate::peripheral_journal;
 use crate::state::HostState;
 
 use display::{
@@ -50,6 +50,9 @@ use display::{
     PinnedTable, UiAgentStatusDto, UiConversationDto, UiMessageDto, UiMessageEventDto,
     UiMessagePageDto, UiNetStatusDto, UiNoticeCategoryDto,
 };
+
+#[path = "message_actions.rs"]
+pub mod message_actions;
 
 type CmdResult<T> = Result<T, AppErrorDto>;
 
@@ -59,6 +62,7 @@ pub const READ_TIMEOUT: Duration = Duration::from_millis(15_000);
 pub const WRITE_TIMEOUT: Duration = Duration::from_millis(20_000);
 
 const BOOT_SCRIPT_ASSET: &str = "adapter/boot.js";
+const TONE_SILENCER_ASSET: &str = "adapter/silence-tones.js";
 const PINNED_FILE: &str = "pinned.json";
 
 fn guard(state: &HostState, label: &str, command: &str) -> CmdResult<()> {
@@ -332,10 +336,9 @@ fn forward_feature_fact(
     now_ms: i64,
     fact: FeatureFactDto,
 ) -> Result<IngestReportDto, AppError> {
-    let fact = validate_feature_fact(fact.into(), now_ms).map_err(|e| {
+    let fact = validate_feature_fact(fact.into(), now_ms).inspect_err(|e| {
         m.feature_rejected.fetch_add(1, Ordering::Relaxed);
         log::warn!("feature fact rejected: {}", e.code);
-        e
     })?;
     let account_key = format!(
         "{}|{}|{}",
@@ -369,32 +372,84 @@ fn forward_feature_fact(
 }
 
 #[derive(Default)]
-struct HostReceiveBook { scopes: HashMap<(String, String, u64), display::HostReceiveDiagnosticsDto> }
+struct HostReceiveBook {
+    scopes: HashMap<(String, String, u64), display::HostReceiveDiagnosticsDto>,
+}
 impl std::fmt::Debug for HostReceiveBook {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.debug_struct("HostReceiveBook").field("scopes", &self.scopes.len()).finish() }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostReceiveBook")
+            .field("scopes", &self.scopes.len())
+            .finish()
+    }
 }
 impl std::fmt::Debug for display::HostReceiveDiagnosticsDto {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.debug_struct("HostReceiveDiagnostics").finish_non_exhaustive() }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostReceiveDiagnostics")
+            .finish_non_exhaustive()
+    }
 }
 impl HostReceiveBook {
-    fn key(ctx: &AccountContext) -> (String, String, u64) { (ctx.environment.as_str().into(), ctx.account_id.as_str().into(), ctx.session_generation) }
-    fn snapshot(&self, ctx: &AccountContext) -> display::HostReceiveDiagnosticsDto { self.scopes.get(&Self::key(ctx)).cloned().unwrap_or_default() }
-    fn note(&mut self, ctx: &AccountContext, update: impl FnOnce(&mut display::HostReceiveDiagnosticsDto)) {
+    fn key(ctx: &AccountContext) -> (String, String, u64) {
+        (
+            ctx.environment.as_str().into(),
+            ctx.account_id.as_str().into(),
+            ctx.session_generation,
+        )
+    }
+    fn snapshot(&self, ctx: &AccountContext) -> display::HostReceiveDiagnosticsDto {
+        self.scopes
+            .get(&Self::key(ctx))
+            .cloned()
+            .unwrap_or_default()
+    }
+    fn note(
+        &mut self,
+        ctx: &AccountContext,
+        update: impl FnOnce(&mut display::HostReceiveDiagnosticsDto),
+    ) {
         let key = Self::key(ctx);
         if !self.scopes.contains_key(&key) && self.scopes.len() >= 256 {
-            if let Some(old) = self.scopes.keys().next().cloned() { self.scopes.remove(&old); }
+            if let Some(old) = self.scopes.keys().next().cloned() {
+                self.scopes.remove(&old);
+            }
         }
         update(self.scopes.entry(key).or_default());
     }
 }
-fn diagnostic_count(value: u64, amount: usize) -> u64 { value.saturating_add(amount as u64).min(9_007_199_254_740_991) }
+fn diagnostic_count(value: u64, amount: usize) -> u64 {
+    value
+        .saturating_add(amount as u64)
+        .min(9_007_199_254_740_991)
+}
 
-fn apply_display_diagnosed(m: &AdapterState, ctx: &AccountContext, payload: Result<DisplayPayload, AppError>) -> Result<DisplayDelta, AppError> {
-    lock(&m.receive).note(ctx, |c| c.display_entered = diagnostic_count(c.display_entered, 1));
-    let payload = payload.map_err(|error| { lock(&m.receive).note(ctx, |c| c.display_decode_rejected = diagnostic_count(c.display_decode_rejected, 1)); error })?;
-    if let DisplayPayload::Messages { items, .. } = &payload { lock(&m.receive).note(ctx, |c| c.message_items = diagnostic_count(c.message_items, items.len())); }
-    let delta = lock(&m.display).apply(ctx, payload).map_err(|error| { lock(&m.receive).note(ctx, |c| c.display_apply_rejected = diagnostic_count(c.display_apply_rejected, 1)); error })?;
-    if let DisplayDelta::Messages { changed, .. } = &delta { lock(&m.receive).note(ctx, |c| c.changed_messages = diagnostic_count(c.changed_messages, changed.len())); }
+fn apply_display_diagnosed(
+    m: &AdapterState,
+    ctx: &AccountContext,
+    payload: Result<DisplayPayload, AppError>,
+) -> Result<DisplayDelta, AppError> {
+    lock(&m.receive).note(ctx, |c| {
+        c.display_entered = diagnostic_count(c.display_entered, 1)
+    });
+    let payload = payload.inspect_err(|_| {
+        lock(&m.receive).note(ctx, |c| {
+            c.display_decode_rejected = diagnostic_count(c.display_decode_rejected, 1)
+        });
+    })?;
+    if let DisplayPayload::Messages { items, .. } = &payload {
+        lock(&m.receive).note(ctx, |c| {
+            c.message_items = diagnostic_count(c.message_items, items.len())
+        });
+    }
+    let delta = lock(&m.display).apply(ctx, payload).inspect_err(|_| {
+        lock(&m.receive).note(ctx, |c| {
+            c.display_apply_rejected = diagnostic_count(c.display_apply_rejected, 1)
+        });
+    })?;
+    if let DisplayDelta::Messages { changed, .. } = &delta {
+        lock(&m.receive).note(ctx, |c| {
+            c.changed_messages = diagnostic_count(c.changed_messages, changed.len())
+        });
+    }
     Ok(delta)
 }
 
@@ -431,6 +486,72 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 fn module(app: &AppHandle) -> Result<State<'_, AdapterState>, AppError> {
     app.try_state::<AdapterState>()
         .ok_or_else(|| not_ready("adapter module not initialised"))
+}
+
+/// Resolve a message from the host-owned display cache, never from a caller-supplied body/URL.
+/// Native message actions re-read this snapshot after awaits before touching the clipboard/disk.
+pub(crate) fn cached_message(
+    app: &AppHandle,
+    ctx: &AccountContext,
+    gid: &str,
+    message_id: &str,
+) -> Result<(UiMessageDto, Option<String>), AppError> {
+    if gid.is_empty() || message_id.is_empty() {
+        return Err(AppError::new("im.invalid_message", "消息标识缺失"));
+    }
+    let m = module(app)?;
+    if login::active_context(app).as_ref() != Some(ctx) {
+        return Err(AppError::new(
+            "account.stale_generation",
+            "当前账号已切换，请重新选择消息",
+        ));
+    }
+    let cache = lock(&m.display);
+    let conversation = cache
+        .conversation(ctx, gid)?
+        .ok_or_else(|| AppError::new("im.invalid_message", "会话已变化，请重新选择消息"))?;
+    let messages = cache.messages(ctx, gid)?.unwrap_or_default();
+    let mut matches = messages
+        .iter()
+        .filter(|message| message.gid == gid && message.message_id.as_deref() == Some(message_id));
+    let message = matches
+        .next()
+        .ok_or_else(|| AppError::new("im.invalid_message", "消息已移除，请重新选择"))?;
+    if matches.next().is_some()
+        || message.kind == "system"
+        || message.recalled_message_id.is_some()
+        || messages
+            .iter()
+            .any(|row| row.gid == gid && row.recalled_message_id.as_deref() == Some(message_id))
+    {
+        return Err(AppError::new(
+            "im.invalid_message",
+            "消息已撤回或标识不可用",
+        ));
+    }
+    Ok((message.clone(), conversation.assistant_context_revision))
+}
+
+/// The displayed thread of the active account, for host-side sequences such as the image viewer.
+pub(crate) fn cached_thread(
+    app: &AppHandle,
+    ctx: &AccountContext,
+    gid: &str,
+) -> Result<Vec<UiMessageDto>, AppError> {
+    let m = module(app)?;
+    if login::active_context(app).as_ref() != Some(ctx) {
+        return Err(AppError::new(
+            "account.stale_generation",
+            "当前账号已切换，请重新选择消息",
+        ));
+    }
+    let cache = lock(&m.display);
+    Ok(cache
+        .messages(ctx, gid)?
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|message| message.gid == gid)
+        .collect())
 }
 
 // ------------------------------------------------------------------ helpers
@@ -539,7 +660,12 @@ fn emit_conversations(app: &AppHandle, ctx: &AccountContext, gids: &[String]) {
             .collect()
     };
     for conv in to_ui(app, ctx, rows) {
-        crate::assistant::order_commands::on_conversation_change(app, ctx, &conv.display.fact.gid, conv.display.assistant_context_revision.as_deref());
+        crate::assistant::order_commands::on_conversation_change(
+            app,
+            ctx,
+            &conv.display.fact.gid,
+            conv.display.assistant_context_revision.as_deref(),
+        );
         events::to_main(app, events::IM_CONVERSATION_CHANGED, conv);
     }
 }
@@ -571,7 +697,11 @@ fn is_focus(app: &AppHandle, ctx: &AccountContext) -> bool {
         .unwrap_or(true)
 }
 
-fn apply_agent_status(app: &AppHandle, ctx: &AccountContext, payload: DisplayPayload) -> Result<(), AppError> {
+fn apply_agent_status(
+    app: &AppHandle,
+    ctx: &AccountContext,
+    payload: DisplayPayload,
+) -> Result<(), AppError> {
     let state = app.state::<HostState>();
     let mut cores = state.lock();
     cores.accounts.validate(ctx)?;
@@ -582,7 +712,7 @@ fn apply_agent_status(app: &AppHandle, ctx: &AccountContext, payload: DisplayPay
         return Err(bad_reply());
     };
     let now = state.now(&mut cores);
-    if !cores.set_account_notifications(ctx, s.confirmed && s.status != AgentStatusDto::Getoff, &now) {
+    if !cores.set_account_notifications(ctx, s.allows_notifications(), &now) {
         return Ok(());
     }
     // Keep cache, gate and UI publication in host→display lock order. A
@@ -604,17 +734,55 @@ fn emit_agent_status_event(app: &AppHandle, ctx: &AccountContext, s: UiAgentStat
 
 /// Host watchdog runs even when the adapter page is frozen. Expiry changes
 /// certainty only; it neither changes work status nor renews its own lease.
+/// Alarm snapshot for local windows: each round gets its conversation's list
+/// preview from the display cache, so `core-notify` never holds customer text.
+pub fn alarm_snapshot(app: &AppHandle) -> crate::dto::AlarmSnapshotDto {
+    let snapshot = app.state::<HostState>().alarm_snapshot();
+    let mut dto = crate::dto::AlarmSnapshotDto::from(&snapshot);
+    let Ok(m) = module(app) else {
+        return dto;
+    };
+    let cache = lock(&m.display);
+    for (entry, row) in snapshot.entries.iter().zip(&mut dto.entries) {
+        row.preview = cache
+            .conversation(&entry.account, &entry.gid)
+            .ok()
+            .flatten()
+            .and_then(|c| crate::dto::alarm_preview(&c.preview));
+    }
+    dto
+}
+
+/// Cached list row for a notice card. Customer text: never logged.
+pub fn display_conversation(
+    app: &AppHandle,
+    account: &AccountContext,
+    gid: &str,
+) -> Option<DisplayConversationDto> {
+    let m = module(app).ok()?;
+    let cache = lock(&m.display);
+    cache.conversation(account, gid).ok().flatten()
+}
+
 pub fn expire_agent_statuses(app: &AppHandle) {
     let state = app.state::<HostState>();
     let mut cores = state.lock();
     let now = state.now(&mut cores);
     let expired = cores.notify.take_expired_account_statuses(&now);
-    let Ok(m) = module(app) else { return; };
+    let Ok(m) = module(app) else {
+        return;
+    };
     let mut display = lock(&m.display);
     for ctx in expired {
-        if cores.accounts.validate(&ctx).is_err() { continue; }
-        let Some(mut status) = display.agent_status(&ctx) else { continue; };
-        if !status.confirmed { continue; }
+        if cores.accounts.validate(&ctx).is_err() {
+            continue;
+        }
+        let Some(mut status) = display.agent_status(&ctx) else {
+            continue;
+        };
+        if !status.confirmed {
+            continue;
+        }
         status.confirmed = false;
         if display.set_agent_status(&ctx, status).is_ok() {
             emit_agent_status_event(app, &ctx, status);
@@ -675,22 +843,51 @@ async fn forward<T: DeserializeOwned>(
 }
 
 #[derive(Deserialize)]
-struct AssistantScopeReply { context_revision: String, order_id: Option<String> }
+struct AssistantScopeReply {
+    context_revision: String,
+    order_id: Option<String>,
+}
 
 /// Validate both the host projection and the current full in-page service/customer identity.
-pub async fn validate_assistant_scope(app: &AppHandle, account: &AccountContext, gid: &str, order_id: &str, revision: &str) -> Result<(), AppError> {
+pub async fn validate_assistant_scope(
+    app: &AppHandle,
+    account: &AccountContext,
+    gid: &str,
+    order_id: &str,
+    revision: &str,
+) -> Result<(), AppError> {
     core_assistant::order::validate_order_id(order_id)?;
-    if uuid::Uuid::parse_str(revision).is_err() { return Err(bad_reply()); }
+    if uuid::Uuid::parse_str(revision).is_err() {
+        return Err(bad_reply());
+    }
     let local = || -> Result<(), AppError> {
         app.state::<HostState>().lock().accounts.validate(account)?;
         let m = module(app)?;
-        let row = lock(&m.display).conversation(account, gid)?.ok_or_else(|| not_ready("order conversation is unavailable"))?;
-        if row.assistant_context_revision.as_deref() != Some(revision) || row.order.as_ref().map(|o| o.order_id.as_str()) != Some(order_id) { return Err(AppError::new(codes::ACCOUNT_STALE_GENERATION, "order conversation binding changed")); }
+        let row = lock(&m.display)
+            .conversation(account, gid)?
+            .ok_or_else(|| not_ready("order conversation is unavailable"))?;
+        if row.assistant_context_revision.as_deref() != Some(revision)
+            || row.order.as_ref().map(|o| o.order_id.as_str()) != Some(order_id)
+        {
+            return Err(AppError::new(
+                codes::ACCOUNT_STALE_GENERATION,
+                "order conversation binding changed",
+            ));
+        }
         Ok(())
     };
     local()?;
-    let reply: AssistantScopeReply = forward(app, account, "assistant.scope", serde_json::json!({ "gid": gid, "context_revision": revision }), READ_TIMEOUT).await?;
-    if reply.context_revision != revision || reply.order_id.as_deref() != Some(order_id) { return Err(bad_reply()); }
+    let reply: AssistantScopeReply = forward(
+        app,
+        account,
+        "assistant.scope",
+        serde_json::json!({ "gid": gid, "context_revision": revision }),
+        READ_TIMEOUT,
+    )
+    .await?;
+    if reply.context_revision != revision || reply.order_id.as_deref() != Some(order_id) {
+        return Err(bad_reply());
+    }
     local()
 }
 
@@ -732,7 +929,10 @@ pub async fn validate_media_target(
     )
     .await?;
     if current != *target {
-        return Err(media_outbound::invalid());
+        return Err(media_outbound::refused(
+            "conversation target changed",
+            "当前会话已变化，未发送。请重新选择附件。",
+        ));
     }
     Ok(())
 }
@@ -1053,16 +1253,15 @@ pub async fn im_send_media(
     // fabricated Unknown) and carries the barrier error to the caller. Any
     // other failure (nothing committed) stays Unknown.
     let held = outbound_journal::normalize(observed.clone());
-    let (disposition, barrier_error) =
-        match lock(journal).finish_media(&ctx, &local_id, &payload, observed) {
-            Ok(saved) => (saved, None),
-            Err(error)
-                if error.code == core_im::media_contract::codes::IM_JOURNAL_BARRIER_FAILED =>
-            {
-                (held, Some(error.message))
-            }
-            Err(_) => (SendDispositionDto::Unknown, None),
-        };
+    let (disposition, barrier_error) = match lock(journal)
+        .finish_media(&ctx, &local_id, &payload, observed)
+    {
+        Ok(saved) => (saved, None),
+        Err(error) if error.code == core_im::media_contract::codes::IM_JOURNAL_BARRIER_FAILED => {
+            (held, Some(error.message))
+        }
+        Err(_) => (SendDispositionDto::Unknown, None),
+    };
     let mut result = MediaSendResult::replay("send".into(), true, disposition.clone());
     result.error = barrier_error;
     if let Some(mut reply) = reply {
@@ -1215,10 +1414,17 @@ pub fn adapter_push_display(
     let delta = apply_display_diagnosed(&m, &ctx, payload).map_err(e2dto)?;
     match delta {
         DisplayDelta::Conversations { changed, removed } => {
-            for gid in &removed { crate::assistant::order_commands::on_conversation_change(&app, &ctx, gid, None); }
+            for gid in &removed {
+                crate::assistant::order_commands::on_conversation_change(&app, &ctx, gid, None);
+            }
             emit_conversations(&app, &ctx, &changed);
+            crate::notifications::refresh(&app, &ctx, &changed);
             if !removed.is_empty() {
-                events::to_main(&app, events::IM_CONVERSATIONS_INVALIDATED, AccountContextDto::from(&ctx));
+                events::to_main(
+                    &app,
+                    events::IM_CONVERSATIONS_INVALIDATED,
+                    AccountContextDto::from(&ctx),
+                );
             }
             if !changed.is_empty() || !removed.is_empty() {
                 sync_unread(&app, &ctx);
@@ -1227,7 +1433,9 @@ pub fn adapter_push_display(
         DisplayDelta::Messages { changed, .. } => {
             let account = AccountContextDto::from(&ctx);
             for message in &changed {
-                lock(&m.receive).note(&ctx, |c| c.main_emit_attempts = diagnostic_count(c.main_emit_attempts, 1));
+                lock(&m.receive).note(&ctx, |c| {
+                    c.main_emit_attempts = diagnostic_count(c.main_emit_attempts, 1)
+                });
                 events::to_main(
                     &app,
                     events::IM_MESSAGE_NEW,
@@ -1237,6 +1445,17 @@ pub fn adapter_push_display(
                     },
                 );
             }
+        }
+        DisplayDelta::MessageReadStatuses { gid, items } => {
+            events::to_main(
+                &app,
+                events::IM_MESSAGE_READ_STATUSES,
+                serde_json::json!({
+                    "account": AccountContextDto::from(&ctx),
+                    "gid": gid,
+                    "items": items,
+                }),
+            );
         }
         DisplayDelta::AgentStatus(_) => unreachable!("agent status uses ordered host transaction"),
         DisplayDelta::Transport(t) => {
@@ -1373,7 +1592,15 @@ pub async fn im_outbound_lookup(
     guard(&state, webview.label(), "im_outbound_lookup")?;
     let ctx: AccountContext = account.into();
     state.lock().accounts.validate(&ctx).map_err(e2dto)?;
-    let result = forward(&app, &ctx, "im.outbound_lookup", serde_json::json!({ "gid": gid }), READ_TIMEOUT).await.map_err(e2dto)?;
+    let result = forward(
+        &app,
+        &ctx,
+        "im.outbound_lookup",
+        serde_json::json!({ "gid": gid }),
+        READ_TIMEOUT,
+    )
+    .await
+    .map_err(e2dto)?;
     state.lock().accounts.validate(&ctx).map_err(e2dto)?;
     Ok(result)
 }
@@ -1446,6 +1673,103 @@ pub async fn im_message_page(
     lock(&m.display)
         .merge_thread(&ctx, &gid, page.items.clone())
         .map_err(e2dto)?;
+    Ok(page)
+}
+
+const MAX_TRANSLATE_IDS: usize = 20;
+const MAX_TRANSLATION_CHARS: usize = 20_000;
+
+/// Keeps only answers to the requested IDs; a translation exists only on `translated`.
+fn accepted_translations(
+    requested: &[String],
+    mut page: display::UiMessageTranslationsDto,
+) -> display::UiMessageTranslationsDto {
+    page.items.retain(|item| {
+        requested.contains(&item.message_id)
+            && matches!(
+                item.status.as_str(),
+                "translated" | "not_needed" | "missing" | "unsupported"
+            )
+            && (item.status == "translated")
+                == item.translation.as_deref().is_some_and(|text| {
+                    !text.trim().is_empty() && text.chars().count() <= MAX_TRANSLATION_CHARS
+                })
+    });
+    page
+}
+
+/// One line per answer that did not plainly translate everything. The page's
+/// values are counted or matched against fixed names, so nothing it says can
+/// reach the log, and neither message text nor message IDs are written.
+fn translation_answer_log(
+    page: &display::UiMessageTranslationsDto,
+    requested: usize,
+    echoes: usize,
+) -> Option<String> {
+    let status = |name: &str| page.items.iter().filter(|i| i.status == name).count();
+    let reason = |name: &str| {
+        page.items
+            .iter()
+            .filter(|i| i.reason.as_deref() == Some(name))
+            .count()
+    };
+    let (translated, flagged) = (status("translated"), reason("flagged"));
+    if translated == requested && echoes == 0 && flagged == 0 {
+        return None;
+    }
+    let session = page
+        .session_tag
+        .as_deref()
+        .filter(|tag| tag.len() == 8 && tag.bytes().all(|b| b.is_ascii_hexdigit()))
+        .unwrap_or("-");
+    Some(format!(
+        "im_translate_messages: requested={requested} translated={translated} echoes={echoes} not_needed={} missing={} unsupported={} flagged={flagged} card={} blank={} no_row={} option_off={} session={session}",
+        status("not_needed"),
+        status("missing"),
+        status("unsupported"),
+        reason("card"),
+        reason("blank"),
+        reason("no_row"),
+        reason("option_off"),
+    ))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_translate_messages(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    message_ids: Vec<String>,
+) -> CmdResult<display::UiMessageTranslationsDto> {
+    guard(&state, webview.label(), "im_translate_messages")?;
+    let ctx = read_account(&state, account)?;
+    if gid.is_empty()
+        || message_ids.is_empty()
+        || message_ids.len() > MAX_TRANSLATE_IDS
+        || message_ids.iter().any(|id| id.trim().is_empty())
+    {
+        return Err(e2dto(AppError::new(
+            "im.invalid_translate",
+            "gid and 1-20 message ids are required",
+        )));
+    }
+    let m = module(&app).map_err(e2dto)?;
+    let args = serde_json::json!({ "gid": gid, "message_ids": message_ids });
+    let page: display::UiMessageTranslationsDto =
+        forward(&app, &ctx, "im.translate_messages", args, READ_TIMEOUT)
+            .await
+            .inspect_err(|e| log::info!("im_translate_messages failed: {}", e.code))
+            .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    let page = accepted_translations(&message_ids, page);
+    let echoes = lock(&m.display)
+        .set_translations(&ctx, &gid, &page.items)
+        .map_err(e2dto)?;
+    if let Some(line) = translation_answer_log(&page, message_ids.len(), echoes) {
+        log::info!("{line}");
+    }
     Ok(page)
 }
 
@@ -1608,6 +1932,112 @@ pub async fn im_customer_scripts(
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub async fn im_quick_reply_categories(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    r#type: display::QuickReplyCategoryTypeDto,
+) -> CmdResult<Value> {
+    guard(&state, webview.label(), "im_quick_reply_categories")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let result = forward(
+        &app,
+        &ctx,
+        "im.quick_reply_categories",
+        serde_json::json!({"type": r#type}),
+        READ_TIMEOUT,
+    )
+    .await
+    .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(result)
+}
+
+fn recommend_products_args(
+    gid: &str,
+    query: &str,
+    departure_city_id: Option<i64>,
+    destination_city_id: Option<i64>,
+    page_index: u32,
+) -> Result<Value, AppError> {
+    // The official picker uses -1 for "all cities". City IDs cross a JS
+    // number boundary, so reject values that cannot retain integer precision.
+    const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+    if [departure_city_id, destination_city_id]
+        .into_iter()
+        .flatten()
+        .any(|id| !(-1..=MAX_SAFE_INTEGER).contains(&id))
+    {
+        return Err(AppError::new(
+            "im.invalid_city_id",
+            "city ID must be -1 or a nonnegative safe integer",
+        ));
+    }
+    let mut args = serde_json::json!({"gid": gid, "query": query, "page_index": page_index});
+    if let Some(id) = departure_city_id {
+        args["departure_city_id"] = serde_json::json!(id);
+    }
+    if let Some(id) = destination_city_id {
+        args["destination_city_id"] = serde_json::json!(id);
+    }
+    Ok(args)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)]
+pub async fn im_recommend_products(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    query: String,
+    departure_city_id: Option<i64>,
+    destination_city_id: Option<i64>,
+    page_index: u32,
+) -> CmdResult<Value> {
+    guard(&state, webview.label(), "im_recommend_products")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let args = recommend_products_args(
+        &gid,
+        &query,
+        departure_city_id,
+        destination_city_id,
+        page_index,
+    )
+    .map_err(e2dto)?;
+    let result = forward(&app, &ctx, "im.recommend_products", args, READ_TIMEOUT)
+        .await
+        .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(result)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_recommend_cities(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    query: String,
+) -> CmdResult<Value> {
+    guard(&state, webview.label(), "im_recommend_cities")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let result = forward(
+        &app,
+        &ctx,
+        "im.recommend_cities",
+        serde_json::json!({"query": query}),
+        READ_TIMEOUT,
+    )
+    .await
+    .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(result)
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub async fn im_members(
     app: AppHandle,
     webview: Webview,
@@ -1631,6 +2061,7 @@ pub async fn im_members(
 }
 
 #[tauri::command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)] // Tauri injects app/window/state alongside the wire arguments.
 pub async fn im_invite_candidates(
     app: AppHandle,
     webview: Webview,
@@ -1638,12 +2069,20 @@ pub async fn im_invite_candidates(
     account: AccountContextDto,
     gid: String,
     parent_skill_group_ids: Option<Vec<u64>>,
+    keywords: Option<String>,
+    extend_token: Option<String>,
 ) -> CmdResult<display::UiInviteCandidatesDto> {
     guard(&state, webview.label(), "im_invite_candidates")?;
     let ctx = ui_account(&app, &state, account)?;
     let mut args = serde_json::json!({"gid": gid});
     if let Some(ids) = parent_skill_group_ids {
         args["parent_skill_group_ids"] = serde_json::json!(ids);
+    }
+    if let Some(words) = keywords {
+        args["keywords"] = serde_json::json!(words);
+    }
+    if let Some(token) = extend_token {
+        args["extend_token"] = serde_json::json!(token);
     }
     let result = forward(&app, &ctx, "im.invite_candidates", args, READ_TIMEOUT)
         .await
@@ -1679,7 +2118,32 @@ fn peripheral_write_outcome(
     }
 }
 
-/// All three production commands cross this durable admission boundary before
+fn peripheral_request(intent: &peripheral_journal::Intent) -> (&'static str, Value) {
+    match intent.action {
+        peripheral_journal::Action::Invite => (
+            "im.invite",
+            serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token, "target_uids": intent.targets }),
+        ),
+        peripheral_journal::Action::Transfer => (
+            "im.transfer",
+            serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token, "target_uid": intent.targets.first() }),
+        ),
+        peripheral_journal::Action::Finish => (
+            "im.finish",
+            serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token }),
+        ),
+        peripheral_journal::Action::Remove => (
+            "im.remove",
+            serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token, "target_uids": intent.targets }),
+        ),
+        peripheral_journal::Action::ProductCard => (
+            "im.send_product_card",
+            serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token, "product_id": intent.targets.first() }),
+        ),
+    }
+}
+
+/// Peripheral write commands cross this durable admission boundary before
 /// emitting an RPC. A fresh selection token never clears an uncertain room /
 /// action / targets barrier, including after page or account-generation changes.
 async fn request_peripheral_once(
@@ -1690,18 +2154,46 @@ async fn request_peripheral_once(
 ) -> Result<display::UiPeripheralWriteDto, AppError> {
     let module = module(app)?;
     let journal = module.peripheral.as_ref().ok_or_else(|| {
-        AppError::new("im.peripheral_journal_unavailable", "durable peripheral storage unavailable; nothing submitted")
+        AppError::new(
+            "im.peripheral_journal_unavailable",
+            "durable peripheral storage unavailable; nothing submitted",
+        )
     })?;
     peripheral_journal::dispatch_once(journal, ctx, intent, || async {
-        let (op, args) = match intent.action {
-            peripheral_journal::Action::Invite => ("im.invite", serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token, "target_uids": intent.targets })),
-            peripheral_journal::Action::Transfer => ("im.transfer", serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token, "target_uid": intent.targets.first() })),
-            peripheral_journal::Action::Finish => ("im.finish", serde_json::json!({ "gid": intent.gid, "selection_token": intent.selection_token })),
-        };
+        let (op, args) = peripheral_request(intent);
         let result = request_inner(app, ctx, op, args, WRITE_TIMEOUT).await;
         state.lock().accounts.validate(ctx)?;
         peripheral_write_outcome(result)
-    }).await
+    })
+    .await
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_send_product_card(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    selection_token: String,
+    product_id: String,
+) -> CmdResult<display::UiPeripheralWriteDto> {
+    guard(&state, webview.label(), "im_send_product_card")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let result = request_peripheral_once(
+        &app,
+        &state,
+        &ctx,
+        &peripheral_journal::Intent {
+            gid,
+            action: peripheral_journal::Action::ProductCard,
+            targets: vec![product_id],
+            selection_token,
+        },
+    )
+    .await;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    result.map_err(e2dto)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1716,7 +2208,18 @@ pub async fn im_invite(
 ) -> CmdResult<display::UiPeripheralWriteDto> {
     guard(&state, webview.label(), "im_invite")?;
     let ctx = ui_account(&app, &state, account)?;
-    let result = request_peripheral_once(&app, &state, &ctx, &peripheral_journal::Intent { gid, action: peripheral_journal::Action::Invite, targets: target_uids, selection_token }).await;
+    let result = request_peripheral_once(
+        &app,
+        &state,
+        &ctx,
+        &peripheral_journal::Intent {
+            gid,
+            action: peripheral_journal::Action::Invite,
+            targets: target_uids,
+            selection_token,
+        },
+    )
+    .await;
     state.lock().accounts.validate(&ctx).map_err(e2dto)?;
     result.map_err(e2dto)
 }
@@ -1733,7 +2236,18 @@ pub async fn im_transfer(
 ) -> CmdResult<display::UiPeripheralWriteDto> {
     guard(&state, webview.label(), "im_transfer")?;
     let ctx = ui_account(&app, &state, account)?;
-    let result = request_peripheral_once(&app, &state, &ctx, &peripheral_journal::Intent { gid, action: peripheral_journal::Action::Transfer, targets: vec![target_uid], selection_token }).await;
+    let result = request_peripheral_once(
+        &app,
+        &state,
+        &ctx,
+        &peripheral_journal::Intent {
+            gid,
+            action: peripheral_journal::Action::Transfer,
+            targets: vec![target_uid],
+            selection_token,
+        },
+    )
+    .await;
     state.lock().accounts.validate(&ctx).map_err(e2dto)?;
     result.map_err(e2dto)
 }
@@ -1749,7 +2263,48 @@ pub async fn im_finish(
 ) -> CmdResult<display::UiPeripheralWriteDto> {
     guard(&state, webview.label(), "im_finish")?;
     let ctx = ui_account(&app, &state, account)?;
-    let result = request_peripheral_once(&app, &state, &ctx, &peripheral_journal::Intent { gid, action: peripheral_journal::Action::Finish, targets: vec![], selection_token }).await;
+    let result = request_peripheral_once(
+        &app,
+        &state,
+        &ctx,
+        &peripheral_journal::Intent {
+            gid,
+            action: peripheral_journal::Action::Finish,
+            targets: vec![],
+            selection_token,
+        },
+    )
+    .await;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    result.map_err(e2dto)
+}
+
+/// Official「移除成员」. Separate command and barrier from im_finish so an empty
+/// or lost target list can never degrade into ending the conversation.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_remove(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    selection_token: String,
+    target_uids: Vec<String>,
+) -> CmdResult<display::UiPeripheralWriteDto> {
+    guard(&state, webview.label(), "im_remove")?;
+    let ctx = ui_account(&app, &state, account)?;
+    let result = request_peripheral_once(
+        &app,
+        &state,
+        &ctx,
+        &peripheral_journal::Intent {
+            gid,
+            action: peripheral_journal::Action::Remove,
+            targets: target_uids,
+            selection_token,
+        },
+    )
+    .await;
     state.lock().accounts.validate(&ctx).map_err(e2dto)?;
     result.map_err(e2dto)
 }
@@ -1777,14 +2332,7 @@ pub async fn notice_categories(
             let _ = lock(&m.display).set_notice_categories(&ctx, items.clone());
             Ok(items)
         }
-        Err(e) => {
-            let cached = lock(&m.display).notice_categories(&ctx);
-            if cached.is_empty() {
-                Err(e2dto(e))
-            } else {
-                Ok(cached)
-            }
-        }
+        Err(e) => Err(e2dto(e)),
     }
 }
 
@@ -1807,6 +2355,7 @@ pub async fn notice_list(
     state: State<'_, HostState>,
     account: AccountContextDto,
     category_id: String,
+    before_ms: Option<i64>,
 ) -> CmdResult<Vec<UiNoticeDto>> {
     guard(&state, webview.label(), "notice_list")?;
     let ctx = ui_account(&app, &state, account)?;
@@ -1814,7 +2363,7 @@ pub async fn notice_list(
         &app,
         &ctx,
         "notice.list",
-        serde_json::json!({ "category_id": category_id }),
+        serde_json::json!({ "category_id": category_id, "before_ms": before_ms }),
         READ_TIMEOUT,
     )
     .await
@@ -1898,22 +2447,63 @@ pub async fn order_create_im_chat(
 }
 
 const DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(2);
-async fn diagnostics_if_requested<F, Fut>(include: bool, has_account: bool, host: Option<display::HostReceiveDiagnosticsDto>, request: F) -> Option<display::ReceiveDiagnosticsDto>
-where F: FnOnce() -> Fut, Fut: std::future::Future<Output = Result<Value, RequestFailure>> {
-    if !include { return None; }
-    let captured_at_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-    let mut result = display::ReceiveDiagnosticsDto { version: 1, captured_at_ms, availability: display::DiagnosticAvailability::NoAccount, page: None, host };
+async fn diagnostics_if_requested<F, Fut>(
+    include: bool,
+    has_account: bool,
+    host: Option<display::HostReceiveDiagnosticsDto>,
+    request: F,
+) -> Option<display::ReceiveDiagnosticsDto>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Value, RequestFailure>>,
+{
+    if !include {
+        return None;
+    }
+    let captured_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let mut result = display::ReceiveDiagnosticsDto {
+        version: 1,
+        captured_at_ms,
+        availability: display::DiagnosticAvailability::NoAccount,
+        page: None,
+        host,
+    };
     if has_account {
         match request().await {
-            Ok(value) => { result.page = display::PageReceiveDiagnosticsDto::decode(value); result.availability = if result.page.is_some() { display::DiagnosticAvailability::Ready } else { display::DiagnosticAvailability::Invalid }; }
-            Err(f) => { result.availability = if f.error.code == codes::ADAPTER_TIMEOUT { display::DiagnosticAvailability::Timeout } else { display::DiagnosticAvailability::Unavailable }; }
+            Ok(value) => {
+                result.page = display::PageReceiveDiagnosticsDto::decode(value);
+                result.availability = if result.page.is_some() {
+                    display::DiagnosticAvailability::Ready
+                } else {
+                    display::DiagnosticAvailability::Invalid
+                };
+            }
+            Err(f) => {
+                result.availability = if f.error.code == codes::ADAPTER_TIMEOUT {
+                    display::DiagnosticAvailability::Timeout
+                } else {
+                    display::DiagnosticAvailability::Unavailable
+                };
+            }
         }
     }
     Some(result)
 }
-fn bind_diagnostic_result(diagnostics: &mut Option<display::ReceiveDiagnosticsDto>, requested: Option<&AccountContext>, focus: Option<&AccountContext>, valid: bool) {
+fn bind_diagnostic_result(
+    diagnostics: &mut Option<display::ReceiveDiagnosticsDto>,
+    requested: Option<&AccountContext>,
+    focus: Option<&AccountContext>,
+    valid: bool,
+) {
     if requested.is_some() && (!valid || requested != focus) {
-        if let Some(diag) = diagnostics { diag.availability = display::DiagnosticAvailability::Unavailable; diag.page = None; diag.host = None; }
+        if let Some(diag) = diagnostics {
+            diag.availability = display::DiagnosticAvailability::Unavailable;
+            diag.page = None;
+            diag.host = None;
+        }
     }
 }
 fn diagnostic_account(state: &HostState, account: AccountContextDto) -> Option<AccountContext> {
@@ -1935,34 +2525,69 @@ pub async fn net_status(
     let include = include_diagnostics == Some(true);
     let provided = account.is_some();
     // Explicit diagnostics never borrow another account from the focus cache.
-    let current = if include { account.and_then(|account| diagnostic_account(&state, account)) } else { None };
+    let current = if include {
+        account.and_then(|account| diagnostic_account(&state, account))
+    } else {
+        None
+    };
     let focus = lock(&m.focus).clone();
     let status = {
         let cache = lock(&m.display);
-        if let Some(ctx) = &focus { cache.transport(ctx).map(UiNetStatusDto::from).unwrap_or_else(UiNetStatusDto::offline) }
-        else {
+        if let Some(ctx) = &focus {
+            cache
+                .transport(ctx)
+                .map(UiNetStatusDto::from)
+                .unwrap_or_else(UiNetStatusDto::offline)
+        } else {
             let all = cache.transports();
-            let best = all.iter().find(|t| t.3 == display::TransportDto::Connected).or_else(|| all.first());
-            best.map(|t| UiNetStatusDto::from(t.3)).unwrap_or_else(UiNetStatusDto::offline)
+            let best = all
+                .iter()
+                .find(|t| t.3 == display::TransportDto::Connected)
+                .or_else(|| all.first());
+            best.map(|t| UiNetStatusDto::from(t.3))
+                .unwrap_or_else(UiNetStatusDto::offline)
         }
     };
     let mut diagnostics = diagnostics_if_requested(include, current.is_some(), None, || async {
         let ctx = current.as_ref().expect("only called with validated focus");
-        request_inner(&app, ctx, "adapter.diagnostics", serde_json::json!({}), DIAGNOSTIC_TIMEOUT).await
-    }).await;
+        request_inner(
+            &app,
+            ctx,
+            "adapter.diagnostics",
+            serde_json::json!({}),
+            DIAGNOSTIC_TIMEOUT,
+        )
+        .await
+    })
+    .await;
     // Sample host counters after the page reply so an already-resolved page
     // display invoke cannot be paired with a stale pre-request host snapshot.
     if let Some(diag) = &mut diagnostics {
         diag.host = current.as_ref().map(|ctx| lock(&m.receive).snapshot(ctx));
-        diag.captured_at_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        diag.captured_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
     }
     // A result from a replaced account generation is never shown in its successor.
     if include && provided && current.is_none() {
-        if let Some(diag) = &mut diagnostics { diag.availability = display::DiagnosticAvailability::Unavailable; }
+        if let Some(diag) = &mut diagnostics {
+            diag.availability = display::DiagnosticAvailability::Unavailable;
+        }
     }
-    let valid = current.as_ref().is_some_and(|ctx| state.lock().accounts.validate(ctx).is_ok());
-    bind_diagnostic_result(&mut diagnostics, current.as_ref(), lock(&m.focus).as_ref(), valid);
-    Ok(display::NetStatusResult { status, diagnostics })
+    let valid = current
+        .as_ref()
+        .is_some_and(|ctx| state.lock().accounts.validate(ctx).is_ok());
+    bind_diagnostic_result(
+        &mut diagnostics,
+        current.as_ref(),
+        lock(&m.focus).as_ref(),
+        valid,
+    );
+    Ok(display::NetStatusResult {
+        status,
+        diagnostics,
+    })
 }
 
 // ------------------------------------------------------------------
@@ -1971,16 +2596,26 @@ pub async fn net_status(
 /// Initialization script injected into every `acct-*` webview (the bundled
 /// `ui/bundle/adapter/boot.js`, read from the embedded assets).
 pub fn boot_script(app: &AppHandle) -> String {
-    match app.asset_resolver().get(BOOT_SCRIPT_ASSET.to_string()) {
+    bundled_script(app, BOOT_SCRIPT_ASSET)
+}
+
+/// Initialization script of the built-in browser's tabs: only stops the official
+/// page's tones from reaching the OS media session (`web-adapter/silence-tones.ts`).
+pub fn tone_silencer_script(app: &AppHandle) -> String {
+    bundled_script(app, TONE_SILENCER_ASSET)
+}
+
+fn bundled_script(app: &AppHandle, asset_path: &str) -> String {
+    match app.asset_resolver().get(asset_path.to_string()) {
         Some(asset) => match String::from_utf8(asset.bytes().to_vec()) {
             Ok(s) => s,
-            Err(_) => missing_boot_script("adapter/boot.js is not UTF-8"),
+            Err(_) => missing_script(&format!("{asset_path} is not UTF-8")),
         },
-        None => missing_boot_script("adapter/boot.js is missing from the bundle"),
+        None => missing_script(&format!("{asset_path} is missing from the bundle")),
     }
 }
 
-fn missing_boot_script(reason: &str) -> String {
+fn missing_script(reason: &str) -> String {
     log::warn!("web adapter disabled: {reason}");
     format!(
         "console.warn({});",
@@ -2045,6 +2680,88 @@ mod tests {
 
     use super::*;
     use contracts::{AccountId, Environment};
+
+    #[test]
+    fn translation_answers_are_limited_to_requested_ids_and_consistent_states() {
+        let item =
+            |id: &str, status: &str, translation: Option<&str>| display::UiMessageTranslationDto {
+                message_id: id.into(),
+                status: status.into(),
+                translation: translation.map(str::to_string),
+                source_kind: None,
+                reason: None,
+            };
+        let requested = vec![
+            "ok".to_string(),
+            "none".to_string(),
+            "bad".to_string(),
+            "blank".to_string(),
+            "leak".to_string(),
+            "long".to_string(),
+        ];
+        let long = "字".repeat(MAX_TRANSLATION_CHARS + 1);
+        let page = display::UiMessageTranslationsDto {
+            items: vec![
+                item("ok", "translated", Some("您好")),
+                item("none", "not_needed", None),
+                item("bad", "weird", None),
+                item("blank", "translated", Some("  ")),
+                item("leak", "not_needed", Some("不应出现")),
+                item("long", "translated", Some(&long)),
+                item("other", "translated", Some("未请求")),
+            ],
+            supplier: None,
+            session_tag: None,
+        };
+        let kept: Vec<String> = accepted_translations(&requested, page)
+            .items
+            .into_iter()
+            .map(|i| i.message_id)
+            .collect();
+        assert_eq!(kept, ["ok", "none"]);
+    }
+
+    #[test]
+    fn translation_answer_log_counts_only_and_ignores_page_supplied_text() {
+        let item = |status: &str, reason: Option<&str>| display::UiMessageTranslationDto {
+            message_id: "secret-id".into(),
+            status: status.into(),
+            translation: Some("secret-body".into()),
+            source_kind: None,
+            reason: reason.map(str::to_string),
+        };
+        let page = |items, session_tag: Option<&str>| display::UiMessageTranslationsDto {
+            items,
+            supplier: None,
+            session_tag: session_tag.map(str::to_string),
+        };
+        assert_eq!(
+            translation_answer_log(&page(vec![item("translated", None)], None), 1, 0),
+            None,
+            "a plain success is not logged"
+        );
+        let line = translation_answer_log(
+            &page(
+                vec![
+                    item("translated", Some("flagged")),
+                    item("missing", Some("secret-reason")),
+                ],
+                Some("abcd1234"),
+            ),
+            2,
+            1,
+        )
+        .expect("logged");
+        assert_eq!(line, "im_translate_messages: requested=2 translated=1 echoes=1 not_needed=0 missing=1 unsupported=0 flagged=1 card=0 blank=0 no_row=0 option_off=0 session=abcd1234");
+        let hostile = translation_answer_log(
+            &page(vec![item("missing", None)], Some("secret-session")),
+            1,
+            0,
+        )
+        .expect("logged");
+        assert!(hostile.ends_with("session=-"));
+        assert!(!hostile.contains("secret"));
+    }
 
     fn ctx(id: &str, gen: u64) -> AccountContext {
         AccountContext::new(AccountId::new(id), Environment::production(), gen)
@@ -2179,12 +2896,14 @@ mod peripheral_tests {
     fn explicit_page_not_submitted_survives_but_inconsistent_confirmation_stays_unknown() {
         let result = peripheral_write_outcome(Ok(serde_json::json!({
             "kind": "not_submitted", "confirmed": false, "reason": "missing real key"
-        }))).expect("trusted page stage disposition");
+        })))
+        .expect("trusted page stage disposition");
         assert!(matches!(result.kind, PeripheralWriteKindDto::NotSubmitted));
         assert!(!result.confirmed);
         let bad = peripheral_write_outcome(Ok(serde_json::json!({
             "kind": "not_submitted", "confirmed": true
-        }))).expect("inconsistent reply cannot release no-replay fence");
+        })))
+        .expect("inconsistent reply cannot release no-replay fence");
         assert!(matches!(bad.kind, PeripheralWriteKindDto::Unknown));
         assert!(!bad.confirmed);
     }
@@ -2237,8 +2956,91 @@ mod peripheral_tests {
     }
 
     #[test]
+    fn recommend_products_default_all_city_ids_deserialize_and_forward_as_minus_one() {
+        let input = serde_json::json!({"departure_city_id": -1, "destination_city_id": -1});
+        let departure =
+            serde_json::from_value::<Option<i64>>(input["departure_city_id"].clone()).unwrap();
+        let destination =
+            serde_json::from_value::<Option<i64>>(input["destination_city_id"].clone()).unwrap();
+        let args =
+            recommend_products_args("synthetic-room", "", departure, destination, 0).unwrap();
+        assert_eq!(
+            args,
+            serde_json::json!({
+                "gid": "synthetic-room", "query": "", "page_index": 0,
+                "departure_city_id": -1, "destination_city_id": -1
+            })
+        );
+        let omitted = recommend_products_args("synthetic-room", "", None, None, 0).unwrap();
+        assert!(omitted.get("departure_city_id").is_none());
+        assert!(omitted.get("destination_city_id").is_none());
+    }
+
+    #[test]
+    fn recommend_products_city_ids_reject_invalid_range_without_forwarding() {
+        for id in [-2, i64::MIN, 9_007_199_254_740_992, i64::MAX] {
+            assert!(recommend_products_args("synthetic-room", "", Some(id), Some(-1), 0).is_err());
+            assert!(recommend_products_args("synthetic-room", "", Some(-1), Some(id), 0).is_err());
+        }
+        for id in [-1, 0, 1, 9_007_199_254_740_991] {
+            let args =
+                recommend_products_args("synthetic-room", "city", Some(id), Some(id), 0).unwrap();
+            assert_eq!(args["departure_city_id"], serde_json::json!(id));
+            assert_eq!(args["destination_city_id"], serde_json::json!(id));
+        }
+        assert!(serde_json::from_value::<Option<i64>>(serde_json::json!(1.5)).is_err());
+    }
+
+    #[test]
+    fn product_card_request_forwards_only_the_authorized_selection_and_product() {
+        let intent = peripheral_journal::Intent {
+            gid: "synthetic-room".into(),
+            action: peripheral_journal::Action::ProductCard,
+            targets: vec!["900719925474099312345".into()],
+            selection_token: "synthetic-selection".into(),
+        };
+        let (op, args) = peripheral_request(&intent);
+        assert_eq!(op, "im.send_product_card");
+        assert_eq!(
+            args,
+            serde_json::json!({
+                "gid": "synthetic-room",
+                "selection_token": "synthetic-selection",
+                "product_id": "900719925474099312345"
+            })
+        );
+    }
+
+    #[test]
+    fn quick_reply_dto_preserves_ready_items_and_legacy_empty_unsupported() {
+        let ready = serde_json::json!({"kind":"ready", "raw_count":1, "items":[{
+            "id":"900719925474099312345", "content":"Synthetic response",
+            "short_cut":"/synthetic", "type":"VAGENT"
+        }]});
+        let dto: display::UiCustomerScriptsDto = serde_json::from_value(ready.clone()).unwrap();
+        assert!(matches!(dto.kind, display::CustomerScriptsKindDto::Ready));
+        assert_eq!(serde_json::to_value(dto).unwrap(), ready);
+        for kind in ["empty", "unsupported"] {
+            let dto: display::UiCustomerScriptsDto =
+                serde_json::from_value(serde_json::json!({"kind":kind, "raw_count":0})).unwrap();
+            assert!(dto.items.is_empty());
+        }
+        for kind in ["VAGENT", "VSKILLGROUP"] {
+            let dto: display::QuickReplyCategoryTypeDto =
+                serde_json::from_value(serde_json::json!(kind)).unwrap();
+            assert_eq!(serde_json::to_value(dto).unwrap(), serde_json::json!(kind));
+        }
+        assert!(
+            serde_json::from_value::<display::QuickReplyCategoryTypeDto>(serde_json::json!(
+                "unknown"
+            ))
+            .is_err()
+        );
+    }
+
+    #[test]
     fn peripheral_member_ids_preserve_string_precision_and_require_eligibility() {
-        let value = serde_json::json!({"members": [{"uid": "900719925474099312345", "nickname": null, "avatar": null, "status": "1", "roles": [0,3,4], "can_transfer": true}], "fetched_at_ms": 1700000000000i64, "selection_token": "selection", "expires_at_ms": 1700000030000i64});
+        let value = serde_json::json!({"members": [{"uid": "900719925474099312345", "nickname": null, "avatar": null, "status": "1", "roles": [0,3,4], "role": "agent", "present": true, "is_self": false, "can_transfer": true, "can_remove": true}], "self_is_master": true, "fetched_at_ms": 1700000000000i64, "selection_token": "selection", "expires_at_ms": 1700000030000i64});
         let dto: display::UiMembersDto = serde_json::from_value(value.clone()).expect("members");
         assert_eq!(dto.members[0].uid, "900719925474099312345");
         assert_eq!(serde_json::to_value(dto).unwrap(), value);
@@ -2251,75 +3053,134 @@ mod peripheral_tests {
 mod receive_diagnostic_tests {
     use super::*;
     use contracts::{AccountId, Environment};
-    fn ctx(gen: u64) -> AccountContext { AccountContext::new(AccountId::new("synthetic"), Environment::production(), gen) }
-    fn payload(gid: &str, message_gid: &str) -> DisplayPayload { serde_json::from_value(serde_json::json!({
+    fn ctx(gen: u64) -> AccountContext {
+        AccountContext::new(AccountId::new("synthetic"), Environment::production(), gen)
+    }
+    fn payload(gid: &str, message_gid: &str) -> DisplayPayload {
+        serde_json::from_value(serde_json::json!({
         "kind":"messages", "gid":gid, "replace":false, "items":[{
             "gid":message_gid,"message_id":"synthetic-id","local_id":null,"create_time_ms":1700000000000u64,
             "sender_role":"customer","kind":"text","text":"synthetic private body","translation":null,"original":null,"quote":null,"order_id":null,"disposition":null
         }]
-    })).unwrap() }
+    })).unwrap()
+    }
 
     #[test]
-    fn actual_display_apply_boundary_counts_decode_mapping_rejection_and_changes_per_account_generation() {
+    fn actual_display_apply_boundary_counts_decode_mapping_rejection_and_changes_per_account_generation(
+    ) {
         let m = AdapterState::new(PinnedTable::default());
-        assert!(apply_display_diagnosed(&m, &ctx(1), Err(AppError::new("adapter.invalid_payload", "synthetic private error"))).is_err());
+        assert!(apply_display_diagnosed(
+            &m,
+            &ctx(1),
+            Err(AppError::new(
+                "adapter.invalid_payload",
+                "synthetic private error"
+            ))
+        )
+        .is_err());
         assert!(apply_display_diagnosed(&m, &ctx(1), Ok(payload("room-a", "room-b"))).is_err());
         assert!(apply_display_diagnosed(&m, &ctx(1), Ok(payload("room-a", "room-a"))).is_ok());
         let counters = lock(&m.receive).snapshot(&ctx(1));
-        assert_eq!(counters.display_entered, 3); assert_eq!(counters.display_decode_rejected, 1); assert_eq!(counters.display_apply_rejected, 1);
-        assert_eq!(counters.message_items, 2); assert_eq!(counters.changed_messages, 1);
+        assert_eq!(counters.display_entered, 3);
+        assert_eq!(counters.display_decode_rejected, 1);
+        assert_eq!(counters.display_apply_rejected, 1);
+        assert_eq!(counters.message_items, 2);
+        assert_eq!(counters.changed_messages, 1);
         assert_eq!(lock(&m.receive).snapshot(&ctx(2)).display_entered, 0);
         let other = AccountContext::new(AccountId::new("other"), Environment::production(), 1);
         assert_eq!(lock(&m.receive).snapshot(&other).display_entered, 0);
         let encoded = serde_json::to_string(&counters).unwrap();
-        for value in ["synthetic", "room-a", "private", "text", "message_id"] { assert!(!encoded.contains(value)); }
+        for value in ["synthetic", "room-a", "private", "text", "message_id"] {
+            assert!(!encoded.contains(value));
+        }
     }
 
-    fn page_json() -> Value { serde_json::json!({
-        "version":1,"captured_at_ms":1700000000000u64,"running":true,"run_generation":1,"sdk":null,
-        "session":{"received":0,"ui_mapped":0,"ui_dropped":0,"display_batches":0,"display_items":0,"display_resolved":0,"display_rejected":0},
-        "compensation":{"running":true,"mode":"normal","cursor_ms":1700000000000u64,"last_outcome_ms":null,"outcomes":{"success":0,"business_failure":0,"auth_invalid":0,"http_error":0,"malformed":0,"network_error":0,"timeout":0,"unknown":0},"rows":0,"mapped":0,"dropped":0}
-    }) }
+    fn page_json() -> Value {
+        serde_json::json!({
+            "version":1,"captured_at_ms":1700000000000u64,"running":true,"run_generation":1,"sdk":null,
+            "session":{"received":0,"ui_mapped":0,"ui_dropped":0,"display_batches":0,"display_items":0,"display_resolved":0,"display_rejected":0},
+            "compensation":{"running":true,"mode":"normal","cursor_ms":1700000000000u64,"last_outcome_ms":null,"outcomes":{"success":0,"business_failure":0,"auth_invalid":0,"http_error":0,"malformed":0,"network_error":0,"timeout":0,"unknown":0},"rows":0,"mapped":0,"dropped":0}
+        })
+    }
 
     #[test]
     fn page_diagnostic_schema_rejects_raw_fields_unknown_enums_and_unsafe_numbers() {
         assert!(display::PageReceiveDiagnosticsDto::decode(page_json()).is_some());
-        let mut raw = page_json(); raw["session"]["error"] = serde_json::json!("synthetic private body");
+        let mut raw = page_json();
+        raw["session"]["error"] = serde_json::json!("synthetic private body");
         assert!(display::PageReceiveDiagnosticsDto::decode(raw).is_none());
-        let mut raw = page_json(); raw["compensation"]["mode"] = serde_json::json!("synthetic-url");
+        let mut raw = page_json();
+        raw["compensation"]["mode"] = serde_json::json!("synthetic-url");
         assert!(display::PageReceiveDiagnosticsDto::decode(raw).is_none());
-        for number in [serde_json::json!(-1),serde_json::json!(1.5),serde_json::json!(9007199254740992u64)] {
-            let mut raw = page_json(); raw["session"]["received"] = number;
+        for number in [
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!(9007199254740992u64),
+        ] {
+            let mut raw = page_json();
+            raw["session"]["received"] = number;
             assert!(display::PageReceiveDiagnosticsDto::decode(raw).is_none());
         }
-        let mut raw = page_json(); raw["version"] = serde_json::json!(2);
+        let mut raw = page_json();
+        raw["version"] = serde_json::json!(2);
         assert!(display::PageReceiveDiagnosticsDto::decode(raw).is_none());
     }
 
     #[test]
-    fn diagnostics_are_explicitly_opted_in_and_failures_never_replace_cached_transport_or_echo_errors() {
+    fn diagnostics_are_explicitly_opted_in_and_failures_never_replace_cached_transport_or_echo_errors(
+    ) {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let calls = AtomicUsize::new(0);
-        let absent = tauri::async_runtime::block_on(diagnostics_if_requested(false, true, None, || async { calls.fetch_add(1, Ordering::SeqCst); Ok(page_json()) }));
-        assert!(absent.is_none()); assert_eq!(calls.load(Ordering::SeqCst), 0);
-        let no_account = tauri::async_runtime::block_on(diagnostics_if_requested(true, false, None, || async { calls.fetch_add(1, Ordering::SeqCst); Ok(page_json()) })).unwrap();
-        assert!(no_account.availability == display::DiagnosticAvailability::NoAccount); assert_eq!(calls.load(Ordering::SeqCst), 0);
-        let bad = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async { Ok(serde_json::json!({"body":"synthetic private body"})) })).unwrap();
-        assert!(bad.availability == display::DiagnosticAvailability::Invalid); assert!(bad.page.is_none());
-        let unavailable = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async { Err(RequestFailure::before_emit(AppError::new("synthetic.error", "synthetic private error"))) })).unwrap();
+        let absent =
+            tauri::async_runtime::block_on(diagnostics_if_requested(false, true, None, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(page_json())
+            }));
+        assert!(absent.is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let no_account =
+            tauri::async_runtime::block_on(diagnostics_if_requested(true, false, None, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(page_json())
+            }))
+            .unwrap();
+        assert!(no_account.availability == display::DiagnosticAvailability::NoAccount);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let bad =
+            tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async {
+                Ok(serde_json::json!({"body":"synthetic private body"}))
+            }))
+            .unwrap();
+        assert!(bad.availability == display::DiagnosticAvailability::Invalid);
+        assert!(bad.page.is_none());
+        let unavailable =
+            tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async {
+                Err(RequestFailure::before_emit(AppError::new(
+                    "synthetic.error",
+                    "synthetic private error",
+                )))
+            }))
+            .unwrap();
         assert!(unavailable.availability == display::DiagnosticAvailability::Unavailable);
-        let result = display::NetStatusResult { status: display::TransportDto::Connected.into(), diagnostics: Some(unavailable) };
-        let value = serde_json::to_value(result).unwrap(); assert_eq!(value["online"], true); assert_eq!(value["transport"], "connected");
+        let result = display::NetStatusResult {
+            status: display::TransportDto::Connected.into(),
+            diagnostics: Some(unavailable),
+        };
+        let value = serde_json::to_value(result).unwrap();
+        assert_eq!(value["online"], true);
+        assert_eq!(value["transport"], "connected");
         assert!(!value.to_string().contains("synthetic"));
     }
 
     #[test]
     fn diagnostic_rpc_timeout_uses_the_real_bounded_reply_wait_without_resetting_transport() {
         let start = std::time::Instant::now();
-        let result = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async {
-            let (_hold, rx) = oneshot::channel::<Result<Value, AppError>>();
-            await_reply(rx, DIAGNOSTIC_TIMEOUT).await
-        })).unwrap();
+        let result =
+            tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async {
+                let (_hold, rx) = oneshot::channel::<Result<Value, AppError>>();
+                await_reply(rx, DIAGNOSTIC_TIMEOUT).await
+            }))
+            .unwrap();
         assert!(result.availability == display::DiagnosticAvailability::Timeout);
         assert!(result.page.is_none());
         assert_eq!(DIAGNOSTIC_TIMEOUT, Duration::from_secs(2));
@@ -2328,13 +3189,27 @@ mod receive_diagnostic_tests {
 
     #[test]
     fn delayed_diagnostic_reply_is_scrubbed_when_account_or_generation_changes() {
-        for focus in [ctx(2), AccountContext::new(AccountId::new("other"), Environment::production(), 1)] {
-            let mut result = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, Some(display::HostReceiveDiagnosticsDto::default()), || async { Ok(page_json()) }));
+        for focus in [
+            ctx(2),
+            AccountContext::new(AccountId::new("other"), Environment::production(), 1),
+        ] {
+            let mut result = tauri::async_runtime::block_on(diagnostics_if_requested(
+                true,
+                true,
+                Some(display::HostReceiveDiagnosticsDto::default()),
+                || async { Ok(page_json()) },
+            ));
             assert!(result.as_ref().unwrap().page.is_some());
             bind_diagnostic_result(&mut result, Some(&ctx(1)), Some(&focus), true);
-            let result = result.unwrap(); assert!(result.availability == display::DiagnosticAvailability::Unavailable); assert!(result.page.is_none()); assert!(result.host.is_none());
+            let result = result.unwrap();
+            assert!(result.availability == display::DiagnosticAvailability::Unavailable);
+            assert!(result.page.is_none());
+            assert!(result.host.is_none());
         }
-        let mut result = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async { Ok(page_json()) }));
+        let mut result =
+            tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async {
+                Ok(page_json())
+            }));
         bind_diagnostic_result(&mut result, Some(&ctx(1)), Some(&ctx(1)), false);
         assert!(result.unwrap().page.is_none());
     }
@@ -2345,19 +3220,42 @@ mod receive_diagnostic_tests {
         let login = |buid: &str| {
             let mut cores = state.lock();
             let attempt = cores.accounts.start_login(Environment::production());
-            cores.accounts.publish_identity(&attempt.attempt_id, core_account::UpstreamIdentity {
-                buid: core_account::Buid::new(buid), uid: format!("synthetic-{buid}"), agent_id: None, environment: Environment::production(),
-            }).unwrap().ctx
+            cores
+                .accounts
+                .publish_identity(
+                    &attempt.attempt_id,
+                    core_account::UpstreamIdentity {
+                        buid: core_account::Buid::new(buid),
+                        uid: format!("synthetic-{buid}"),
+                        agent_id: None,
+                        environment: Environment::production(),
+                    },
+                )
+                .unwrap()
+                .ctx
         };
-        let a = login("a"); let b = login("b");
-        assert!(state.lock().accounts.validate(&a).is_ok()); assert!(state.lock().accounts.validate(&b).is_ok());
-        let m = AdapterState::new(PinnedTable::default()); *lock(&m.focus) = Some(b.clone());
-        let requested = diagnostic_account(&state, (&a).into()).expect("A is valid for a read-only diagnostic");
+        let a = login("a");
+        let b = login("b");
+        assert!(state.lock().accounts.validate(&a).is_ok());
+        assert!(state.lock().accounts.validate(&b).is_ok());
+        let m = AdapterState::new(PinnedTable::default());
+        *lock(&m.focus) = Some(b.clone());
+        let requested =
+            diagnostic_account(&state, (&a).into()).expect("A is valid for a read-only diagnostic");
         assert_eq!(requested, a);
-        assert_eq!(*lock(&m.focus), Some(b.clone()), "diagnostics must not record or restore UI focus");
-        let mut result = tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async { Ok(page_json()) }));
+        assert_eq!(
+            *lock(&m.focus),
+            Some(b.clone()),
+            "diagnostics must not record or restore UI focus"
+        );
+        let mut result =
+            tauri::async_runtime::block_on(diagnostics_if_requested(true, true, None, || async {
+                Ok(page_json())
+            }));
         bind_diagnostic_result(&mut result, Some(&requested), lock(&m.focus).as_ref(), true);
-        let result = result.unwrap(); assert!(result.availability == display::DiagnosticAvailability::Unavailable); assert!(result.page.is_none());
+        let result = result.unwrap();
+        assert!(result.availability == display::DiagnosticAvailability::Unavailable);
+        assert!(result.page.is_none());
         assert_eq!(*lock(&m.focus), Some(b));
     }
 }
@@ -2373,21 +3271,42 @@ mod history_page_read_tests {
         let login = |buid: &str| {
             let mut cores = state.lock();
             let attempt = cores.accounts.start_login(Environment::production());
-            cores.accounts.publish_identity(&attempt.attempt_id, core_account::UpstreamIdentity {
-                buid: core_account::Buid::new(buid), uid: format!("synthetic-{buid}"), agent_id: None, environment: Environment::production(),
-            }).unwrap().ctx
+            cores
+                .accounts
+                .publish_identity(
+                    &attempt.attempt_id,
+                    core_account::UpstreamIdentity {
+                        buid: core_account::Buid::new(buid),
+                        uid: format!("synthetic-{buid}"),
+                        agent_id: None,
+                        environment: Environment::production(),
+                    },
+                )
+                .unwrap()
+                .ctx
         };
-        let a = login("page-a"); let b = login("page-b");
-        let module = AdapterState::new(PinnedTable::default()); *lock(&module.focus) = Some(b.clone());
-        assert!(state.lock().accounts.validate(&a).is_ok()); assert!(state.lock().accounts.validate(&b).is_ok());
+        let a = login("page-a");
+        let b = login("page-b");
+        let module = AdapterState::new(PinnedTable::default());
+        *lock(&module.focus) = Some(b.clone());
+        assert!(state.lock().accounts.validate(&a).is_ok());
+        assert!(state.lock().accounts.validate(&b).is_ok());
         assert_eq!(read_account(&state, (&a).into()).unwrap(), a);
         assert_eq!(*lock(&module.focus), Some(b.clone()));
-        let mut stale = AccountContextDto::from(&a); stale.session_generation += 1;
-        assert!(read_account(&state, stale).is_err()); assert_eq!(*lock(&module.focus), Some(b));
+        let mut stale = AccountContextDto::from(&a);
+        stale.session_generation += 1;
+        assert!(read_account(&state, stale).is_err());
+        assert_eq!(*lock(&module.focus), Some(b));
         // Tie this behavioral proof to the actual production command, rather
         // than a duplicate test-only authorization implementation.
         let source = include_str!("adapter.rs");
-        let command = source.split("pub async fn im_message_page(").nth(1).unwrap().split("#[tauri::command").next().unwrap();
+        let command = source
+            .split("pub async fn im_message_page(")
+            .nth(1)
+            .unwrap()
+            .split("#[tauri::command")
+            .next()
+            .unwrap();
         assert!(command.contains("read_account(&state, account)?"));
         assert!(!command.contains("ui_account("));
         let after_await = command.split(".await").nth(1).unwrap();
@@ -2407,7 +3326,8 @@ mod outbound_lookup_tests {
         assert_eq!(returned["items"][0].as_object().unwrap().len(), 4);
         assert!(!returned.to_string().contains("PRIVATE"));
         assert!(!returned.to_string().contains("private"));
-        let mut numeric = raw; numeric["items"][0]["message_id"] = serde_json::json!(9007199254740992_u64);
+        let mut numeric = raw;
+        numeric["items"][0]["message_id"] = serde_json::json!(9007199254740992_u64);
         assert!(serde_json::from_value::<OutboundLookupDto>(numeric).is_err());
     }
 }

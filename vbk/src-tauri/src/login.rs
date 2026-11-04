@@ -27,6 +27,7 @@ pub(crate) mod profiles;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -91,9 +92,14 @@ enum Binding {
 #[derive(Debug, Clone)]
 struct AttemptRec {
     profile_id: String,
+    /// Concrete runtime window owned by this attempt, never resolved by label.
+    login_window: Option<Window>,
     /// The login page reached a non-login page and a hidden candidate
     /// account webview is waiting for the identity.
     candidate: bool,
+    /// Cookie import owns this attempt until the complete store is verified.
+    importing: bool,
+    browser_imported: bool,
 }
 
 /// Host-side display metadata of an account (no secret, no customer data).
@@ -122,17 +128,74 @@ struct Inner {
     validating: HashSet<String>,
     unread: HashMap<String, u32>,
     active: Option<String>,
-    /// `webview-*` windows opened per account.
-    extra_views: HashMap<String, Vec<String>>,
-    view_seq: u64,
 }
 
 pub struct LoginState {
     inner: Mutex<Inner>,
+    // Acquired before taking either state lock; held through the atomic rename.
+    persist_lock: Mutex<()>,
+    // Serializes the complete check/create/open sequence for new attempts.
+    start_lock: Mutex<()>,
+    // start_lock (when needed) -> lifecycle_lock -> HostState -> inner.
+    // Never hold lifecycle_lock while opening/destroying native windows.
+    lifecycle_lock: Mutex<()>,
+    restoring: AtomicBool,
+    // Monotonic visit identity, including switching away and back to the same account.
+    active_visit_epoch: AtomicU64,
     data_dir: PathBuf,
 }
 
+// Keep new login attempts out until registry replacement and orphan cleanup finish.
+// Drop also releases the gate if the background restore thread unwinds.
+struct RestoreCompletion<'a>(&'a AtomicBool);
+
+impl Drop for RestoreCompletion<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 impl LoginState {
+    /// Called only for an authorized account switch, while `inner` is locked.
+    fn set_active_for_visit(&self, inner: &mut Inner, id: String) {
+        if inner.active.as_deref() != Some(id.as_str()) {
+            inner.active = Some(id);
+            self.active_visit_epoch.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    fn ensure_ready(&self) -> Result<(), AppError> {
+        if self.restoring.load(Ordering::Acquire) {
+            return Err(app_err(
+                core_account::codes::ACCOUNT_INVALID_STATE,
+                "account restoration is in progress; retry login shortly",
+            )
+            .retryable());
+        }
+        Ok(())
+    }
+
+    fn lifecycle(&self) -> MutexGuard<'_, ()> {
+        self.lifecycle_lock
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+    }
+
+    fn with_start<T>(&self, start: impl FnOnce() -> T) -> T {
+        let _start = self.start_lock.lock().unwrap_or_else(|p| p.into_inner());
+        start()
+    }
+
+    fn persist_snapshot(
+        &self,
+        snapshot: impl FnOnce() -> std::io::Result<PersistDoc>,
+    ) -> std::io::Result<()> {
+        let _write = self.persist_lock.lock().unwrap_or_else(|p| p.into_inner());
+        // Snapshot only after serialization: an older caller cannot overwrite
+        // a newer snapshot merely because its disk write was delayed.
+        write_atomic(&self.data_dir.join(ACCOUNTS_FILE), &snapshot()?)
+    }
+
     fn lock(&self) -> MutexGuard<'_, Inner> {
         match self.inner.lock() {
             Ok(g) => g,
@@ -167,30 +230,24 @@ fn color_for(id: &str) -> String {
 // ------------------------------------------------------------ persistence
 
 fn persist(app: &AppHandle) {
-    let registry = {
+    let ls = login_state(app);
+    let result = ls.persist_snapshot(|| {
         let host = app.state::<HostState>();
         let cores = host.lock();
-        cores.accounts.to_json().to_json()
-    };
-    let registry: serde_json::Value = match serde_json::from_str(&registry) {
-        Ok(v) => v,
-        Err(e) => {
-            log::warn!("account index not persisted: {e}");
-            return;
-        }
-    };
-    let ls = login_state(app);
-    let doc = {
         let inner = ls.lock();
-        PersistDoc {
+        // HostState before LoginState; both halves are captured together.
+        let registry = serde_json::from_str(&cores.accounts.to_json().to_json())
+            .map_err(std::io::Error::other)?;
+        Ok(PersistDoc {
             version: PERSIST_VERSION,
             active_account_id: inner.active.clone(),
             accounts: inner.meta.clone(),
             registry,
-        }
-    };
-    if let Err(e) = write_atomic(&ls.data_dir.join(ACCOUNTS_FILE), &doc) {
+        })
+    });
+    if let Err(e) = result {
         log::warn!("account index not persisted: {e}");
+        events::toast(app, "账号信息保存失败，请检查磁盘空间或权限后重试");
     }
 }
 
@@ -327,6 +384,15 @@ fn snapshot(app: &AppHandle) -> serde_json::Value {
     })
 }
 
+/// Captured around async native actions so an A → B → A account visit cannot revive an old action.
+pub(crate) fn active_visit_epoch(app: &AppHandle) -> Option<u64> {
+    Some(
+        app.try_state::<LoginState>()?
+            .active_visit_epoch
+            .load(Ordering::Acquire),
+    )
+}
+
 /// Read only active-owner authority for local assistant windows. Never hold
 /// LoginState and HostState locks together (snapshot uses the opposite order).
 pub(crate) fn active_context(app: &AppHandle) -> Option<AccountContext> {
@@ -335,11 +401,15 @@ pub(crate) fn active_context(app: &AppHandle) -> Option<AccountContext> {
     let context = {
         let host = app.state::<HostState>();
         let cores = host.lock();
-        let context = cores.accounts.current_context(&AccountId::new(active.clone()))?;
+        let context = cores
+            .accounts
+            .current_context(&AccountId::new(active.clone()))?;
         cores.accounts.validate(&context).ok()?;
         context
     };
-    if state.lock().active.as_deref() != Some(active.as_str()) { return None; }
+    if state.lock().active.as_deref() != Some(active.as_str()) {
+        return None;
+    }
     Some(context)
 }
 
@@ -432,7 +502,12 @@ fn layout_login(app: &AppHandle, window: &Window, attempt_id: &str) {
 /// Creates the login window: local header on top, official login page in
 /// the attempt's profile below. Must not run on the main thread
 /// (`add_child` blocks on it).
-fn open_login_window(app: &AppHandle, attempt_id: &str, profile_id: &str) -> tauri::Result<()> {
+fn open_login_window(
+    app: &AppHandle,
+    attempt_id: &str,
+    profile_id: &str,
+    auto_browser: bool,
+) -> tauri::Result<()> {
     destroy_login_window(app);
     let builder = tauri::window::WindowBuilder::new(app, views::LOGIN)
         .title("登录 VBooking")
@@ -449,6 +524,20 @@ fn open_login_window(app: &AppHandle, attempt_id: &str, profile_id: &str) -> tau
     #[cfg(not(target_os = "macos"))]
     let builder = builder.decorations(false);
     let window = builder.build()?;
+    {
+        let ls = login_state(app);
+        let mut inner = ls.lock();
+        let Some(rec) = inner.attempts.get_mut(attempt_id) else {
+            // Cancellation may have won while the native window was opening.
+            // Destroy this runtime object, never whichever window now has its label.
+            let _ = window.destroy();
+            return Err(tauri::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "login attempt was cancelled while opening its window",
+            )));
+        };
+        rec.login_window = Some(window.clone());
+    }
 
     let size = window
         .inner_size()?
@@ -459,7 +548,13 @@ fn open_login_window(app: &AppHandle, attempt_id: &str, profile_id: &str) -> tau
     // public way to give a child webview the macOS traffic-light inset.
     let header_cfg = tauri::utils::config::WindowConfig {
         label: views::LOGIN.to_string(),
-        url: WebviewUrl::App(format!("apps/login/index.html?attempt={attempt_id}").into()),
+        url: WebviewUrl::App(
+            format!(
+                "apps/login/index.html?attempt={attempt_id}&browser={}",
+                if auto_browser { "auto" } else { "manual" }
+            )
+            .into(),
+        ),
         #[cfg(target_os = "macos")]
         traffic_light_position: Some(tauri::utils::config::LogicalPosition { x: 14.0, y: 14.0 }),
         ..Default::default()
@@ -536,6 +631,17 @@ fn on_login_candidate(app: &AppHandle, attempt_id: &str) {
             .is_some_and(|r| r.candidate);
         if still_waiting {
             log::warn!("attempt {attempt}: identity not reported in time");
+            if login_state(&app)
+                .lock()
+                .attempts
+                .get(&attempt)
+                .is_some_and(|r| r.browser_imported)
+            {
+                cancel_attempt(&app, &attempt);
+                let _ = start_login_with_browser(&app, false);
+                events::toast(&app, "浏览器登录态未通过核验，请使用官方登录页");
+                return;
+            }
             if let Some(w) = login_window(&app) {
                 let _ = w.show();
                 let _ = w.set_focus();
@@ -557,7 +663,7 @@ fn begin_candidate(app: &AppHandle, attempt_id: &str) -> bool {
         let Some(rec) = inner.attempts.get_mut(attempt_id) else {
             return false;
         };
-        if rec.candidate {
+        if rec.candidate || rec.importing {
             return false;
         }
         rec.candidate = true;
@@ -623,6 +729,17 @@ fn on_account_landed_login(app: &AppHandle, label: &str) {
         Some(Binding::Attempt(attempt_id)) => {
             // The login window's "success" was not a real session.
             log::warn!("attempt {attempt_id}: candidate page fell back to login");
+            if login_state(app)
+                .lock()
+                .attempts
+                .get(&attempt_id)
+                .is_some_and(|r| r.browser_imported)
+            {
+                cancel_attempt(app, &attempt_id);
+                let _ = start_login_with_browser(app, false);
+                events::toast(app, "Chrome 登录态已失效，请使用官方登录页");
+                return;
+            }
             {
                 let ls = login_state(app);
                 let mut inner = ls.lock();
@@ -638,6 +755,7 @@ fn on_account_landed_login(app: &AppHandle, label: &str) {
             }
         }
         Some(Binding::Account(id)) => {
+            log::warn!("account {id}: saved web session rejected, page fell back to login");
             let ctx = {
                 let host = app.state::<HostState>();
                 let cores = host.lock();
@@ -652,31 +770,42 @@ fn on_account_landed_login(app: &AppHandle, label: &str) {
     }
 }
 
+/// Remove only this attempt and carry its concrete window into teardown.
+fn take_attempt(inner: &mut Inner, attempt_id: &str) -> Option<AttemptRec> {
+    let rec = inner.attempts.remove(attempt_id)?;
+    inner
+        .bindings
+        .remove(&profiles::account_label(&rec.profile_id));
+    Some(rec)
+}
+
 fn cancel_attempt(app: &AppHandle, attempt_id: &str) {
-    let rec = {
+    let ls = login_state(app);
+    let lifecycle = ls.lifecycle();
+    let removed = {
         let ls = login_state(app);
         let mut inner = ls.lock();
-        let rec = inner.attempts.remove(attempt_id);
-        if let Some(r) = &rec {
-            inner
-                .bindings
-                .remove(&profiles::account_label(&r.profile_id));
-        }
-        rec
+        take_attempt(&mut inner, attempt_id)
     };
+    let Some(rec) = removed else {
+        return;
+    };
+    crate::browser_bridge::cancel(attempt_id);
     {
         let host = app.state::<HostState>();
         let mut cores = host.lock();
         let _ = cores.accounts.cancel_login(&AttemptId::new(attempt_id));
     }
-    destroy_login_window(app);
-    if let Some(rec) = rec {
-        profiles::destroy_window(app, &profiles::account_label(&rec.profile_id));
-        // The profile was never published: its data must not survive.
-        profiles::remove_profile_data(app, &rec.profile_id);
-        log::info!("attempt {attempt_id}: cancelled");
-        emit_changed(app);
+    // Settlement is complete before any native-window or profile operation.
+    drop(lifecycle);
+    if let Some(window) = rec.login_window {
+        let _ = window.destroy();
     }
+    profiles::destroy_window(app, &profiles::account_label(&rec.profile_id));
+    // The profile was never published: its data must not survive.
+    profiles::remove_profile_data(app, &rec.profile_id);
+    log::info!("attempt {attempt_id}: cancelled");
+    emit_changed(app);
 }
 
 // ------------------------------------------------------- account teardown
@@ -684,7 +813,8 @@ fn cancel_attempt(app: &AppHandle, attempt_id: &str) {
 /// Closes every webview of an account (hidden adapter page and detail
 /// windows). Profile data is kept.
 fn teardown_account_views(app: &AppHandle, account_id: &str) {
-    let (labels, extra) = {
+    crate::browser_tabs::close_account(app, account_id);
+    let labels = {
         let ls = login_state(app);
         let mut inner = ls.lock();
         let labels: Vec<String> = inner
@@ -697,10 +827,9 @@ fn teardown_account_views(app: &AppHandle, account_id: &str) {
             inner.bindings.remove(l);
         }
         inner.validating.remove(account_id);
-        let extra = inner.extra_views.remove(account_id).unwrap_or_default();
-        (labels, extra)
+        labels
     };
-    for l in labels.iter().chain(extra.iter()) {
+    for l in &labels {
         profiles::destroy_window(app, l);
     }
 }
@@ -755,6 +884,11 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let path = data_dir.join(ACCOUNTS_FILE);
     app.manage(LoginState {
         inner: Mutex::new(Inner::default()),
+        persist_lock: Mutex::new(()),
+        start_lock: Mutex::new(()),
+        lifecycle_lock: Mutex::new(()),
+        restoring: AtomicBool::new(true),
+        active_visit_epoch: AtomicU64::new(0),
         data_dir,
     });
     #[cfg(debug_assertions)]
@@ -770,11 +904,20 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         });
     }
     let (mut load, doc) = load_doc(&path);
+    log::info!(
+        "data dir {}: account index {load:?} ({} account(s))",
+        path.parent()
+            .map(|d| d.display().to_string())
+            .unwrap_or_default(),
+        doc.as_ref().map_or(0, |d| d.accounts.len())
+    );
     // Keychain reads may block (or prompt) — never on the main thread.
     let app = app.clone();
     std::thread::Builder::new()
         .name("vbk-account-restore".into())
         .spawn(move || {
+            let ls = login_state(&app);
+            let _completion = RestoreCompletion(&ls.restoring);
             if let Some(doc) = doc {
                 if !restore(&app, doc) {
                     crate::data_guard::preserve_unreadable(&path);
@@ -815,14 +958,13 @@ fn restore(app: &AppHandle, doc: PersistDoc) -> bool {
         }
     };
     let report = registry.recover_credentials(&mut KeychainStore::new());
-    if !report.missing_secret.is_empty() {
+    for id in &report.missing_secret {
         log::warn!(
-            "{} account(s) lost their quick-login marker and need a new login",
-            report.missing_secret.len()
+            "account {id}: quick-login marker missing from the credential store; needs a new login"
         );
     }
-    if !report.unavailable_secret.is_empty() {
-        log::warn!("{} account marker probe(s) unavailable; preserving profiles and deferring restoration", report.unavailable_secret.len());
+    for id in &report.unavailable_secret {
+        log::warn!("account {id}: marker probe unavailable; profile kept, restoration deferred");
     }
     let resumable: Vec<(String, String)> = {
         let host = app.state::<HostState>();
@@ -831,24 +973,29 @@ fn restore(app: &AppHandle, doc: PersistDoc) -> bool {
             log::warn!("account index restore skipped: accounts already present");
             return false;
         }
-        let resumable = registry
-            .account_ids()
-            .into_iter()
-            .filter(|id| {
-                matches!(
-                    registry.state(id).map(|s| s.kind()),
-                    Some(AccountStateKind::Suspended)
-                )
-            })
-            .filter(|id| !report.unavailable_secret.contains(id))
-            .filter_map(|id| {
-                let meta = doc.accounts.get(id.as_str())?;
-                if meta.suspended_by_user {
-                    return None;
-                }
-                Some((id.as_str().to_string(), meta.profile_id.clone()?))
-            })
-            .collect();
+        let mut resumable = Vec::new();
+        for id in registry.account_ids() {
+            let kind = registry.state(&id).map(|s| s.kind());
+            let meta = doc.accounts.get(id.as_str());
+            let skip = if kind != Some(AccountStateKind::Suspended) {
+                Some(format!("state {kind:?}"))
+            } else if report.unavailable_secret.contains(&id) {
+                Some("marker probe unavailable".to_string())
+            } else if meta.map_or(true, |m| m.suspended_by_user) {
+                Some("suspended by user".to_string())
+            } else if meta.and_then(|m| m.profile_id.as_ref()).is_none() {
+                Some("no profile".to_string())
+            } else {
+                None
+            };
+            match (skip, meta.and_then(|m| m.profile_id.clone())) {
+                (None, Some(profile)) => resumable.push((id.as_str().to_string(), profile)),
+                (reason, _) => log::info!(
+                    "account {id}: not resumed at startup ({})",
+                    reason.unwrap_or_default()
+                ),
+            }
+        }
         cores.accounts = registry;
         resumable
     };
@@ -866,6 +1013,10 @@ fn restore(app: &AppHandle, doc: PersistDoc) -> bool {
         }
     }
     for (id, profile) in &resumable {
+        log::info!(
+            "account {id}: resuming saved profile {profile} (web data {})",
+            profile_storage_state(app, profile)
+        );
         if let Err(e) = open_account_webview(app, profile) {
             log::error!("account {id}: webview not restored: {e}");
             login_state(app).lock().validating.remove(id);
@@ -873,6 +1024,27 @@ fn restore(app: &AppHandle, doc: PersistDoc) -> bool {
     }
     persist_and_emit(app);
     true
+}
+
+/// Whether a profile's web data (cookies) is still on disk, for the restore
+/// log: a missing store explains a forced re-login without guessing.
+fn profile_storage_state(app: &AppHandle, profile_id: &str) -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        match tauri::async_runtime::block_on(app.fetch_data_store_identifiers()) {
+            Ok(ids) if ids.contains(&profiles::data_store_id(profile_id)) => "present",
+            Ok(_) => "missing",
+            Err(_) => "unknown",
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        match profiles::data_dir(app, profile_id) {
+            Some(dir) if dir.is_dir() => "present",
+            Some(_) => "missing",
+            None => "unknown",
+        }
+    }
 }
 
 /// Profile ids still in use (published accounts and running attempts).
@@ -945,9 +1117,136 @@ pub async fn account_start_login(window: Window) -> CmdResult<serde_json::Value>
     Ok(json!({ "attempt_id": attempt_id }))
 }
 
+/// Enumeration returns labels only. Cookie values remain in the host.
+#[tauri::command]
+pub async fn account_browser_profiles(
+    window: Window,
+) -> CmdResult<Vec<crate::browser_bridge::Choice>> {
+    guard_app(window.app_handle(), &window, "account_browser_profiles")?;
+    let attempt = login_state(window.app_handle())
+        .lock()
+        .attempts
+        .keys()
+        .next()
+        .cloned()
+        .ok_or_else(|| {
+            AppErrorDto::from(app_err(codes::HOST_VIEW_UNAUTHORIZED, "登录窗口已失效"))
+        })?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::browser_bridge::begin(&attempt)?;
+        crate::browser_bridge::choices()
+    })
+    .await
+    .map_err(|_| AppErrorDto::from(app_err(codes::ADAPTER_FAILED, "无法读取浏览器账号")))?
+    .map_err(AppErrorDto::from)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn account_browser_connect(
+    window: Window,
+    attempt_id: String,
+    profile_id: String,
+) -> CmdResult<()> {
+    let app = window.app_handle().clone();
+    guard_app(&app, &window, "account_browser_connect")?;
+    // One imported browser session at a time, including cancellation.
+    static IMPORT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+    let permit = IMPORT
+        .try_acquire()
+        .map_err(|_| AppErrorDto::from(app_err(codes::ADAPTER_FAILED, "正在导入浏览器登录态")))?;
+    let valid = |app: &AppHandle| {
+        login_state(app)
+            .lock()
+            .attempts
+            .get(&attempt_id)
+            .is_some_and(|a| !a.candidate)
+    };
+    if !valid(&app) {
+        return Err(app_err(codes::HOST_VIEW_UNAUTHORIZED, "登录窗口已失效").into());
+    }
+    // The permit lives inside the blocking job: dropping IPC does not allow a
+    // second import while the previous job is still pending.
+    let (result, _permit) = tauri::async_runtime::spawn_blocking(move || {
+        (crate::browser_bridge::read(&profile_id), permit)
+    })
+    .await
+    .map_err(|_| AppErrorDto::from(app_err(codes::ADAPTER_FAILED, "读取浏览器登录态失败")))?;
+    let result = result?;
+    let remote = app
+        .get_webview(&profiles::login_remote_label(&attempt_id))
+        .ok_or_else(|| app_err(codes::HOST_VIEW_UNAUTHORIZED, "登录窗口已关闭"))?;
+    {
+        let state = login_state(&app);
+        let mut inner = state.lock();
+        let rec = inner
+            .attempts
+            .get_mut(&attempt_id)
+            .filter(|a| !a.candidate && !a.importing)
+            .ok_or_else(|| app_err(codes::HOST_VIEW_UNAUTHORIZED, "登录窗口已失效"))?;
+        rec.importing = true;
+    }
+    let applied = async {
+        remote
+            .navigate(Url::parse("about:blank").expect("fixed URL"))
+            .map_err(|_| app_err(codes::ADAPTER_FAILED, "无法准备登录窗口"))?;
+        let mut apply = std::pin::pin!(crate::chrome_cookie_store::apply(remote.clone(), result));
+        let mut cancellation = tokio::time::interval(Duration::from_millis(50));
+        std::future::poll_fn(|cx| {
+            if cancellation.poll_tick(cx).is_ready() && !valid(&app) {
+                return std::task::Poll::Ready(Err(app_err(
+                    codes::HOST_VIEW_UNAUTHORIZED,
+                    "登录窗口已失效",
+                )));
+            }
+            std::future::Future::poll(apply.as_mut(), cx)
+        })
+        .await
+    }
+    .await;
+    if let Err(error) = applied {
+        // Never leave a partially imported jar for a later login. The fresh
+        // official login does not automatically retry the failed import.
+        if valid(&app) {
+            cancel_attempt(&app, &attempt_id);
+            let _ = start_login_with_browser(&app, false);
+        }
+        return Err(error.into());
+    }
+    if !valid(&app) {
+        return Err(app_err(codes::HOST_VIEW_UNAUTHORIZED, "登录窗口已失效").into());
+    }
+    if let Some(rec) = login_state(&app).lock().attempts.get_mut(&attempt_id) {
+        rec.importing = false;
+        rec.browser_imported = true;
+    }
+    // The official IM adapter verifies the seeded profile. No login-page
+    // redirect alone is treated as success, and the ordinary timeout applies.
+    on_login_candidate(&app, &attempt_id);
+    if valid(&app) {
+        cancel_attempt(&app, &attempt_id);
+        let _ = start_login_with_browser(&app, false);
+        return Err(app_err(
+            codes::ADAPTER_FAILED,
+            "无法核验浏览器登录态，请使用官方登录页",
+        )
+        .into());
+    }
+    Ok(())
+}
+
 /// Starts (or re-surfaces) the login attempt and opens the login window.
 /// Must not run on the main thread.
 fn start_login(app: &AppHandle) -> Result<String, AppError> {
+    start_login_with_browser(app, true)
+}
+
+fn start_login_with_browser(app: &AppHandle, auto_browser: bool) -> Result<String, AppError> {
+    let ls = login_state(app);
+    ls.ensure_ready()?;
+    ls.with_start(|| start_login_serialized(app, auto_browser))
+}
+
+fn start_login_serialized(app: &AppHandle, auto_browser: bool) -> Result<String, AppError> {
     // One login window at a time: re-surface the running attempt.
     let existing = login_state(app).lock().attempts.keys().next().cloned();
     if let Some(attempt_id) = existing {
@@ -977,10 +1276,18 @@ fn start_login(app: &AppHandle) -> Result<String, AppError> {
         attempt_id.clone(),
         AttemptRec {
             profile_id: profile_id.clone(),
+            login_window: None,
             candidate: false,
+            importing: false,
+            browser_imported: false,
         },
     );
-    if let Err(e) = open_login_window(app, &attempt_id, &profile_id) {
+    // A missing bridge must not block the official login fallback. Discovery
+    // reports its actionable error in the local login header.
+    if let Err(error) = crate::browser_bridge::begin(&attempt_id) {
+        log::warn!("browser bridge unavailable: {}", error.code);
+    }
+    if let Err(e) = open_login_window(app, &attempt_id, &profile_id, auto_browser) {
         log::error!("login window not created: {e}");
         cancel_attempt(app, &attempt_id);
         return Err(app_err(
@@ -1023,7 +1330,7 @@ pub async fn account_switch(
     let resume_profile = {
         let ls = login_state(&app);
         let mut inner = ls.lock();
-        inner.active = Some(id.clone());
+        ls.set_active_for_visit(&mut inner, id.clone());
         let profile = inner.meta.get(&id).and_then(|m| m.profile_id.clone());
         let validating = inner.validating.contains(&id);
         match (kind, profile) {
@@ -1178,62 +1485,29 @@ pub async fn shell_open_webview(
     window: Window,
     account: AccountContextDto,
     url: String,
-) -> CmdResult<serde_json::Value> {
+) -> CmdResult<crate::browser_tabs::BrowserTabDto> {
     let app = window.app_handle().clone();
     guard_app(&app, &window, "shell_open_webview")?;
     let ctx = check_account(&app, &account)?;
     app.state::<HostState>().lock().accounts.validate(&ctx)?;
-    let parsed = Url::parse(&url)
-        .ok()
-        .filter(profiles::is_openable_official_url)
+    let parsed = crate::shell::check_external_url(&url).map_err(AppErrorDto::from)?;
+    let id = ctx.account_id.as_str().to_string();
+    let profile = login_state(&app)
+        .lock()
+        .meta
+        .get(&id)
+        .and_then(|m| m.profile_id.clone())
         .ok_or_else(|| {
             app_err(
-                codes::HOST_URL_REJECTED,
-                "only official vbooking / imvendor https URLs",
+                core_account::codes::ACCOUNT_INVALID_STATE,
+                "no profile bound",
             )
         })?;
-    let id = ctx.account_id.as_str().to_string();
-    let (label, profile) = {
-        let ls = login_state(&app);
-        let mut inner = ls.lock();
-        let profile = inner
-            .meta
-            .get(&id)
-            .and_then(|m| m.profile_id.clone())
-            .ok_or_else(|| {
-                app_err(
-                    core_account::codes::ACCOUNT_INVALID_STATE,
-                    "no profile bound",
-                )
-            })?;
-        inner.view_seq += 1;
-        let label = profiles::view_label(inner.view_seq);
-        inner
-            .extra_views
-            .entry(id.clone())
-            .or_default()
-            .push(label.clone());
-        (label, profile)
-    };
-    let result = profiles::open_profile_window(
-        &app,
-        ProfileWindow {
-            label: &label,
-            profile_id: &profile,
-            url: parsed,
-            title: "VBooking",
-            visible: true,
-            init_script: None,
-        },
-        |_| {},
-    );
-    if let Err(e) = result {
-        if let Some(v) = login_state(&app).lock().extra_views.get_mut(&id) {
-            v.retain(|l| l != &label);
-        }
-        return Err(app_err(codes::HOST_UNSUPPORTED, format!("webview: {e}")).into());
+    let tab = crate::browser_tabs::open(&app, &id, &profile, parsed)?;
+    if window.label() != crate::views::MAIN {
+        crate::browser_tabs::hand_to_main(&app, &tab);
     }
-    Ok(serde_json::Value::Null)
+    Ok(tab)
 }
 
 // ------------------------------------------------------------------
@@ -1251,9 +1525,14 @@ impl AccountMeta {
         self.nick = identity.nick.clone();
         self.party = identity.party.clone();
         // Platform account, agentId and display name cannot identify an IM person.
-        self.self_profile = identity.self_profile.as_ref().filter(|p| {
-            !identity.uid.trim().is_empty() && p.uid.trim().eq_ignore_ascii_case(identity.uid.trim())
-        }).cloned();
+        self.self_profile = identity
+            .self_profile
+            .as_ref()
+            .filter(|p| {
+                !identity.uid.trim().is_empty()
+                    && p.uid.trim().eq_ignore_ascii_case(identity.uid.trim())
+            })
+            .cloned();
     }
 }
 
@@ -1335,6 +1614,11 @@ pub fn on_identity(
     let host = app.state::<HostState>();
     match binding {
         Binding::Attempt(attempt_id) => {
+            let ls = login_state(app);
+            // Cancellation and publication have one winner, including the
+            // credential commit and host metadata update. A stale binding
+            // captured above is rechecked via the attempt under this guard.
+            let lifecycle = ls.lifecycle();
             let profile_id = login_state(app)
                 .lock()
                 .attempts
@@ -1357,16 +1641,15 @@ pub fn on_identity(
                 commit_profile_marker(&mut cores.accounts, &outcome.ctx, &profile_id);
                 outcome
             };
-            // The identity is online again: lift the logout lock of its
-            // namespace (I-13; `Namespace` is per identity, so a re-login of
-            // the same account reopens what `HostState::logout` locked).
-            // Outside the `Cores` lock: it only enqueues.
-            host.unlock_namespace(&outcome.ctx);
             let id = outcome.ctx.account_id.as_str().to_string();
-            let old_profile = {
+            let (old_profile, completed_window) = {
                 let ls = login_state(app);
                 let mut inner = ls.lock();
-                inner.attempts.remove(&attempt_id);
+                let completed_window = inner
+                    .attempts
+                    .remove(&attempt_id)
+                    .and_then(|rec| rec.login_window);
+                crate::browser_bridge::cancel(&attempt_id);
                 inner
                     .bindings
                     .insert(label.to_string(), Binding::Account(id.clone()));
@@ -1378,11 +1661,23 @@ pub fn on_identity(
                 });
                 meta.update_identity(&identity);
                 meta.suspended_by_user = false;
-                meta.profile_id.replace(profile_id.clone())
+                (
+                    meta.profile_id.replace(profile_id.clone()),
+                    completed_window,
+                )
             };
+            // No window call, namespace teardown, or event emission is made
+            // while settlement is locked.
+            drop(lifecycle);
+            // The identity is online again: lift the logout lock of its
+            // namespace (I-13; `Namespace` is per identity, so a re-login of
+            // the same account reopens what `HostState::logout` locked).
+            // Outside the `Cores` lock: it only enqueues.
+            host.unlock_namespace(&outcome.ctx);
             if let Some(revoke) = &outcome.revoke {
                 // Same upstream identity logged in again: the previous
-                // generation's page and profile go away.
+                // generation's page and profile go away, tabs in that profile included.
+                crate::browser_tabs::close_account(app, revoke.account_id.as_str());
                 let old_ctx = AccountContext::new(
                     revoke.account_id.clone(),
                     revoke.environment.clone(),
@@ -1402,7 +1697,9 @@ pub fn on_identity(
                 }
                 crate::adapter::on_account_removed(app, &old_ctx);
             }
-            destroy_login_window(app);
+            if let Some(window) = completed_window {
+                let _ = window.destroy();
+            }
             crate::windows::show_main(app);
             log::info!(
                 "account {id}: identity published (new: {})",
@@ -1450,6 +1747,7 @@ pub fn on_identity(
                     }
                 };
             if resumed {
+                log::info!("account {id}: saved web session accepted");
                 // Quick login of a suspended/invalid account: its namespace
                 // was locked by the earlier `exit_account`; reopen it.
                 host.unlock_namespace(&ctx);
@@ -1565,7 +1863,6 @@ mod tests {
         assert_eq!(serialized["nick"], "Platform");
     }
 
-
     #[test]
     fn account_person_profile_requires_matching_uid_and_never_persists() {
         let mut dto: UpstreamIdentityDto = serde_json::from_value(json!({"buid":"platform", "uid":"self", "agent_id":null, "nick":"Platform", "party":"Merchant", "environment":"production", "self_profile":{"uid":"SELF","name":"Agent","avatar":"https://example.invalid/self.png?auth=synthetic"}})).unwrap();
@@ -1576,17 +1873,32 @@ mod tests {
         let serialized = serde_json::to_string(&meta).unwrap();
         assert!(!serialized.contains("self_profile"));
         assert!(!serialized.contains("synthetic"));
-        assert!(serde_json::from_str::<AccountMeta>(&serialized).unwrap().self_profile.is_none());
+        assert!(serde_json::from_str::<AccountMeta>(&serialized)
+            .unwrap()
+            .self_profile
+            .is_none());
         let mut other = AccountMeta::default();
         dto.uid = "other-person".into();
         other.update_identity(&dto);
         assert!(other.self_profile.is_none());
-        assert!(meta.self_profile.is_some(), "accounts do not share mutable profiles");
+        assert!(
+            meta.self_profile.is_some(),
+            "accounts do not share mutable profiles"
+        );
         meta.update_identity(&dto);
-        assert!(meta.self_profile.is_none(), "changed IM identity must clear the previous image");
+        assert!(
+            meta.self_profile.is_none(),
+            "changed IM identity must clear the previous image"
+        );
         dto.self_profile = None;
         meta.update_identity(&dto);
-        assert!(meta.self_profile.is_none(), "legacy identity input has no person picture");
+        assert!(
+            meta.self_profile.is_none(),
+            "legacy identity input has no person picture"
+        );
     }
-
 }
+
+#[cfg(test)]
+#[path = "login_concurrency_tests.rs"]
+mod concurrency_tests;

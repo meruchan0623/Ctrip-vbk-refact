@@ -19,7 +19,7 @@ use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBui
 use crate::views;
 
 /// Height of the local login header (logical px).
-pub const LOGIN_HEADER_HEIGHT: f64 = 68.0;
+pub const LOGIN_HEADER_HEIGHT: f64 = 104.0;
 /// Login window inner size (logical px). The official login page is a
 /// desktop layout whose form sits right of a hero image (~1200 px wide);
 /// at the prototype's 420 px the form is off-screen, so the default is wide
@@ -56,6 +56,8 @@ pub fn view_label(seq: u64) -> String {
 
 /// Stable 16-byte data store identifier for a profile (two FNV-1a 64-bit
 /// lanes with different offsets, formatted as an RFC 4122 v8 UUID).
+/// Only WKWebView has data stores; Windows isolates by `data_directory`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn data_store_id(profile_id: &str) -> [u8; 16] {
     fn fnv1a(seed: u64, data: &[u8]) -> u64 {
         let mut h = seed;
@@ -110,18 +112,12 @@ pub fn is_login_complete_candidate(url: &Url) -> bool {
     is_vbooking(url) && !url.path().starts_with(ACCOUNT_PAGES_PREFIX)
 }
 
-/// Official URLs that `shell_open_webview` may open inside an account
-/// profile: order detail and notice links on the two official hosts.
-pub fn is_openable_official_url(url: &Url) -> bool {
-    url.scheme() == "https"
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.port().is_none()
-        && matches!(
-            url.host_str(),
-            Some(core_net::url::IM_HOST_VBOOKING) | Some(core_net::url::IM_HOST_IMVENDOR)
-        )
-}
+/// WKWebView reports a Safari UA, which makes vbooking show its "please use
+/// Chrome" banner. Every profile webview presents the same Chrome UA so the
+/// login page and the account pages it hands the session to stay consistent.
+#[cfg(target_os = "macos")]
+pub const MACOS_CHROME_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
+AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 
 /// Applies the profile isolation to any builder that exposes the two wry
 /// knobs (`WebviewBuilder` and `WebviewWindowBuilder` both do).
@@ -132,6 +128,7 @@ macro_rules! isolate {
         let b = {
             let _ = $app;
             b.data_store_identifier(crate::login::profiles::data_store_id($profile))
+                .user_agent(crate::login::profiles::MACOS_CHROME_UA)
         };
         #[cfg(not(target_os = "macos"))]
         let b = match crate::login::profiles::data_dir($app, $profile) {
@@ -281,24 +278,5 @@ mod tests {
             "tauri://localhost/apps/main/index.html"
         )));
         assert!(!allowed_navigation(&u("http://vbooking.ctrip.com/")));
-    }
-
-    #[test]
-    fn openable_urls() {
-        let u = |s: &str| Url::parse(s).expect("url");
-        assert!(is_openable_official_url(&u(
-            "https://vbooking.ctrip.com/ticket_order/order/detail?orderId=1"
-        )));
-        assert!(is_openable_official_url(&u(
-            "https://imvendor.ctrip.com/main"
-        )));
-        assert!(!is_openable_official_url(&u("https://evil.example.com/")));
-        assert!(!is_openable_official_url(&u(
-            "https://vbooking.ctrip.com.evil.com/"
-        )));
-        assert!(!is_openable_official_url(&u(
-            "https://a:b@vbooking.ctrip.com/"
-        )));
-        assert!(!is_openable_official_url(&u("http://vbooking.ctrip.com/")));
     }
 }

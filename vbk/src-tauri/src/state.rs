@@ -224,6 +224,10 @@ impl HostState {
             )
         })?;
         let fact = convert_fact(dto.fact)?;
+        let message = match &fact {
+            Fact::Message(message) => Some(message.clone()),
+            _ => None,
+        };
         let is_compensation = matches!(fact, Fact::CompensationSync { .. });
         if cores.im.get(&account).is_none() {
             cores.im.insert(ImCore::new(account.clone()));
@@ -280,6 +284,36 @@ impl HostState {
             log::warn!("stream {:?} needs resync (reconcile gen {gen})", stream);
         }
         jobs.extend(self.pump_rounds(&mut cores));
+        if let Some(message) = message {
+            if cores
+                .im
+                .get(&account)
+                .is_some_and(|im| im.should_notify_message(&message, &report))
+            {
+                let now = self.now(&mut cores);
+                let effects = cores
+                    .notify
+                    .on_new_message(&account, &message.gid, true, &now);
+                cores.pending_effects.extend(effects);
+            }
+        }
+        if cores
+            .im
+            .get(&account)
+            .is_some_and(|im| im.has_deferred_notices())
+        {
+            let now = self.now(&mut cores);
+            let allowed = cores.notify.account_notifications_allowed(&account, &now);
+            let ready = cores
+                .im
+                .get_mut(&account)
+                .map(|im| im.take_ready_notices(now.monotonic_ms, allowed))
+                .unwrap_or_default();
+            for gid in ready {
+                let effects = cores.notify.on_new_message(&account, &gid, true, &now);
+                cores.pending_effects.extend(effects);
+            }
+        }
         // No IO under the lock: release it, then hand the snapshots over.
         drop(cores);
         self.submit_persist(jobs);
@@ -608,14 +642,55 @@ impl HostState {
     pub fn notification_effect_is_current(&self, effect: &Effect) -> bool {
         let mut cores = self.lock();
         let now = self.now(&mut cores);
+        if let Effect::Banner { account, gid, .. } | Effect::SystemToast { account, gid, .. } =
+            effect
+        {
+            if !cores
+                .im
+                .get(account)
+                .is_some_and(|im| !im.is_reconciling() && im.eligible_for_reminder(gid))
+            {
+                return false;
+            }
+        }
         cores.notify.effect_is_current(effect, &now)
     }
 
-    pub fn set_system_state(&self, state: SystemState) {
+    /// Read-modify-write under one lock: focus changes and the viewed
+    /// conversation arrive on different threads.
+    pub fn update_system_state(&self, update: impl FnOnce(&mut SystemState)) {
         let mut cores = self.lock();
         let now = self.now(&mut cores);
+        let mut state = cores.notify.system_state().clone();
+        update(&mut state);
         let effects = cores.notify.set_system_state(state, &now);
         cores.pending_effects.extend(effects);
+    }
+
+    /// Host-observed environment plus the settings-derived DND; a no-op while
+    /// nothing changed, so the scheduler can call it on every tick.
+    pub fn apply_environment(
+        &self,
+        schedule_enabled: bool,
+        os_quiet: bool,
+        fullscreen_app: bool,
+        presentation: bool,
+    ) {
+        let mut cores = self.lock();
+        let now = self.now(&mut cores);
+        let in_schedule = schedule_enabled
+            && core_notify::in_quiet_hours(
+                now.server_now_ms,
+                crate::local_tz::local_utc_offset_minutes(now.server_now_ms),
+            );
+        let mut state = cores.notify.system_state().clone();
+        state.ambient_dnd = in_schedule || os_quiet;
+        state.fullscreen_app = fullscreen_app;
+        state.presentation = presentation;
+        if &state != cores.notify.system_state() {
+            let effects = cores.notify.set_system_state(state, &now);
+            cores.pending_effects.extend(effects);
+        }
     }
 
     pub fn set_dnd_hours(&self, hours: u32) {

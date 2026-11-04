@@ -66,8 +66,7 @@ fn safe_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
-// Only the Windows discovery path calls this outside tests.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "macos", test))]
 fn profile_name(name: &str) -> bool {
     name == "Default"
         || name.strip_prefix("Profile ").is_some_and(|n| {
@@ -78,53 +77,83 @@ fn profile_name(name: &str) -> bool {
         })
 }
 
-/// Only Windows stable Edge/Chrome default user-data roots are supported.
-/// This enumerates directory names; it never reads a browser credential.
+/// Stable Chrome profiles on macOS; stable Chrome and Edge on Windows.
+/// Enumerates directory names only. Tokens are read separately for the fixed TSim origin.
 pub fn discover_profiles() -> Result<Vec<BrowserProfile>> {
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Err(unavailable())
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
-        let local = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .ok_or_else(unavailable)?;
-        safe_directory(&local)?;
+        #[cfg(windows)]
+        let roots = {
+            let local = std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .ok_or_else(unavailable)?;
+            safe_directory(&local)?;
+            vec![
+                (
+                    "chrome",
+                    "Google Chrome",
+                    local.join("Google/Chrome/User Data"),
+                ),
+                (
+                    "edge",
+                    "Microsoft Edge",
+                    local.join("Microsoft/Edge/User Data"),
+                ),
+            ]
+        };
+        #[cfg(target_os = "macos")]
+        let roots = {
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .ok_or_else(unavailable)?;
+            safe_directory(&home)?;
+            vec![(
+                "chrome",
+                "Google Chrome",
+                home.join("Library/Application Support/Google/Chrome"),
+            )]
+        };
         let mut profiles = Vec::new();
-        for (id, label, relative) in [
-            ("edge", "Microsoft Edge", "Microsoft/Edge/User Data"),
-            ("chrome", "Google Chrome", "Google/Chrome/User Data"),
-        ] {
-            let root = local.join(relative);
-            match fs::symlink_metadata(&root) {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(_) => return Err(unavailable()),
-                Ok(_) => safe_directory(&root)?,
-            }
-            for name in directory_names(&root)? {
-                if !profile_name(&name) {
-                    continue;
-                }
-                let profile = root.join(&name);
-                safe_directory(&profile)?;
-                let directory = profile.join("Local Storage").join("leveldb");
-                match fs::symlink_metadata(&directory) {
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                    Err(_) => return Err(unavailable()),
-                    Ok(_) => safe_directory(&directory)?,
-                }
-                profiles.push(BrowserProfile {
-                    id: format!("{id}:{name}"),
-                    label: format!("{label} — {name}"),
-                    directory,
-                });
-                require(profiles.len() <= 64)?;
-            }
+        for (id, label, root) in roots {
+            profiles.extend(profiles_at(&root, id, label)?);
+            require(profiles.len() <= 64)?;
         }
-        profiles.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(profiles)
     }
+}
+
+#[cfg(any(windows, target_os = "macos", test))]
+fn profiles_at(root: &Path, id: &str, label: &str) -> Result<Vec<BrowserProfile>> {
+    match fs::symlink_metadata(root) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(_) => return Err(unavailable()),
+        Ok(_) => safe_directory(root)?,
+    }
+    let mut profiles = Vec::new();
+    for name in directory_names(root)? {
+        if !profile_name(&name) {
+            continue;
+        }
+        let profile = root.join(&name);
+        safe_directory(&profile)?;
+        let directory = profile.join("Local Storage").join("leveldb");
+        match fs::symlink_metadata(&directory) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return Err(unavailable()),
+            Ok(_) => safe_directory(&directory)?,
+        }
+        profiles.push(BrowserProfile {
+            id: format!("{id}:{name}"),
+            label: format!("{label} — {name}"),
+            directory,
+        });
+        require(profiles.len() <= 64)?;
+    }
+    Ok(profiles)
 }
 
 /// The caller resolves an id using discovery. Enforce that boundary again here;
@@ -1148,7 +1177,7 @@ mod tests {
     #[test]
     fn snappy_literal_all_copy_modes_overlap_and_limits() {
         assert_eq!(
-            snappy(&snappy_literal(&vec![b'x'; 61])).unwrap(),
+            snappy(&snappy_literal(&[b'x'; 61])).unwrap(),
             vec![b'x'; 61]
         );
         for compressed in [
@@ -1236,6 +1265,42 @@ mod tests {
         assert!(manifest(&record(1, &edit)).is_err());
         assert!(manifest(&record(1, &[2, 0, 4, 0])).is_err());
         assert!(manifest(&record(1, &[8])).is_err());
+    }
+
+    #[test]
+    fn profile_discovery_uses_only_supported_profiles_with_storage() {
+        let fixture = Fixture::new();
+        for name in [
+            "Default",
+            "Profile 2",
+            "Guest Profile",
+            "System Profile",
+            "Profile -1",
+        ] {
+            fs::create_dir_all(fixture.0.join(name).join("Local Storage/leveldb")).unwrap();
+        }
+        fs::create_dir(fixture.0.join("Profile 3")).unwrap();
+        let found = profiles_at(&fixture.0, "chrome", "Google Chrome").unwrap();
+        assert_eq!(
+            found.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            ["chrome:Default", "chrome:Profile 2"]
+        );
+        assert!(found.iter().all(|p| p.directory.starts_with(&fixture.0)));
+        assert!(
+            profiles_at(&fixture.0.join("absent"), "chrome", "Google Chrome")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn profile_discovery_rejects_linked_browser_storage() {
+        use std::os::unix::fs::symlink;
+        let fixture = Fixture::new();
+        fs::create_dir_all(fixture.0.join("actual/Local Storage/leveldb")).unwrap();
+        symlink(fixture.0.join("actual"), fixture.0.join("Default")).unwrap();
+        assert!(profiles_at(&fixture.0, "chrome", "Google Chrome").is_err());
     }
 
     #[test]

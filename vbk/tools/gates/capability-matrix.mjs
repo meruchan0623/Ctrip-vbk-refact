@@ -15,11 +15,13 @@ export const GATE = 'capability-matrix';
 export const CAP_ROLE = {
   'main.json': 'MAIN',
   'popups.json': 'ALARM',
+  'notice.json': 'NOTICE',
   'setting.json': 'SETTING',
   'update.json': 'UPDATE',
   'login.json': 'LOGIN',
   'adapter.json': 'ADAPTER',
   'package-detail.json': 'DETAIL',
+  'media-viewer.json': 'MEDIA_VIEWER',
 };
 
 const ADAPTER_URLS = ['https://imvendor.ctrip.com/*', 'https://vbooking.ctrip.com/*'];

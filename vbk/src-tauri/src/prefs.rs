@@ -15,10 +15,11 @@
 //! Lock order: the cores mutex (`HostState::lock`) is never held while the
 //! module mutex is taken, and vice versa.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
-use contracts::{AppError, ReminderSettings};
+use contracts::{AccountContext, AppError, ReminderSettings};
 use core_notify::Effect;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -114,10 +115,11 @@ impl Default for DisplayPrefs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+// Unknown keys are tolerated: prefs files written before the screenshot shortcut
+// was removed still carry `screenshot` and must keep loading.
+#[serde(default)]
 pub struct KeyPrefs {
     pub send_key: SendKey,
-    pub screenshot: String,
     pub toggle_main: String,
 }
 
@@ -125,7 +127,6 @@ impl Default for KeyPrefs {
     fn default() -> Self {
         Self {
             send_key: SendKey::Enter,
-            screenshot: "Ctrl+Shift+X".into(),
             toggle_main: "Ctrl+Alt+V".into(),
         }
     }
@@ -199,6 +200,13 @@ pub struct PrivacyPrefs {
     pub crash_upload: bool,
 }
 
+/// Notice categories that use a banner, per `environment:account_id`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NoticeBannerPrefs {
+    pub accounts: BTreeMap<String, Vec<String>>,
+}
+
 /// Host-owned sections (everything except `reminder`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -211,6 +219,7 @@ pub struct LocalPrefs {
     pub network: NetworkPrefs,
     pub storage: StoragePrefs,
     pub privacy: PrivacyPrefs,
+    pub notice_banner: NoticeBannerPrefs,
 }
 
 /// On-disk layout of `prefs.json`.
@@ -250,6 +259,31 @@ fn invalid(key: &str, why: impl std::fmt::Display) -> AppError {
     )
 }
 
+/// `categoryId:categorySubId` as the adapter's `parseNoticeCategoryId` accepts it.
+pub fn is_notice_category_id(id: &str) -> bool {
+    let number =
+        |part: &str| (1..=9).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit());
+    id.split_once(':')
+        .is_some_and(|(parent, sub)| number(parent) && number(sub))
+}
+
+fn validate_notice_banner(prefs: &NoticeBannerPrefs) -> Result<(), &'static str> {
+    const MAX_ACCOUNTS: usize = 64;
+    const MAX_CATEGORIES: usize = 64;
+    if prefs.accounts.len() > MAX_ACCOUNTS {
+        return Err("too many accounts");
+    }
+    for (account, categories) in &prefs.accounts {
+        if account.is_empty() || account.len() > 256 || categories.len() > MAX_CATEGORIES {
+            return Err("bad account entry");
+        }
+        if !categories.iter().all(|id| is_notice_category_id(id)) {
+            return Err("bad notice category id");
+        }
+    }
+    Ok(())
+}
+
 /// Pure update of one host-owned field; validates type and allowed values.
 pub fn apply_local(
     prefs: &LocalPrefs,
@@ -282,9 +316,10 @@ pub fn apply_local(
     if ![30, 90, 180, 365].contains(&next.storage.cache_days) {
         return Err(invalid(key, "cache_days must be 30/90/180/365"));
     }
-    if next.keys.screenshot.trim().is_empty() || next.keys.toggle_main.trim().is_empty() {
+    if next.keys.toggle_main.trim().is_empty() {
         return Err(invalid(key, "shortcut must not be empty"));
     }
+    validate_notice_banner(&next.notice_banner).map_err(|why| invalid(key, why))?;
     Ok(next)
 }
 
@@ -343,8 +378,11 @@ impl PrefsModule {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    fn save(&self, inner: &Inner) {
-        let Some(path) = &self.path else { return };
+    fn save(&self, inner: &Inner) -> Result<(), AppError> {
+        let path = self
+            .path
+            .as_ref()
+            .ok_or_else(|| AppError::new("prefs.persistence", "preference storage unavailable"))?;
         let file = PrefsFile {
             reminder: inner.reminder.clone(),
             local: inner.local.clone(),
@@ -358,9 +396,8 @@ impl PrefsModule {
             std::fs::write(&tmp, bytes)?;
             std::fs::rename(&tmp, path)
         })();
-        if let Err(e) = result {
-            log::warn!("prefs: save failed: {e}");
-        }
+        result
+            .map_err(|e| AppError::new("prefs.persistence", format!("preference save failed: {e}")))
     }
 }
 
@@ -440,6 +477,8 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         }
     }
     let reminder = Some(ReminderSettingsDto::from(&state.settings()));
+    crate::net_policy::set_use_system_proxy(file.local.network.system_proxy);
+    crate::ui_zoom::init(app, file.local.display.zoom);
     app.manage(PrefsModule {
         path,
         inner: Mutex::new(Inner {
@@ -485,7 +524,9 @@ pub fn sync_reminder(app: &AppHandle) {
             false
         } else {
             inner.reminder = Some(current);
-            m.save(&inner);
+            if let Err(e) = m.save(&inner) {
+                log::warn!("{e}");
+            }
             true
         }
     };
@@ -507,6 +548,35 @@ pub fn take_pending_effects(app: &AppHandle) -> Vec<Effect> {
     }
 }
 
+/// Settings-derived DND inputs for the scheduler.
+pub fn dnd_prefs(app: &AppHandle) -> Option<DndPrefs> {
+    module(app).map(|m| m.data().local.dnd.clone())
+}
+
+/// Puts a committed change into effect right away.
+fn apply_runtime(app: &AppHandle, old: &LocalPrefs, new: &LocalPrefs) {
+    if old.display.zoom != new.display.zoom {
+        crate::ui_zoom::apply(app, new.display.zoom);
+    }
+    if old.network.system_proxy != new.network.system_proxy {
+        crate::net_policy::set_use_system_proxy(new.network.system_proxy);
+    }
+    if old.dnd != new.dnd {
+        crate::attention::sync(app, crate::attention::read());
+    }
+}
+
+/// Key of an account in `notice_banner.accounts`; stable across re-logins.
+pub fn notice_banner_key(account: &AccountContext) -> String {
+    format!("{}:{}", account.environment.0, account.account_id.0)
+}
+
+pub fn notice_banner_accounts(app: &AppHandle) -> BTreeMap<String, Vec<String>> {
+    module(app)
+        .map(|m| m.data().local.notice_banner.accounts.clone())
+        .unwrap_or_default()
+}
+
 /// `general.close_action == quit`.
 pub fn close_quits(app: &AppHandle) -> bool {
     module(app)
@@ -525,7 +595,9 @@ pub fn set_tsim_status(app: &AppHandle, logged_in: bool, user: Option<String>) {
         } else {
             a.tsim_logged_in = logged_in;
             a.tsim_user = user;
-            m.save(&inner);
+            if let Err(e) = m.save(&inner) {
+                log::warn!("{e}");
+            }
             true
         }
     };
@@ -566,19 +638,37 @@ pub fn prefs_set(
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .extend(effects);
+        if key == "position_bottom_right" {
+            crate::windows::refit_alarm(&app);
+        }
         sync_reminder(&app);
         return Ok(snapshot(&app));
     }
-    {
+    let previous = {
         let mut inner = m.data();
         let next = apply_local(&inner.local, &section, &key, value)?;
-        if next == inner.local {
+        let system_setting = (section == "general" && key == "autostart")
+            || (section == "keys" && key == "toggle_main");
+        if next == inner.local && !system_setting {
             drop(inner);
             return Ok(snapshot(&app));
         }
-        inner.local = next;
-        m.save(&inner);
-    }
+        let candidate = Inner {
+            local: next.clone(),
+            reminder: inner.reminder.clone(),
+        };
+        if system_setting {
+            crate::system_integration::apply(&app, &inner.local, &next, || m.save(&candidate))?;
+        } else {
+            if next.dnd.follow_system && !inner.local.dnd.follow_system {
+                crate::attention::ensure_follow_system_available()?;
+            }
+            m.save(&candidate)?;
+        }
+        std::mem::replace(&mut inner.local, next)
+    };
+    let current = m.data().local.clone();
+    apply_runtime(&app, &previous, &current);
     Ok(announce(&app))
 }
 
@@ -586,6 +676,44 @@ pub fn prefs_set(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn persistence_failure_is_returned_to_settings_transaction() {
+        let root = std::env::temp_dir().join(format!(
+            "vbk-prefs-failure-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&root, b"parent is a file").unwrap();
+        let module = PrefsModule {
+            path: Some(root.join("prefs.json")),
+            inner: Mutex::new(Inner {
+                local: LocalPrefs::default(),
+                reminder: None,
+            }),
+            pending: Mutex::new(Vec::new()),
+        };
+        assert!(module.save(&module.data()).is_err());
+        assert_eq!(std::fs::read(&root).unwrap(), b"parent is a file");
+        std::fs::remove_file(root).unwrap();
+    }
+
+    #[test]
+    fn notice_banner_only_takes_well_formed_categories() {
+        let p = LocalPrefs::default();
+        let good = json!({ "prod:a": ["1:2", "110:0"] });
+        let n = apply_local(&p, "notice_banner", "accounts", good).unwrap();
+        assert_eq!(n.notice_banner.accounts["prod:a"], ["1:2", "110:0"]);
+        for bad in [
+            json!({ "prod:a": ["system"] }),
+            json!({ "prod:a": ["1:"] }),
+            json!({ "": ["1:2"] }),
+            json!(["1:2"]),
+        ] {
+            let e = apply_local(&p, "notice_banner", "accounts", bad).unwrap_err();
+            assert_eq!(e.code, codes::INVALID_VALUE);
+        }
+    }
 
     #[test]
     fn snapshot_shape_matches_client_ts() {

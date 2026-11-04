@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notice",
+  "description": "new-message notice window: open the noticed conversation or notice category and size itself; no send, no arbitrary URL",
+  "windows": [
+    "notice"
+  ],
+  "permissions": [
+    "allow-contract-hello",
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-notice-open",
+    "allow-notice-open-category",
+    "allow-notice-resize"
+  ]
+}
