@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "VBK 浏览器登录连接",
+  "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoaZP3dRStP8oWBISJQxhqq36ftyX/s8L6FU7HCb2YNy2fH4FlmtqjR9RttM7G+ykuH2uwawvQt+mIt1E6+YNU2oVxlCYrpmdiVVlqVYlfpwsaN920dAhEF76SB4BvqUo/s+lqF0A0b/RJYUBtCcwTCwoNMQaHZdTYZBZj+cbMkbA4B6w6NMcQhvqQ3wkf3dSmH3YXtvlGLDp+3XI62e5TELjD4LbUIPV8ThZLBWgf07p1gVe0mhwVFggvEushNx1HFPJVS3RRQfzz/CHLxF5B9HIcku4r58T5PTRO4/2EwOuWiGcr9xNd1su19UhbTpR+OzwomyKiQ2m0PmEeIAa0QIDAQAB",
+  "permissions": [
+    "cookies",
+    "nativeMessaging",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://vbooking.ctrip.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "连接 VBK 客户端"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}
