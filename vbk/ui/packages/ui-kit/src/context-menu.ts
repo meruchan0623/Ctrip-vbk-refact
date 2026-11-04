@@ -1,5 +1,6 @@
 import { h, icon } from './h.ts';
 import type { Child } from './h.ts';
+import { CONTEXT_MENU_STRINGS as S } from './context-menu/strings.ts';
 
 export interface ContextMenuAction {
   readonly id: string;
@@ -33,7 +34,7 @@ const paths: Record<string, string> = {
 };
 let closeActive: (() => void) | null = null;
 
-export function createContextMenu(className = '', label = '操作菜单', keepEditorFocus = false) {
+export function createContextMenu(className = '', label = S.defaultLabel, keepEditorFocus = false) {
   let menu: HTMLElement | null = null;
   let previousFocus: HTMLElement | null = null;
   let cleanup: (() => void) | null = null;
@@ -100,7 +101,7 @@ export function createContextMenu(className = '', label = '操作菜单', keepEd
 
 /** Shared local-window edit menu. Passwords never expose cut/copy. */
 export function installEditingContextMenu(clipboard: { read(): Promise<string>; write(text: string): Promise<unknown> }): void {
-  const menu = createContextMenu('edit-context-menu', '编辑', true);
+  const menu = createContextMenu('edit-context-menu', S.editLabel, true);
   document.addEventListener('contextmenu', event => {
     if (event.defaultPrevented) return;
     const target = event.target as HTMLElement;
@@ -125,11 +126,11 @@ export function installEditingContextMenu(clipboard: { read(): Promise<string>; 
         editable.dispatchEvent(new Event('input', { bubbles: true }));
       }
     };
-    if (editable && !secret) actions.push({ id:'cut',label:'剪切',shortcut:`${mod}X`,disabled:!selected || editable.readOnly,run:async()=>{ await clipboard.write(selected); replace(''); } });
-    if (!secret && (selected || editable)) actions.push({ id:'copy',label:'复制',shortcut:`${mod}C`,disabled:!selected,run:()=>clipboard.write(selected).then(()=>{}) });
+    if (editable && !secret) actions.push({ id:'cut',label:S.cut,shortcut:`${mod}X`,disabled:!selected || editable.readOnly,run:async()=>{ await clipboard.write(selected); replace(''); } });
+    if (!secret && (selected || editable)) actions.push({ id:'copy',label:S.copy,shortcut:`${mod}C`,disabled:!selected,run:()=>clipboard.write(selected).then(()=>{}) });
     if (editable) {
-      actions.push({ id:'paste',label:'粘贴',shortcut:`${mod}V`,disabled:editable.readOnly,run:async()=>{const text=await clipboard.read();replace(text);} });
-      actions.push({ id:'select',label:'全选',shortcut:`${mod}A`,divider:true,run:()=>{ if(valid()){editable.focus();editable.select();} } });
+      actions.push({ id:'paste',label:S.paste,shortcut:`${mod}V`,disabled:editable.readOnly,run:async()=>{const text=await clipboard.read();replace(text);} });
+      actions.push({ id:'select',label:S.selectAll,shortcut:`${mod}A`,divider:true,run:()=>{ if(valid()){editable.focus();editable.select();} } });
     }
     menu.open(event.clientX,event.clientY,actions,valid,()=>{},target.closest<HTMLElement>('dialog[open]') ?? undefined);
   });

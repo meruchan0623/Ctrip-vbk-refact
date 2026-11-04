@@ -461,7 +461,7 @@ function privacySection(): Child[] {
   return [
     text(t('set.privacy.analytics'), t('set.privacy.notCollected'), t('set.privacy.analyticsDesc')),
     text(t('set.privacy.crash'), t('set.privacy.notCollected'), t('set.privacy.crashDesc')),
-    row(t('set.privacy.diag'), t('set.privacy.diagDesc'), h('button', { class: 'btn sm', onclick: () => void ipc.invoke<boolean>(ShellCommands.EXPORT_DIAGNOSTICS).then((saved) => { if (saved) toast('诊断信息已导出'); }).catch((e: unknown) => toast(msg(e))) }, t('set.privacy.export'))),
+    row(t('set.privacy.diag'), t('set.privacy.diagDesc'), h('button', { class: 'btn sm', onclick: () => void ipc.invoke<boolean>(ShellCommands.EXPORT_DIAGNOSTICS).then((saved) => { if (saved) toast(t('set.runtime.diagnosticsExported')); }).catch((e: unknown) => toast(msg(e))) }, t('set.privacy.export'))),
   ];
 }
 
@@ -579,7 +579,7 @@ function render(s: SettingState): Node {
       'div',
       { class: 'setbody-wrap' },
       h('nav', { class: 'setnav', 'aria-label': t('set.group.desktop') }, h('div', { class: 'setnav-g' }, t('set.group.desktop')), SECTIONS.map((sec) => h('button', { class: cx({ on: s.section === sec.id }), type: 'button', 'aria-current': s.section === sec.id ? 'true' : null, dataset: { section: sec.id }, onclick: () => selectSection(sec.id) }, sectionLabel(sec)))),
-      h('div', { class: 'setbody', dataset: { keepScroll: 'set' }, onscroll: onBodyScroll }, s.loadError ? h('div', { class: 'notice-box err', role: 'alert' }, s.loadError, h('button', { class: 'btn sm', dataset: { action: 'retry-settings' }, disabled: s.loading, onclick: () => void loadSettings() }, s.loading ? '正在重试…' : '重新读取设置')) : null, s.prefs ? body(s, s.prefs) : !s.loadError ? h('div', { class: 'muted', role: 'status' }, t('app.loading')) : null),
+      h('div', { class: 'setbody', dataset: { keepScroll: 'set' }, onscroll: onBodyScroll }, s.loadError ? h('div', { class: 'notice-box err', role: 'alert' }, s.loadError, h('button', { class: 'btn sm', dataset: { action: 'retry-settings' }, disabled: s.loading, onclick: () => void loadSettings() }, s.loading ? t('set.runtime.retrying') : t('set.runtime.retrySettings'))) : null, s.prefs ? body(s, s.prefs) : !s.loadError ? h('div', { class: 'muted', role: 'status' }, t('app.loading')) : null),
     ),
     s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast) : null,
   );

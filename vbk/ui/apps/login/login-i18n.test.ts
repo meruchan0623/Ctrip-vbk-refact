@@ -31,7 +31,8 @@ test('all 12 login copy entries preserve the exact original Chinese and each has
     inspect(source);
   }
   for (const name of Object.keys(expected) as (keyof typeof expected)[]) {
-    assert.equal(S[name], expected[name]); // browser-login keeps main's literal copy until the pending migration, so references are not required
+    assert.equal(S[name], expected[name]);
+    assert.ok(references.has(name), `${name} has a static production reference`);
   }
 });
 

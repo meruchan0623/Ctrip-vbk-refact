@@ -5,6 +5,7 @@ import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
 import { selectIpc, exposeForTests } from '../_shared/ipc.ts';
 import { IC } from '../_shared/icons.ts';
 import { isViewerGallery, renderViewer, type ViewerSurface } from './attachment.ts';
+import { MEDIA_VIEWER_STRINGS as S } from './strings.ts';
 
 const sel = selectIpc(), ipc = sel.ipc;
 const root = document.getElementById('app');
@@ -16,7 +17,7 @@ const close = () => windowAction('close');
 function caption(): HTMLElement | null {
   if (platform !== 'windows') return null;
   const button = (label: string, action: 'minimize' | 'toggle_maximize' | 'close', path: string, size: number) => h('button', { type: 'button', 'aria-label': label, title: label, dataset: { win: action }, onclick: () => windowAction(action) }, icon(path, size));
-  return h('div', { class: 'viewer-win' }, button('最小化', 'minimize', IC.min, 14), button('最大化', 'toggle_maximize', IC.max, 13), button('关闭', 'close', IC.close, 14));
+  return h('div', { class: 'viewer-win' }, button(S.minimize, 'minimize', IC.min, 14), button(S.maximize, 'toggle_maximize', IC.max, 13), button(S.close, 'close', IC.close, 14));
 }
 
 let surface: ViewerSurface | null = null;
@@ -29,8 +30,8 @@ function showExpired(): void {
   surface?.dispose();
   surface = null;
   appRoot.replaceChildren(h('div', { class: 'viewer' },
-    h('header', { class: 'viewer-bar', 'data-tauri-drag-region': 'deep' }, h('div', { class: 'viewer-heading' }, h('strong', null, '附件查看器')), caption()),
-    h('div', { class: 'viewer-stage' }, h('div', { class: 'viewer-file' }, h('p', { role: 'alert' }, '附件预览已失效，请从会话重新打开。')))));
+    h('header', { class: 'viewer-bar', 'data-tauri-drag-region': 'deep' }, h('div', { class: 'viewer-heading' }, h('strong', null, S.windowTitle)), caption()),
+    h('div', { class: 'viewer-stage' }, h('div', { class: 'viewer-file' }, h('p', { role: 'alert' }, S.expired)))));
 }
 
 // Two quick opens: only the newest read may mount.

@@ -1,12 +1,13 @@
 import type { UiViewerAttachment, UiViewerGallery } from '../../packages/ipc/src/client.ts';
 import { h } from '../../packages/ui-kit/src/h.ts';
 import { safeMediaUrl } from '../main/viewmodel.ts';
+import { MEDIA_VIEWER_STRINGS as S, fmt } from './strings.ts';
 
 /** File names and URL paths are hints only; never embed an executable document. */
 export function attachmentInfo(attachment: Pick<UiViewerAttachment, 'kind' | 'url' | 'name'>): { name: string; extension: string; kind: 'image' | 'video' | 'audio' | 'file' } {
   let path = '';
   try { path = decodeURIComponent(new URL(attachment.url).pathname.split('/').pop() ?? ''); } catch { /* Keep the supplied name. */ }
-  const name = attachment.name.trim() || path || '附件';
+  const name = attachment.name.trim() || path || S.fallbackName;
   const extension = /\.([a-z0-9]{1,12})$/i.exec(name)?.[1]?.toLowerCase() ?? /\.([a-z0-9]{1,12})$/i.exec(path)?.[1]?.toLowerCase() ?? '';
   const kind = attachment.kind !== 'file' ? attachment.kind
     : /^(png|jpe?g|gif|webp|avif|bmp)$/.test(extension) ? 'image'
@@ -56,20 +57,20 @@ export function renderViewer(gallery: UiViewerGallery, host: ViewerHost): Viewer
   let index = gallery.index;
   const status = h('p', { class: 'viewer-status', role: 'status' });
   const stage = h('div', { class: 'viewer-stage' });
-  const tools = h('div', { class: 'viewer-tools', 'aria-label': '图片工具' });
+  const tools = h('div', { class: 'viewer-tools', 'aria-label': S.toolsLabel });
   const title = h('strong');
   const origin = h('span');
   const button = (label: string, text: string, action: () => void) => h('button', { type: 'button', title: label, 'aria-label': label, onclick: action }, text);
-  const openExternal = () => { void host.openExternal(index).catch(() => { status.textContent = '打开失败，请稍后重试。'; }); };
-  const saveButton = button('另存原图', '另存', () => {
+  const openExternal = () => { void host.openExternal(index).catch(() => { status.textContent = S.openFailed; }); };
+  const saveButton = button(S.saveOriginal, S.saveShort, () => {
     const at = index;
     status.textContent = '';
-    void host.save?.(at).then(saved => { if (index === at && saved) status.textContent = '已保存。'; }).catch(() => { status.textContent = '保存失败，请稍后重试。'; });
+    void host.save?.(at).then(saved => { if (index === at && saved) status.textContent = S.saved; }).catch(() => { status.textContent = S.saveFailed; });
   });
   const element = h('div', { class: 'viewer' },
     h('header', { class: 'viewer-bar', 'data-tauri-drag-region': 'deep' },
       h('div', { class: 'viewer-heading' }, title, origin),
-      saveButton, button('在系统浏览器中打开', '外部打开 ↗', openExternal), host.caption),
+      saveButton, button(S.openExternal, S.openExternalShort, openExternal), host.caption),
     stage, h('footer', { class: 'viewer-footer' }, status, tools));
   function showHeading(): UiViewerAttachment {
     const attachment = items[index]!;
@@ -86,14 +87,14 @@ export function renderViewer(gallery: UiViewerGallery, host: ViewerHost): Viewer
   else if (info.kind === 'video' || info.kind === 'audio') {
     const player = h(info.kind, { class: 'viewer-player', src: first.url, controls: true, preload: 'metadata', playsinline: true, 'aria-label': info.name,
       ...(info.kind === 'video' ? { poster: safeMediaUrl(first.thumbnail) } : {}),
-      onloadedmetadata: () => { status.textContent = ''; }, onerror: () => { status.textContent = '无法播放此附件，可尝试外部打开。'; } });
-    status.textContent = '正在加载媒体…';
+      onloadedmetadata: () => { status.textContent = ''; }, onerror: () => { status.textContent = S.mediaFailed; } });
+    status.textContent = S.loadingMedia;
     stage.append(player);
   } else {
     stage.append(h('div', { class: 'viewer-file' },
       h('div', { class: 'viewer-file-icon', 'aria-hidden': 'true' }, info.extension.toUpperCase() || 'FILE'),
-      h('h2', null, info.name), h('p', null, '此格式暂不支持在窗口内预览，请使用系统浏览器打开或下载。'),
-      button('打开或下载文件', '打开文件 ↗', openExternal)));
+      h('h2', null, info.name), h('p', null, S.fileNotPreviewable),
+      button(S.openOrDownload, S.openFile, openExternal)));
   }
 
   function mountImages(): void {
@@ -102,21 +103,21 @@ export function renderViewer(gallery: UiViewerGallery, host: ViewerHost): Viewer
     let scale = 1, rotation = 0, x = 0, y = 0;
     stage.classList.add('viewer-gallery');
     stage.classList.toggle('is-single', items.length === 1);
-    const zoom = button('恢复适应窗口', '适应窗口', () => { scale = 1; rotation = x = y = 0; applyZoom(); });
+    const zoom = button(S.fitWindow, S.fit, () => { scale = 1; rotation = x = y = 0; applyZoom(); });
     const main = () => cards.get(index);
     function applyZoom(): void {
       const image = main()?.image;
       if (image) image.style.transform = `translate(${x}px, ${y}px) rotate(${rotation}deg) scale(${scale})`;
-      zoom.textContent = scale === 1 && rotation === 0 ? '适应窗口' : `${Math.round(scale * 100)}% · 复位`;
+      zoom.textContent = scale === 1 && rotation === 0 ? S.fit : fmt(S.zoomReset, { percent: Math.round(scale * 100) });
     }
     const resize = (factor: number) => { scale = Math.max(.25, Math.min(5, scale * factor)); applyZoom(); };
     const rotate = () => { rotation = (rotation + 90) % 360; applyZoom(); };
     const count = h('span', { class: 'viewer-count' });
-    const previous = h('button', { type: 'button', class: 'viewer-nav', title: '上一张', 'aria-label': '上一张', dataset: { nav: 'prev' }, onclick: () => move(index - 1) }, '‹');
-    const next = h('button', { type: 'button', class: 'viewer-nav', title: '下一张', 'aria-label': '下一张', dataset: { nav: 'next' }, onclick: () => move(index + 1) }, '›');
+    const previous = h('button', { type: 'button', class: 'viewer-nav', title: S.previous, 'aria-label': S.previous, dataset: { nav: 'prev' }, onclick: () => move(index - 1) }, '‹');
+    const next = h('button', { type: 'button', class: 'viewer-nav', title: S.next, 'aria-label': S.next, dataset: { nav: 'next' }, onclick: () => move(index + 1) }, '›');
     function showStatus(): void {
       const state = main()?.state;
-      status.textContent = state === 'loading' ? '正在加载图片…' : state === 'failed' ? '图片加载失败，可尝试外部打开。' : '';
+      status.textContent = state === 'loading' ? S.loadingImage : state === 'failed' ? S.imageFailed : '';
     }
     function createCard(item: number): Card {
       const attachment = items[item]!;
@@ -158,7 +159,7 @@ export function renderViewer(gallery: UiViewerGallery, host: ViewerHost): Viewer
     placeCards();
     applyZoom();
     if (items.length > 1) { tools.append(count); stage.append(previous, next); }
-    tools.append(button('缩小', '−', () => resize(1 / 1.25)), zoom, button('放大', '+', () => resize(1.25)), button('旋转图片', '旋转 ↻', rotate));
+    tools.append(button(S.zoomOut, '−', () => resize(1 / 1.25)), zoom, button(S.zoomIn, '+', () => resize(1.25)), button(S.rotate, S.rotateShort, rotate));
     const onMain = (target: EventTarget | null) => !!(target as Element | null)?.closest?.('.viewer-card[data-pos="main"]');
     stage.addEventListener('wheel', e => { e.preventDefault(); resize(e.deltaY < 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP); }, { passive: false });
     stage.addEventListener('dblclick', e => { if (!onMain(e.target)) return; scale = scale === 1 ? 2 : 1; x = y = 0; applyZoom(); });

@@ -37,24 +37,24 @@ export function createBrowserLogin(options: {
       if (discovering.ticket !== generation || background) return;
       if (!background) {
         discovering.foreground = true;
-        publish({ busy: true, message: '正在查找已授权的浏览器账号…' });
+        publish({ busy: true, message: S.browserDiscovering });
       }
       return discovering.promise;
     }
     if (state.busy || (background && verifying)) return;
     const flight = { ticket: ++generation, foreground: !background, promise: Promise.resolve() };
     discovering = flight;
-    if (flight.foreground) publish({ busy: true, message: '正在查找已授权的浏览器账号…' });
+    if (flight.foreground) publish({ busy: true, message: S.browserDiscovering });
     flight.promise = (async () => {
       try {
         const value = await options.invoke(AccountCommands.BROWSER_PROFILES, {});
         if (flight.ticket !== generation) return;
         if (!Array.isArray(value) || value.length > 64 || !value.every(p => p && typeof p.id === 'string' && typeof p.label === 'string')) throw new Error('invalid profiles');
         const choices = value as BrowserChoice[];
-        publish({ choices, selected: choices.some(p => p.id === state.selected) ? state.selected : choices.length === 1 ? choices[0]!.id : '', busy: false, message: choices.length > 1 ? '请选择已登录携程的浏览器账号' : choices.length ? '' : '请在 Chrome 或 Edge 的 VBK 扩展中授权连接，再刷新。' });
+        publish({ choices, selected: choices.some(p => p.id === state.selected) ? state.selected : choices.length === 1 ? choices[0]!.id : '', busy: false, message: choices.length > 1 ? S.browserChooseLoggedIn : choices.length ? '' : S.browserAuthorize });
         // Even a single offer requires explicit selection in this window.
       } catch {
-        if (flight.foreground && flight.ticket === generation) publish({ busy: false, message: '浏览器连接未就绪，请重试或使用下方官方登录页。' });
+        if (flight.foreground && flight.ticket === generation) publish({ busy: false, message: S.browserNotReady });
       } finally { if (discovering === flight) discovering = null; }
     })();
     return flight.promise;

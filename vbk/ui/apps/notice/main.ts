@@ -14,6 +14,7 @@ import { h } from '../../packages/ui-kit/src/h.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isNoticeEvent, isNoticeUpdate, isSoundName } from '../_shared/guards.ts';
 import { playSound } from '../main/sound.ts';
+import { NOTICE_STRINGS as S } from './strings.ts';
 import { LEAVE_MS, addNotice, expire, extendDeadlines, leave, refreshNotice, settled, slotY, stackHeight, type NoticeCard, type NoticeEvent, type NoticeUpdate } from './viewmodel.ts';
 
 const sel = selectIpc();
@@ -46,11 +47,11 @@ function syncHeight(): void {
 }
 
 function nameText(e: NoticeEvent): string {
-  return e.title || '客户';
+  return e.title || S.customerFallback;
 }
 
 function previewText(e: NoticeEvent): string {
-  return e.preview ?? (e.category_id ? '收到新的通知' : '发来一条新消息');
+  return e.preview ?? (e.category_id ? S.categoryPreview : S.messagePreview);
 }
 
 /** One message needs no number: the card itself says it. */
@@ -89,7 +90,7 @@ function createNode(card: NoticeCard): HTMLElement {
     h('button', {
       class: 'ncard-close',
       type: 'button',
-      'aria-label': '关闭通知',
+      'aria-label': S.closeLabel,
       onclick: (e: Event) => { e.stopPropagation(); dismiss(card.key); },
     }, '×'),
   );
