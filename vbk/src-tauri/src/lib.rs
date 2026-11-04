@@ -13,8 +13,8 @@
 
 pub mod adapter;
 pub mod assistant;
-mod attention;
 mod attachment_leases;
+mod attention;
 mod browser_bridge;
 pub mod browser_tabs;
 mod chrome_cookie_store;
@@ -32,8 +32,8 @@ pub mod features;
 pub mod local_tz;
 pub mod login;
 mod media_annotation;
-mod media_save;
 pub mod media_outbound;
+mod media_save;
 pub mod media_viewer;
 pub mod message_media;
 mod net_policy;

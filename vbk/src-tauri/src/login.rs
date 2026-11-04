@@ -3169,7 +3169,7 @@ mod outbound_lifecycle_tests {
             let f = Fixture::new();
             let old = online(&f.host, "cleanup-race");
             let ls = Arc::new(LoginState {
-            active_visit_epoch: AtomicU64::new(0),
+                active_visit_epoch: AtomicU64::new(0),
                 inner: Mutex::new(Inner::default()),
                 persist_lock: Mutex::new(()),
                 start_lock: Mutex::new(()),

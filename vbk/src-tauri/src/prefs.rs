@@ -425,7 +425,10 @@ impl PrefsModule {
             if next == inner.local {
                 return Ok(false);
             }
-            let candidate = Inner { local: next, reminder: inner.reminder.clone() };
+            let candidate = Inner {
+                local: next,
+                reminder: inner.reminder.clone(),
+            };
             self.save(&candidate)?;
             enabled = candidate.local.dnd.schedule_enabled;
             inner.local = candidate.local;
@@ -554,9 +557,7 @@ fn salvage(bytes: &[u8]) -> Option<PrefsFile> {
 pub(crate) fn ensure_runtime_support(section: &str, key: &str) -> Result<(), AppError> {
     if matches!(
         (section, key),
-        ("display", "gpu")
-            | ("storage", "cache_days")
-            | ("storage", "cache_mb")
+        ("display", "gpu") | ("storage", "cache_days") | ("storage", "cache_mb")
     ) {
         return Err(AppError::new(
             contracts::codes::HOST_UNSUPPORTED,
@@ -995,7 +996,10 @@ mod tests {
         std::fs::write(&root, b"blocked parent").unwrap();
         let module = PrefsModule {
             path: Some(root.join("prefs.json")),
-            inner: Mutex::new(Inner { local: LocalPrefs::default(), reminder: None }),
+            inner: Mutex::new(Inner {
+                local: LocalPrefs::default(),
+                reminder: None,
+            }),
             reminder_sync: Mutex::new(()),
             pending: Mutex::new(Vec::new()),
         };
@@ -1005,7 +1009,11 @@ mod tests {
         assert!(!module.data().local.dnd.schedule_enabled);
         assert!(module.set_dnd_schedule(&host, json!(true)).is_err());
         assert!(!module.data().local.dnd.schedule_enabled);
-        assert_eq!(host.lock().notify.dnd(), manual, "failed save must not advance runtime");
+        assert_eq!(
+            host.lock().notify.dnd(),
+            manual,
+            "failed save must not advance runtime"
+        );
         std::fs::remove_file(&root).unwrap();
         assert!(module.set_dnd_schedule(&host, json!(true)).unwrap());
         let saved = load(&root.join("prefs.json"));
@@ -1018,7 +1026,8 @@ mod tests {
         assert!(module.set_dnd_schedule(&host, json!(true)).unwrap());
         let expected = host.lock().notify.dnd();
         let restarted = HostState::new(None, 2);
-        restarted.set_dnd_schedule_enabled(load(&root.join("prefs.json")).local.dnd.schedule_enabled);
+        restarted
+            .set_dnd_schedule_enabled(load(&root.join("prefs.json")).local.dnd.schedule_enabled);
         assert_eq!(restarted.lock().notify.dnd(), expected);
         assert!(restarted.settings().alert_during_dnd);
         assert!(module.set_dnd_schedule(&host, json!("true")).is_err());

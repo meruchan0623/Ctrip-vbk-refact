@@ -41,8 +41,7 @@ pub use banner::{
 pub use cadence::Pacer;
 pub use commands::{CommandAck, CommandSource};
 pub use dnd::{
-    dnd_until_tomorrow_ms, next_local_hour_ms, DndMode, DND_ONE_HOUR_MS,
-    DND_TOMORROW_HOUR,
+    dnd_until_tomorrow_ms, next_local_hour_ms, DndMode, DND_ONE_HOUR_MS, DND_TOMORROW_HOUR,
 };
 pub use effects::{Effect, Sound};
 pub use engine::{

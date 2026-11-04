@@ -16,8 +16,8 @@ use tauri::{AppHandle, Manager, State, Url, Window};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::dto::{AccountContextDto, AppErrorDto};
-use crate::views;
 use crate::state::HostState;
+use crate::views;
 
 const MAX_BYTES: usize = 20 * 1024 * 1024;
 const COMMAND: &str = "media_save_image";
@@ -227,8 +227,8 @@ pub async fn media_save_image(
     let (ctx, gid, message_id) = (&source.owner, &source.gid, &source.message_id);
     validate_message_id(gid, message_id).map_err(AppErrorDto::from)?;
     validate_scope(&state, ctx).map_err(AppErrorDto::from)?;
-    let raw = crate::adapter::cached_image_url(&app, ctx, gid, message_id)
-        .map_err(AppErrorDto::from)?;
+    let raw =
+        crate::adapter::cached_image_url(&app, ctx, gid, message_id).map_err(AppErrorDto::from)?;
     let url = image_url(&raw).map_err(AppErrorDto::from)?;
     let (bytes, kind) = download(url).await.map_err(AppErrorDto::from)?;
     // The visit may have ended or the gallery been replaced during the download.
