@@ -66,10 +66,7 @@ struct LinkedReissues {
     per_plan: Vec<Vec<OrderReissue>>,
     reusable: bool,
 }
-type PendingSummary<'a> = (
-    usize,
-    Pin<Box<dyn Future<Output = SlotResult> + Send + 'a>>,
-);
+type PendingSummary<'a> = (usize, Pin<Box<dyn Future<Output = SlotResult> + Send + 'a>>);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct OrderScope {
@@ -1078,7 +1075,9 @@ mod tests {
             }
         }
     }
-    async fn linked_summary(linked: &Linked) -> (OrderBook<Linked, MemoryVault>, OrderSummary, u64) {
+    async fn linked_summary(
+        linked: &Linked,
+    ) -> (OrderBook<Linked, MemoryVault>, OrderSummary, u64) {
         let svc = Arc::new(Service::new(
             linked.clone(),
             MemoryVault::default(),
@@ -1105,19 +1104,36 @@ mod tests {
             let chain: Vec<_> = plan
                 .reissues
                 .iter()
-                .map(|r| (r.create_time_ms, r.state, r.info.as_ref().map(|i| i.iccid.clone())))
+                .map(|r| {
+                    (
+                        r.create_time_ms,
+                        r.state,
+                        r.info.as_ref().map(|i| i.iccid.clone()),
+                    )
+                })
                 .collect();
             assert_eq!(
                 chain,
                 [
-                    (Some(1_793_000_100_000), "ready", Some("iccid-re-a".to_string())),
-                    (Some(1_793_000_200_000), "ready", Some("iccid-re-b".to_string())),
+                    (
+                        Some(1_793_000_100_000),
+                        "ready",
+                        Some("iccid-re-a".to_string())
+                    ),
+                    (
+                        Some(1_793_000_200_000),
+                        "ready",
+                        Some("iccid-re-b".to_string())
+                    ),
                 ]
             );
             let calls = linked.calls.lock().unwrap().clone();
             for card in ["re-a", "re-b"] {
                 assert_eq!(
-                    calls.iter().filter(|c| c.ends_with(&format!("?{card}"))).count(),
+                    calls
+                        .iter()
+                        .filter(|c| c.ends_with(&format!("?{card}")))
+                        .count(),
                     3,
                     "{card}: detail + live + cdr once"
                 );
@@ -1125,11 +1141,16 @@ mod tests {
             assert!(calls.iter().all(|c| !c.ends_with("?deeper")));
             let wire = serde_json::to_value(&summary).unwrap();
             assert_eq!(wire["plans"][0]["reissues"][0]["state"], "ready");
-            assert_eq!(wire["plans"][0]["reissues"][0]["info"]["iccid"], "iccid-re-a");
+            assert_eq!(
+                wire["plans"][0]["reissues"][0]["info"]["iccid"],
+                "iccid-re-a"
+            );
             // Fully read chains stay reusable: a second summary makes no new calls.
             let before = calls.len();
             let valid = || async { Ok(()) };
-            book.summary(scope_of(&summary), epoch, &valid).await.unwrap();
+            book.summary(scope_of(&summary), epoch, &valid)
+                .await
+                .unwrap();
             assert_eq!(linked.calls.lock().unwrap().len(), before);
         });
     }
@@ -1156,11 +1177,16 @@ mod tests {
             let states: Vec<_> = summary.plans[0].reissues.iter().map(|r| r.state).collect();
             assert_eq!(states, ["error", "ready"]);
             assert!(summary.plans[0].reissues[0].info.is_none());
-            assert_eq!(summary.plans[0].reissues[0].create_time_ms, Some(1_793_000_100_000));
+            assert_eq!(
+                summary.plans[0].reissues[0].create_time_ms,
+                Some(1_793_000_100_000)
+            );
             // Incomplete chains are not reused: refresh reads them again.
             let before = linked.calls.lock().unwrap().len();
             let valid = || async { Ok(()) };
-            book.summary(scope_of(&summary), epoch, &valid).await.unwrap();
+            book.summary(scope_of(&summary), epoch, &valid)
+                .await
+                .unwrap();
             assert!(linked.calls.lock().unwrap().len() > before);
         });
     }
