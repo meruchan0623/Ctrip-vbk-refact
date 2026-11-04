@@ -332,6 +332,36 @@ pub struct DiagnosticCompensation {
     pub dropped: u64,
 }
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticBridgeState {
+    Active,
+    Overflow,
+    Disposed,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticBridge {
+    pub state: DiagnosticBridgeState,
+    pub capacity: u64,
+    pub pending: u64,
+    pub queued: u64,
+    pub in_flight: u64,
+    #[serde(default)]
+    pub waiting: u64,
+    #[serde(default)]
+    pub waiting_high_water: u64,
+    pub high_water: u64,
+    pub accepted: u64,
+    pub invoked: u64,
+    pub delivered: u64,
+    pub failed: u64,
+    pub overflow_events: u64,
+    pub rejected: u64,
+    pub expired: u64,
+    pub stale_completions: u64,
+    pub callback_errors: u64,
+}
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PageReceiveDiagnosticsDto {
     pub version: u8,
@@ -339,6 +369,8 @@ pub struct PageReceiveDiagnosticsDto {
     pub running: bool,
     pub run_generation: u64,
     pub sdk: Option<DiagnosticSdk>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bridge: Option<DiagnosticBridge>,
     pub session: DiagnosticSession,
     pub compensation: DiagnosticCompensation,
 }
@@ -995,10 +1027,9 @@ impl DisplayCache {
                         .threads
                         .insert(gid.clone(), fresh.clone())
                         .unwrap_or_default();
-                    let mut by_identity: HashMap<
-                        (&str, Option<&str>, Option<&str>),
-                        Vec<&UiMessageDto>,
-                    > = HashMap::new();
+                    type MessageIdentity<'a> = (&'a str, Option<&'a str>, Option<&'a str>);
+                    let mut by_identity: HashMap<MessageIdentity<'_>, Vec<&UiMessageDto>> =
+                        HashMap::new();
                     for message in &old {
                         by_identity
                             .entry((
@@ -1018,9 +1049,7 @@ impl DisplayCache {
                                     message.message_id.as_deref(),
                                     message.local_id.as_deref(),
                                 ))
-                                .is_some_and(|candidates| {
-                                    candidates.iter().any(|old| *old == message)
-                                })
+                                .is_some_and(|candidates| candidates.contains(&message))
                         })
                         .collect()
                 } else {
@@ -1486,7 +1515,7 @@ mod tests {
 
     #[test]
     fn media_fields_survive_real_display_cache_and_ui_roundtrip() {
-        for kind in ["image", "video", "file"] {
+        for kind in ["image", "video", "file", "audio"] {
             let source = "https://example.invalid/synthetic-resource";
             let thumb = "https://example.invalid/synthetic-preview";
             let raw = serde_json::json!({
@@ -2780,6 +2809,72 @@ mod tests {
         cache.remove(&ctx(2));
         assert_eq!(cache.total_unread(&ctx(2)), 0);
     }
+    #[test]
+    fn audio_rows_keep_identity_media_and_fallback_through_cache_pages_and_generation_boundaries() {
+        let mut cache = DisplayCache::new();
+        let mut live = msg(
+            "audio-room",
+            Some("900719925474099312345"),
+            Some("local-audio"),
+            1700000000200,
+            "[音频消息]",
+        );
+        live.kind = "audio".into();
+        live.media_url = Some("https://x.ctrip.com/voice.mp3?synthetic=1".into());
+        live.media_filename = Some("voice.mp3".into());
+        live.quote = Some("quoted-id".into());
+        let mut fallback = msg(
+            "audio-room",
+            Some("fallback-id"),
+            None,
+            1700000000100,
+            "[音频消息]",
+        );
+        fallback.kind = "audio".into();
+        let delta = cache
+            .apply(
+                &ctx(1),
+                DisplayPayload::Messages {
+                    gid: "audio-room".into(),
+                    replace: false,
+                    items: vec![live.clone()],
+                },
+            )
+            .unwrap();
+        let rows = cache
+            .merge_thread(&ctx(1), "audio-room", vec![fallback.clone(), live.clone()])
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows[1] == live);
+        assert!(rows[0] == fallback);
+        let page = UiMessagePageDto {
+            items: rows,
+            has_more: false,
+            before_ms: Some(1700000000100),
+        };
+        let decoded: UiMessagePageDto =
+            serde_json::from_value(serde_json::to_value(page).unwrap()).unwrap();
+        assert_eq!(decoded.items[1].media_url, live.media_url);
+        assert_eq!(decoded.items[1].quote.as_deref(), Some("quoted-id"));
+        assert!(decoded.items[0].media_url.is_none());
+        assert!(!format!("{cache:?} {delta:?}").contains("voice.mp3"));
+        cache
+            .replace_thread(&ctx(2), "audio-room", vec![fallback])
+            .unwrap();
+        assert!(cache.messages(&ctx(1), "audio-room").is_err());
+        assert_eq!(
+            cache
+                .messages(&ctx(2), "audio-room")
+                .unwrap()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(cache
+            .merge_thread(&ctx(1), "audio-room", vec![live])
+            .is_err());
+        assert!(cache.messages(&other(), "audio-room").unwrap().is_none());
+    }
 }
 
 // Peripheral command results (client.ts). Display-only, never persisted.
@@ -3025,5 +3120,51 @@ mod conversation_business_tests {
         r["conversation_type"] = serde_json::json!("😀".repeat(33));
         let mut cache = DisplayCache::default();
         assert!(cache.apply(&account(), payload(r).unwrap()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod bridge_diagnostic_schema_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn page() -> serde_json::Value {
+        json!({
+            "version":1,"captured_at_ms":1,"running":true,"run_generation":1,"sdk":null,
+            "session":{"received":0,"ui_mapped":0,"ui_dropped":0,"display_batches":0,"display_items":0,"display_resolved":0,"display_rejected":0},
+            "compensation":{"running":false,"mode":"stopped","cursor_ms":0,"last_outcome_ms":null,"outcomes":{"success":0,"business_failure":0,"auth_invalid":0,"http_error":0,"malformed":0,"network_error":0,"timeout":0,"unknown":0},"rows":0,"mapped":0,"dropped":0},
+            "bridge":{"state":"overflow","capacity":1024,"pending":0,"queued":0,"in_flight":0,"high_water":1024,"accepted":1024,"invoked":1,"delivered":0,"failed":1,"overflow_events":1,"rejected":1,"expired":1023,"stale_completions":0,"callback_errors":0}
+        })
+    }
+
+    #[test]
+    fn bridge_diagnostics_are_optional_closed_and_safe_integer_only() {
+        let value = page();
+        assert!(PageReceiveDiagnosticsDto::decode(value.clone())
+            .unwrap()
+            .bridge
+            .is_some());
+        let mut legacy = value.clone();
+        legacy.as_object_mut().unwrap().remove("bridge");
+        assert!(PageReceiveDiagnosticsDto::decode(legacy)
+            .unwrap()
+            .bridge
+            .is_none());
+        for bad in [
+            json!(-1),
+            json!(1.5),
+            json!(9_007_199_254_740_992u64),
+            json!("private text"),
+        ] {
+            let mut v = value.clone();
+            v["bridge"]["rejected"] = bad;
+            assert!(PageReceiveDiagnosticsDto::decode(v).is_none());
+        }
+        let mut extra = value.clone();
+        extra["bridge"]["payload"] = json!("private text");
+        assert!(PageReceiveDiagnosticsDto::decode(extra).is_none());
+        let mut unknown = value;
+        unknown["bridge"]["state"] = json!("arbitrary message");
+        assert!(PageReceiveDiagnosticsDto::decode(unknown).is_none());
     }
 }

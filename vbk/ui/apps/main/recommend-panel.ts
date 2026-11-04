@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import type { UiRecommendProduct, UiRecommendProducts, UiRecommendCities, UiRecommendSend } from '../../packages/ipc/src/recommend.ts';
 import { h, icon } from '../../packages/ui-kit/src/h.ts';

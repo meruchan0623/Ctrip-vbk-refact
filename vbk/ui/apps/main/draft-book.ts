@@ -122,6 +122,14 @@ export function createDraftBook(port: DraftPort | null, options: DraftBookOption
 
 export type DraftBook = ReturnType<typeof createDraftBook>;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isDraftVersion(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
 /** Host adapter: the command names are supplied by the contract once the host registers them. */
 export function createIpcDraftPort(
   invoke: (command: string, payload: unknown) => Promise<unknown>,
@@ -133,27 +141,41 @@ export function createIpcDraftPort(
   return {
     async load(owner) {
       const account = context(owner);
-      if (!account) return {};
+      if (!account) throw new Error('draft.account_unavailable');
       const reply = await invoke(commands.load, { account });
-      const out: Record<string, string> = {};
-      const rows = (reply as { drafts?: unknown } | null)?.drafts;
-      if (Array.isArray(rows)) for (const row of rows) {
-        const r = row as { gid?: unknown; text?: unknown; version?: unknown };
-        if (typeof r.gid === 'string' && typeof r.text === 'string') {
-          out[r.gid] = r.text;
-          if (typeof r.version === 'number') versions.set(versionKey(owner, r.gid), r.version);
-        }
+      if (!isRecord(reply) || !Object.hasOwn(reply, 'drafts') || !Array.isArray(reply.drafts)) {
+        throw new Error('draft.invalid_load_response');
       }
-      return out;
+      const drafts = new Map<string, string>();
+      const loadedVersions = new Map<string, number>();
+      for (const row of reply.drafts) {
+        if (!isRecord(row)
+          || !Object.hasOwn(row, 'gid') || typeof row.gid !== 'string'
+          || !Object.hasOwn(row, 'text') || typeof row.text !== 'string'
+          || !Object.hasOwn(row, 'version') || !isDraftVersion(row.version)
+          || drafts.has(row.gid)) {
+          throw new Error('draft.invalid_load_response');
+        }
+        drafts.set(row.gid, row.text);
+        loadedVersions.set(row.gid, row.version);
+      }
+
+      // Commit the new version snapshot only after every row passed validation.
+      const ownerPrefix = `${JSON.stringify([owner.environment, owner.account_id]).slice(0, -1)},`;
+      for (const key of versions.keys()) if (key.startsWith(ownerPrefix)) versions.delete(key);
+      for (const [gid, version] of loadedVersions) versions.set(versionKey(owner, gid), version);
+      return Object.fromEntries(drafts);
     },
     async save(owner, gid, text) {
       const account = context(owner);
-      if (!account) return;
+      if (!account) throw new Error('draft.account_unavailable');
       const key = versionKey(owner, gid);
       const attempt = async (): Promise<void> => {
         const reply = await invoke(commands.save, { account, gid, text, expected_version: versions.get(key) ?? 0 });
-        const next = (reply as { version?: unknown } | null)?.version;
-        if (typeof next === 'number') versions.set(key, next);
+        if (!isRecord(reply) || !Object.hasOwn(reply, 'version') || !isDraftVersion(reply.version)) {
+          throw new Error('draft.invalid_save_response');
+        }
+        versions.set(key, reply.version);
       };
       try { await attempt(); } catch (error) {
         // Another window/process saved first: learn its version and write once more (last writer wins).

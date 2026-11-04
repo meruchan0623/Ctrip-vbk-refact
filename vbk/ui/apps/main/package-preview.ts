@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 import { UiCommands, type UiConversation, type UiPackageInfo, type UiOrderPackageSummary, type UiOrderPackagePlan, type UiTsimStatus, type UiPackageField } from '../../packages/ipc/src/client.ts';
 
@@ -12,11 +13,11 @@ export const EMPTY_PACKAGE_PREVIEW: PackagePreviewState = { status: 'idle', key:
 export function packageIdentity(value: unknown): value is UiTsimStatus { if (!value || typeof value !== 'object') return false; const s = value as UiTsimStatus; return typeof s.logged_in === 'boolean' && (s.user === null || typeof s.user === 'string') && (!s.logged_in || typeof s.user === 'string' && !!s.user.trim()) && Number.isSafeInteger(s.session_epoch) && s.session_epoch >= 0; }
 export function packageFailure(error: unknown): { failure: 'login' | 'permission' | 'error'; error: string } {
   const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
-  if (code === 'assistant.tsim_unauthenticated' || code === 'assistant.session_cleared') return { failure: 'login', error: '请先在设置的“商家助手 · TSim 登录”中登录，再刷新套餐。' };
-  if (code === 'assistant.forbidden' || code === 'assistant.permission_denied') return { failure: 'permission', error: '当前 TSim 账号无权查看该订单套餐，请核对账号权限。' };
-  if (code === 'assistant.package_not_found') return { failure: 'error', error: '未查询到该订单的套餐，请核对会话订单号。' };
-  if (code === 'net.timeout') return { failure: 'error', error: '查询超时，请手动刷新；不会自动重复请求。' };
-  return { failure: 'error', error: '套餐查询未完成，可能是会话、订单或 TSim 身份已变化。请核对后刷新。' };
+  if (code === 'assistant.tsim_unauthenticated' || code === 'assistant.session_cleared') return { failure: 'login', error: t('packagePreview.failure.login') };
+  if (code === 'assistant.forbidden' || code === 'assistant.permission_denied') return { failure: 'permission', error: t('packagePreview.failure.permission') };
+  if (code === 'assistant.package_not_found') return { failure: 'error', error: t('packagePreview.failure.notFound') };
+  if (code === 'net.timeout') return { failure: 'error', error: t('packagePreview.failure.timeout') };
+  return { failure: 'error', error: t('packagePreview.failure.changed') };
 }
 export type PackagePlanInfo = Omit<UiPackageInfo, 'remain_pct'> & { readonly remain_pct: number | null; readonly usage_scope?: 'daily' | 'total'; readonly unlimited?: boolean; readonly detail_fields?: readonly UiPackageField[]; readonly live_fields?: readonly UiPackageField[]; readonly cdrs?: readonly (readonly UiPackageField[])[]; readonly order_time?: string; readonly reissues?: readonly PackageReissue[] };
 /** 补发套餐：ready 必带完整套餐投影，error 不带任何套餐数据。 */
@@ -92,7 +93,7 @@ export function createPackagePreview(deps: { current(): PackageContext | null; i
     if (!order && !iccid) { reset(); return; }
     const key = queryKey(c, selectedIccid); if (!force && view.key === key) return;
     const ticket = ++sequence;
-    if (!c.conversation.assistant_context_revision) { publish({ ...EMPTY_PACKAGE_PREVIEW, key, status: 'error', failure: 'error', error: '会话身份尚未核验，请等待会话更新后刷新套餐。' }); return; }
+    if (!c.conversation.assistant_context_revision) { publish({ ...EMPTY_PACKAGE_PREVIEW, key, status: 'error', failure: 'error', error: t('packagePreview.identityUnverified') }); return; }
     if (!c.identity.logged_in) { publish({ ...EMPTY_PACKAGE_PREVIEW, key, status: 'error', ...packageFailure({ code: 'assistant.tsim_unauthenticated' }) }); return; }
     publish({ ...EMPTY_PACKAGE_PREVIEW, selected_iccid: selectedIccid ?? null, key, status: 'busy' });
     try {

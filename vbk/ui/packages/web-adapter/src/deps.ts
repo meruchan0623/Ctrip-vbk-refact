@@ -98,7 +98,10 @@ export interface SdkSendResultEvent {
 
 export type SdkSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 
+export type SdkTerminalStatus = 4 | 6 | 8;
+
 export interface SdkEventMap {
+  readonly terminal: SdkTerminalStatus;
   readonly message: SdkMessageEvent;
   readonly send_result: SdkSendResultEvent;
   readonly socket_status: SdkSocketStatus;
@@ -140,6 +143,8 @@ export type SdkCallOutcome =
  * more.
  */
 export interface ImSdkHandle {
+  /** Latched account terminal; new login requires a new handle. */
+  readonly terminalStatus?: SdkTerminalStatus | null;
   on<K extends keyof SdkEventMap>(event: K, cb: (payload: SdkEventMap[K]) => void): () => void;
   /** Fire-and-forget: the result arrives as a `send_result` event matched by `localid`. */
   sendMessage(req: SdkSendRequest): void;

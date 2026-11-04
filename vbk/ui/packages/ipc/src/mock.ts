@@ -1,3 +1,4 @@
+import type { UiServerSearchQuery, UiSearchHistoryRequest, ServerSearchGroup, UiServerSearchHit } from './server-search.ts';
 /**
  * Deterministic in-browser mock of the host IPC. Used when `window.__TAURI__`
  * is absent (plain browser, smoke tests) and by view-model tests.
@@ -25,6 +26,8 @@ import type {
   MarkAction,
   OrderSearchResult,
   PrefsSnapshot,
+  UiAttachment,
+  UiDraftAttachment,
   UiAccount,
   UiAccountSnapshot,
   UiAgentStatus,
@@ -44,7 +47,7 @@ import type {
 import { UiCommands, UiEvents } from './client.ts';
 
 /** `no-accounts`: first start, nothing logged in (main window shows the welcome state). */
-export type MockScenario = 'default' | 'empty' | 'offline' | 'clock-untrusted' | 'reconciling' | 'no-accounts';
+export type MockScenario = 'default' | 'empty' | 'offline' | 'clock-untrusted' | 'reconciling' | 'no-accounts' | 'annotation';
 
 export interface MockOptions {
   /** Emit `Events.ALARM_SNAPSHOT` every second (default true in browsers, false in tests). */
@@ -260,12 +263,17 @@ function seedAlarm(now: number): AlarmEntry[] {
   ];
 }
 
+// Kept readable for older snapshots; no runtime consumer can apply these keys.
+const UNSUPPORTED_RUNTIME_PREFS = [
+  ['display', 'gpu'], ['dnd', 'follow_system'], ['storage', 'cache_days'], ['storage', 'cache_mb'],
+] as const;
+
 function defaultPrefs(): PrefsSnapshot {
   return {
     reminder: { ...DEFAULT_REMINDER_SETTINGS },
     general: { autostart: false, close_action: 'tray', start_hidden: false, show_msg_time: true, spell_check: true },
     display: { zoom: 100, gpu: true },
-    keys: { send_key: 'enter', toggle_main: 'Ctrl + Alt + V' },
+    keys: { send_key: 'enter', screenshot: 'Ctrl + Shift + X', toggle_main: 'Ctrl + Alt + V' },
     assistant: { enabled: true, outbound_translation: true, send_mode: 'replace_draft', package_quick_view: true, tsim_logged_in: true, tsim_user: 'tsim-demo' },
     dnd: { schedule_enabled: false, follow_system: true },
     network: { system_proxy: true },
@@ -313,6 +321,31 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     loginCounter: 0,
     attempts: new Map(),
   };
+  // Deliberately opt-in synthetic raster; no capture or filesystem side effect.
+  const annotationPng = 'iVBORw0KGgoAAAANSUhEUgAAAIAAAABgCAYAAADVenpJAABCUElEQVR4nBTYcSjA8X/n8V+/TJLpl5wkk2SSTDInOZPMJDPJOclMMklOkpNkkkySSTLJTDInOUmSJEmSJEmSJEmSJEmSJCn38Mfjv+d/39f3j8/7D+F/+MNP+B8JIJAgggkh9A8/P38ijHAiiCSKaGI0scQRTwKJJJFMiiaVNNLJIJMsssnR5JJHPgUUUkQxJZpSyiingkqqqKZGU0sd9TTQSBPNtGhaaaOdDjrpopseTS999DPAIEMMM6IZZYxxJphkimlmNLPMMc8CiyyxzIpmlTXW2WCTLbbZ0eyyxz4HHHLEMSeaU84454JLrrjmRnPLHfc88MgTz7xoXnnjnQ8++eKbnz/8/CH8D380AAIIJIhgQgj9owEQRjgRRBJFNDGaWOKIJ4FEkkgmRZNKGulkkEkW2eRocskjnwIKKaKYEk0pZZRTQSVVVFOjqaWOehpopIlmWjSttNFOB5100U2Pppc++hlgkCGGGdGMMsY4E0wyxTQzmlnmmGeBRZZYZkWzyhrrbLDJFtvsaHbZY58DDjnimBPNKWecc8ElV1xzo7nljnseeOSJZ140r7zxzgeffPHNzx9/B/Bnvi0BBBJEMCGE/pkBEEY4EUQSRTQxmljiiCeBRJJIJkWTShrpZJBJFtnkaHLJI58CCimimBJNKWWUU0ElVVRTo6mljnoaaKSJZlo0rbTRTgeddNFNj6aXPvoZYJAhhhnRjDLGOBNMMsU0M5pZ5phngUWWWGZFs8oa62ywyRbb7Gh22WOfAw454pgTzSlnnHPBJVdcc6O55Y57HnjkiWdeNK+88c4Hn3zxzc+f/Q4gyAAIIJAgggkhNMgACCOcCCKJIpoYTSxxxJNAIkkkk6JJJY10Msgki2xyNLnkkU8BhRRRTImmlDLKqaCSKqqp0dRSRz0NNNJEMy2aVtpop4NOuuimR9NLH/0MMMgQw4xoRhljnAkmmWKaGc0sc8yzwCJLLLOiWWWNdTbYZIttdjS77LHPAYccccyJ5pQzzrngkiuuudHccsc9DzzyxDMvmlfeeOeDT7745ifodwDBBkAAgQQRTAihwQZAGOFEEEkU0cRoYokjngQSSSKZFE0qaaSTQSZZZJOjySWPfAoopIhiSjSllFFOBZVUUU2NppY66mmgkSaaadG00kY7HXTSRTc9ml766GeAQYYYZkQzyhjjTDDJFNPMaGaZY54FFllimRXNKmuss8EmW2yzo9llj30OOOSIY040p5xxzgWXXHHNjeaWO+554JEnnnnRvPLGOx988sU3P8G/A/hzAyCAQIIIJoTQPzcAwggngkiiiCZGE0sc8SSQSBLJpGhSSSOdDDLJIpscTS555FNAIUUUU6IppYxyKqikimpqNLXUUU8DjTTRTIumlTba6aCTLrrp0fTSRz8DDDLEMCOaUcYYZ4JJpphmRjPLHPMssMgSy6xoVlljnQ022WKbHc0ue+xzwCFHHHOiOeWMcy645IprbjS33HHPA4888cyL5pU33vngky+++fnz3wH8yQAIIJAgggkh9E8GQBjhRBBJFNHEaGKJI54EEkkimRRNKmmkk0EmWWSTo8klj3wKKKSIYko0pZRRTgWVVFFNjaaWOuppoJEmmmnRtNJGOx100kU3PZpe+uhngEGGGGZEM8oY40wwyRTTzGhmmWOeBRZZYpkVzSprrLPBJltss6PZZY99DjjkiGNONKeccc4Fl1xxzY3mljvueeCRJ5550bzyxjsffPLFNz9/+h1AmAEQQCBBBBNCaJiGMMKJIJIooonRxBJHPAkkkkQyKZpU0kgng0yyyCZHk0se+RRQSBHFlGhKKaOcCiqpopoaTS111NNAI00006JppY12Ouiki256NL300c8AgwwxzIhmlDHGmWCSKaaZ0cwyxzwLLLLEMiuaVdZYZ4NNtthmR7PLHvsccMgRx5xoTjnjnAsuueKaG80td9zzwCNPPPOieeWNdz745ItvfsJ+H4L/zWuAAAIJIpgQQv+bH58wwokgkiiiidHEEkc8CSSSRDIpmlTSSCeDTLLIJkeTSx75FFBIEcWUaEopo5wKKqmimhpNLXXU00AjTTTTommljXY66KSLbno0vfTRzwCDDDHMiGaUMcaZYJIpppnRzDLHPAssssQyK5pV1lhng0222GZHs8se+xxwyBHHnGhOOeOcCy654pobzS133PPAI08886J55Y13Pvjki29+/tvvACINgAACCSKYEEIjDYAwwokgkiiiidHEEkc8CSSSRDIpmlTSSCeDTLLIJkeTSx75FFBIEcWUaEopo5wKKqmimhpNLXXU00AjTTTTommljXY66KSLbno0vfTRzwCDDDHMiGaUMcaZYJIpppnRzDLHPAssssQyK5pV1lhng0222GZHs8se+xxwyBHHnGhOOeOcCy654pobzS133PPAI08886J55Y13Pvjki29+In8HEGUABBBIEMGEEBplAIQRTgSRRBFNjCaWOOJJIJEkkknRpJJGOhlkkkU2OZpc8singEKKKKZEU0oZ5VRQSRXV1GhqqaOeBhppopkWTStttNNBJ11006PppY9+BhhkiGFGNKOMMc4Ek0wxzYxmljnmWWCRJZZZ0ayyxjobbLLFNjuaXfbY54BDjjjmRHPKGedccMkV19xobrnjngceeeKZF80rb7zzwSdffPMT9TuAvzAAAggkiGBCCP0LAyCMcCKIJIpoYjSxxBFPAokkkUyKJpU00skgkyyyydHkkkc+BRRSRDElmlLKKKeCSqqopkZTSx31NNBIE820aFppo50OOumimx5NL330M8AgQwwzohlljHEmmGSKaWY0s8wxzwKLLLHMimaVNdbZYJMtttnR7LLHPgcccsQxJ5pTzjjngkuuuOZGc8sd9zzwyBPPvGheeeOdDz754pufv/gdQKwBEEAgQQQTQmisARBGOBFEEkU0MZpY4ogngUSSSCZFk0oa6WSQSRbZ5GhyySOfAgopopgSTSlllFNBJVVUU6OppY56GmikiWZaNK200U4HnXTRTY+mlz76GWCQIYYZ0YwyxjgTTDLFNDOaWeaYZ4FFllhmRbPKGutssMkW2+xodtljnwMOOeKYE80pZ5xzwSVXXHOjueWOex545IlnXjSvvPHOB5988c1P7O8A4gyAAAIJIpgQQuMMgDDCiSCSKKKJ0cQSRzwJJJJEMimaVNJIJ4NMssgmR5NLHvkUUEgRxZRoSimjnAoqqaKaGk0tddTTQCNNNNOiaaWNdjropItuejS99NHPAIMMMcyIZpQxxplgkimmmdHMMsc8CyyyxDIrmlXWWGeDTbbYZkezyx77HHDIEcecaE4545wLLrnimhvNLXfc88AjTzzzonnljXc++OSLb37ifgfwlwZAAIEEEUwIoX9pAIQRTgSRRBFNjCaWOOJJIJEkkknRpJJGOhlkkkU2OZpc8singEKKKKZEU0oZ5VRQSRXV1GhqqaOeBhppopkWTStttNNBJ11006PppY9+BhhkiGFGNKOMMc4Ek0wxzYxmljnmWWCRJZZZ0ayyxjobbLLFNjuaXfbY54BDjjjmRHPKGedccMkV19xobrnjngceeeKZF80rb7zzwSdffPPzl78DSDQAAggkiGBCCE00AMIIJ4JIoogmRhNLHPEkkEgSyaRoUkkjnQwyySKbHE0ueeRTQCFFFFOiKaWMciqopIpqajS11FFPA4000UyLppU22umgky666dH00kc/AwwyxDAjmlHGGGeCSaaYZkYzyxzzLLDIEsusaFZZY50NNtlimx3NLnvsc8AhRxxzojnljHMuuOSKa240t9xxzwOPPPHMi+aVN9754JMvvvlJ/D0EJf2E/5EAAgkimBBCk35+/kQY4UQQSRTRxGhiiSOeBBJJIpkUTSpppJNBJllkk6PJJY98CiikiGJKNKWUUU4FlVRRTY2mljrqaaCRJppp0bTSRjsddNJFNz2aXvroZ4BBhhhmRDPKGONMMMkU08xoZpljngUWWWKZFc0qa6yzwSZbbLOj2WWPfQ445IhjTjSnnHHOBZdccc2N5pY77nngkSeeedG88sY7H3zyxTc/Sb8D+CsDIIBAgggmhNC/MgDCCCeCSKKIJkYTSxzxJJBIEsmkaFJJI50MMskimxxNLnnkU0AhRRRToimljHIqqKSKamo0tdRRTwONNNFMi6aVNtrpoJMuuunR9NJHPwMMMsQwI5pRxhhngkmmmGZGM8sc8yywyBLLrGhWWWOdDTbZYpsdzS577HPAIUccc6I55YxzLrjkimtuNLfccc8DjzzxzIvmlTfe+eCTL775+avfAaQaAAEEEkQwIYSmGgBhhBNBJFFEE6OJJY54EkgkiWRSNKmkkU4GmWSRTY4mlzzyKaCQIoop0ZRSRjkVVFJFNTWaWuqop4FGmmimRdNKG+100EkX3fRoeumjnwEGGWKYEc0oY4wzwSRTTDOjmWWOeRZYZIllVjSrrLHOBptssc2OZpc99jngkCOOOdGccsY5F1xyxTU3mlvuuOeBR5545kXzyhvvfPDJF9/8pP4O4K8NgAACCSKYEEL/2gAII5wIIokimhhNLHHEk0AiSSSTokkljXQyyCSLbHI0ueSRTwGFFFFMiaaUMsqpoJIqqqnR1FJHPQ000kQzLZpW2ming0666KZH00sf/QwwyBDDjGhGGWOcCSaZYpoZzSxzzLPAIksss6JZZY11Nthki212NLvssc8BhxxxzInmlDPOueCSK6650dxyxz0PPPLE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LLHMimaVNdbZYJMtttnR7LLHPgcccsQxJ5pTzjjngkuuuOZGc8sd9zzwyBPPvGheeeOdDz754pufzt8B/IsBEEAgQQQTQui/GABhhBNBJFFEE6OJJY54EkgkiWRSNKmkkU4GmWSRTY4mlzzyKaCQIoop0ZRSRjkVVFJFNTWaWuqop4FGmmimRdNKG+100EkX3fRoeumjnwEGGWKYEc0oY4wzwSRTTDOjmWWOeRZYZIllVjSrrLHOBptssc2OZpc99jngkCOOOdGccsY5F1xyxTU3mlvuuOeBR5545kXzyhvvfPDJF9/8/MvvAHoMgAACCSKYEEJ7DIAwwokgkiiiidHEEkc8CSSSRDIpmlTSSCeDTLLIJkeTSx75FFBIEcWUaEopo5wKKqmimhpNLXXU00AjTTTTommljXY66KSLbno0vfTRzwCDDDHMiGaUMcaZYJIpppnRzDLHPAssssQyK5pV1lhng0222GZHs8se+xxwyBHHnGhOOeOcCy654pobzS133PPAI08886J55Y13Pvjki29+en4PQb0/4X8kgECCCCaE0N6fnz8RRjgRRBJFNDGaWOKIJ4FEkkgmRZNKGulkkEkW2eRocskjnwIKKaKYEk0pZZRTQSVVVFOjqaWOehpopIlmWjSttNFOB5100U2Pppc++hlgkCGGGdGMMsY4E0wyxTQzmlnmmGeBRZZYZkWzyhrrbLDJFtvsaHbZY58DDjnimBPNKWecc8ElV1xzo7nljnseeOSJZ140r7zxzgeffPHNT+/vAP7VAAggkCCCCSH0Xw2AMMKJIJIooonRxBJHPAkkkkQyKZpU0kgng0yyyCZHk0se+RRQSBHFlGhKKaOcCiqpopoaTS111NNAI00006JppY12Ouiki256NL300c8AgwwxzIhmlDHGmWCSKaaZ0cwyxzwLLLLEMiuaVdZYZ4NNtthmR7PLHvsccMgRx5xoTjnjnAsuueKaG80td9zzwCNPPPOieeWNdz745Itvfv71dwADBkAAgQQRTAihAwZAGOFEEEkU0cRoYokjngQSSSKZFE0qaaSTQSZZZJOjySWPfAoopIhiSjSllFFOBZVUUU2NppY66mmgkSaaadG00kY7HXTSRTc9ml766GeAQYYYZkQzyhjjTDDJFNPMaGaZY54FFllimRXNKmuss8EmW2yzo9llj30OOOSIY040p5xxzgWXXHHNjeaWO+554JEnnnnRvPLGOx988sU3PwO/Axg0AAIIJIhgQggdNADCCCeCSKKIJkYTSxzxJJBIEsmkaFJJI50MMskimxxNLnnkU0AhRRRToimljHIqqKSKamo0tdRRTwONNNFMi6aVNtrpoJMuuunR9NJHPwMMMsQwI5pRxhhngkmmmGZGM8sc8yywyBLLrGhWWWOdDTbZYpsdzS577HPAIUccc6I55YxzLrjkimtuNLfccc8DjzzxzIvmlTfe+eCTL775GfwdwL8ZAAEEEkQwIYT+mwEQRjgRRBJFNDGaWOKIJ4FEkkgmRZNKGulkkEkW2eRocskjnwIKKaKYEk0pZZRTQSVVVFOjqaWOehpopIlmWjSttNFOB5100U2Pppc++hlgkCGGGdGMMsY4E0wyxTQzmlnmmGeBRZZYZkWzyhrrbLDJFtvsaHbZY58DDjnimBPNKWecc8ElV1xzo7nljnseeOSJZ140r7zxzgeffPHNz7/9DmDEAAggkCCCCSF0xAAII5wIIokimhhNLHHEk0AiSSSTokkljXQyyCSLbHI0ueSRTwGFFFFMiaaUMsqpoJIqqqnR1FJHPQ000kQzLZpW2ming0666KZH00sf/QwwyBDDjGhGGWOcCSaZYpoZzSxzzLPAIksss6JZZY11Nthki212NLvssc8BhxxxzInmlDPOueCSK6650dxyxz0PPPLEMy+aV95454NPvvjmZ+R3AKMGQACBBBFMCKGjBkAY4UQQSRTRxGhiiSOeBBJJIpkUTSpppJNBJllkk6PJJY98CiikiGJKNKWUUU4FlVRRTY2mljrqaaCRJppp0bTSRjsddNJFNz2aXvroZ4BBhhhmRDPKGONMMMkU08xoZpljngUWWWKZFc0qa6yzwSZbbLOj2WWPfQ445IhjTjSnnHHOBZdccc2N5pY77nngkSeeedG88sY7H3zyxTc/o78D+HcDIIBAgggmhNB/NwDCCCeCSKKIJkYTSxzxJJBIEsmkaFJJI50MMskimxxNLnnkU0AhRRRToimljHIqqKSKamo0tdRRTwONNNFMi6aVNtrpoJMuuunR9NJHPwMMMsQwI5pRxhhngkmmmGZGM8sc8yywyBLLrGhWWWOdDTbZYpsdzS577HPAIUccc6I55YxzLrjkimtuNLfccc8DjzzxzIvmlTfe+eCTL775+fffQ9DEz88fCSCQIIIJIXTiJ/xPhBFOBJFEEU2MJpY44kkgkSSSSdGkkkY6GWSSRTY5mlzyyKeAQooopkRTShnlVFBJFdXUaGqpo54GGmmimRZNK22000EnXXTTo+mlj34GGGSIYUY0o4wxzgSTTDHNjGaWOeZZYJElllnRrLLGOhtsssU2O5pd9tjngEOOOOZEc8oZ51xwyRXX3GhuueOeBx554pkXzStvvPPBJ1988zPxO4D/MAACCCSIYEII/Q8DIIxwIogkimhiNLHEEU8CiSSRTIomlTTSySCTLLLJ0eSSRz4FFFJEMSWaUsoop4JKqqimRlNLHfU00EgTzbRoWmmjnQ466aKbHk0vffQzwCBDDDOiGWWMcSaYZIppZjSzzDHPAossscyKZpU11tlgky222dHsssc+BxxyxDEnmlPOOOeCS6645kZzyx33PPDIE8+8aF55450PPvnim5//+B3AfxoAAQQSRDAhhP6nARBGOBFEEkU0MZpY4ogngUSSSCZFk0oa6WSQSRbZ5GhyySOfAgopopgSTSlllFNBJVVUU6OppY56GmikiWZaNK200U4HnXTRTY+mlz76GWCQIYYZ0YwyxjgTTDLFNDOaWeaYZ4FFllhmRbPKGutssMkW2+xodtljnwMOOeKYE80pZ5xzwSVXXHOjueWOex545IlnXjSvvPHOB5988c3Pf/4OYMYACCCQIIIJIXTGAAgjnAgiiSKaGE0sccSTQCJJJJOiSSWNdDLIJItscjS55JFPAYUUUUyJppQyyqmgkiqqqdHUUkc9DTTSRDMtmlbaaKeDTrropkfTSx/9DDDIEMOMaEYZY5wJJplimhnNLHPMs8AiSyyzollljXU22GSLbXY0u+yxzwGHHHHMieaUM8654JIrrrnR3HLHPQ888sQzL5pX3njng0+++OZn5ncA/2UABBBIEMGEEPpfBkAY4UQQSRTRxGhiiSOeBBJJIpkUTSpppJNBJllkk6PJJY98CiikiGJKNKWUUU4FlVRRTY2mljrqaaCRJppp0bTSRjsddNJFNz2aXvroZ4BBhhhmRDPKGONMMMkU08xoZpljngUWWWKZFc0qa6yzwSZbbLOj2WWPfQ445IhjTjSnnHHOBZdccc2N5pY77nngkSeeedG88sY7H3zyxTc///U7gP9rAAQQSBDBhBD6fw2AMMKJIJIooonRxBJHPAkkkkQyKZpU0kgng0yyyCZHk0se+RRQSBHFlGhKKaOcCiqpopoaTS111NNAI00006JppY12Ouiki256NL300c8AgwwxzIhmlDHGmWCSKaaZ0cwyxzwLLLLEMiuaVdZYZ4NNtthmR7PLHvsccMgRx5xoTjnjnAsuueKaG80td9zzwCNPPPOieeWNdz745Itvfv7v7wAWDIAAAgkimBBCFwyAMMKJIJIooonRxBJHPAkkkkQyKZpU0kgng0yyyCZHk0se+RRQSBHFlGhKKaOcCiqpopoaTS111NNAI00006JppY12Ouiki256NL300c8AgwwxzIhmlDHGmWCSKaaZ0cwyxzwLLLLEMiuaVdZYZ4NNtthmR7PLHvsccMgRx5xoTjnjnAsuueKaG80td9zzwCNPPPOieeWNdz745ItvfhZ+B/D/DIAAAgkimBBC/58BEEY4EUQSRTQxmljiiCeBRJJIJkWTShrpZJBJFtnkaHLJI58CCimimBJNKWWUU0ElVVRTo6mljnoaaKSJZlo0rbTRTgeddNFNj6aXPvoZYJAhhhnRjDLGOBNMMsU0M5pZ5phngUWWWGZFs8oa62ywyRbb7Gh22WOfAw454pgTzSlnnHPBJVdc8/9LusNQjvoE78M1SZI0SZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSZIkSfJYyVrJWskayUgykowkK8lIMpKMlOdyz4vr3eedb/mf3+mcc6O55Y57HnjkiWdeNK+88c4Hn3zxzc//+z0I+o+f8D8RQCBBBBNC6H/8/PyZMMKJIJIooonRxBJHPAkkkkQyKZpU0kgng0yyyCZHk0se+RRQSBHFlGhKKaOcCiqpopoaTS111NNAI00006JppY12Ouiki256NL300c8AgwwxzIhmlDHGmWCSKaaZ0cwyxzwLLLLEMiuaVdZYZ4NNtthmR7PLHvsccMgRx5xoTjnjnAsuueKaG80td9zzwCNPPPOieeWNdz745Itvfv7jdwArBkAAgQQRTAihKwZAGOFEEEkU0cRoYokjngQSSSKZFE0qaaSTQSZZZJOjySWPfAoopIhiSjSllFFOBZVUUU2NppY66mmgkSaaadG00kY7HXTSRTc9ml766GeAQYYYZkQzyhjjTDDJFNPMaGaZY54FFllimRXNKmuss8EmW2yzo9llj30OOOSIY040p5xxzgWXXHHNjeaWO+554JEnnnnRvPLGOx988sU3Pyu/A/hPAyCAQIIIJoTQ/zQAwggngkiiiCZGE0sc8SSQSBLJpGhSSSOdDDLJIpscTS555FNAIUUUU6IppYxyKqikimpqNLXUUU8DjTTRTIumlTba6aCTLrrp0fTSRz8DDDLEMCOaUcYYZ4JJpphmRjPLHPMssMgSy6xoVlljnQ022WKbHc0ue+xzwCFHHHOiOeWMcy645IprbjS33HHPA4888cyL5pU33vngky+++fnP3wH8lwEQQCBBBBNC6H8ZAGGEE0EkUUQTo4kljngSSCSJZFI0qaSRTgaZZJFNjiaXPPIpoJAiiinRlFJGORVUUkU1NZpa6qingUaaaKZF00ob7XTQSRfd9Gh66aOfAQYZYpgRzShjjDPBJFNMM6OZZY55FlhkiWVWNKussc4Gm2yxzY5mlz32OeCQI4450ZxyxjkXXHLFNTeaW+6454FHnnjmRfPKG+988MkX3/z81+8ANgyAAAIJIpgQQjcMgDDCiSCSKKKJ0cQSRzwJJJJEMimaVNJIJ4NMssgmR5NLHvkUUEgRxZRoSimjnAoqqaKaGk0tddTTQCNNNNOiaaWNdjropItuejS99NHPAIMMMcyIZpQxxplgkimmmdHMMsc8CyyyxDIrmlXWWGeDTbbYZkezyx77HHDIEcecaE4545wLLrnimhvNLXfc88AjTzzzonnljXc++OSLb342fgfw3wZAAIEEEUwIof9tAIQRTgSRRBFNjCaWOOJJIJEkkknRpJJGOhlkkkU2OZpc8singEKKKKZEU0oZ5VRQSRXV1GhqqaOeBhppopkWTStttNNBJ11006PppY9+BhhkiGFGNKOMMc4Ek0wxzYxmljnmWWCRJZZZ0ayyxjobbLLFNjuaXfbY54BDjjjmRHPKGedccMkV19xobrnjngceeeKZF80rb7zzwSdffPPz378D+B8DIIBAgggmhND/MQDCCCeCSKKIJkYTSxzxJJBIEsmkaFJJI50MMskimxxNLnnkU0AhRRRToimljHIqqKSKamo0tdRRTwONNNFMi6aVNtrpoJMuuunR9NJHPwMMMsQwI5pRxhhngkmmmGZGM8sc8yywyBLLrGhWWWOdDTbZYpsdzS577HPAIUccc6I55YxzLrjkimtuNLfccc8DjzzxzIvmlTfe+eCTL775+Z/fAewYAAEEEkQwIYTuGABhhBNBJFFEE6OJJY54EkgkiWRSNKmkkU4GmWSRTY4mlzzyKaCQIoop0ZRSRjkVVFJFNTWaWuqop4FGmmimRdNKG+100EkX3fRoeumjnwEGGWKYEc0oY4wzwSRTTDOjmWWOeRZYZIllVjSrrLHOBptssc2OZpc99jngkCOOOdGccsY5F1xyxTU3mlvuuOeBR5545kXzyhvvfPDJF9/87PweBP3vz8+fCCCQIIIJIfR/f8L/TBjhRBBJFNHEaGKJI54EEkkimRRNKmmkk0EmWWSTo8klj3wKKKSIYko0pZRRTgWVVFFNjaaWOuppoJEmmmnRtNJGOx100kU3PZpe+uhngEGGGGZEM8oY40wwyRTTzGhmmWOeBRZZYpkVzSprrLPBJltss6PZZY99DjjkiGNONKeccc4Fl1xxzY3mljvueeCRJ5550bzyxjsffPLFNz//+zuAvxgAAQQSRDAhhP7FAAgjnAgiiSKaGE0sccSTQCJJJJOiSSWNdDLIJItscjS55JFPAYUUUUyJppQyyqmgkiqqqdHUUkc9DTTSRDMtmlbaaKeDTrropkfTSx/9DDDIEMOMaEYZY5wJJplimhnNLHPMs8AiSyyzollljXU22GSLbXY0u+yxzwGHHHHMieaUM8654JIrrrnR3HLHPQ888sQzL5pX3njng0+++ObnL78DODAAAggkiGBCCD0wAMIIJ4JIoogmRhNLHPEkkEgSyaRoUkkjnQwyySKbHE0ueeRTQCFFFFOiKaWMciqopIpqajS11FFPA4000UyLppU22umgky666dH00kc/AwwyxDAjmlHGGGeCSaaYZkYzyxzzLLDIEsusaFZZY50NNtlimx3NLnvsc8AhRxxzojnljHMuuOSKa240t9xxzwOPPPHMi+aVN9754JMvvvk5+B3AXw2AAAIJIpgQQv9qAIQRTgSRRBFNjCaWOOJJIJEkkknRpJJGOhlkkkU2OZpc8singEKKKKZEU0oZ5VRQSRXV1GhqqaOeBhppopkWTStttNNBJ11006PppY9+BhhkiGFGNKOMMc4Ek0wxzYxmljnmWWCRJZZZ0ayyxjobbLLFNjuaXfbY54BDjjjmRHPKGedccMkV19xobrnjngceeeKZF80rb7zzwSdffPPz198BHBsAAQQSRDAhhB4bAGGEE0EkUUQTo4kljngSSCSJZFI0qaSRTgaZZJFNjiaXPPIpoJAiiinRlFJGORVUUkU1NZpa6qingUaaaKZF00ob7XTQSRfd9Gh66aOfAQYZYpgRzShjjDPBJFNMM6OZZY55FlhkiWVWNKussc4Gm2yxzY5mlz32OeCQI4450ZxyxjkXXHLFNTeaW+6454FHnnjmRfPKG+988MkX3/wc/w7gxAAIIJAgggkh9MQACCOcCCKJIpoYTSxxxJNAIkkkk6JJJY10Msgki2xyNLnkkU8BhRRRTImmlDLKqaCSKqqp0dRSRz0NNNJEMy2aVtpop4NOuuimR9NLH/0MMMgQw4xoRhljnAkmmWKaGc0sc8yzwCJLLLOiWWWNdTbYZIttdjS77LHPAYccccyJ5pQzzrngkiuuudHccsc9DzzyxDMvmlfeeOeDT7745ufkdwB/MwACCCSIYEII/ZsBEEY4EUQSRTQxmljiiCeBRJJIJkWTShrpZJBJFtnkaHLJI58CCimimBJNKWWUU0ElVVRTo6mljnoaaKSJZlo0rbTRTgeddNFNj6aXPvoZYJAhhhnRjDLGOBNMMsU0M5pZ5phngUWWWGZFs8oa62ywyRbb7Gh22WOfAw454pgTzSlnnHPBJVdcc6O55Y57HnjkiWdeNK+88c4Hn3zxzc/ffgdwbgAEEEgQwYQQem4AhBFOBJFEEU2MJpY44kkgkSSSSdGkkkY6GWSSRTY5mlzyyKeAQooopkRTShnlVFBJFdXUaGqpo54GGmmimRZNK22000EnXXTTo+mlj34GGGSIYUY0o4wxzgSTTDHNjGaWOeZZYJElllnRrLLGOhtsssU2O5pd9tjngEOOOOZEc8oZ51xwyRXX3GhuueOeBx554pkXzStvvPPBJ19883P+exB08RP+JwIIJIhgQgi9+Pn5M2GEE0EkUUQTo4kljngSSCSJZFI0qaSRTgaZZJFNjiaXPPIpoJAiiinRlFJGORVUUkU1NZpa6qingUaaaKZF00ob7XTQSRfd9Gh66aOfAQYZYpgRzShjjDPBJFNMM6OZZY55FlhkiWVWNKussc4Gm2yxzY5mlz32OeCQI4450ZxyxjkXXHLFNTeaW+6454FHnnjmRfPKG+988MkX3/xc/A7g7wZAAIEEEUwIoX83AMIIJ4JIoogmRhNLHPEkkEgSyaRoUkkjnQwyySKbHE0ueeRTQCFFFFOiKaWMciqopIpqajS11FFPA4000UyLppU22umgky666dH00kc/AwwyxDAjmlHGGGeCSaaYZkYzyxzzLLDIEsusaFZZY50NNtlimx3NLnvsc8AhRxxzojnljHMuuOSKa240t9xxzwOPPPHMi+aVN9754JMvvvn5++8Arg2AAAIJIpgQQq8NgDDCiSCSKKKJ0cQSRzwJJJJEMimaVNJIJ4NMssgmR5NLHvkUUEgRxZRoSimjnAoqqaKaGk0tddTTQCNNNNOiaaWNdjropItuejS99NHPAIMMMcyIZpQxxplgkimmmdHMMsc8CyyyxDIrmlXWWGeDTbbYZkezyx77HHDIEcecaE4545wLLrnimhvNLXfc88AjTzzzonnljXc++OSLb36ufwdwYwAEEEgQwYQQemMAhBFOBJFEEU2MJpY44kkgkSSSSdGkkkY6GWSSRTY5mlzyyKeAQooopkRTShnlVFBJFdXUaGqpo54GGmmimRZNK22000EnXXTTo+mlj34GGGSIYUY0o4wxzgSTTDHNjGaWOeZZYJElllnRrLLGOhtsssU2O5pd9tjngEOOOOZEc8oZ51xwyRXX3GhuueOeBx554pkXzStvvPPBJ19883PzO4D/MwACCCSIYEII/T8DIIxwIogkimhiNLHEEU8CiSSRTIomlTTSySCTLLLJ0eSSRz4FFFJEMSWaUsoop4JKqqimRlNLHfU00EgTzbRoWmmjnQ466aKbHk0vffQzwCBDDDOiGWWMcSaYZIppZjSzzDHPAossscyKZpU11tlgky222dHsssc+BxxyxDEnmlPOOOeCS6645kZzyx33PPDIE8+8aF55450PPvnim5//+x3AvQEQQCBBBBNC6L0BEEY4EUQSRTQxmljiiCeBRJJIJkWTShrpZJBJFtnkaHLJI58CCimimBJNKWWUU0ElVVRTo6mljnoaaKSJZlo0rbTRTgeddNFNj6aXPvoZYJAhhhnRjDLGOBNMMsU0M5pZ5phngUWWWGZFs8oa62ywyRbb7Gh22WOfAw454pgTzSlnnHPBJVdcc6O55Y57HnjkiWdeNK+88c4Hn3zxzc/97wAeDIAAAgkimBBCHwyAMMKJIJIooonRxBJHPAkkkkQyKZpU0kgng0yyyCZHk0se+RRQSBHFlGhKKaOcCiqpopoaTS111NNAI00006Jp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';
+  const annotationHash = '35f8acd64a74b1383cafba77f40116bea71c4d2c11f848906ea4c2438e1559e0';
+  let annotationSequence = 0;
+  const annotationImages = new Map<string, { attachment: UiAttachment; png: string; created: number }>();
+  const durableImages = new Map<string, {attachment: UiAttachment; png: string}>();
+  const draftKey = (a: AccountContext, gid: string) => JSON.stringify([a.environment,a.account_id,gid]);
+  const durableDrafts = new Map<string, {gid:string;text:string;version:number;attachment_version:number;attachments:UiDraftAttachment[]}>();
+  for (const c of st.conversations.values()) if(c.draft) durableDrafts.set(draftKey(c.account,c.gid),{gid:c.gid,text:c.draft,version:1,attachment_version:0,attachments:[]});
+  const draftRecord = (a: AccountContext,gid:string) => durableDrafts.get(draftKey(a,gid)) ?? {gid,text:'',version:0,attachment_version:0,attachments:[]};
+  function annotationImage(p: unknown) {
+    const account = checkEvidenceAccount(p), args = p as {gid: string; attachment_id: string};
+    const image = annotationImages.get(args.attachment_id);
+    if (!image || image.attachment.owner.gid !== args.gid || !sameAccountContext(image.attachment.owner.account, account) || now() - image.created > 300000) throw appError('media.attachment_invalid', '演示图片已过期或不属于当前会话');
+    return image;
+  }
+  function registerAnnotation(p: unknown, png: string, hash: string): UiAttachment {
+    const account = checkEvidenceAccount(p), gid = (p as {gid:string}).gid; convFor(account, gid);
+    const attachment: UiAttachment = { attachment_id: `annotation-${++annotationSequence}`, lease_id: `lease-${annotationSequence}`, name: '演示标注.png', kind: 'image', mime: 'image/png', size: atob(png).length, content_sha256: hash, owner: {account: {...account},gid}, supported: true };
+    annotationImages.set(attachment.attachment_id, {attachment,png,created:now()});
+    durableImages.set(attachment.lease_id!, {attachment,png}); return structuredClone(attachment);
+  }
+  let searchSequence = 0;
+  const searchQueries = new Map<string, string>();
+  const searchSelections = new Map<string, { account: AccountContext; queryId: string; gid: string; messageId: string | null; time: number }>();
   const productSelections = new Map<string, { account: AccountContext; gid: string; ids: readonly string[]; expires: number }>();
   const browserTabs: { tab_id: string; account_id: string; url: string; title: string; loading: boolean }[] = [];
   let browserTabSeq = 0;
@@ -419,6 +452,29 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
   const savedEmojis = new Map<string, {id:string;name:string;url:string;thumbnail:string|null;created_at_ms:number;rank:number}[]>();
   const forwarded = new Map<string, SendDisposition>();
   const handlers: Record<string, (payload: unknown) => Promise<unknown>> = {
+    [ImCommands.DRAFT_LOAD]: async (p) => {
+      const account=checkEvidenceAccount(p);
+      return {drafts:[...durableDrafts].filter(([key])=>{const [env,id]=JSON.parse(key) as string[];return env===account.environment&&id===account.account_id;}).map(([,draft])=>structuredClone(draft))};
+    },
+    [ImCommands.DRAFT_SAVE]: async (p) => {
+      const account=checkEvidenceAccount(p),args=p as {gid:string;text:string;expected_version:number};convFor(account,args.gid);
+      const row=draftRecord(account,args.gid);if(row.version!==args.expected_version)throw appError('store.cas_conflict','草稿版本已变化');
+      row.text=args.text;row.version=args.text?row.version+1:0;durableDrafts.set(draftKey(account,args.gid),row);return {version:row.version};
+    },
+    [UiCommands.IM_DRAFT_ATTACHMENT_SAVE]: async (p) => {
+      const account=checkEvidenceAccount(p),args=p as {gid:string;attachment_id:string|null;expected_version:number};convFor(account,args.gid);
+      const row=draftRecord(account,args.gid);if(row.attachment_version!==args.expected_version)throw appError('store.cas_conflict','附件草稿版本已变化');
+      let attachments:UiDraftAttachment[]=[];
+      if(args.attachment_id!==null){const image=annotationImage(p),a=image.attachment;attachments=[{lease_id:a.lease_id!,name:a.name,kind:a.kind,mime:a.mime,size:a.size,content_sha256:a.content_sha256,state:'ready'}];}
+      row.attachments=attachments;row.attachment_version++;durableDrafts.set(draftKey(account,args.gid),row);return structuredClone({attachment_version:row.attachment_version,attachments});
+    },
+    [UiCommands.IM_DRAFT_ATTACHMENT_RESTORE]: async (p) => {
+      const account=checkEvidenceAccount(p),args=p as {gid:string;lease_id:string};convFor(account,args.gid);
+      const row=draftRecord(account,args.gid),image=durableImages.get(args.lease_id);
+      if(!image||!row.attachments.some(a=>a.lease_id===args.lease_id&&a.state==='ready')||image.attachment.owner.gid!==args.gid||image.attachment.owner.account.environment!==account.environment||image.attachment.owner.account.account_id!==account.account_id)throw appError('media.draft_attachment_unavailable','附件不可恢复');
+      const attachment:UiAttachment={...image.attachment,attachment_id:`annotation-${++annotationSequence}`,owner:{account:{...account},gid:args.gid}};
+      annotationImages.set(attachment.attachment_id,{attachment,png:image.png,created:now()});return structuredClone(attachment);
+    },
     // ---- account
     [AccountCommands.SNAPSHOT]: async () => accountSnapshot(),
     [AccountCommands.BROWSER_PROFILES]: async () => [],
@@ -516,6 +572,40 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       const gid = String((p as { gid?: string }).gid ?? '');
       convFor(ctx, gid);
       return (st.messages.get(gid) ?? []).map((m) => ({ ...m }));
+    },
+    // Synthetic search fixtures only. `demo` shows every group and two pages;
+    // `empty`/`error` support deterministic browser empty/error acceptance.
+    [UiCommands.SERVER_SEARCH]: async (p) => {
+      const account = checkAccount(p), query = (p as { query: UiServerSearchQuery }).query;
+      if (!query || !Number.isSafeInteger(query.search_type) || query.search_type < 0 || query.search_type > 4 || !Number.isSafeInteger(query.page_no) || query.page_no < 1) throw appError(ErrorCodes.ADAPTER_FAILED, '无效搜索条件');
+      if (query.search_value === 'error') throw appError(ErrorCodes.ADAPTER_FAILED, '演示搜索失败，请重试');
+      const owner = `${account.environment}/${account.account_id}/${account.session_generation}`;
+      searchQueries.set(owner, query.query_id);
+      const result: Record<ServerSearchGroup, UiServerSearchHit[]> = { customer: [], content: [], order: [], date: [] };
+      const rows = conversationsOf(account);
+      for (const [index, row] of rows.entries()) {
+        const messages = st.messages.get(row.gid) ?? [], anchor = messages.at(-1);
+        const matches = query.search_type === 4 ? !!anchor && anchor.create_time_ms >= (query.start_ms ?? 0) && anchor.create_time_ms <= (query.end_ms ?? 0) : query.search_value === 'demo' || `${row.title} ${row.preview} ${row.order?.order_id ?? ''}`.toLowerCase().includes((query.search_value ?? '').toLowerCase());
+        if (!matches || query.search_value === 'empty') continue;
+        for (const group of ['customer', 'content', 'order', 'date'] as const) {
+          const token = `mock-search-${++searchSequence}`;
+          searchSelections.set(token, { account, queryId: query.query_id, gid: row.gid, messageId: anchor?.message_id ?? null, time: anchor?.create_time_ms ?? row.last_message_time_ms ?? now() });
+          result[group].push({ selection_token: token, gid: row.gid, title: row.title, preview: group === 'order' ? row.order?.order_id ?? '演示订单' : `${row.preview} · ${index + 1}`, message_id: anchor?.message_id ?? null, time_ms: anchor?.create_time_ms ?? now() });
+        }
+      }
+      const total = result.customer.length, pageCount = Math.ceil(total / 2);
+      if (query.search_type !== 3) for (const group of ['customer', 'content', 'order', 'date'] as const) result[group] = result[group].slice((query.page_no - 1) * 2, query.page_no * 2);
+      return { query_id: query.query_id, search_type: query.search_type, page_no: query.page_no, page_count: pageCount, has_more: query.search_type !== 3 && query.page_no < pageCount, groups: result };
+    },
+    [UiCommands.SEARCH_HISTORY]: async (p) => {
+      const account = checkAccount(p), query = (p as { query: UiSearchHistoryRequest }).query;
+      const selected = searchSelections.get(query?.selection_token);
+      const owner = `${account.environment}/${account.account_id}/${account.session_generation}`;
+      if (!selected || !sameAccountContext(selected.account, account) || searchQueries.get(owner) !== selected.queryId || (query.direction !== 'prev' && query.direction !== 'next')) throw appError(ErrorCodes.ADAPTER_FAILED, '搜索结果已过期');
+      const cursor = query.cursor_ms ?? (query.direction === 'prev' ? selected.time + 2000 : selected.time - 2000);
+      const all = (st.messages.get(selected.gid) ?? []).filter(m => query.direction === 'prev' ? m.create_time_ms < cursor : m.create_time_ms > cursor);
+      const items = (query.direction === 'prev' ? all.slice(-50) : all.slice(0, 50)).map(m => ({ ...m }));
+      return { selection_token: query.selection_token, direction: query.direction, items, cursor_ms: items.length ? (query.direction === 'prev' ? items[0]!.create_time_ms : items.at(-1)!.create_time_ms) : null, has_more: all.length > items.length, anchor_message_id: selected.messageId };
     },
     [UiCommands.IM_MESSAGE_PAGE]: async (p) => {
       const ctx = checkAccount(p);
@@ -793,6 +883,8 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     },
 
     // ---- shell / media placeholders
+    [UiCommands.WEBVIEW_RECOVERY_STATUS]: async () => [],
+    [UiCommands.WEBVIEW_RECOVERY_RETRY]: async () => { throw appError('host.unsupported', '没有待恢复的视图'); },
     [ShellCommands.EXPORT_DIAGNOSTICS]: async () => false,
     [ShellCommands.OPEN_DATA_DIRECTORY]: async () => {
       emit(UiEvents.TOAST, { text: '演示环境没有本机数据目录' });
@@ -854,13 +946,37 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       return { attachment_id: `att-demo-${kind}`, name: names[kind] ?? '附件' };
     },
     [UiCommands.MEDIA_ACCEPT_DROP]: async () => null,
-    [UiCommands.MEDIA_RELEASE]: async () => null,
+    [UiCommands.MEDIA_SCREENSHOT]: async (p) => {
+      await delay(latency * 2);
+      if (scenario === 'annotation') return registerAnnotation(p, annotationPng, annotationHash);
+      throw appError(ErrorCodes.HOST_UNSUPPORTED, '演示模式不提供系统截图；请在客户端中使用。');
+    },
+    [UiCommands.MEDIA_ANNOTATION_SOURCE]: async (p) => {
+      const image = annotationImage(p); await delay(latency); annotationImage(p);
+      return {source_hash:image.attachment.content_sha256,mime:'image/png',width:128,height:96,data_base64:image.png};
+    },
+    [UiCommands.MEDIA_ANNOTATION_APPLY]: async (p) => {
+      const source = annotationImage(p), args = p as {source_hash:string;png_base64:string;width:number;height:number;annotations:unknown[]};
+      if (args.source_hash !== source.attachment.content_sha256 || args.width !== 128 || args.height !== 96 || !Array.isArray(args.annotations) || args.annotations.length > 512 || typeof args.png_base64 !== 'string' || args.png_base64.length > 13981016) throw appError('media.annotation_invalid','演示标注参数无效');
+      const bytes = Uint8Array.from(atob(args.png_base64), c => c.charCodeAt(0));
+      const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(c=>c.toString(16).padStart(2,'0')).join('');
+      await delay(latency); annotationImage(p);
+      return registerAnnotation(p, args.png_base64, hash);
+    },
+    [UiCommands.MEDIA_SAVE_ATTACHMENT]: async (p) => { annotationImage(p); return {saved:false}; },
+    [UiCommands.MEDIA_SAVE_IMAGE]: async () => ({ saved: false }),
+    [UiCommands.MEDIA_RELEASE]: async (p) => {
+      const args = p as {attachment_id?:string};
+      if (args.attachment_id && annotationImages.has(args.attachment_id)) { annotationImage(p); annotationImages.delete(args.attachment_id); }
+      return null;
+    },
     [UiCommands.IM_SEND_MEDIA]: async () => ({ stage: 'prepare', kind: 'not_submitted', write_started: false, disposition: null, message: null, error: 'Browser demo has no registered local attachment or official uploader' }),
 
     // ---- prefs
     [PrefsCommands.SNAPSHOT]: async () => structuredClone(st.prefs),
     [UiCommands.PREFS_SET]: async (p) => {
       const { section, key, value } = p as { section: string; key: string; value: unknown };
+      if (UNSUPPORTED_RUNTIME_PREFS.some(([unsupportedSection, unsupportedKey]) => section === unsupportedSection && key === unsupportedKey)) throw appError('host.unsupported', 'unsupported preference runtime');
       // enabled / t1_seconds / timeout_sound are owned by the alarm core and only change through notify_set_*;
       // the remaining reminder fields (L4, position, DND, fullscreen, tray, badge) are plain prefs.
       if (section === 'reminder' && (key === 'enabled' || key === 't1_seconds' || key === 'timeout_sound')) throw appError('prefs.use_notify', '提醒设置请通过 notify_set_* 修改');
@@ -1054,6 +1170,9 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
 
   return {
     scenario,
+    async listenReady<T>(event: string, cb: (payload: T) => void): Promise<() => void> {
+      return this.listen(event, cb);
+    },
     async invoke<T>(cmd: string, payload?: unknown): Promise<T> {
       const handler = handlers[cmd];
       if (!handler) throw appError('host.unknown_command', `未知命令 ${cmd}`);
@@ -1083,5 +1202,5 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
 export function scenarioFromLocation(): MockScenario {
   if (typeof location === 'undefined') return 'default';
   const s = new URLSearchParams(location.search).get('scenario');
-  return s === 'empty' || s === 'offline' || s === 'clock-untrusted' || s === 'reconciling' || s === 'no-accounts' ? s : 'default';
+  return s === 'empty' || s === 'offline' || s === 'clock-untrusted' || s === 'reconciling' || s === 'no-accounts' || s === 'annotation' ? s : 'default';
 }

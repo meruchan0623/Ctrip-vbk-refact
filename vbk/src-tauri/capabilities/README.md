@@ -9,7 +9,7 @@
 | `setting.json` | `setting` | 偏好快照、提醒设置命令、账号快照 |
 | `update.json` | `update` | 仅偏好快照（更新状态命令在 REL 任务接入时另加，不继承业务权限） |
 | `login.json` | `login` | 账号快照、开始/取消登录 |
-| `media-viewer.json` | `media-viewer` | 只读宿主绑定的当前附件、外部打开该附件、窗口控制；不接受任何 URL 参数 |
+| `media-viewer.json` | `media-viewer` | 只读宿主绑定的当前附件、外部打开或另存该附件（`media_save_image` 只收图集序号，账号/会话/消息由宿主绑定解析）、窗口控制；不接受任何 URL 参数 |
 
 2026-10-30 起：各文件由 `views.rs` 中的角色命令表生成，三处必须一致（`ui/apps/_shared/contract-consistency.test.ts` 检查）。新增 `adapter.json`：只授予官方 HTTPS 来源上、标签为 `acct-*` 的账号网页 WebView 五条 `adapter_*` 窄命令和事件监听；宿主再按 WebView 标签核对账号与代次，不信任页面自报身份。官方登录页（`login-remote-*`）仍无任何权限。
 

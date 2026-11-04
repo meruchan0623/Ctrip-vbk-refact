@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { historyDiagnostics } from './history-diagnostics.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -105,7 +106,7 @@ test('actual visible diagnostics dialog copies only safe JSON and performs no im
   interface Node { tag: string; props: Record<string, unknown>; children: unknown[] }
   const walk = (tree: unknown): Node[] => Array.isArray(tree) ? tree.flatMap(walk) : tree && typeof tree === 'object' ? [tree as Node, ...walk((tree as Node).children ?? [])] : [];
   const copies: string[] = []; let refreshes = 0;
-  const env = { historyDiagnostics, store: { patch() {} }, receiveDiagnostics: { close() {}, refresh() { refreshes++; } }, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, formatClock: () => 'synthetic-time', receiveDiagnosticsJson, copyText: (text: string) => { copies.push(text); } };
+  const env = { t: translateUi, historyDiagnostics, store: { patch() {} }, receiveDiagnostics: { close() {}, refresh() { refreshes++; } }, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, formatClock: () => 'synthetic-time', receiveDiagnosticsJson, copyText: (text: string) => { copies.push(text); } };
   const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)) + '\nreturn receiveDiagnosticsDialog;')(...Object.values(env));
   const snapshot = { ...safeReceiveDiagnostics(fullDiagnostics, 100), main: { received: 1, guard_rejected: 0, account_dropped: 0, upserted: 1 } };
   const tree = walk(render({ receiveDiagnostics: { busy: false, snapshot } }));

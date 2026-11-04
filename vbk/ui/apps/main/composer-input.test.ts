@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -21,7 +22,7 @@ function fixture() {
     activeAccount: () => store.get().accounts.accounts[0], activeConv: () => store.get().conversations.find((c: any) => c.gid === store.get().activeGid),
     scheduleTranslation: () => { translations++; }, clearTimeout,
     h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
-    t: (key: string) => key, icon: () => null, IC: {}, translationOn: () => false, translationBar: () => null, notWired: (x: unknown) => x,
+    t: translateUi, icon: () => null, IC: {}, translationOn: () => false, translationBar: () => null, notWired: (x: unknown) => x,
     handleSend: () => { sends++; }, subscribeFrame: subscribeBatched, fillHistoryViewport() {}, syncConversationViewport() {}, withMessageAnchor: (_: unknown, redraw: () => void) => redraw(), root: {}, rerender: () => { renders++; },
   };
   const extract = (text: string, name: string, end: string) => text.slice(text.indexOf(`function ${name}(`), text.indexOf(`\n${end}`, text.indexOf(`function ${name}(`)));

@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPeripheralPanel, filteredInviteAgents, MEMBER_REFRESH_MS, type PeripheralPanelState } from './peripheralPanel.ts';
@@ -200,7 +201,7 @@ test('actual finish dialog requires a current token before enabling confirmation
   for (const selection of [null, { ...members, selection_token: '' }, { ...members, expires_at_ms: 100 }, members]) {
     const state = { now: 101, activeGid: 'synthetic-room-a', peripheral: { kind: 'finish', scope: { account, gid: 'synthetic-room-a' }, members: selection, candidates: null, busy: false, submitted: false, write: null, selected: [], error: null, notice: null } };
     const env = {
-      stillActive: () => true, activeConv: () => ({ title: 'Synthetic Customer' }),
+      t: translateUi, stillActive: () => true, activeConv: () => ({ title: 'Synthetic Customer' }),
       h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
       icon: () => null, IC: {}, cx: (...classes: unknown[]) => classes.filter((item) => typeof item === 'string').join(' '),
     };

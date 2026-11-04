@@ -110,6 +110,10 @@ export interface VisibilityGate {
 export interface ConversationListPollerOptions {
   readonly variant: ConversationListVariant;
   readonly emit: (fact: AdapterFact) => void;
+  readonly emitAsync?: (fact: AdapterFact, current: () => boolean) => Promise<boolean>;
+  readonly awaitDelivery?: () => Promise<void>;
+  readonly acquireBatch?: (current: () => boolean) => Promise<(() => void) | null>;
+  readonly onBatchOverflow?: () => void;
   readonly intervalMs?: number;
   /** Send `locale` in the body (imvendor entry); default false (vbooking entry). */
   readonly includeLocale?: boolean;
@@ -237,10 +241,80 @@ export function createConversationListPoller(deps: AdapterDeps, soa: SoaClient, 
     return true;
   };
 
+  // At most one active response plus a bounded official-feed backlog. No
+  // Promise tail is appended per response and no increments are coalesced away.
+  interface Batch { outcome: SoaOutcome<ConversationListResponse>; startTime: number | null | undefined; ticket: unknown; official: boolean; gen: number; chars: number; resolve: (applied: boolean) => void }
+  const batches: Batch[] = [];
+  let batchBusy = false, batchChars = 0, activeBatchGeneration = 0;
+  const applyAsync = async (batch: Batch): Promise<boolean> => {
+    const current = () => running && batch.gen === generation;
+    if (!current()) return false;
+    const release = opts.acquireBatch ? await opts.acquireBatch(current) : () => {};
+    if (!release) return false;
+    try {
+      if (!current()) return false;
+      const outcome = batch.outcome;
+      const startTime = batch.startTime === undefined ? cursor : batch.startTime;
+      // An increment queued behind a full snapshot uses the cursor established
+      // by that snapshot; an actually unanchored increment is not applied.
+      if (batch.official && batch.startTime === undefined && startTime === null) return true;
+      const serverCursor = outcome.kind === 'success' ? normalizeTimeMs(outcome.body.lastUpdateTime) : null;
+      if (serverCursor !== null && cursor !== null && serverCursor < cursor) return true;
+      const full = startTime === null;
+      if (full && outcome.kind === 'success') cursor = null;
+      opts.onOutcome?.(outcome, batch.ticket);
+      if (!current()) return false;
+      if (outcome.kind === 'auth_invalid') { opts.emit({ kind: 'auth_invalid' }); running = false; return false; }
+      if (outcome.kind !== 'success') return true;
+      const rows = Array.isArray(outcome.body.conversationList) ? outcome.body.conversationList as ConversationListItem[] : [];
+      for (const row of rows) {
+        if (!current()) return false;
+        const fact = toConversationFact(row, full, opts.unread);
+        if (fact && (!await opts.emitAsync!({ kind: 'conversation', fact }, current) || !current())) return false;
+      }
+      if (!current()) return false;
+      try { await opts.awaitDelivery?.(); } catch { return false; }
+      if (!current()) return false;
+      if (rows.length) opts.onRows?.(rows, full);
+      if (!current() || !await opts.emitAsync!({ kind: 'conversation_list_sync', full, last_update_time_ms: serverCursor }, current) || !current()) return false;
+      try { await opts.awaitDelivery?.(); } catch { return false; }
+      if (!current()) return false;
+      if (serverCursor !== null) cursor = serverCursor;
+      return true;
+    } finally { release(); }
+  };
+  const drainBatches = async (): Promise<void> => {
+    if (batchBusy) return;
+    batchBusy = true;
+    try {
+      while (batches.length) {
+        const batch = batches.shift()!; batchChars -= batch.chars;
+        activeBatchGeneration = batch.gen;
+        try { batch.resolve(await applyAsync(batch)); }
+        catch { batch.resolve(false); opts.onBatchOverflow?.(); running = false; stopInternal(); }
+      }
+    } finally { batchBusy = false; }
+  };
+  const enqueueBatch = (outcome: SoaOutcome<ConversationListResponse>, startTime: number | null | undefined, ticket: unknown, official: boolean): Promise<boolean> => {
+    if (!running) return Promise.resolve(false);
+    const chars = JSON.stringify(outcome).length;
+    // The one actively consumed HTTP response may itself be a large valid
+    // full snapshot. The additional backlog is capped at 32 / four MB.
+    if (batchBusy && (batches.length >= 32 || batchChars + chars > 4_000_000)) {
+      opts.onBatchOverflow?.(); running = false; stopInternal();
+      return Promise.resolve(false);
+    }
+    return new Promise(resolve => {
+      batches.push({ outcome, startTime, ticket, official, gen: generation, chars, resolve });
+      batchChars += chars;
+      void drainBatches();
+    });
+  };
+
   const consume = (entry: OfficialConversationEntry, ticket: unknown): void => {
     if (!running) return;
-    // An increment can only be applied on top of a snapshot we already hold.
-    if (!entry.full && cursor === null) return;
+    // Async production may queue an increment behind a still-draining full.
+    if (!opts.emitAsync && !entry.full && cursor === null) return;
     let outcome: SoaOutcome<ConversationListResponse>;
     if (entry.status !== 200) {
       outcome = { kind: 'http_error', httpStatus: entry.status };
@@ -253,6 +327,14 @@ export function createConversationListPoller(deps: AdapterDeps, soa: SoaClient, 
       }
       outcome = classifySoaBody<ConversationListResponse>(parsed, entry.status);
     }
+    if (opts.emitAsync) {
+      const gen = generation;
+      source = 'official';
+      void enqueueBatch(outcome, entry.full ? null : undefined, ticket, true).then(applied => {
+        if (!applied && gen === generation) { running = false; source = 'idle'; stopInternal(); }
+      });
+      return;
+    }
     // The session reads `cursor === null` as "this response is a full snapshot".
     if (entry.full && outcome.kind === 'success') cursor = null;
     source = 'official';
@@ -264,6 +346,8 @@ export function createConversationListPoller(deps: AdapterDeps, soa: SoaClient, 
 
   const stopInternal = (): void => {
     generation += 1;
+    for (const batch of batches.splice(0)) batch.resolve(false);
+    batchChars = 0;
     if (timer !== null) {
       deps.clearTimeout(timer);
       timer = null;
@@ -276,6 +360,7 @@ export function createConversationListPoller(deps: AdapterDeps, soa: SoaClient, 
 
   const tick = async (gen: number): Promise<void> => {
     if (!running || gen !== generation) return;
+    if (opts.emitAsync && batchBusy && activeBatchGeneration === gen) { schedule(gen); return; }
     let bootstrap = false;
     // Per variant, and only while official response bodies actually reach us: a loop we cannot read is no feed.
     if (opts.official?.active(deps.now(), opts.variant)) {
@@ -298,7 +383,10 @@ export function createConversationListPoller(deps: AdapterDeps, soa: SoaClient, 
     const outcome = await soa.post<ConversationListResponse>(spec, conversationListBody(deps, startTime, opts.includeLocale ?? false));
     if (!running || gen !== generation) return;
     failures = outcome.kind === 'success' ? 0 : failures + 1;
-    if (!apply(outcome, startTime, ticket, false)) {
+    const applied = opts.emitAsync ? await enqueueBatch(outcome, startTime, ticket, false) : apply(outcome, startTime, ticket, false);
+    if (!running || gen !== generation) return;
+    if (!applied) {
+      running = false;
       source = 'idle';
       stopInternal();
       return;

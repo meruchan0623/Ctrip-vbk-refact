@@ -10,7 +10,7 @@ import { CursorAllocator, UNKNOWN_ROLES, buildMemberRoles, mapMsgType, normalize
 
 const account = { account_id: '{{account}}', environment: 'production', session_generation: 1 };
 
-test('review/facts: msgtype mapping matrix (observed codes only; everything else is control)', () => {
+test('review/facts: msgtype mapping matrix (verified codes only; everything else is control)', () => {
   const expect: [unknown, MsgKind][] = [
     [0, 'business'],
     ['0', 'business'],

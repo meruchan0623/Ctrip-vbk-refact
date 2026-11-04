@@ -154,7 +154,7 @@ export function sendStateView(disposition: SendDisposition | null): SendStateVie
     case 'confirmed':
       return { cls: 'ok', label: t('send.confirmed'), canRetry: false, spin: false };
     case 'rejected':
-      return { cls: 'rej', label: `${t('send.rejected')}（${disposition.reason}）`, canRetry: true, spin: false };
+      return { cls: 'rej', label: t('mainRuntime.rejectedReason', { label: t('send.rejected'), reason: disposition.reason }), canRetry: true, spin: false };
     case 'unknown':
       return { cls: 'unk', label: t('send.unknown'), canRetry: false, spin: false };
     default:
@@ -301,23 +301,23 @@ export function needsOutboundTranslation(text: string): boolean {
 export { customerLanguage, suggestLanguage, LANGUAGE_SCAN_LIMIT } from '../../packages/ipc/src/customer-language.ts';
 
 export const LANG_NAMES: Readonly<Record<string, string>> = {
-  ar: '阿拉伯语',
-  pt: '葡萄牙语',
-  it: '意大利语',
-  tr: '土耳其语',
-  zh: '中文',
-  en: '英语',
-  ja: '日语',
-  ko: '韩语',
-  th: '泰语',
-  vi: '越南语',
-  id: '印尼语',
-  ms: '马来语',
-  es: '西班牙语',
-  fr: '法语',
-  de: '德语',
-  ru: '俄语',
-  'zh-TW': '繁体中文',
+  ar: t('mainRuntime.language.ar'),
+  pt: t('mainRuntime.language.pt'),
+  it: t('mainRuntime.language.it'),
+  tr: t('mainRuntime.language.tr'),
+  zh: t('mainRuntime.language.zh'),
+  en: t('mainRuntime.language.en'),
+  ja: t('mainRuntime.language.ja'),
+  ko: t('mainRuntime.language.ko'),
+  th: t('mainRuntime.language.th'),
+  vi: t('mainRuntime.language.vi'),
+  id: t('mainRuntime.language.id'),
+  ms: t('mainRuntime.language.ms'),
+  es: t('mainRuntime.language.es'),
+  fr: t('mainRuntime.language.fr'),
+  de: t('mainRuntime.language.de'),
+  ru: t('mainRuntime.language.ru'),
+  'zh-TW': t('mainRuntime.language.zh-TW'),
 };
 
 export function langName(code: string): string {
@@ -783,15 +783,15 @@ export function visibleMessages(messages: readonly UiMessage[]): UiMessage[] {
 
 /** A transport acceptance is never presented as an independently confirmed action. */
 export function peripheralWriteView(result: import('../../packages/ipc/src/client.ts').UiPeripheralWrite): { title: string; message: string; confirmed: boolean } {
-  if (result.kind === 'confirmed' && result.confirmed === true) return { title: '已确认', message: '已通过独立读回确认本次操作。', confirmed: true };
-  if (result.kind === 'accepted') return { title: '已受理，待核验', message: '服务端已受理操作。可刷新成员和会话核对结果，请勿重复提交。', confirmed: false };
-  return { title: '结果未知，待核验', message: '操作可能已经生效。仅可只读刷新成员和会话，不会重新发送操作。', confirmed: false };
+  if (result.kind === 'confirmed' && result.confirmed === true) return { title: t('peripheralRuntime.confirmedTitle'), message: t('peripheralRuntime.confirmedMessage'), confirmed: true };
+  if (result.kind === 'accepted') return { title: t('peripheralRuntime.acceptedTitle'), message: t('peripheralRuntime.acceptedMessage'), confirmed: false };
+  return { title: t('peripheralRuntime.unknownTitle'), message: t('peripheralRuntime.unknownMessage'), confirmed: false };
 }
 
 /** UI-only provenance: a target chosen from the current thread, never a copied body. */
 export type QuotedUiMessage = UiMessage & { readonly quote_target_id?: string | null; readonly recalled_message_id?: string | null };
-export const QUOTE_UNAVAILABLE = '引用内容不可用';
-export const QUOTE_RECALLED = '引用消息已撤回';
+export const QUOTE_UNAVAILABLE = t('mainRuntime.quoteUnavailable');
+export const QUOTE_RECALLED = t('mainRuntime.quoteRecalled');
 
 function quoteWasRecalled(thread: readonly UiMessage[], gid: string, targetId: string): boolean {
   return thread.some((message) => message.gid === gid && (message as QuotedUiMessage).recalled_message_id === targetId);

@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 /** Conversation-scoped peripheral actions. Automatic reads never retry writes. */
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 import type { UiMembers, UiInviteAgent, UiInviteCandidates, UiCustomerScripts, UiPeripheralWrite } from '../../packages/ipc/src/client.ts';
@@ -69,7 +70,7 @@ function readMembers(value: unknown): UiMembers {
   if (!row || !selectionEnvelope(row) || !finite(row['fetched_at_ms']) || !Array.isArray(row['members']) || !row['members'].every((raw) => {
     const member = record(raw);
     return member && nonblank(member['uid']) && (member['nickname'] === null || typeof member['nickname'] === 'string') && typeof member['status'] === 'string' && typeof member['can_transfer'] === 'boolean' && (member['can_remove'] === undefined || typeof member['can_remove'] === 'boolean') && Array.isArray(member['roles']) && member['roles'].every((role) => Number.isSafeInteger(role));
-  })) throw new Error('成员返回格式无效，正在等待自动更新。');
+  })) throw new Error(t('peripheralRuntime.malformedMembers'));
   return value as UiMembers;
 }
 function readCandidates(value: unknown): UiInviteCandidates {
@@ -78,12 +79,12 @@ function readCandidates(value: unknown): UiInviteCandidates {
     const agent = record(raw); return agent && nonblank(agent['uid']) && (agent['nickname'] === null || typeof agent['nickname'] === 'string');
   }) || !row['skill_groups'].every((raw) => {
     const group = record(raw); return group && Number.isSafeInteger(group['skill_group_id']) && typeof group['name'] === 'string';
-  })) throw new Error('候选返回格式无效，正在等待自动更新。');
+  })) throw new Error(t('peripheralRuntime.malformedCandidates'));
   return value as UiInviteCandidates;
 }
 function readScripts(value: unknown): UiCustomerScripts {
   const row = record(value);
-  if (!row || (row['kind'] !== 'empty' && row['kind'] !== 'unsupported') || !Number.isSafeInteger(row['raw_count']) || (row['raw_count'] as number) < 0) throw new Error('话术返回格式无效，请刷新。');
+  if (!row || (row['kind'] !== 'empty' && row['kind'] !== 'unsupported') || !Number.isSafeInteger(row['raw_count']) || (row['raw_count'] as number) < 0) throw new Error(t('peripheralRuntime.malformedScripts'));
   return value as UiCustomerScripts;
 }
 
@@ -163,7 +164,7 @@ export function createPeripheralPanel(deps: Dependencies) {
     const pending: number[] = [];
     const enqueue = (level: UiInviteCandidates) => {
       for (const group of level.skill_groups) if (!visited.has(group.skill_group_id) && !queued.has(group.skill_group_id)) {
-        if (visited.size + queued.size >= MAX_INVITE_GROUPS) throw new Error('部门目录过大，暂时无法完整加载。');
+        if (visited.size + queued.size >= MAX_INVITE_GROUPS) throw new Error(t('peripheralRuntime.directoryTooLarge'));
         pending.push(group.skill_group_id); queued.add(group.skill_group_id);
       }
     };
@@ -173,12 +174,12 @@ export function createPeripheralPanel(deps: Dependencies) {
       const batch = pending.splice(0, INVITE_GROUP_BATCH);
       for (const id of batch) { queued.delete(id); visited.add(id); }
       const prior = candidates;
-      if (prior.expires_at_ms <= deps.now()) throw new Error('成员状态读取超时，正在等待自动更新。');
+      if (prior.expires_at_ms <= deps.now()) throw new Error(t('peripheralRuntime.memberTimeout'));
       candidates = readCandidates(await deps.invoke(UiCommands.IM_INVITE_CANDIDATES, { ...payload, parent_skill_group_ids: batch, extend_token: prior.selection_token }));
       if (!valid(ticket, scope)) return null;
       // The host does not merge an expired token. Never publish earlier rows
       // under a token that might authorize only the last directory level.
-      if (prior.expires_at_ms <= deps.now()) throw new Error('成员状态读取超时，正在等待自动更新。');
+      if (prior.expires_at_ms <= deps.now()) throw new Error(t('peripheralRuntime.memberTimeout'));
       tree[batch.join(',')] = levelOf(candidates);
       known = index(known, candidates.agents);
       enqueue(candidates);
@@ -288,7 +289,7 @@ export function createPeripheralPanel(deps: Dependencies) {
       const expectedRequest = request + 1;
       patch({ selected: [] });
       await refresh();
-      if (valid(expectedRequest, scope) && state?.kind === kind) patch({ notice: action === 'finish' ? '会话确认已过期，已只读刷新。请再次确认结束。' : '候选已过期，已自动更新。请重新选择。' });
+      if (valid(expectedRequest, scope) && state?.kind === kind) patch({ notice: action === 'finish' ? t('peripheralRuntime.finishExpired') : t('peripheralRuntime.candidatesExpired') });
       return;
     }
     if (action !== 'finish') {
@@ -317,7 +318,7 @@ export function createPeripheralPanel(deps: Dependencies) {
       if ((result.kind === 'confirmed' && result.confirmed) || result.kind === 'not_submitted') attempts.delete(key);
       else attempts.set(key, result);
       if (valid(ticket, scope)) patch(result.kind === 'not_submitted'
-        ? { write: result, submitted: false, members: null, candidates: null, selected: [], ...EMPTY, query: state!.query, notice: kind === 'finish' ? '本次操作尚未提交。请刷新会话后再次确认。' : '本次操作尚未提交，成员和会话将自动更新，请稍后再次确认。' }
+        ? { write: result, submitted: false, members: null, candidates: null, selected: [], ...EMPTY, query: state!.query, notice: kind === 'finish' ? t('peripheralRuntime.finishNotSubmitted') : t('peripheralRuntime.membersNotSubmitted') }
         : { write: result });
       // A confirmed invite finishes the flow: close the dialog like the official client.
       if (action === 'invite' && result.kind === 'confirmed' && result.confirmed && valid(ticket, scope)) { close(); return; }

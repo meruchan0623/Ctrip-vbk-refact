@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 /** Companion-style iframe: full viewport layout, clipped to TSIM's own window.
  * Every open has a fresh frame/request; credentials live only in this closure. */
 import type { UiTsimOperatorGrant } from '../../packages/ipc/src/client.ts';
@@ -73,7 +74,7 @@ export function createOperatorOverlay(document: Document): OperatorOverlay {
     grant = { ...value }; current = isCurrent; canHandoff = true;
     clip = document.createElement('div'); clip.id = 'tsim-operator-viewport';
     clip.style.cssText = 'position:fixed;overflow:hidden;z-index:1000;background:white';
-    frame = document.createElement('iframe'); frame.id = 'tsim-operator-frame'; frame.title = 'TSIM 订单查询'; frame.referrerPolicy = 'no-referrer';
+    frame = document.createElement('iframe'); frame.id = 'tsim-operator-frame'; frame.title = t('operatorUnknown.operator.title'); frame.referrerPolicy = 'no-referrer';
     // Remote documents have no Tauri capability. Script/forms/storage are needed
     // by official TSIM login; popups and top-level navigation remain sandboxed.
     frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-downloads');
@@ -109,7 +110,7 @@ export function createOperatorOverlay(document: Document): OperatorOverlay {
     // V1 viewport events are allowed only from this unique per-open frame;
     // credential requests always require both identifier and request UUID.
     if (m.type === 'TSIM_OPERATOR_NEEDS_LOGIN' && m.version === undefined) {
-      canHandoff = false; bounds = null; layout(); text('请在 TSIM 页面内完成登录。'); return;
+      canHandoff = false; bounds = null; layout(); text(t('operatorUnknown.operator.login')); return;
     }
     if (m.identifier !== grant.identifier) return;
     const v2 = m.version === 2 && m.requestId === grant.request_id;
@@ -126,9 +127,9 @@ export function createOperatorOverlay(document: Document): OperatorOverlay {
       const rect = operatorRect(m.rect, view.innerWidth, view.innerHeight);
       if (rect) { bounds = rect; layout(); }
     } else if (m.type === 'TSIM_OPERATOR_CLOSE') close();
-    else if (m.type === 'TSIM_OPERATOR_NEEDS_LOGIN') { canHandoff = false; bounds = null; layout(); text('请在 TSIM 页面内完成登录。'); }
+    else if (m.type === 'TSIM_OPERATOR_NEEDS_LOGIN') { canHandoff = false; bounds = null; layout(); text(t('operatorUnknown.operator.login')); }
     else if (m.type === 'TSIM_OPERATOR_BASIC_READY' || m.type === 'TSIM_OPERATOR_LOADED' || m.type === 'TSIM_OPERATOR_QUERY_TERMINAL') {
-      view.clearTimeout(timer); text('请在 TSIM 页面查看订单结果。');
+      view.clearTimeout(timer); text(t('operatorUnknown.operator.result'));
     }
   }
   const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && frame) { event.preventDefault(); event.stopPropagation(); close(); } };

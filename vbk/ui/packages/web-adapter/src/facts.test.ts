@@ -129,3 +129,13 @@ test('system notices cannot become customer utterances or merchant replies throu
     }
   }
 });
+
+test('type4 audio is a body-free business fact for both customer and merchant paths', () => {
+  const roles = buildMemberRoles({ selfUid: 'me-1', customerUid: 'cust-1', members });
+  for (const sender of ['cust-1', 'me-1', 'other-1']) {
+    const body = JSON.stringify({ btype: 4, audio: { url: 'https://x.ctrip.com/private.mp3', secret: 'PRIVATE' } });
+    const http = normalizeHttpMessage({ msgId: 'audio-id', msgtype: 4, messageBody: body, partner: 'g@conference.x', fromJid: `${sender}@x`, createTime: 1700000000000 }, { roles, source: 'compensation' });
+    const realtime = normalizeSdkMessage({ id: 'audio-id', type: 'groupchat', msgtype: '4', body, from: `g@conference.x/${sender}`, to: 'me-1@x', create_time: '1700000000000' }, { roles });
+    for (const fact of [http, realtime]) { assert.ok(fact); assert.equal(fact.kind, 'business'); assert.equal(fact.sender_role, roles.roleOf(sender)); assert.equal(JSON.stringify(fact).includes('PRIVATE'), false); assert.equal('body' in fact, false); }
+  }
+});

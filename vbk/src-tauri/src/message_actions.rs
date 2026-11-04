@@ -158,12 +158,19 @@ async fn send_action(
         original: None,
         quote_id: None,
     };
-    outbound_journal::send_once(journal, ctx, local_id, &payload, || async {
-        let result = request_inner(app, ctx, op, args, WRITE_TIMEOUT)
-            .await
-            .map(|v| v.get("disposition").cloned().unwrap_or(Value::Null));
-        send_outcome(result)
-    })
+    outbound_journal::send_once_authorized(
+        journal,
+        ctx,
+        local_id,
+        &payload,
+        || state.lock().accounts.validate(ctx),
+        || async {
+            let result = request_inner(app, ctx, op, args, WRITE_TIMEOUT)
+                .await
+                .map(|v| v.get("disposition").cloned().unwrap_or(Value::Null));
+            send_outcome(result)
+        },
+    )
     .await
     .map_err(e2dto)
 }

@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 /** The host checks the order scope and returns an ephemeral operator grant. */
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 import { UiCommands, type UiConversation, type UiOrderSummary, type UiTsimStatus } from '../../packages/ipc/src/client.ts';
@@ -41,10 +42,10 @@ export function tsimOrderRequest(c: TsimOrderContext): TsimOrderRequest {
 }
 
 const NOTICE: Record<'order' | 'revision' | 'login' | 'failed', string> = {
-  order: '该订单号不是完整的 10/16 位数字，无法在 TSim 中查询。',
-  revision: '会话身份尚未核验，请等待会话更新后再查询订单。',
-  login: '请先在设置的“商家助手 · TSim 登录”中登录 TSim，再查询订单。',
-  failed: 'TSim 订单查询窗未打开，可能是会话、订单或 TSim 身份已变化。请核对后重试。',
+  order: t('orderInfo.notice.order'),
+  revision: t('orderInfo.notice.revision'),
+  login: t('orderInfo.notice.login'),
+  failed: t('orderInfo.notice.failed'),
 };
 
 /** 单飞：同一时刻只发一次打开请求；结果只提示，不自动重试。 */
@@ -83,7 +84,7 @@ export function orderInfoSection(v: OrderInfoView, h: typeof dom, icon: typeof g
     const queryable = tsimQueryableOrder(text);
     return h('div', { class: 'iv iv-order' },
       queryable
-        ? h('button', { type: 'button', class: 'order-link', dataset: { side: 'tsim-order' }, title: '在 TSim 中查询该订单', 'aria-label': `在 TSim 中查询订单 ${text}`, onclick: () => v.queryTsim() }, text)
+        ? h('button', { type: 'button', class: 'order-link', dataset: { side: 'tsim-order' }, title: t('orderInfo.queryTitle'), 'aria-label': t('orderInfo.queryLabel', { order: text }), onclick: () => v.queryTsim() }, text)
         : h('span', null, text),
       h('button', { type: 'button', class: 'ibtn order-copy', title: v.labels.copy, 'aria-label': v.labels.copy, onclick: () => v.copy() }, icon(copyGlyph, 12)));
   };

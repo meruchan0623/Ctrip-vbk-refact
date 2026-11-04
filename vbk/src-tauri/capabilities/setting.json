@@ -13,6 +13,7 @@
     "core:window:allow-start-dragging",
     "core:window:allow-internal-toggle-maximize",
     "allow-prefs-snapshot",
+    "allow-deep-link-setting-take",
     "allow-prefs-set",
     "allow-account-snapshot",
     "allow-notify-set-enabled",
@@ -32,6 +33,8 @@
     "allow-assistant-tsim-browser-profiles",
     "allow-assistant-tsim-browser-connect",
     "allow-shell-read-clipboard-text",
-    "allow-shell-write-clipboard-text"
+    "allow-shell-write-clipboard-text",
+    "allow-webview-recovery-status",
+    "allow-webview-recovery-retry"
   ]
 }

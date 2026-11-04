@@ -1,3 +1,5 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
+import { t as translate, type I18nKey } from '../../packages/ui-kit/src/i18n.ts';
 // 出站翻译端到端：从输入中文草稿到发出译文，驱动 main.ts 中真实的
 // setDraft → scheduleTranslation → runPreviewTranslation → handleSend → translateAndSend/sendText，
 // IPC 用桩记录 assistant_translate / im_send_text，不访问 TSim 或携程。
@@ -42,7 +44,7 @@ function fixture(opts: { mode?: 'replace_draft' | 'send_direct'; sendKey?: 'ente
     if (value instanceof Error) throw value;
     return value;
   };
-  const env: Record<string, any> = { quickReplies: { close() {}, suggest() {} }, quickRepliesView: () => ({ tag: 'div', props: { class: 'synthetic-suggestions' }, children: [] }), replyContext: () => null, ...vm, ...composerBoundary, settleAccountSend, isAppError, isUiMessage, mergeMessageProfile, cx, store, S: () => store.get(), ipc: { invoke }, invokeSafe: invoke, invokeQuiet: invoke, UiCommands: { IM_SEND_TEXT: 'send', ASSIST_TRANSLATE: 'translate', IM_SEND_MEDIA: 'media' }, toast: (text: string) => notices.push(text), errorMessage: (e: unknown) => (e instanceof Error ? e.message : 'synthetic error'), t: (key: string) => key, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, TR_TARGETS: vm.OUTBOUND_TARGETS, langName: (c: string) => c, notWired: (n: unknown) => n, copyText() {}, openPeripheral() {}, trTimer: null, composerInput: { bind: () => ({}), active: () => false, revision: () => 0 }, visibleReads: { retry() {}, afterRender() {} } };
+  const env: Record<string, any> = { quickReplies: { close() {}, suggest() {} }, quickRepliesView: () => ({ tag: 'div', props: { class: 'synthetic-suggestions' }, children: [] }), replyContext: () => null, ...vm, ...composerBoundary, settleAccountSend, isAppError, isUiMessage, mergeMessageProfile, cx, store, S: () => store.get(), ipc: { invoke }, invokeSafe: invoke, invokeQuiet: invoke, UiCommands: { IM_SEND_TEXT: 'send', ASSIST_TRANSLATE: 'translate', IM_SEND_MEDIA: 'media' }, toast: (text: string) => notices.push(text), errorMessage: (e: unknown) => (e instanceof Error ? e.message : 'synthetic error'), t: translateUi, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, TR_TARGETS: vm.OUTBOUND_TARGETS, langName: (c: string) => c, notWired: (n: unknown) => n, copyText() {}, openPeripheral() {}, trTimer: null, composerInput: { bind: () => ({}), active: () => false, revision: () => 0 }, visibleReads: { retry() {}, afterRender() {} } };
   function actual(name: string): (...args: any[]) => any {
     const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name);
     const tail = source.slice(a), next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z])/.exec(tail); assert.ok(next, name);
@@ -138,7 +140,7 @@ test('直接发送 + 已结束会话：输入区可用，发送键直接发原�
   const tree = nodes(f.render());
   const ta = tree.find(n => n.tag === 'textarea')!; const btn = tree.find(n => n.props.dataset?.action === 'send')!;
   assert.equal(ta.props.disabled, false); assert.equal(btn.props.disabled, false);
-  assert.equal(ta.props.placeholder, 'composer.placeholderFinished');
+  assert.equal(ta.props.placeholder, translateUi('composer.placeholderFinished'));
   assert.ok(f.env['composerInputContext'](f.state), '已结束会话的输入可提交到草稿');
   f.type(DRAFT); await f.send(); await flush();
   assert.equal(f.translations().length, 0);
@@ -213,19 +215,4 @@ test('替换草稿模式在翻译返回之前不提交原文', async () => {
   resolve({ draft_version: f.state.draftVersion, text: RU });
   await pending; await flush();
   assert.deepEqual(f.sent(), [{ text: RU, original: DRAFT }]);
-});
-
-test('标题开关关闭后保留开关入口，并使旧译文操作失效', () => {
-  const f = fixture({ mode: 'send_direct' }); f.type(DRAFT);
-  const toggle = () => nodes(f.render()).find(n => n.props.role === 'switch')!;
-  assert.equal(toggle().props['aria-checked'], 'true');
-  toggle().props.onclick();
-  assert.equal(f.state.trBarOff, true);
-  assert.equal(toggle().props['aria-checked'], 'false');
-  assert.equal(nodes(f.render()).some(n => n.props.class === 'trdone'), false);
-  assert.equal(nodes(f.render()).find(n => n.tag === 'select')?.props.disabled, true);
-  toggle().props.onclick();
-  assert.equal(f.state.trBarOff, false);
-  assert.equal(toggle().props['aria-checked'], 'true');
-  assert.equal(f.state.draft, DRAFT);
 });

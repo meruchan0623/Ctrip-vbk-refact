@@ -9,6 +9,8 @@ import { formatVoiceTime, voiceBubble } from './voice-bubble.ts';
 installFakeDom();
 
 const URL_OK = 'https://synthetic.tripcdn.com/clip.mp3';
+/** The bubble keys playback by message, not by URL. */
+const KEY = 'synthetic-room|m';
 
 const message = (over: Partial<UiMessage> = {}): UiMessage => ({
   gid: 'synthetic-room', message_id: 'm', local_id: null, create_time_ms: 1, sender_role: 'customer',
@@ -83,7 +85,7 @@ test('progress paints the live nodes without a render; media duration beats the 
 
 test('a row rebuilt while playing reflects position, pause label, and receives later progress', async () => {
   const { player, made } = setup();
-  await player.toggle(URL_OK);
+  await player.toggle(URL_OK, KEY);
   const audio = made[0]!;
   audio.currentTime = 3;
   const node = bubble(message(), player);
@@ -96,7 +98,7 @@ test('a row rebuilt while playing reflects position, pause label, and receives l
 
 test('failure: shows the failed text and an external-open entry with the original URL', async () => {
   const { player } = setup(true);
-  await player.toggle(URL_OK);
+  await player.toggle(URL_OK, KEY);
   const opened: string[] = [];
   const node = bubble(message(), player, { onOpenExternal: (url: string) => opened.push(url) });
   assert.match(part(node, 'voice-note')!.textContent, /语音无法播放/);
@@ -114,4 +116,14 @@ test('a URL outside the media policy renders the unavailable state and no contro
     assert.equal(part(node, 'voice-text')?.textContent, 'kept transcript');
   }
   assert.equal(made.length, 0);
+});
+
+test('two messages sharing one URL are separate playback targets', async () => {
+  const { player, made } = setup();
+  await player.toggle(URL_OK, 'synthetic-room|first');
+  const first = bubble(message({ message_id: 'first' }), player), second = bubble(message({ message_id: 'second' }), player);
+  assert.equal(part(first, 'voice-toggle')?.getAttribute('aria-label'), '暂停语音');
+  assert.equal(part(second, 'voice-toggle')?.getAttribute('aria-label'), '播放语音');
+  await player.toggle(URL_OK, 'synthetic-room|second');
+  assert.equal(made.length, 2, 'a second message starts its own clip instead of pausing the first');
 });

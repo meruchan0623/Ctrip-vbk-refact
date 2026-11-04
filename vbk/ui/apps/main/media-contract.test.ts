@@ -1,4 +1,4 @@
-import { createHistoryLayoutFrames } from './history-layout.ts';
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -19,7 +19,7 @@ const file = 'https://static.tripcdn.com/synthetic-file.pdf', filename = 'SYNTHE
 interface RenderNode { tag: string; props: Record<string, unknown>; children: unknown[] }
 function nodes(tree: unknown): RenderNode[] { if (Array.isArray(tree)) return tree.flatMap(nodes); if (!tree || typeof tree !== 'object') return []; const n = tree as RenderNode; return [n, ...nodes(n.children ?? [])]; }
 function render(message: UiMessage): RenderNode[] {
-  const env: Record<string, unknown> = { createHistoryLayoutFrames, ...vm, messageAlignment, cx, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), document: {}, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: () => null, IC: {} };
+  const env: Record<string, unknown> = { ...vm, messageAlignment, cx, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), document: {}, renderMessageAvatar: () => 'avatar', t: translateUi, icon: () => null, IC: {} };
   const ka = source.indexOf('function mediaNodeKey('), kb = source.indexOf('\nfunction messageRow(', ka); assert.ok(ka >= 0 && kb > ka);
   env['mediaNodeKey'] = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(ka, kb)) + '\nreturn mediaNodeKey;')(...Object.values(env));
   const a = source.indexOf('function messageRow('), b = source.indexOf('\nfunction translationBar(', a);

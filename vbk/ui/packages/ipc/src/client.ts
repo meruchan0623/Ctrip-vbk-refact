@@ -21,6 +21,8 @@ export interface IpcClient {
   invoke<T>(cmd: string, payload?: unknown): Promise<T>;
   /** Returns an unsubscribe function. The handler receives the event payload. */
   listen<T>(event: string, cb: (payload: T) => void): () => void;
+  /** Resolves only once the host listener is installed; rejects on failure. */
+  listenReady?<T>(event: string, cb: (payload: T) => void): Promise<() => void>;
 }
 
 interface TauriLike {
@@ -37,6 +39,12 @@ function tauriGlobal(): TauriLike | null {
   const tl = g as TauriLike;
   if (typeof tl.core?.invoke !== 'function' || typeof tl.event?.listen !== 'function') return null;
   return tl;
+}
+
+/** Global Tauri cleanup can be synchronous or return a rejecting Promise. */
+function safeDispose(dispose: () => unknown): void {
+  try { void Promise.resolve(dispose()).catch(() => undefined); }
+  catch { /* subscription is locally disposed even if native cleanup fails */ }
 }
 
 export function hasTauri(): boolean {
@@ -80,6 +88,13 @@ export function createTauriIpc(): IpcClient {
         return Promise.reject(e);
       }
     },
+    async listenReady<T>(event: string, cb: (payload: T) => void): Promise<() => void> {
+      const listen = tauriGlobal()?.event?.listen;
+      if (!listen) throw { code: HOST_UNAVAILABLE, message: 'window.__TAURI__ is not available', retryable: true };
+      let disposed = false;
+      const off = await listen(event, (ev) => { if (!disposed) cb(ev.payload as T); });
+      return () => { if (!disposed) { disposed = true; safeDispose(off); } };
+    },
     listen<T>(event: string, cb: (payload: T) => void): () => void {
       const listen = tauriGlobal()?.event?.listen;
       if (!listen) return () => undefined;
@@ -89,13 +104,15 @@ export function createTauriIpc(): IpcClient {
         if (!disposed) cb(ev.payload as T);
       })
         .then((fn) => {
-          if (disposed) fn();
+          if (disposed) safeDispose(fn);
           else unlisten = fn;
         })
         .catch(() => undefined);
       return () => {
+        if (disposed) return;
         disposed = true;
-        if (unlisten) unlisten();
+        const off = unlisten; unlisten = null;
+        if (off) safeDispose(off);
       };
     },
   };
@@ -112,8 +129,16 @@ export function createTauriIpc(): IpcClient {
 // and the host itself opens the login window.
 // ---------------------------------------------------------------------------
 
+export type { UiServerSearchQuery, UiServerSearchPage, UiServerSearchHit, UiSearchHistoryRequest, UiSearchHistoryPage } from './server-search.ts';
+
 export const UiCommands = {
+  WEBVIEW_RECOVERY_STATUS: 'webview_recovery_status',
+  WEBVIEW_RECOVERY_RETRY: 'webview_recovery_retry',
+  SERVER_SEARCH: 'im_server_search',
+  SEARCH_HISTORY: 'im_search_history',
   // contract version handshake (I-03): first call of every local window
+  DEEP_LINK_SETTING_TAKE: 'deep_link_setting_take', // setting-only, pending section or null
+  DEEP_LINK_TAKE: 'deep_link_take', // main-only, no args, validated pending navigation[]
   CONTRACT_HELLO: 'contract_hello', // {version} → null; host.contract_mismatch rejects the window
   // account (in addition to AccountCommands)
   ACCOUNT_SET_REMARK: 'account_set_remark', // {account, remark}
@@ -150,6 +175,8 @@ export const UiCommands = {
   IM_TRANSFER: 'im_transfer', // {account, gid, selection_token, target_uid} → UiPeripheralWrite
   IM_FINISH: 'im_finish', // {account, gid, selection_token} → UiPeripheralWrite
   IM_REMOVE: 'im_remove', // {account, gid, selection_token, target_uids} → UiPeripheralWrite (finishConversation + venAgentUids)
+  IM_DRAFT_ATTACHMENT_SAVE: 'im_draft_attachment_save',
+  IM_DRAFT_ATTACHMENT_RESTORE: 'im_draft_attachment_restore',
   // notification centre (official getIQConversations / getIQMessages / putAdviceofreadIQMessage)
   NOTICE_CATEGORIES: 'notice_categories', // {account} → UiNoticeCategory[]
   NOTICE_LIST: 'notice_list', // {account, category_id, before_ms?} → UiNotice[] (up to 100, older than cursor)
@@ -165,6 +192,11 @@ export const UiCommands = {
   BROWSER_CLOSE: 'browser_close', // {tab_id}
   SHELL_OPEN_WINDOW: 'shell_open_window', // {label}
   SHELL_WINDOW: 'shell_window', // {action: 'minimize'|'toggle_maximize'|'close'}
+  MEDIA_SCREENSHOT: 'media_screenshot', // {account,gid} → UiAttachment | null
+  MEDIA_ANNOTATION_SOURCE: 'media_annotation_source', // owner + attachment_id → AnnotationSource
+  MEDIA_ANNOTATION_APPLY: 'media_annotation_apply', // validated local annotation export → UiAttachment
+  MEDIA_SAVE_ATTACHMENT: 'media_save_attachment', // owner + attachment_id → {saved:boolean}; native dialog
+  MEDIA_SAVE_IMAGE: 'media_save_image', // media-viewer window only: {index} of the bound gallery → {saved:boolean}; native dialog, original bytes only
   MEDIA_PICK: 'media_pick', // {account,gid,kind:'image'|'file'} → UiAttachment | null
   MEDIA_ACCEPT_DROP: 'media_accept_drop', // {account,gid,drop_id} → UiAttachment | null; redeems a media://dropped id
   MEDIA_RELEASE: 'media_release', // {account,gid,attachment_id} → null; never clears a durable intent
@@ -202,6 +234,8 @@ export const UiEvents = {
   BROWSER_TAB_OPENED: 'browser://tab-opened', // UiBrowserTab opened by a page; activate it
   BROWSER_TAB_CHANGED: 'browser://tab-changed', // UiBrowserTab
   BROWSER_TAB_CLOSED: 'browser://tab-closed', // {tab_id}
+  WEBVIEW_RECOVERY: 'webview://recovery',
+  SCREENSHOT_REQUEST: 'media://screenshot-request', // local main window only
   PACKAGE_DETAIL_INVALIDATED: 'assistant://package-detail-invalidated',
   MEDIA_VIEWER_CHANGED: 'media-viewer://changed',
   TSIM_STATUS: 'assistant://tsim-status', // UiTsimStatus; local views only
@@ -213,6 +247,7 @@ export const UiEvents = {
 
 export interface UiAttachment {
   readonly attachment_id: string; readonly name: string;
+  readonly lease_id?: string;
   readonly kind: 'image' | 'file' | 'video'; readonly mime: string; readonly size: number;
   readonly content_sha256: string; readonly owner: { readonly account: AccountContext; readonly gid: string };
   readonly supported: true;
@@ -222,6 +257,19 @@ export interface UiAttachment {
 export interface UiBrowserTab {
   readonly tab_id: string; readonly account_id: string;
   readonly url: string; readonly title: string; readonly loading: boolean;
+}
+export interface UiDraftAttachment {
+  readonly lease_id: string;
+  readonly name: string;
+  readonly kind: 'image' | 'file' | 'video';
+  readonly mime: string;
+  readonly size: number;
+  readonly content_sha256: string;
+  readonly state: 'ready' | 'missing' | 'corrupt' | 'pending';
+}
+export interface UiDraftAttachmentSnapshot {
+  readonly attachment_version: number;
+  readonly attachments: readonly UiDraftAttachment[];
 }
 export interface UiMediaSendResult {
   /** Existing ledger metadata without a verifiable selected attachment. Never project/clear the current composer. */
@@ -296,9 +344,18 @@ export interface UiSdkReceiveDiagnostics {
   readonly counters: { readonly callbacks: number; readonly stale_callbacks: number; readonly messages: number; readonly acks: number; readonly ignored: number; readonly listener_errors: number };
   readonly last_stanza_ms: number | null;
 }
+export interface UiBridgeDiagnostics {
+  readonly state: 'active' | 'overflow' | 'disposed';
+  readonly capacity: number; readonly pending: number; readonly queued: number; readonly in_flight: number;
+  readonly waiting: number; readonly waiting_high_water: number;
+  readonly high_water: number; readonly accepted: number; readonly invoked: number; readonly delivered: number;
+  readonly failed: number; readonly overflow_events: number; readonly rejected: number; readonly expired: number;
+  readonly stale_completions: number; readonly callback_errors: number;
+}
 export interface UiPageReceiveDiagnostics {
   readonly version: 1; readonly captured_at_ms: number; readonly running: boolean; readonly run_generation: number;
   readonly sdk: UiSdkReceiveDiagnostics | null;
+  readonly bridge?: UiBridgeDiagnostics;
   readonly session: { readonly received: number; readonly ui_mapped: number; readonly ui_dropped: number; readonly display_batches: number; readonly display_items: number; readonly display_resolved: number; readonly display_rejected: number };
   readonly compensation: {
     readonly running: boolean; readonly mode: 'normal' | 'frequent' | 'stopped'; readonly cursor_ms: number; readonly last_outcome_ms: number | null;
@@ -468,7 +525,7 @@ export interface PrefsSnapshot {
     readonly spell_check: boolean;
   };
   readonly display: { readonly zoom: 75 | 100 | 125 | 150; readonly gpu: boolean };
-  readonly keys: { readonly send_key: 'enter' | 'ctrl_enter'; readonly toggle_main: string };
+  readonly keys: { readonly send_key: 'enter' | 'ctrl_enter'; readonly screenshot: string; readonly toggle_main: string };
   readonly assistant: {
     readonly enabled: boolean;
     readonly outbound_translation: boolean;

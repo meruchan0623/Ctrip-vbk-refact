@@ -17,6 +17,8 @@ notify_set_sound_enabled
 im_push_fact
 im_conversation_snapshot
 im_locate_conversation
+deep_link_take
+deep_link_setting_take
 order_validate_im_url
 account_snapshot
 account_start_login
@@ -42,6 +44,8 @@ im_unknown_outbound
 im_outbound_lookup
 im_message_page
 im_translate_messages
+im_server_search
+im_search_history
 im_send_text
 im_copy_message_image
 im_save_message_image
@@ -80,6 +84,11 @@ media_accept_drop
 browser_show
 browser_nav
 browser_close
+media_screenshot
+media_save_image
+media_save_attachment
+media_annotation_source
+media_annotation_apply
 media_pick
 media_release
 prefs_snapshot
@@ -110,3 +119,7 @@ media_viewer_open_message
 media_viewer_open_emoji
 media_viewer_current
 media_viewer_open_external
+im_draft_attachment_save
+im_draft_attachment_restore
+webview_recovery_status
+webview_recovery_retry

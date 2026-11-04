@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { UiCommands, type UiPackageDetail, type UiPackageField, type UiTsimStatus } from '../../packages/ipc/src/client.ts';
 import { packageFailure, packageInfo } from '../main/package-preview.ts';
 export interface DetailView { readonly busy: boolean; readonly data: UiPackageDetail | null; readonly error: string | null; readonly invalidated: boolean }
@@ -21,9 +22,9 @@ export function createPackageDetail(deps: { invoke(command: string, payload: obj
   let sequence = 0, epoch: number | null = null;
   let view: DetailView = { busy: false, data: null, error: null, invalidated: false };
   function publish(next: DetailView) { view = next; deps.publish(next); }
-  function invalidate(message = '查看范围已变化，请返回当前会话重新打开套餐详情。') { sequence++; publish({ busy: false, data: null, error: message, invalidated: true }); }
+  function invalidate(message = t('packageDetailRuntime.viewInvalidated')) { sequence++; publish({ busy: false, data: null, error: message, invalidated: true }); }
   function identity(status: UiTsimStatus) {
-    if (!Number.isSafeInteger(status.session_epoch) || status.session_epoch < 0 || !status.logged_in || epoch !== null && epoch !== status.session_epoch) invalidate('TSim 登录身份已变化，旧套餐详情已清除。请从会话重新打开。');
+    if (!Number.isSafeInteger(status.session_epoch) || status.session_epoch < 0 || !status.logged_in || epoch !== null && epoch !== status.session_epoch) invalidate(t('packageDetailRuntime.identityChangedCleared'));
     epoch = status.session_epoch;
   }
   async function load(): Promise<void> {
@@ -35,7 +36,7 @@ export function createPackageDetail(deps: { invoke(command: string, payload: obj
       if (ticket !== sequence) return;
       const data = detailProjection(raw);
       if (!data) throw new Error('invalid package detail');
-      if (epoch !== null && epoch !== data.session_epoch) { invalidate('TSim 登录身份已变化，请从会话重新打开详情。'); return; }
+      if (epoch !== null && epoch !== data.session_epoch) { invalidate(t('packageDetailRuntime.identityChanged')); return; }
       epoch = data.session_epoch; publish({ busy: false, data, error: null, invalidated: false });
     } catch (error) { if (ticket === sequence) publish({ busy: false, data: null, error: packageFailure(error).error, invalidated: false }); }
   }

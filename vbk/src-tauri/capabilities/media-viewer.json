@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "media-viewer",
-  "description": "Local attachment viewer; reads only the attachment the host bound to it and opens only that one externally.",
+  "description": "Local attachment viewer; reads only the attachment the host bound to it and opens or saves only that one.",
   "windows": [
     "media-viewer"
   ],
@@ -14,6 +14,7 @@
     "allow-shell-window",
     "allow-shell-write-clipboard-text",
     "allow-media-viewer-current",
-    "allow-media-viewer-open-external"
+    "allow-media-viewer-open-external",
+    "allow-media-save-image"
   ]
 }

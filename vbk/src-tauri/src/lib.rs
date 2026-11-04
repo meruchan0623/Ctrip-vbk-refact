@@ -14,19 +14,25 @@
 pub mod adapter;
 pub mod assistant;
 mod attention;
+mod attachment_leases;
 mod browser_bridge;
 pub mod browser_tabs;
 mod chrome_cookie_store;
 pub mod clock_anchor;
 pub mod commands;
+mod crash_recovery;
 pub mod data_guard;
+pub mod deep_link_runtime;
 pub mod diag_bridge;
 mod diagnostics;
 pub mod dto;
+mod durable_store;
 pub mod events;
 pub mod features;
 pub mod local_tz;
 pub mod login;
+mod media_annotation;
+mod media_save;
 pub mod media_outbound;
 pub mod media_viewer;
 pub mod message_media;
@@ -43,18 +49,37 @@ pub mod system_integration;
 pub mod tray;
 mod ui_zoom;
 pub mod views;
+mod webview_recovery;
 pub mod windows;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use core_store::FileStore;
 use tauri::Manager;
 
 use state::HostState;
 
+struct StorageStartupFailed;
+
+/// Keep the event loop alive only long enough to show an actionable failure.
+/// No account/adapter/scheduler state is installed on this early setup path.
+fn storage_startup_failed(app: &tauri::AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    app.manage(StorageStartupFailed);
+    let exit = app.clone();
+    app.dialog()
+        .message("无法安全打开本地数据存储，客户端未启动。请检查磁盘空间和应用数据目录的访问权限，然后重新打开。已有数据不会被自动清除。")
+        .title("旅游商家IM 启动失败")
+        .kind(MessageDialogKind::Error)
+        .show(move |_| exit.exit(1));
+}
+
 /// Builds and runs the application.
 pub fn run() {
-    if !startup_args::allows(std::env::args().skip(1)) {
+    if !startup_args::allows(
+        std::env::args_os()
+            .skip(1)
+            .map(|arg| arg.to_string_lossy().into_owned()),
+    ) {
         return;
     }
     let boot_epoch = SystemTime::now()
@@ -62,17 +87,23 @@ pub fn run() {
         .map(|d| d.as_secs())
         .unwrap_or(1);
 
-    tauri::Builder::default()
-        // Second instance: forward args (deep links are a later SHL-04
-        // task) and bring the main window up.
+    // Upstream Apple termination hook (label-resolved; see webview_recovery).
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.on_web_content_process_terminate(webview_recovery::on_terminated);
+
+    builder
+        // Reject secondary ordinary hosts before initializing other plugins.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if app.try_state::<StorageStartupFailed>().is_none() {
+                deep_link_runtime::on_second_instance(app, args);
+            }
+        }))
+        .plugin(webview_recovery::plugin())
+        .plugin(deep_link_runtime::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if startup_args::allows(args.into_iter().skip(1)) {
-                windows::show_main(app);
-            }
-        }))
         // Contract handshake lifetime (I-03): a destroyed window's label may
         // be reused, and a reloaded/navigated local window is a new page;
         // both must announce their contract version afresh.
@@ -91,6 +122,9 @@ pub fn run() {
             // webview takes no handshake, and a child webview navigating must
             // not reset its host window's verdict.
             let label = webview.label();
+            if label.starts_with(views::ACCOUNT_WEBVIEW_PREFIX) {
+                login::adapter_page_started(webview.app_handle(), label);
+            }
             let local = !matches!(
                 views::Role::for_label(label),
                 None | Some(views::Role::Adapter)
@@ -102,14 +136,27 @@ pub fn run() {
         .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
             diag_bridge::install(data_dir.join("logs"));
-            let store = match FileStore::open(data_dir.join("state")) {
-                Ok(s) => Some(s),
-                Err(e) => {
-                    log::error!("store unavailable: {e}; running without persistence");
-                    None
+            let previous_panic = match crash_recovery::install(&data_dir) {
+                Ok(status) => status.previous_panic,
+                Err(_) => {
+                    log::warn!("crash marker unavailable");
+                    false
                 }
             };
-            let state = HostState::new(store, boot_epoch);
+            let store = match durable_store::open(data_dir.join("state")) {
+                Ok(bound) => bound.store,
+                Err(e) => {
+                    log::error!("store unavailable: {e}; startup blocked");
+                    storage_startup_failed(app.handle());
+                    return Ok(());
+                }
+            };
+            let state = HostState::new(Some(store), boot_epoch);
+            if !state.persistence_available() {
+                log::error!("persistence worker unavailable; startup blocked");
+                storage_startup_failed(app.handle());
+                return Ok(());
+            }
             {
                 let mut cores = state.lock();
                 for label in [
@@ -153,22 +200,36 @@ pub fn run() {
             system_integration::init(&handle);
             login::init(&handle)?;
             adapter::init(&handle)?;
+            webview_recovery::ready(&handle);
             assistant::init(&handle)?;
             notice_watch::init(&handle);
             windows::ensure_alarm(&handle)?;
             windows::ensure_notice(&handle)?;
             tray::install(&handle)?;
             scheduler::start(handle);
+            if previous_panic {
+                use tauri_plugin_dialog::DialogExt;
+                app.dialog()
+                    .message("检测到上次运行出现异常。可在设置中导出诊断信息。未保存的编辑内容可能无法恢复。")
+                    .title("运行异常提示")
+                    .show(|_| {});
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::contract_hello,
+            webview_recovery::webview_recovery_status,
+            webview_recovery::webview_recovery_retry,
+            deep_link_runtime::deep_link_take,
+            deep_link_runtime::deep_link_setting_take,
             features::typing::im_send_input_state,
             features::recall::im_recall_message,
             features::queue::im_queue_status,
             features::queue::im_queue_drop_out,
             features::draft::im_draft_load,
             features::draft::im_draft_save,
+            features::draft::im_draft_attachment_save,
+            features::draft::im_draft_attachment_restore,
             commands::notify_snapshot,
             commands::notify_open_conversation,
             commands::notify_hide_round,
@@ -209,6 +270,8 @@ pub fn run() {
             adapter::im_outbound_lookup,
             adapter::im_message_page,
             adapter::im_translate_messages,
+            adapter::im_server_search,
+            adapter::im_search_history,
             adapter::im_send_text,
             message_media::shell_read_clipboard_text,
             message_media::shell_write_clipboard_text,
@@ -248,6 +311,11 @@ pub fn run() {
             browser_tabs::browser_show,
             browser_tabs::browser_nav,
             browser_tabs::browser_close,
+            shell::media_screenshot,
+            media_save::media_save_image,
+            media_save::media_save_attachment,
+            media_annotation::media_annotation_source,
+            media_annotation::media_annotation_apply,
             shell::media_pick,
             shell::media_accept_drop,
             shell::media_release,
@@ -288,7 +356,9 @@ pub fn run() {
             // on the Dock icon must bring it back.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
-                windows::show_main(app);
+                if app.try_state::<HostState>().is_some() {
+                    windows::show_main(app);
+                }
             }
         });
 }

@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 // I-29 B1: focus restoration across the full re-render reaches every control that carries data-fid
 // (conversation rows, tabs, chat actions, composer tools), and announcements go through a persistent live region.
 import { test } from 'node:test';

@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 import { UiCommands, type UiNotice, type UiNoticeCategory } from '../../packages/ipc/src/client.ts';
 
@@ -55,7 +56,7 @@ export function createNoticeQuery(port: {
     port.publish(append ? { noticeMoreStatus: 'loading', noticeMoreError: null } : { notices: [], noticeListStatus: 'loading', noticeListError: null, noticeMoreStatus: 'idle', noticeMoreError: null, noticeHasMore: false, noticeBeforeMs: null });
     try {
       const notices = await port.invoke<UiNotice[]>(UiCommands.NOTICE_LIST, { account: request.account, category_id: category, before_ms: before });
-      if (!Array.isArray(notices) || notices.some(n => !n || n.category_id !== category || typeof n.id !== 'string' || typeof n.unread !== 'boolean' || typeof n.title !== 'string' || typeof n.body !== 'string' || typeof n.url !== 'string' || !Number.isFinite(n.time_ms))) throw new Error('通知列表返回格式不正确');
+      if (!Array.isArray(notices) || notices.some(n => !n || n.category_id !== category || typeof n.id !== 'string' || typeof n.unread !== 'boolean' || typeof n.title !== 'string' || typeof n.body !== 'string' || typeof n.url !== 'string' || !Number.isFinite(n.time_ms))) throw new Error(t('mainRuntime.invalidNoticeList'));
       if (!valid()) return;
       const merged = new Map((append ? port.current().notices : []).map(n => [n.id, n]));
       for (const notice of notices) if (!merged.has(notice.id)) merged.set(notice.id, notice);
@@ -75,7 +76,7 @@ export function createNoticeQuery(port: {
     port.publish({ noticeCatsStatus: 'loading', noticeCatsError: null });
     try {
       const noticeCats = await port.invoke<UiNoticeCategory[]>(UiCommands.NOTICE_CATEGORIES, { account: request.account });
-      if (!Array.isArray(noticeCats) || noticeCats.some(c => !c || typeof c.id !== 'string' || typeof c.name !== 'string' || typeof c.unread !== 'number')) throw new Error('通知分类返回格式不正确');
+      if (!Array.isArray(noticeCats) || noticeCats.some(c => !c || typeof c.id !== 'string' || typeof c.name !== 'string' || typeof c.unread !== 'number')) throw new Error(t('mainRuntime.invalidNoticeCategories'));
       if (!valid()) return;
       const previous = port.current().noticeCat;
       const hidden = new Set(port.ignored?.() ?? []);

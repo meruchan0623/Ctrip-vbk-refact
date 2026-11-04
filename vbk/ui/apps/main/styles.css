@@ -1,3 +1,6 @@
+@import '../_shared/recovery.css';
+@import './annotation-editor.css';
+@import './server-search.css';
 .media-video-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
 .media-preview-open { color: var(--c-primary, #1768ac); font-size: 12px; padding: 3px 0; }
 
@@ -173,7 +176,7 @@ html[data-platform="macos"] .wbtns { display: none; }
 .trbar { margin: 8px 12px 0; border: 1px solid #D7E3FA; background: var(--c-primary-tint); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .trrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12px; min-width: 0; }
 .trhead > .ic, .trlabel { flex: none; white-space: nowrap; }
-.trhead .sel { flex: 0 0 106px; width: 106px; min-width: 0; max-width: 100%; height: 26px; padding: 0 6px; border-radius: 6px; border-color: #DCE3EE; background: #fff; font-size: 12px; }
+.trhead .sel { flex: 0 1 150px; min-width: 100px; max-width: 100%; }
 .trmode { flex: 1 1 230px; text-align: right; line-height: 1.5; overflow-wrap: break-word; }
 .trrow .btn { flex: none; white-space: nowrap; }
 .trdone { min-width: 0; }
@@ -659,3 +662,7 @@ html[data-platform="macos"] .wbtns { display: none; }
 .voice-unavailable .voice-note { margin-top: 0; }
 .voice-unavailable .voice-text + .voice-note { margin-top: 6px; }
 .voice-external { color: var(--c-primary); font-size: 12px; text-decoration: underline; }
+
+.conversation-load-error > span { flex: 1; min-width: 0; }
+.conversation-load-error { display: flex; align-items: center; gap: 8px; padding: 10px 12px; color: #7b351a; background: #fff1e8; font-size: 12px; }
+.conversation-load-status { padding: 8px 12px; color: var(--c-text-muted); font-size: 12px; }

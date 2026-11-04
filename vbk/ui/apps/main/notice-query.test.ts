@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -91,7 +92,7 @@ const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
 function render(state: NoticeQueryState, extra: Record<string, unknown> = {}) {
   const start = source.indexOf('function notificationsView('), end = source.indexOf('// ---- order contact view', start);
   const fn = new Function('h', 't', 'cx', 'icon', 'IC', 'accBadge', 'formatRelativeTime', 'splitCategories', 'ignoredNoticeCats', 'noticeBannerCats', 'openNoticeCatMenu', 'setNoticeCatIgnored', 'store', 'S', stripTypeScriptTypes(source.slice(start, end)) + '\nreturn notificationsView;')(
-    (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }), (key: string) => key, () => '', () => null, {}, () => null, () => 'now',
+    (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props, children }), translateUi, () => '', () => null, {}, () => null, () => 'now',
     splitCategories, (s: { noticeIgnored?: Record<string, string[]> }) => s.noticeIgnored?.['synthetic:a'] ?? [], (s: { noticeBanner?: string[] }) => s.noticeBanner ?? [], () => {}, () => {}, { patch() {} }, () => ({}));
   return JSON.stringify(fn({ ...state, noticeIgnored: {}, noticeIgnoredOpen: false, now: 1, ...extra }));
 }

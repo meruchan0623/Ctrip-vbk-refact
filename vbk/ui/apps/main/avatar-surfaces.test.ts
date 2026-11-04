@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { customerLanguage } from './viewmodel.ts';
 import { historyScopeKey, virtualConversationRange, latestPreview, EMPTY_MESSAGES } from './viewmodel.ts';
 import { filteredInviteAgents } from './peripheralPanel.ts';
@@ -34,7 +35,7 @@ function render(name: 'conversationList' | 'chatPane' | 'peripheralDialog', next
   const env = { memberPillsFor: () => ({ count: null, isMaster: false }), filteredInviteAgents, customerLanguage, INVITE_ROOT: 'root', personDisplayName, virtualConversationRange, latestPreview, EMPTY_MESSAGES, PIN_THRESHOLD: 48, messagePane: () => null, part: (_name: string, build: () => unknown) => build(), featureRuntime: { renderSlot: () => [] },
     document: doc, renderMessageAvatar, initialOf, cx, historyScopeKey,
     h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
-    icon: () => ({ tag: 'icon' }), IC: {}, t: (key: string) => key,
+    icon: () => ({ tag: 'icon' }), IC: {}, t: translateUi,
     tabCounts: () => ({ doing: 1, done: 0 }), filterConversations: () => [conv],
     activeAccount: () => ({ context: { account_id: 'synthetic-account' }, state: 'online', avatar: 'https://example.invalid/never-use-account.png' }),
     activeConv: () => conv, agentView: () => ({}), netEverConnected: true, netView: () => ({ offline: false }),

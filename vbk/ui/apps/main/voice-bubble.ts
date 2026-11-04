@@ -21,6 +21,7 @@ export interface VoiceBubbleOptions {
 /** Nodes of the bubble that owns the current clip; `ref` hands over the ones that survived a morph. */
 interface LiveView {
   readonly url: string;
+  readonly key: string;
   readonly fallback_s: number | null;
   bar: HTMLElement | null;
   fill: HTMLElement | null;
@@ -33,8 +34,8 @@ function slotOf(player: VoicePlayer): { view: LiveView | null } {
   let slot = slots.get(player);
   if (!slot) {
     const created: { view: LiveView | null } = { view: null };
-    player.onProgress((url, progress) => {
-      if (created.view?.url === url) paint(created.view, progress);
+    player.onProgress((_url, progress, key) => {
+      if (created.view?.key === key) paint(created.view, progress);
     });
     slots.set(player, created);
     slot = created;
@@ -75,16 +76,18 @@ export function voiceBubble(m: UiMessage, player: VoicePlayer, h: typeof realH, 
     return h('div', { class: 'bubble voice-bubble voice-unavailable' }, transcript, h('div', { class: 'voice-note' }, featureText('voice.unavailable')));
   }
 
-  const state = player.state(url);
+  // One target per message, not per URL: two rows may share a clip.
+  const key = `${m.gid}|${m.message_id ?? m.local_id ?? url}`;
+  const state = player.state(url, key);
   const active = state === 'playing' || state === 'paused';
-  const progress = player.progress(url);
+  const progress = player.progress(url, key);
   const fallback_s = fallbackDuration(m);
   const duration = progress?.duration_s ?? fallback_s;
   const current = progress?.current_s ?? 0;
   const pct = duration === null ? 0 : percent(current, duration);
   const label = featureText(state === 'playing' ? 'voice.pause' : 'voice.play');
 
-  const view: LiveView = { url, fallback_s, bar: null, fill: null, time: null };
+  const view: LiveView = { url, key, fallback_s, bar: null, fill: null, time: null };
   const slot = slotOf(player);
   // A rebuilt row takes over the live slot; otherwise the click below claims it.
   if (active) slot.view = view;
@@ -96,7 +99,7 @@ export function voiceBubble(m: UiMessage, player: VoicePlayer, h: typeof realH, 
     h(
       'div',
       { class: 'voice-controls' },
-      h('button', { type: 'button', class: 'voice-toggle', 'aria-label': label, title: label, onclick: () => { slot.view = view; void player.toggle(url); } }, icon(state === 'playing' ? PAUSE_ICON : PLAY_ICON, 14)),
+      h('button', { type: 'button', class: 'voice-toggle', 'aria-label': label, title: label, onclick: () => { slot.view = view; void player.toggle(url, key); } }, icon(state === 'playing' ? PAUSE_ICON : PLAY_ICON, 14)),
       h('div', { class: 'voice-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(pct)), 'aria-label': label, hidden: duration === null, ref: (e: Element) => { view.bar = e as HTMLElement; } },
         h('div', { class: 'voice-fill', style: { width: `${pct}%` }, ref: (e: Element) => { view.fill = e as HTMLElement; } })),
       h('span', { class: 'voice-time', hidden: duration === null, ref: (e: Element) => { view.time = e as HTMLElement; } }, duration === null ? '' : formatVoiceTime(active ? duration - current : duration)),

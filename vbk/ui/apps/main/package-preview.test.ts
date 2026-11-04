@@ -1,4 +1,5 @@
-import { createAccountNavigation } from './account-navigation.ts';
+import { t } from '../../packages/ui-kit/src/i18n.ts';
+import { EMPTY_SERVER_SEARCH } from './server-search.ts';
 import { EMPTY_NOTICE_QUERY } from './notice-query.ts';
 import { companionPackageCard } from './companion-card.ts';
 import { test } from 'node:test';
@@ -11,7 +12,7 @@ import * as productionPreview from './package-preview.ts';
 import * as vm from './viewmodel.ts';
 import { guarded, isUiAccountSnapshot } from '../_shared/guards.ts';
 const source = readFileSync(process.env['VBK_PACKAGE_MAIN_SOURCE'] ?? new URL('./main.ts', import.meta.url), 'utf8');
-const preview: typeof productionPreview = process.env['VBK_PACKAGE_PREVIEW_SOURCE'] ? new Function('UiCommands', stripTypeScriptTypes(readFileSync(process.env['VBK_PACKAGE_PREVIEW_SOURCE'], 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '')) + '\nreturn { createPackagePreview, EMPTY_PACKAGE_PREVIEW, packageIdentity, packageOrderId, packageViewApplies, packageInfo, packageFailure };')(UiCommands) : productionPreview;
+const preview: typeof productionPreview = process.env['VBK_PACKAGE_PREVIEW_SOURCE'] ? new Function('UiCommands', 't', stripTypeScriptTypes(readFileSync(process.env['VBK_PACKAGE_PREVIEW_SOURCE'], 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, '')) + '\nreturn { createPackagePreview, EMPTY_PACKAGE_PREVIEW, packageIdentity, packageOrderId, packageViewApplies, packageInfo, packageFailure };')(UiCommands, t) : productionPreview;
 const account = { account_id: 'synthetic-package-account', environment: 'synthetic', session_generation: 1 };
 const order = '1234567890123456', gid = 'synthetic-package-room';
 const plan = { iccid: '8986000000000000001', plan: 'SYNTHETIC PLAN', status: 'active', remain_pct: 50, remain: '5 GB', total: '10 GB', supplier: 'Synthetic', apn: 'synthetic', fetched_at_ms: 1000, detail_handle: 'synthetic-detail' };
@@ -26,10 +27,10 @@ function fixture(wire = false) {
   const invoke = async (command: string, payload: any) => { calls.push({ command, payload }); const value = await (command === UiCommands.ASSIST_TSIM_STATUS ? identityResult ?? store.get().tsimStatus : result); if (value instanceof Error || value && typeof value === 'object' && 'code' in value) throw value; return value; };
   const controller = preview.createPackagePreview({ current: () => { const s = store.get(), a = s.accounts.accounts.find((x: any) => x.context.account_id === s.accounts.active_account_id), c = s.conversations.find((x: any) => x.gid === s.activeGid); return a && c && s.tsimStatus ? { account: a.context, conversation: c, identity: s.tsimStatus, enabled: !!s.prefs.assistant.enabled && !!s.prefs.assistant.package_quick_view, iccid: vm.findIccids(s.messages[s.activeGid] ?? [])[0] ?? null } : null; }, invoke, publish: pkg => store.patch({ pkg }) });
   const eventHandlers = new Map<string, ((value: unknown) => void)[]>();
-  const env: Record<string, any> = { accountNavigation: createAccountNavigation({ switch: async () => null, snapshot: async () => null, valid: isUiAccountSnapshot }), closeCommerce() {}, noticeQuery: { reset() {} }, companionPackageCard, ...vm, ...preview, UiCommands, PKG_IDLE: preview.EMPTY_PACKAGE_PREVIEW, autoQueryPackage: () => actual('autoQueryPackage')(), Events: { ACCOUNT_CHANGED: 'account://changed' }, guarded, isUiAccountSnapshot, peripheral: { close() {} }, receiveDiagnostics: { close() {} }, unknownOutbound: { close() {} }, loadForActiveAccount: async () => {}, WindowLabels: { SETTING: 'setting' }, packagePreview: controller, store, S: () => store.get(), ipc: { invoke, listen: (event: string, callback: (value: unknown) => void) => eventHandlers.set(event, [...eventHandlers.get(event) ?? [], callback]) }, invokeSafe: invoke, t: (key: string) => key, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, cx: () => '', toast() {} };
+  const env: Record<string, any> = { accountNavigation: { project: (snapshot: unknown) => snapshot, pending: () => false }, closeCommerce() {}, noticeQuery: { reset() {} }, serverSearchPanel: { reset() {} }, companionPackageCard, ...vm, ...preview, UiCommands, PKG_IDLE: preview.EMPTY_PACKAGE_PREVIEW, autoQueryPackage: () => actual('autoQueryPackage')(), Events: { ACCOUNT_CHANGED: 'account://changed' }, guarded, isUiAccountSnapshot, peripheral: { close() {} }, receiveDiagnostics: { close() {} }, unknownOutbound: { close() {} }, loadForActiveAccount: async () => {}, WindowLabels: { SETTING: 'setting' }, packagePreview: controller, store, S: () => store.get(), ipc: { invoke, listen: (event: string, callback: (value: unknown) => void) => eventHandlers.set(event, [...eventHandlers.get(event) ?? [], callback]) }, invokeSafe: invoke, t, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, cx: () => '', toast() {} };
   function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name); const tail = source.slice(a), next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z])/.exec(tail); assert.ok(next, name); return new Function(...Object.keys(env), stripTypeScriptTypes(tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   const resetStart = source.indexOf('const ACCOUNT_SCOPED_RESET ='), resetEnd = source.indexOf('} as const satisfies Partial<MainState>;', resetStart) + '} as const satisfies Partial<MainState>;'.length;
-  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, preview.EMPTY_PACKAGE_PREVIEW, EMPTY_NOTICE_QUERY);
+  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', 'EMPTY_SERVER_SEARCH', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, preview.EMPTY_PACKAGE_PREVIEW, EMPTY_NOTICE_QUERY, EMPTY_SERVER_SEARCH);
   for (const name of ['activeAccount', 'activeConv', 'stillActive', 'applyAccountSnapshot', 'packageEnabled', 'packageContext', 'queryPackage', 'openTsimSettings', 'receivePackageIdentity', 'refreshPackageIdentity', 'refreshPackages']) if (source.includes(`function ${name}(`)) env[name] = actual(name);
   if (wire) { const statement = 'subscribeBatched(store, () => autoQueryPackage());', a = source.indexOf(statement); assert.ok(a >= 0); new Function('store', 'subscribeBatched', 'autoQueryPackage', stripTypeScriptTypes(source.slice(a, a + statement.length)))(store, subscribeBatched, env['autoQueryPackage']); for (const line of source.matchAll(/^ipc.listen<unknown>\(Events.ACCOUNT_CHANGED,.*\);$/gm)) new Function(...Object.keys(env), stripTypeScriptTypes(line[0]))(...Object.values(env)); }
   return { store, controller, calls, actual, auto: () => actual('autoQueryPackage')(), event: (name: string, payload: unknown) => eventHandlers.get(name)?.forEach(callback => callback(payload)), result: (v: unknown) => { result = v; }, identity: (value: unknown) => { identityResult = value; } };
@@ -172,4 +173,17 @@ test('order summary validates the reissue timeline and keeps only well-formed or
     { reissues: [{ ...failed, info: plan }] }, { reissues: [{ ...ready, info: null }] }, { reissues: [{ ...ready, info: { ...plan, detail_fields: [{ label: 'IMSI', value: 'x' }] } }] },
     { reissues: [{ ...ready, state: 'pending' }] }, { reissues: [{ ...ready, create_time_ms: '1' }] }, { reissues: [{ ...ready, create_time_ms: -1 }] }, { reissues: [null] },
   ]) assert.equal((await summaryWith(extra)).status, 'error', JSON.stringify(extra).slice(0, 80));
+});
+
+test('package failure copy preserves every original message and does not expose diagnostic text', () => {
+  const cases = [
+    ['assistant.tsim_unauthenticated', 'login', '请先在设置的“商家助手 · TSim 登录”中登录，再刷新套餐。'],
+    ['assistant.session_cleared', 'login', '请先在设置的“商家助手 · TSim 登录”中登录，再刷新套餐。'],
+    ['assistant.forbidden', 'permission', '当前 TSim 账号无权查看该订单套餐，请核对账号权限。'],
+    ['assistant.permission_denied', 'permission', '当前 TSim 账号无权查看该订单套餐，请核对账号权限。'],
+    ['assistant.package_not_found', 'error', '未查询到该订单的套餐，请核对会话订单号。'],
+    ['net.timeout', 'error', '查询超时，请手动刷新；不会自动重复请求。'],
+    ['unknown', 'error', '套餐查询未完成，可能是会话、订单或 TSim 身份已变化。请核对后刷新。'],
+  ] as const;
+  for (const [code, failure, error] of cases) assert.deepEqual(preview.packageFailure({ code, message: 'SYNTHETIC_PRIVATE_DIAGNOSTIC' }), { failure, error });
 });

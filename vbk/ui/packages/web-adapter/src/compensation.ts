@@ -55,6 +55,8 @@ export interface RecentMessagesResponse {
 
 export interface CompensationOptions {
   readonly emit: (fact: AdapterFact) => void;
+  readonly emitAsync?: (fact: AdapterFact, current: () => boolean) => Promise<boolean>;
+  readonly awaitDelivery?: () => Promise<void>;
   readonly roles: MemberRoles;
   /** Persisted watermark; the first request sends it as `beginMsgTime`. */
   readonly initialBeginMsgTime: number;
@@ -158,6 +160,7 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
     // from the unchanged cursor), but the current generation still needs its round.
     if (gen !== generation) { if (timer === null) schedule(generation); return; }
     opts.onOutcome?.(outcome, ticket);
+    if (!running || myRun !== run || gen !== generation || stopped()) return;
     if (outcome.kind === 'auth_invalid') {
       running = false;
       mode = 'stopped';
@@ -171,20 +174,27 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
       for (const row of rows) {
         const fact = normalizeHttpMessage(row, { roles: opts.roles, source: 'compensation', ...(opts.msgTypeOverrides ? { msgTypeOverrides: opts.msgTypeOverrides } : {}) });
         if (!fact) continue;
-        if (fact.message_id !== null) {
-          const key = JSON.stringify([fact.gid, fact.message_id]);
-          if (seen.has(key)) continue;
+        const key = fact.message_id !== null ? JSON.stringify([fact.gid, fact.message_id]) : null;
+        if (key !== null && seen.has(key)) continue;
+        const current = () => running && myRun === run && gen === generation && !stopped();
+        if (opts.emitAsync) {
+          if (!await opts.emitAsync({ kind: 'message', fact }, current) || !current()) return;
+        } else opts.emit({ kind: 'message', fact });
+        if (key !== null) {
           seen.add(key);
-          if (seen.size > MAX_SEEN) {
-            const oldest = seen.values().next();
-            if (!oldest.done) seen.delete(oldest.value);
-          }
+          if (seen.size > MAX_SEEN) { const oldest = seen.values().next(); if (!oldest.done) seen.delete(oldest.value); }
         }
-        opts.emit({ kind: 'message', fact });
       }
+      const current = () => running && myRun === run && gen === generation && !stopped();
+      try { await opts.awaitDelivery?.(); } catch { return; }
+      if (!current()) return;
       const ts = normalizeTimeMs(outcome.body.lastMessageTimestamp);
+      const sync: AdapterFact = { kind: 'compensation_sync', last_message_timestamp_ms: ts };
+      if (opts.emitAsync) { if (!await opts.emitAsync(sync, current) || !current()) return; }
+      else opts.emit(sync);
+      try { await opts.awaitDelivery?.(); } catch { return; }
+      if (!current()) return;
       if (ts !== null) cursor = Math.max(cursor, ts);
-      opts.emit({ kind: 'compensation_sync', last_message_timestamp_ms: ts });
     } else {
       failures = Math.min(failures + 1, MAX_BACKOFF_EXPONENT);
     }

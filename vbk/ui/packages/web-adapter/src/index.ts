@@ -50,7 +50,7 @@ export { createAdapterFeatures } from './adapterFeatures.ts';
 
 import type { AccountContext, AdapterFact, MessageFact, TransportState } from '../../ipc/src/contracts.ts';
 import type { AdapterDeps, SdkSocketStatus } from './deps.ts';
-import { AdapterBridge } from './bridge.ts';
+import { AdapterBridge, BridgeQueueError, type BridgeDiagnostics } from './bridge.ts';
 import { SoaClient, type ServerTimeSample } from './soa.ts';
 import {
   createConversationListPoller,
@@ -67,6 +67,11 @@ import type { SoaOutcome } from './soa.ts';
 import { CursorAllocator, UNKNOWN_ROLES, normalizeSdkMessage, type MemberRoles, type MsgTypeOverrides } from './facts.ts';
 
 export interface AdapterOptions {
+  readonly bridgeCapacity?: number;
+  /** Overflow stops this adapter; the owner must require fresh login/resync. */
+  readonly onQueueFault?: (diagnostics: BridgeDiagnostics, error: BridgeQueueError) => void;
+  /** Account terminal: caller cancels session work after auth_invalid is queued. */
+  readonly onTerminal?: () => void;
   readonly account: AccountContext;
   /** Persisted compensation watermark (`beginMsgTime`). */
   readonly initialBeginMsgTime: number;
@@ -123,7 +128,15 @@ const MAX_UNRESOLVED = 64;
 
 export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter {
   const cursors = new CursorAllocator(opts.initialEpoch ?? 1);
-  const bridge = new AdapterBridge({ account: opts.account, invoke: deps.invoke, cursors });
+  let queueFaulted = false;
+  const bridge = new AdapterBridge({ account: opts.account, invoke: deps.invoke, cursors,
+    ...(opts.bridgeCapacity !== undefined ? { capacity: opts.bridgeCapacity } : {}),
+    onQueueFault: (error, diagnostics) => {
+      queueFaulted = true;
+      stopAdapter();
+      opts.onQueueFault?.(diagnostics, error);
+    },
+  });
   const soa = new SoaClient(deps, opts.onServerTime ? { onServerTime: opts.onServerTime } : {});
   let roles: MemberRoles = opts.roles ?? UNKNOWN_ROLES;
   const rolesProxy: MemberRoles = { get selfUid() { return roles.selfUid ?? ''; }, roleOf: (uid) => roles.roleOf(uid) };
@@ -137,7 +150,7 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
     unresolved = [];
     for (const entry of pending) {
       const sender_role = rolesProxy.roleOf(entry.fact.sender_id);
-      if (sender_role !== 'unknown') bridge.push({ kind: 'message', fact: { ...entry.fact, sender_role } });
+      if (sender_role !== 'unknown') emit({ kind: 'message', fact: { ...entry.fact, sender_role } });
       else if (now - entry.at < UNRESOLVED_RESEND_MS) unresolved.push(entry);
     }
   };
@@ -149,16 +162,54 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
   };
   /** Each loop reports auth failure on its own; the host hears it once per run and every loop stops. */
   const emit = (fact: AdapterFact): void => {
-    if (fact.kind === 'auth_invalid') {
+    if (!queueFaulted && fact.kind === 'auth_invalid') {
       if (authInvalidSeen) return;
       authInvalidSeen = true;
       stopLoops();
     }
-    bridge.emit(fact);
+    try { bridge.emit(fact); }
+    catch (error) {
+      // Poller emitters are void callbacks inside fire-and-forget async ticks.
+      // Overflow has already stopped intake and reported the lifecycle fault;
+      // contain that terminal signal instead of creating an unhandled rejection.
+      if (queueFaulted && error instanceof BridgeQueueError) return;
+      throw error;
+    }
+  };
+
+  // The core owns one im.conversation snapshot set: whole list batches across
+  // variants must stay contiguous, while compensation uses a separate stream.
+  let batchOwner: symbol | null = null;
+  const batchWaiters = new Map<string, { current: () => boolean; resolve: (release: (() => void) | null) => void }>();
+  const grantBatch = (): (() => void) => {
+    const owner = Symbol(); batchOwner = owner;
+    return () => {
+      if (batchOwner !== owner) return;
+      batchOwner = null;
+      while (batchWaiters.size) {
+        const [key, waiter] = batchWaiters.entries().next().value!;
+        batchWaiters.delete(key);
+        if (!waiter.current()) { waiter.resolve(null); continue; }
+        waiter.resolve(grantBatch()); break;
+      }
+    };
+  };
+  const acquireBatch = (key: string, current: () => boolean): Promise<(() => void) | null> => {
+    if (!current()) return Promise.resolve(null);
+    if (batchOwner === null) return Promise.resolve(grantBatch());
+    if (batchWaiters.has(key) || batchWaiters.size >= 2) { bridge.overflow(); return Promise.resolve(null); }
+    return new Promise(resolve => { batchWaiters.set(key, { current, resolve }); });
+  };
+  const cancelBatches = (): void => {
+    batchOwner = null;
+    for (const waiter of batchWaiters.values()) waiter.resolve(null);
+    batchWaiters.clear();
   };
 
   const compensation = createCompensationLoop(deps, soa, {
     emit,
+    emitAsync: (fact, current) => bridge.pushAsync(fact, current, 'compensation'),
+    awaitDelivery: () => bridge.flush(),
     roles: rolesProxy,
     initialBeginMsgTime: opts.initialBeginMsgTime,
     ...(opts.stopNormalLoopAfterLimit !== undefined ? { stopNormalLoopAfterLimit: opts.stopNormalLoopAfterLimit } : {}),
@@ -171,6 +222,10 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
     createConversationListPoller(deps, soa, {
       variant,
       emit,
+      emitAsync: (fact, current) => bridge.pushAsync(fact, current, `list:${variant}`),
+      awaitDelivery: () => bridge.flush(),
+      onBatchOverflow: () => bridge.overflow(),
+      acquireBatch: current => acquireBatch(variant, current),
       includeLocale: opts.includeLocaleInConversationList ?? false,
       ...(opts.officialConversationFeed ? { official: opts.officialConversationFeed } : {}),
       ...(opts.conversationVisibility ? { visibility: opts.conversationVisibility } : {}),
@@ -189,6 +244,18 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
   let running = false;
   let started = false;
   let unsubscribes: (() => void)[] = [];
+  function stopAdapter(): void {
+    if (!running) return;
+    running = false;
+    unresolved = [];
+    for (const unsubscribe of unsubscribes) unsubscribe();
+    unsubscribes = [];
+    stopLoops();
+    cancelBatches();
+    // The final account-invalid fact must survive its own terminal shutdown.
+    // Ordinary stop/restart expires old pending facts before a fresh epoch.
+    if (!authInvalidSeen || queueFaulted) bridge.cancelPending();
+  }
 
   return {
     bridge,
@@ -202,41 +269,46 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
       roles = next;
     },
     start() {
-      if (running) return;
+      if (running || queueFaulted) return;
       running = true;
       authInvalidSeen = false;
       if (started) bridge.bumpEpoch();
       started = true;
       // subscribe before any snapshot so nothing is missed between the two
       unsubscribes = [
+        deps.sdk.on('terminal', () => {
+          if (!running || authInvalidSeen) return;
+          emit({ kind: 'auth_invalid' });
+          opts.onTerminal?.();
+        }),
         deps.sdk.on('message', (evt) => {
+          if (!running || authInvalidSeen) return;
           const fact = normalizeSdkMessage(evt, { roles: rolesProxy, ...(opts.msgTypeOverrides ? { msgTypeOverrides: opts.msgTypeOverrides } : {}) });
           if (!fact) return;
-          bridge.push({ kind: 'message', fact });
+          emit({ kind: 'message', fact });
           if (fact.sender_role === 'unknown' && fact.kind === 'business' && fact.message_id) {
             if (unresolved.length >= MAX_UNRESOLVED) unresolved.shift();
             unresolved.push({ fact, at: deps.now() });
           }
         }),
         deps.sdk.on('socket_status', (status) => {
+          if (!running || authInvalidSeen) return;
           const state = toTransport(status);
-          bridge.push({ kind: 'transport', state });
-          compensation.setTransport(state);
+          emit({ kind: 'transport', state });
+          if (running) compensation.setTransport(state);
         }),
       ];
+      if (deps.sdk.terminalStatus !== undefined && deps.sdk.terminalStatus !== null) {
+        emit({ kind: 'auth_invalid' });
+        opts.onTerminal?.();
+        return;
+      }
       const initial: TransportState = deps.sdk.getSocketStatus() ? 'connected' : 'disconnected';
-      bridge.push({ kind: 'transport', state: initial });
+      emit({ kind: 'transport', state: initial });
+      if (!running) return;
       compensation.start(initial);
       for (const p of conversationPollers) p.start();
     },
-    stop() {
-      if (!running) return;
-      running = false;
-      unresolved = [];
-      for (const u of unsubscribes) u();
-      unsubscribes = [];
-      compensation.stop();
-      for (const p of conversationPollers) p.stop();
-    },
+    stop: stopAdapter,
   };
 }

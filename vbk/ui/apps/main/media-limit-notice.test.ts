@@ -19,3 +19,16 @@ test('every local media rejection code of contract v1 maps to a "nothing sent" n
 test('other texts are left to the caller', () => {
   for (const other of [null, undefined, '', 'media.upload_rejected: x', 'prefix media.too_large', 'media.too_largeX', '结果未知']) assert.equal(mediaLimitNotice(other), null, String(other));
 });
+
+test('localized rejection notices preserve limits and never reflect dynamic error details', () => {
+  const expected: Record<string, string> = {
+    'media.empty': '附件是空的，未发送。',
+    'media.too_large': '附件超过大小上限（图片 10 MB、文件 30 MB、视频 300 MB），未发送。',
+    'media.video_too_long': '视频超过 3 分钟，未发送。',
+    'media.video_duration_unknown': '无法读取视频时长，未发送。',
+    'media.too_many_files': '一次最多发送 10 个文件，未发送。',
+    'media.chunked_upload_unsupported': '该视频超过 30 MB，当前版本暂不支持大视频分片上传，未发送。',
+    'media.unknown_kind': '不支持的附件类型，未发送。',
+  };
+  for (const [code, notice] of Object.entries(expected)) assert.equal(mediaLimitNotice(`${code}: secret /private/upload.png <img>`), notice);
+});

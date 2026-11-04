@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -21,19 +22,20 @@ function fixture(initial: UiConversation[] = []) {
   let context: AccountContext | null = owner;
   const store = createStore<Record<string, any>>({ conversations: initial, activeGid: null, attachment: null, noticeCats: [], noticeCat: null, agent: null, net: null });
   let responses: Record<string, unknown> = {};
-  const env = { store, S: () => store.get(), activeAccount: () => context ? { context } : null,
+  const calls: string[] = [], released: unknown[] = [];
+  const env = { t: translateUi, store, S: () => store.get(), activeAccount: () => context ? { context } : null,
     stillActive: (account: AccountContext) => !!context && sameAccount(account, context) && account.session_generation === context.session_generation,
     sameAccount, isUiConversation, isUiAgentStatus, isUiNetStatus,
-    invokeQuiet: async (command: string) => await responses[command],
+    invokeQuiet: async (command: string) => { calls.push(command); try { const result = await responses[command]; if (result instanceof Error) throw result; return result; } catch { return null; } },
     UiCommands: { IM_CONVERSATIONS: 'convs', ACCOUNT_AGENT_STATUS: 'agent', NET_STATUS: 'net', NOTICE_CATEGORIES: 'cats', IM_MARK_READ: 'read' },
-    releaseAttachment: async () => undefined, noticeQuery: { categories: async () => undefined }, document: { visibilityState: 'hidden' } };
+    releaseAttachment: async (value: unknown) => { released.push(value); }, noticeQuery: { categories: async () => undefined }, document: { visibilityState: 'hidden' } };
   const functionStart = source.indexOf('async function loadForActiveAccount():');
   const helperStart = source.lastIndexOf('let accountLoadTicket', functionStart);
   const end = source.indexOf('\nasync function loadPrefs(', functionStart);
   const upsertStart = source.indexOf('function upsertConversation('), upsertEnd = source.indexOf('\nasync function sendText(', upsertStart);
   const code = source.slice(helperStart < 0 ? functionStart : helperStart, end) + '\n' + source.slice(upsertStart, upsertEnd);
   const actual = new Function(...Object.keys(env), stripTypeScriptTypes(code) + '\nreturn { load: loadForActiveAccount, upsert: upsertConversation };')(...Object.values(env)) as { load: () => Promise<void>; upsert: (c: UiConversation) => void };
-  return { ...actual, store, owner: (next: AccountContext | null) => { context = next; }, responses: (next: Record<string, unknown>) => { responses = next; } };
+  return { ...actual, store, calls, released, owner: (next: AccountContext | null) => { context = next; }, responses: (next: Record<string, unknown>) => { responses = next; } };
 }
 
 test('actual account load retains newer real upserts while unrelated agent read is pending', async () => {
@@ -88,4 +90,54 @@ test('actual superseding loads and completion release observers, including an ac
   const third = deferred(); f.responses({ convs: third.promise }); const c = f.load(); assert.equal(observers, 1);
   f.owner(null); await f.load(); assert.equal(observers, 0);
   f.owner(owner); third.resolve([row('123456')]); await c; assert.deepEqual(f.store.get().conversations, []);
+});
+
+
+test('actual failed conversation refresh preserves current rows, active room and attachment with explicit retry state', async () => {
+  const kept = row('123456'), f = fixture([kept]), attachment = { attachment_id: 'current' };
+  f.store.patch({ activeGid: kept.gid, attachment, draft: 'unsent' });
+  f.responses({ convs: null }); await f.load();
+  assert.deepEqual(f.store.get().conversations, [kept]); assert.equal(f.store.get().activeGid, kept.gid); assert.equal(f.store.get().attachment, attachment); assert.equal(f.store.get().draft, 'unsent');
+  assert.ok(f.store.get().conversationsError); assert.equal(f.store.get().conversationsLoading, false); assert.deepEqual(f.released, []);
+  assert.deepEqual(f.calls, ['convs', 'agent', 'net']);
+});
+
+test('first-load failures are distinguishable from a confirmed empty list, and a successful retry clears the error', async () => {
+  for (const failed of [null, undefined, {}, [{}], new Error('synthetic private transport error')]) {
+    const f = fixture(); f.responses({ convs: failed }); await f.load();
+    assert.deepEqual(f.store.get().conversations, []); assert.ok(f.store.get().conversationsError); assert.equal(f.store.get().conversationsLoading, false);
+    f.responses({ convs: [] }); await f.load(); assert.equal(f.store.get().conversationsError, null); assert.deepEqual(f.store.get().conversations, []);
+    const fresh = row('223456'); f.responses({ convs: [fresh] }); await f.load(); assert.deepEqual(f.store.get().conversations, [fresh]); assert.equal(f.store.get().conversationsError, null);
+    assert.ok(f.calls.every(command => ['convs', 'agent', 'net'].includes(command)), 'retry does not send or mark read');
+  }
+});
+
+test('late failed reads cannot replace a newer successful refresh or contaminate an A→B→A visit', async () => {
+  const f = fixture([row('123456')]), first = deferred(); f.responses({ convs: first.promise }); const old = f.load();
+  f.owner({ ...owner, account_id: 'b' }); f.store.patch({ conversations: [], conversationsError: null, conversationsLoading: false }); f.responses({ convs: null }); await f.load();
+  f.owner(owner); const latest = row('223456'); f.responses({ convs: [latest] }); await f.load(); const state = f.store.get();
+  first.resolve(null); await old; assert.equal(f.store.get(), state); assert.equal(f.store.get().conversationsError, null); assert.deepEqual(f.store.get().conversations, [latest]);
+});
+
+test('failed refresh observes latest realtime rows and removals without retaining a foreign account list', async () => {
+  const stale = row('123456'), f = fixture([stale]), pending = deferred(); f.responses({ convs: pending.promise }); const loading = f.load();
+  const newer = row('223456', 'LIVE'); f.upsert(newer); f.store.patch({ conversations: [newer] }); pending.resolve(null); await loading;
+  assert.deepEqual(f.store.get().conversations, [newer]); assert.ok(f.store.get().conversationsError);
+  f.owner({ ...owner, session_generation: 2 }); f.responses({ convs: null }); await f.load(); assert.deepEqual(f.store.get().conversations, []);
+});
+
+
+test('a late successful list cannot clear the newest failure or loading state', async () => {
+  const f = fixture([row('123456')]), old = deferred(); f.responses({ convs: old.promise }); const before = f.load();
+  f.responses({ convs: null }); await f.load(); const failed = f.store.get(); assert.ok(failed.conversationsError);
+  old.resolve([]); await before; assert.equal(f.store.get(), failed);
+  const pending = deferred(); f.responses({ convs: pending.promise }); const retry = f.load(); assert.equal(f.store.get().conversationsLoading, true); assert.equal(f.store.get().conversationsError, null);
+  pending.resolve([]); await retry; assert.deepEqual(f.store.get().conversations, []); assert.equal(f.store.get().conversationsLoading, false); assert.equal(f.store.get().conversationsError, null);
+});
+
+test('generation mismatch on failure cannot retain an old-account room or its attachment and observers are cleaned', async () => {
+  const f = fixture([row('123456')]), attachment = { attachment_id: 'old-generation' };
+  f.store.patch({ activeGid: '123456', attachment }); f.owner({ ...owner, session_generation: 2 }); f.responses({ convs: null }); await f.load();
+  assert.deepEqual(f.store.get().conversations, []); assert.equal(f.store.get().activeGid, null); assert.equal(f.store.get().attachment, null); assert.deepEqual(f.released, [attachment]); assert.ok(f.store.get().conversationsError);
+  f.owner(null); await f.load(); assert.equal(f.store.get().conversationsLoading, false); assert.equal(f.store.get().conversationsError, null);
 });

@@ -7,12 +7,13 @@ import { TYPING_THROTTLE_MS, TYPING_VISIBLE_MS, TypingThrottle, TypingTracker, c
 test('throttle: one frame per 3 s per conversation, independent across conversations', () => {
   const t = new TypingThrottle();
   assert.equal(TYPING_THROTTLE_MS, 3000);
-  assert.equal(t.admit('1', 10_000), true);
-  assert.equal(t.admit('1', 12_999), false);
-  assert.equal(t.admit('2', 12_999), true);
-  assert.equal(t.admit('1', 13_000), true);
-  t.release('1');
-  assert.equal(t.admit('1', 13_001), true, 'a released slot does not block');
+  assert.equal(typeof t.admit('1', 10_000), 'symbol');
+  assert.equal(t.admit('1', 12_999), null);
+  assert.equal(typeof t.admit('2', 12_999), 'symbol');
+  const attempt = t.admit('1', 13_000);
+  assert.ok(attempt);
+  t.release('1', attempt);
+  assert.equal(typeof t.admit('1', 13_001), 'symbol', 'a released slot does not block');
 });
 
 test('throttle table stays bounded', () => {
@@ -81,4 +82,20 @@ test('feature: typing.send op + inbound frames emit typing facts with an expiry'
   assert.deepEqual(ctx.facts, [{ kind: 'typing', gid: GID, from: 'cust-9', until_ms: ctx.fakeDeps.now() + TYPING_VISIBLE_MS }]);
   d.dispose();
   assert.equal(feature.throttle.size, 0);
+});
+
+test('a failed attempt can release only its own admission, including after eviction or clear', () => {
+  const t = new TypingThrottle(), old = t.admit('1', 0)!;
+  const newer = t.admit('1', 3000)!;
+  assert.notEqual(newer, old);
+  t.release('1', old); assert.equal(t.admit('1', 3001), null);
+  t.release('1', newer); assert.ok(t.admit('1', 3001));
+  t.clear(); const afterClear = t.admit('1', 3000)!;
+  t.release('1', newer); assert.equal(t.admit('1', 3001), null);
+  t.release('1', afterClear);
+  const evicted = t.admit('1', 0)!;
+  for (let i = 0; i < 256; i++) t.admit(`other-${i}`, 10000 + i);
+  const restored = t.admit('1', 20000)!;
+  t.release('1', evicted); assert.equal(t.admit('1', 20001), null);
+  t.release('1', restored); assert.ok(t.admit('1', 20001));
 });

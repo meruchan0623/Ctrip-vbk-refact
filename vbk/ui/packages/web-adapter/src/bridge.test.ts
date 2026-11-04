@@ -41,7 +41,7 @@ test('bridge: a rejected invoke is reported, never retried', async () => {
   let calls = 0;
   const bridge = new AdapterBridge({ account, invoke: () => (calls++, Promise.reject(new Error('host'))), onPushError: (env) => errors.push(env) });
   bridge.push({ kind: 'auth_invalid' });
-  await bridge.flush();
+  await assert.rejects(bridge.flush(), { code: 'bridge.delivery_failed' });
   assert.equal(calls, 1);
   assert.equal(errors.length, 1);
 });

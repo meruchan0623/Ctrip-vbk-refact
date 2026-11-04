@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentStatusOf, colorOf, httpMessageToUi, langOf, messageText, orderSummaryFromMessage, previewOf, rowView, sdkMessageToUi, toDisplayConversation, uiKindOf } from './display.ts';
+import { bizLabel, agentStatusOf, colorOf, httpMessageToUi, langOf, messageText, orderSummaryFromMessage, previewOf, rowView, sdkMessageToUi, toDisplayConversation, uiKindOf } from './display.ts';
 import { stanzaToEvent, mapXmppStatus, readElement } from './sdkGlue.ts';
 import { buildPageContext, createContextSniffer, localeFromSearch, readCookie } from './pageContext.ts';
 import { UNKNOWN_ROLES, buildMemberRoles } from './facts.ts';

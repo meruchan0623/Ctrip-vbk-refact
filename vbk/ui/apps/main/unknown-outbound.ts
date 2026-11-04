@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 import { UiCommands, type UiUnknownOutboundRecord } from '../../packages/ipc/src/client.ts';
 
@@ -55,12 +56,12 @@ export function createUnknownOutbound(deps: Dependencies) {
     let records: UiUnknownOutboundRecord[] = [], notice: string | null = null;
     try {
       const raw = await deps.invoke(UiCommands.IM_UNKNOWN_OUTBOUND, { account: scope });
-      if (!Array.isArray(raw)) notice = '未知发送元数据暂不可用，账本保持不变。';
+      if (!Array.isArray(raw)) notice = t('operatorUnknown.unknown.metadataUnavailable');
       else {
         records = raw.map(row => metadata(row, scope)).filter((row): row is UiUnknownOutboundRecord => row !== null);
-        if (records.length !== raw.length) notice = '部分元数据不属于当前账号或格式无效，已隐藏；账本保持不变。';
+        if (records.length !== raw.length) notice = t('operatorUnknown.unknown.metadataHidden');
       }
-    } catch { notice = '读取未知发送元数据失败，账本保持不变。'; }
+    } catch { notice = t('operatorUnknown.unknown.metadataFailed'); }
     if (!valid(ticket, scope) || !view) return;
     view = { ...view, busy: false, records, notice }; deps.publish(view);
   }
@@ -76,9 +77,9 @@ export function createUnknownOutbound(deps: Dependencies) {
     if (!sameScope(view.scope, deps.current())) { close(); return; }
     const matches = view.records.filter(row => row.gid === gid && row.local_id === localId);
     if (matches.length === 1 && !matches[0]!.write_started) {
-      view = { ...view, selected: null, result: unknown('这只是附件上传阶段记录，消息尚未提交；不会查询消息页、解锁或重发。') }; deps.publish(view); return;
+      view = { ...view, selected: null, result: unknown(t('operatorUnknown.unknown.uploadOnly')) }; deps.publish(view); return;
     }
-    view = { ...view, selected: matches.length === 1 ? { gid, local_id: localId } : null, result: matches.length === 1 ? null : unknown('元数据重复或不可用，无法核验；结果仍未知。') }; deps.publish(view);
+    view = { ...view, selected: matches.length === 1 ? { gid, local_id: localId } : null, result: matches.length === 1 ? null : unknown(t('operatorUnknown.unknown.metadataDuplicate')) }; deps.publish(view);
   }
   async function verify(): Promise<void> {
     if (!view || view.busy || !view.selected) return;
@@ -90,7 +91,7 @@ export function createUnknownOutbound(deps: Dependencies) {
     let result: UnknownOutboundResult;
     try {
       const raw = record(await deps.invoke(UiCommands.IM_OUTBOUND_LOOKUP, { account: scope, gid: selected.gid }));
-      if (!raw || !Array.isArray(raw['items'])) result = unknown('最新页格式不可用，结果仍未知。');
+      if (!raw || !Array.isArray(raw['items'])) result = unknown(t('operatorUnknown.unknown.pageInvalid'));
       else {
         const matches = raw['items'].map(record).filter(row => {
           if (!row || row['gid'] !== selected.gid || row['local_id'] !== selected.local_id || row['sender_role'] !== 'merchant_self') return false;
@@ -101,10 +102,10 @@ export function createUnknownOutbound(deps: Dependencies) {
         });
         const serverId = matches.length === 1 ? matches[0]?.['message_id'] : null;
         result = exactString(serverId)
-          ? { kind: 'found', server_id: serverId, message: '找到服务端记录，ID可核对；账本仍保留未知，不会自动重发。' }
-          : unknown(matches.length > 1 ? '找到多条匹配记录，无法唯一核验；结果仍未知。' : '当前最新页未找到唯一有效记录；这不是发送被拒绝的证据，结果仍未知。');
+          ? { kind: 'found', server_id: serverId, message: t('operatorUnknown.unknown.found') }
+          : unknown(matches.length > 1 ? t('operatorUnknown.unknown.multiple') : t('operatorUnknown.unknown.notFound'));
       }
-    } catch { result = unknown('只读查询失败，结果仍未知；不会重发。'); }
+    } catch { result = unknown(t('operatorUnknown.unknown.lookupFailed')); }
     if (!valid(ticket, scope) || !view) return;
     view = { ...view, busy: false, result }; deps.publish(view);
   }

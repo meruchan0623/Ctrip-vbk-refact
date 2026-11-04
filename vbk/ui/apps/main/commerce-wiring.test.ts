@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -26,7 +27,7 @@ test('ended conversations block member entry and invite shortcuts before any IPC
     const opened: string[] = [], notices: string[] = [];
     let closed = 0;
     const env = {
-      activeConv: () => ({ status }), activeAccount: () => ({}),
+      t: translateUi, activeConv: () => ({ status }), activeAccount: () => ({}),
       isDone: (c: { status: string }) => c.status === 'finished' || c.status === 'transferred_out',
       peripheral: { close: () => { closed++; }, open: (kind: string) => opened.push(kind) },
       toast: (text: string) => notices.push(text), quickReplies: { close() {}, open() {} },

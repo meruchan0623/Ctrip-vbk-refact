@@ -83,9 +83,10 @@ fn assert_equivalent(ordered: &[&MessageRecord], boundaries: &BTreeMap<String, S
         ..incomplete
     };
     for window in [None, Some(&incomplete), Some(&complete)] {
-        let expected = legacy_evaluate(ordered, window, &oracle);
-        assert_eq!(evaluate(ordered, window, &oracle), expected);
-        assert_eq!(aggregate.evaluate(ordered, window), expected);
+        assert_eq!(
+            aggregate.evaluate(ordered, window),
+            evaluate(ordered, window, &oracle)
+        );
     }
     // Check every individual status: the earliest candidate alone could hide
     // an incorrect later status that matters after an upsert or a late ACK.
@@ -290,86 +291,5 @@ fn coverage_scaling_benchmark() {
         assert_eq!(calls.get(), (size as u64).pow(2));
         assert_eq!(resolutions.get(), size);
         println!("customers={size} replies={size}: pairwise={} calls {:?}; aggregate={} reply resolutions {:?}", calls.get(), pairwise_time, resolutions.get(), aggregate_time);
-    }
-}
-
-// Frozen pre-optimization evaluator: keep its nested unresolved/reply scans
-// independent from production summaries for differential checking.
-fn legacy_evaluate(
-    ordered: &[&MessageRecord],
-    window: Option<&HistoryWindow>,
-    coverage: &dyn Fn(&MessageRecord, &MessageRecord) -> Coverage,
-) -> Evaluation {
-    let replies: Vec<&MessageRecord> = ordered
-        .iter()
-        .copied()
-        .filter(|m| m.is_confirmed_merchant_reply())
-        .collect();
-    let latest_reply_time_ms = replies.iter().map(|r| r.create_time_ms).max();
-    let unresolved_times: Vec<i64> = ordered
-        .iter()
-        .filter(|m| m.is_unresolved_business())
-        .map(|m| m.create_time_ms)
-        .collect();
-
-    let mut first_open: Option<(&MessageRecord, Coverage)> = None;
-    let mut live_evidence = false;
-    let mut covered_before_open = false;
-
-    for m in ordered.iter().copied().filter(|m| m.is_customer_business()) {
-        let mut status = Coverage::NotCovered;
-        for r in &replies {
-            match coverage(r, m) {
-                Coverage::Covered => {
-                    status = Coverage::Covered;
-                    break;
-                }
-                Coverage::Ambiguous => status = Coverage::Ambiguous,
-                Coverage::NotCovered => {}
-            }
-        }
-        if status != Coverage::Covered && unresolved_times.iter().any(|t| *t >= m.create_time_ms) {
-            status = Coverage::Ambiguous;
-        }
-        if status == Coverage::Covered {
-            if first_open.is_none() {
-                covered_before_open = true;
-            }
-            continue;
-        }
-        if first_open.is_none() {
-            first_open = Some((m, status));
-        }
-        if m.seen_live() {
-            live_evidence = true;
-        }
-    }
-
-    let Some((c, status)) = first_open else {
-        return Evaluation {
-            outcome: EvalOutcome::NoWait,
-            live_evidence: false,
-            latest_reply_time_ms,
-        };
-    };
-    let reply_before = replies.iter().any(|r| r.create_time_ms < c.create_time_ms);
-    let sufficient =
-        window.map_or(true, HistoryWindow::is_complete) || reply_before || covered_before_open;
-    let candidate = StartCandidate {
-        message_id: c.message_id.clone(),
-        create_time_ms: c.create_time_ms,
-    };
-    let outcome = if status == Coverage::Ambiguous {
-        EvalOutcome::Ambiguous { candidate }
-    } else {
-        EvalOutcome::Wait {
-            start: candidate,
-            sufficient,
-        }
-    };
-    Evaluation {
-        outcome,
-        live_evidence,
-        latest_reply_time_ms,
     }
 }

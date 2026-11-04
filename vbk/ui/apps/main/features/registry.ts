@@ -12,7 +12,9 @@ import { createRecall } from './recall.ts';
 import { createVoicePlayerModule } from './voice-player.ts';
 import { createQueueBanner } from './queue-banner.ts';
 
-export const FEATURES: readonly FeatureModule[] = [createTypingIndicator(), createRecall(), createVoicePlayerModule(), createQueueBanner()];
+export const voicePlayerModule = createVoicePlayerModule();
+
+export const FEATURES: readonly FeatureModule[] = [createTypingIndicator(), createRecall(), voicePlayerModule, createQueueBanner()];
 
 export function createMainFeatureRuntime(host: RuntimeHost): FeatureRuntime {
   return createFeatureRuntime(FEATURES, host);

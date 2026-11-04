@@ -217,15 +217,9 @@ export async function getCurrentMembers(deps: AdapterDeps, soa: SoaClient, gid: 
 
 // ------------------------------------------------------------- server-side search
 
-/**
- * `16037/searchConversation {head, searchType, searchValue, pageNo, startTime?, endTime?}`.
- * Samples (49/19/27) all use `searchType: 3` and `pageNo: 1`; the full
- * `searchType` enum is NOT known (plan I-23: "待实机取样"), so any non-negative
- * integer is forwarded and the caller picks one it has seen. `startTime` /
- * `endTime` (ms) come from the official search UI per the plan; they are
- * optional and only sent when given. Response: bizResponseStatus SUCCESS and
- * `customerSearchList[{conversation, message}]`. Only identity and a short
- * preview survive the mapping; the raw message body is dropped.
+/** Search endpoint and legacy customer-only compatibility projection.
+ * The production four-group/token-scoped search flow lives in search.ts.
+ * Official enum: content=0, customerName=1, orderId=2, all=3, time=4.
  */
 export const SEARCH_CONVERSATION = endpoint('searchConversation', M, '16037/searchConversation', 'read');
 export const SEARCH_VALUE_MAX_CHARS = 100;
@@ -233,7 +227,7 @@ export const SEARCH_MAX_PAGE = 1000;
 
 export interface SearchConversationRequest {
   readonly searchType: number;
-  readonly searchValue: string;
+  readonly searchValue?: string;
   readonly pageNo: number;
   readonly startTime?: number;
   readonly endTime?: number;
@@ -258,7 +252,7 @@ export function searchConversationBody(deps: AdapterDeps, req: SearchConversatio
   return {
     head: businessHead(deps.context),
     searchType: req.searchType,
-    searchValue: req.searchValue,
+    ...(req.searchType === 4 ? {} : { searchValue: req.searchValue }),
     pageNo: req.pageNo,
     ...(req.startTime === undefined ? {} : { startTime: req.startTime }),
     ...(req.endTime === undefined ? {} : { endTime: req.endTime }),
@@ -289,8 +283,9 @@ function searchHit(entry: unknown): ConversationSearchHit | null {
 
 export async function searchConversations(deps: AdapterDeps, soa: SoaClient, req: SearchConversationRequest): Promise<PeripheralReadResult<readonly ConversationSearchHit[]>> {
   const intOk = (v: unknown, min: number, max: number): boolean => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v <= max;
-  if (!intOk(req.searchType, 0, 99)) return { kind: 'invalid', field: 'searchType' };
-  if (typeof req.searchValue !== 'string' || req.searchValue.trim() === '' || req.searchValue.length > SEARCH_VALUE_MAX_CHARS) return { kind: 'invalid', field: 'searchValue' };
+  if (!intOk(req.searchType, 0, 4)) return { kind: 'invalid', field: 'searchType' };
+  if (req.searchType !== 4 && (typeof req.searchValue !== 'string' || req.searchValue.trim() === '' || req.searchValue.length > SEARCH_VALUE_MAX_CHARS)) return { kind: 'invalid', field: 'searchValue' };
+  if (req.searchType === 4 && (!intOk(req.startTime, 1e12, 1e13 - 1) || !intOk(req.endTime, 1e12, 1e13 - 1))) return { kind: 'invalid', field: 'dateRange' };
   if (!intOk(req.pageNo, 1, SEARCH_MAX_PAGE)) return { kind: 'invalid', field: 'pageNo' };
   if (req.startTime !== undefined && !intOk(req.startTime, 0, Number.MAX_SAFE_INTEGER)) return { kind: 'invalid', field: 'startTime' };
   if (req.endTime !== undefined && !intOk(req.endTime, 0, Number.MAX_SAFE_INTEGER)) return { kind: 'invalid', field: 'endTime' };

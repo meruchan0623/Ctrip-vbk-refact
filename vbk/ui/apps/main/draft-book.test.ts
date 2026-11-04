@@ -7,6 +7,7 @@ import type { DraftMap, DraftOwner, DraftPort } from './draft-book.ts';
 import { createStore } from '../../packages/ui-kit/src/store.ts';
 import { sameAccount } from './viewmodel.ts';
 import { ImCommands } from '../../packages/ipc/src/commands.ts';
+import { createDraftFailureNotice } from './draft-notice.ts';
 
 const A: DraftOwner = { environment: 'prod', account_id: 'agent-A' };
 const B: DraftOwner = { environment: 'prod', account_id: 'agent-B' };
@@ -108,7 +109,7 @@ test('IPC port speaks the core-store draft contract: versions, deletes, and one 
   const port = createIpcDraftPort(async (command, rawPayload) => {
     const payload = rawPayload as any;
     calls.push({ command, payload });
-    if (command === 'draft_load') return { drafts: [{ gid: 'room', text: 'stored', version: 4 }, { gid: 7, text: 'bad' }] };
+    if (command === 'draft_load') return { drafts: [{ gid: 'room', text: 'stored', version: 4, attachment_version: 8, attachments: [] }] };
     if (conflict) { conflict = false; throw Object.assign(new Error('cas'), { code: 'store.cas_conflict' }); }
     return { version: payload.expected_version + 1 };
   }, { load: 'draft_load', save: 'draft_save' }, context);
@@ -122,7 +123,8 @@ test('IPC port speaks the core-store draft contract: versions, deletes, and one 
   assert.equal(calls.at(-1)!.payload.expected_version, 5);
   assert.equal(calls.at(-1)!.payload.text, '');
   const none = createIpcDraftPort(async () => { throw new Error('must not be called'); }, { load: 'l', save: 's' }, () => null);
-  assert.deepEqual(await none.load(A), {}); await none.save(A, 'room', 'x');
+  await assert.rejects(none.load(A), { message: 'draft.account_unavailable' });
+  await assert.rejects(none.save(A, 'room', 'x'), { message: 'draft.account_unavailable' });
 });
 
 test('real main wiring: store drafts are persisted per account, restored on switch back, and never leak across accounts', async () => {
@@ -136,6 +138,7 @@ test('real main wiring: store drafts are persisted per account, restored on swit
   const store = createStore<any>({ accounts: accounts('agent-A'), drafts: {}, draft: '', draftVersion: 0, activeGid: 'room' });
   const port = memoryPort();
   const env: Record<string, unknown> = {
+    draftFailureNotice: createDraftFailureNotice({ notify: () => {}, retry: () => {} }),
     ImCommands, ipc: { invoke: async () => ({}) }, store, S: () => store.get(), sameAccount,
     activeAccount: (s = store.get()) => s.accounts.accounts.find((x: any) => x.context.account_id === s.accounts.active_account_id) ?? null,
     stillActive: (account: any) => { const x = store.get().accounts.accounts.find((y: any) => y.context.account_id === store.get().accounts.active_account_id); return !!x && x.context.account_id === account.account_id && x.context.session_generation === account.session_generation; },
@@ -246,4 +249,199 @@ test('host contract end to end: accounts and environments never see each other\'
   assert.deepEqual(await again.restore(B), { '1001': 'prod B' });
   assert.deepEqual(await again.restore(uatA), { '1001': 'uat A' });
   for (const c of host.calls) assert.deepEqual(Object.keys(c.payload.account).sort(), ['account_id', 'environment', 'session_generation']);
+});
+
+test('actual port and book retain dirty text without an account context and persist on a later explicit flush', async () => {
+  const host = hostDraftStore(), errors: unknown[] = [];
+  let generation: number | null = 1;
+  const book = createDraftBook(createIpcDraftPort(host.invoke, realCommands, owner => generation === null ? null : { ...owner, session_generation: generation }), { ...manualTimers(), onError: error => errors.push(error) });
+  await book.restore(A); book.write(A, 'room', 'private unsaved text');
+  assert.equal(book.pending, 1);
+  generation = null; await book.flush();
+  assert.equal(book.pending, 1); assert.deepEqual(book.read(A), { room: 'private unsaved text' });
+  assert.deepEqual(host.calls.map(call => call.command), [ImCommands.DRAFT_LOAD]);
+  assert.equal(errors.length, 1); assert.equal((errors[0] as Error).message, 'draft.account_unavailable');
+  assert.equal(String(errors[0]).includes('private unsaved text'), false);
+  generation = 2; await book.flush();
+  assert.equal(book.pending, 0); assert.deepEqual(host.texts(A), { room: 'private unsaved text' });
+  assert.deepEqual(host.calls.at(-1)?.payload, { account: { ...A, session_generation: 2 }, gid: 'room', text: 'private unsaved text', expected_version: 0 });
+});
+
+test('missing-context load is retryable and never makes an unread account a confirmed empty draft set', async () => {
+  const host = hostDraftStore(), errors: unknown[] = [];
+  await host.invoke(ImCommands.DRAFT_SAVE, { account: withGeneration(A), gid: 'stored', text: 'persisted', expected_version: 0 });
+  await host.invoke(ImCommands.DRAFT_SAVE, { account: withGeneration(A), gid: 'edited', text: 'older stored text', expected_version: 0 });
+  let present = false;
+  const port = createIpcDraftPort(host.invoke, realCommands, owner => present ? withGeneration(owner) : null);
+  const book = createDraftBook(port, { ...manualTimers(), onError: error => errors.push(error) });
+  await assert.rejects(port.load(A), { message: 'draft.account_unavailable' });
+  assert.deepEqual(await book.restore(A), {}); assert.equal(errors.length, 1);
+  assert.equal(host.calls.filter(call => call.command === ImCommands.DRAFT_LOAD).length, 0);
+  book.write(A, 'edited', 'typed while unavailable');
+  present = true;
+  assert.deepEqual(await book.restore(A), { stored: 'persisted', edited: 'typed while unavailable' });
+  await book.flush(); assert.equal(book.pending, 0);
+  assert.deepEqual(host.texts(A), { stored: 'persisted', edited: 'typed while unavailable' });
+  assert.equal(host.calls.at(-1)?.payload.expected_version, 1);
+});
+
+test('absent owner cannot borrow another account context and an explicit clear stays dirty across disappearance', async () => {
+  const host = hostDraftStore(), timers = manualTimers();
+  let current: DraftOwner | null = A;
+  const context = (owner: DraftOwner) => current && draftOwnerKey(current) === draftOwnerKey(owner) ? withGeneration(owner) : null;
+  const book = createDraftBook(createIpcDraftPort(host.invoke, realCommands, context), timers);
+  book.write(A, 'room', 'stored for A'); await book.flush();
+  book.write(A, 'room', ''); current = B; book.write(B, 'room', 'stored for B'); await book.flush();
+  assert.equal(book.pending, 1); assert.deepEqual(host.texts(A), { room: 'stored for A' }); assert.deepEqual(host.texts(B), { room: 'stored for B' });
+  current = null; await book.flush(); assert.equal(book.pending, 1);
+  current = A; await book.flush(); assert.equal(book.pending, 0); assert.deepEqual(host.texts(A), {}); assert.deepEqual(host.texts(B), { room: 'stored for B' });
+  assert.deepEqual(book.read(A), {});
+});
+
+test('actual port and book reject malformed draft load replies without partial cache or version updates', async () => {
+  const invalidReplies: unknown[] = [
+    null,
+    undefined,
+    [],
+    {},
+    { drafts: null },
+    { drafts: {} },
+    { drafts: [null] },
+    { drafts: [{ gid: '1001', text: 'missing version' }] },
+    ...[NaN, Infinity, -Infinity, -1, 1.5, Number.MAX_SAFE_INTEGER + 1].map(version => ({ drafts: [{ gid: '1001', text: 'MUST_NOT_LEAK', version }] })),
+    { drafts: [{ gid: '1001', text: 'MUST_NOT_LEAK', version: 9 }, { gid: 7, text: 'bad row', version: 1 }] },
+  ];
+  for (const invalidReply of invalidReplies) {
+    const errors: unknown[] = [], calls: { command: string; payload: any }[] = [];
+    const port = createIpcDraftPort(async (command, payload) => {
+      calls.push({ command, payload });
+      if (command === ImCommands.DRAFT_LOAD) return invalidReply;
+      return { version: 1 };
+    }, realCommands, withGeneration);
+    const book = createDraftBook(port, { ...manualTimers(), onError: error => errors.push(error) });
+    book.write(A, 'local', 'private text');
+    assert.deepEqual(await book.restore(A), { local: 'private text' });
+    assert.deepEqual(book.read(A), { local: 'private text' });
+    assert.equal(errors.length, 1);
+    assert.equal((errors[0] as Error).message, 'draft.invalid_load_response');
+    assert.equal(String(errors[0]).includes('MUST_NOT_LEAK'), false);
+    await book.flush();
+    assert.equal(book.pending, 0);
+    assert.equal(calls.filter(call => call.command === ImCommands.DRAFT_SAVE).length, 1);
+    assert.equal(calls.at(-1)?.payload.expected_version, 0);
+  }
+
+  let reply: unknown = { drafts: [{ gid: '1001', text: 'known text', version: 4 }] };
+  const saves: any[] = [];
+  const port = createIpcDraftPort(async (command, payload) => {
+    if (command === ImCommands.DRAFT_LOAD) return reply;
+    const savePayload = payload as { expected_version: number };
+    saves.push(savePayload);
+    return { version: savePayload.expected_version + 1 };
+  }, realCommands, withGeneration);
+  assert.deepEqual(await port.load(A), { '1001': 'known text' });
+  reply = { drafts: [{ gid: '1001', text: 'partial text', version: 99 }, { gid: '1002', text: 'bad row', version: NaN }] };
+  const invalidError = await port.load(A).then(() => null, error => error);
+  assert.equal((invalidError as Error).message, 'draft.invalid_load_response');
+  assert.equal(String(invalidError).includes('partial text'), false);
+  await port.save(A, '1001', 'new text');
+  assert.equal(saves[0]!.expected_version, 4, 'the valid first row did not partially replace the cached version');
+});
+
+test('invalid save acknowledgements keep dirty text for a later valid flush, including clear version zero', async () => {
+  const invalidReplies: unknown[] = [null, undefined, [], {}, { version: '1' }, ...[NaN, Infinity, -Infinity, -1, 1.5, Number.MAX_SAFE_INTEGER + 1].map(version => ({ version }))];
+  for (const invalidReply of invalidReplies) {
+    let saveReply: unknown = invalidReply;
+    const errors: unknown[] = [], calls: { command: string; payload: any }[] = [];
+    const port = createIpcDraftPort(async (command, payload) => {
+      calls.push({ command, payload });
+      if (command === ImCommands.DRAFT_LOAD) return { drafts: [] };
+      return saveReply;
+    }, realCommands, withGeneration);
+    const book = createDraftBook(port, { ...manualTimers(), onError: error => errors.push(error) });
+    book.write(A, '1001', 'private unsaved text');
+    await book.flush();
+    assert.equal(book.pending, 1);
+    assert.deepEqual(book.read(A), { '1001': 'private unsaved text' });
+    assert.equal(errors.length, 1);
+    assert.equal((errors[0] as Error).message, 'draft.invalid_save_response');
+    assert.equal(String(errors[0]).includes('private unsaved text'), false);
+    assert.equal(calls.filter(call => call.command === ImCommands.DRAFT_SAVE).length, 1, 'a malformed acknowledgement is not replayed automatically');
+
+    saveReply = { version: 1, attachment_version: 6 };
+    await book.flush();
+    assert.equal(book.pending, 0);
+    assert.equal(calls.at(-1)?.payload.expected_version, 0);
+
+    book.write(A, '1001', '');
+    saveReply = { version: 0 };
+    await book.flush();
+    assert.equal(book.pending, 0, 'version zero is a valid delete acknowledgement');
+  }
+});
+
+test('a CAS conflict with a malformed reload is surfaced without a second save attempt', async () => {
+  let saveCalls = 0, loadCalls = 0, reload: unknown = null;
+  const errors: unknown[] = [];
+  const port = createIpcDraftPort(async command => {
+    if (command === ImCommands.DRAFT_LOAD) { loadCalls++; return reload; }
+    saveCalls++;
+    if (saveCalls === 1) throw Object.assign(new Error('stale'), { code: 'store.cas_conflict' });
+    return { version: 1 };
+  }, realCommands, withGeneration);
+  const book = createDraftBook(port, { ...manualTimers(), onError: error => errors.push(error) });
+  book.write(A, '1001', 'keep me dirty');
+  await book.flush();
+  assert.equal(saveCalls, 1);
+  assert.equal(loadCalls, 1);
+  assert.equal(book.pending, 1);
+  assert.equal((errors[0] as Error).message, 'draft.invalid_load_response');
+
+  reload = { drafts: [] };
+  await book.flush();
+  assert.equal(saveCalls, 2, 'a later explicit flush can retry the still-dirty value');
+  assert.equal(loadCalls, 1);
+  assert.equal(book.pending, 0);
+});
+
+test('a CAS reload that finds an externally cleared draft resets only that owner version before retry', async () => {
+  const rows = new Map<string, Map<string, { text: string; version: number }>>([
+    ['prod/agent-A', new Map([['1001', { text: 'A old', version: 1 }]])],
+    ['prod/agent-B', new Map([['1001', { text: 'B old', version: 7 }]])],
+  ]);
+  const calls: { command: string; payload: any }[] = [];
+  const invoke = async (command: string, rawPayload: unknown): Promise<unknown> => {
+    const payload = rawPayload as any;
+    calls.push({ command, payload });
+    const key = `${payload.account.environment}/${payload.account.account_id}`;
+    const ns = rows.get(key)!;
+    if (command === ImCommands.DRAFT_LOAD) {
+      return { drafts: [...ns].map(([gid, draft]) => ({ gid, ...draft })) };
+    }
+    if (command !== ImCommands.DRAFT_SAVE) throw new Error(`unexpected command ${command}`);
+    const current = ns.get(payload.gid)?.version ?? 0;
+    if (current !== payload.expected_version) throw Object.assign(new Error('store.cas_conflict'), { code: 'store.cas_conflict' });
+    if (payload.text === '') { ns.delete(payload.gid); return { version: 0 }; }
+    const version = current + 1;
+    ns.set(payload.gid, { text: payload.text, version });
+    return { version };
+  };
+  const port = createIpcDraftPort(invoke, realCommands, withGeneration);
+  assert.deepEqual(await port.load(A), { '1001': 'A old' });
+  assert.deepEqual(await port.load(B), { '1001': 'B old' });
+
+  // A second window clears A after this port learned version 1.
+  assert.deepEqual(await invoke(ImCommands.DRAFT_SAVE, { account: withGeneration(A), gid: '1001', text: '', expected_version: 1 }), { version: 0 });
+  await port.save(A, '1001', 'A after clear');
+  await port.save(B, '1001', 'B after load');
+
+  const saves = calls.filter(call => call.command === ImCommands.DRAFT_SAVE).map(call => [call.payload.account.account_id, call.payload.text, call.payload.expected_version]);
+  assert.deepEqual(saves, [
+    ['agent-A', '', 1],
+    ['agent-A', 'A after clear', 1],
+    ['agent-A', 'A after clear', 0],
+    ['agent-B', 'B after load', 7],
+  ]);
+  assert.deepEqual(rows.get('prod/agent-A')!.get('1001'), { text: 'A after clear', version: 1 });
+  assert.deepEqual(rows.get('prod/agent-B')!.get('1001'), { text: 'B after load', version: 8 });
 });

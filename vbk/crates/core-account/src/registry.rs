@@ -288,6 +288,9 @@ pub struct AccountRegistry {
     boot_epoch: u64,
     index: IdentityIndex,
     ledger: CredentialLedger,
+    // Ephemeral authority for external IO receipts; never restored as login
+    // authorization. Restart recovery uses only the persisted ledger.
+    credential_operations: BTreeMap<String, AccountContext>,
     accounts: BTreeMap<AccountId, AccountRecord>,
     attempts: BTreeMap<AttemptId, LoginAttemptHandle>,
     cancelled: VecDeque<AttemptId>,
@@ -307,6 +310,7 @@ impl AccountRegistry {
             boot_epoch,
             index: IdentityIndex::new(),
             ledger: CredentialLedger::new(),
+            credential_operations: BTreeMap::new(),
             accounts: BTreeMap::new(),
             attempts: BTreeMap::new(),
             cancelled: VecDeque::new(),
@@ -1021,11 +1025,97 @@ impl AccountRegistry {
         let entry = self
             .ledger
             .prepare(&ctx.account_id, &profile, &Self::key_prefix(ctx));
+        self.credential_operations
+            .insert(entry.operation_id.clone(), ctx.clone());
         Ok(CredentialOperation {
             operation_id: entry.operation_id,
             account_id: ctx.account_id.clone(),
             revision: entry.new_ref.revision,
         })
+    }
+
+    fn validate_credential_operation(
+        &self,
+        ctx: &AccountContext,
+        operation_id: &str,
+    ) -> Result<(), AppError> {
+        self.validate(ctx)?;
+        let entry = self
+            .ledger
+            .journal()
+            .get(operation_id)
+            .ok_or_else(|| err(codes::ACCOUNT_CREDENTIAL_OPERATION, "unknown operation"))?;
+        if entry.account_id != ctx.account_id
+            || self.credential_operations.get(operation_id) != Some(ctx)
+        {
+            return Err(err(
+                codes::ACCOUNT_CREDENTIAL_OPERATION,
+                "credential operation belongs to another account",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn credential_target(
+        &self,
+        ctx: &AccountContext,
+        operation_id: &str,
+    ) -> Result<CredentialRef, AppError> {
+        self.validate_credential_operation(ctx, operation_id)?;
+        self.ledger
+            .journal()
+            .get(operation_id)
+            .map(|entry| entry.new_ref.clone())
+            .ok_or_else(|| err(codes::ACCOUNT_CREDENTIAL_OPERATION, "unknown operation"))
+    }
+
+    pub fn record_credential_staged(
+        &mut self,
+        ctx: &AccountContext,
+        operation_id: &str,
+        staged: &StagedRef,
+    ) -> Result<(), AppError> {
+        self.validate_credential_operation(ctx, operation_id)?;
+        self.ledger.record_staged(operation_id, staged)
+    }
+
+    /// No secret-store calls: host persists the new index before deleting old.
+    pub fn record_credential_promoted(
+        &mut self,
+        ctx: &AccountContext,
+        operation_id: &str,
+        staged: &StagedRef,
+    ) -> Result<Option<CredentialRef>, AppError> {
+        self.validate_credential_operation(ctx, operation_id)?;
+        let (_, old) = self.ledger.record_promoted(operation_id, staged)?;
+        self.emit_for(
+            ctx,
+            AccountEvent::Changed {
+                account_id: ctx.account_id.clone(),
+                change: ChangeKind::CredentialCommitted,
+            },
+        );
+        Ok(old)
+    }
+
+    pub fn record_credential_cleanup(
+        &mut self,
+        operation_id: &str,
+        old: Option<&CredentialRef>,
+    ) -> Result<(), AppError> {
+        self.ledger.record_cleanup(operation_id, old)?;
+        self.credential_operations.remove(operation_id);
+        Ok(())
+    }
+
+    pub fn record_credential_discarded(
+        &mut self,
+        operation_id: &str,
+        staged: Option<&StagedRef>,
+    ) -> Result<(), AppError> {
+        self.ledger.record_discarded(operation_id, staged)?;
+        self.credential_operations.remove(operation_id);
+        Ok(())
     }
 
     /// Step 2: the secret goes to the store under the new revision.
@@ -1052,6 +1142,7 @@ impl AccountRegistry {
             .map(|e| e.account_id.clone())
             .ok_or_else(|| err(codes::ACCOUNT_CREDENTIAL_OPERATION, "unknown operation"))?;
         let cref = self.ledger.commit(operation_id, store)?;
+        self.credential_operations.remove(operation_id);
         if let Some(ctx) = self.accounts.get(&account_id).map(|r| r.last_ctx.clone()) {
             self.emit_for(
                 &ctx,
@@ -1069,7 +1160,9 @@ impl AccountRegistry {
         operation_id: &str,
         store: &mut dyn SecretStore,
     ) -> Result<(), AppError> {
-        self.ledger.abort(operation_id, store)
+        self.ledger.abort(operation_id, store)?;
+        self.credential_operations.remove(operation_id);
+        Ok(())
     }
 
     /// Absorbs a candidate credential update (e.g. a `Set-Cookie` observed
@@ -1451,5 +1544,147 @@ impl SecretStore for NullStore {
     }
     fn contains(&self, _: &CredentialRef) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod external_credential_receipt_tests {
+    use super::*;
+    use crate::credential::MemorySecretStore;
+
+    fn online(registry: &mut AccountRegistry, buid: &str) -> AccountContext {
+        let environment = Environment::named("test");
+        let attempt = registry.start_login(environment.clone());
+        registry
+            .publish_identity(
+                &attempt.attempt_id,
+                UpstreamIdentity {
+                    buid: Buid::new(buid),
+                    uid: buid.into(),
+                    agent_id: None,
+                    environment,
+                },
+            )
+            .expect("publish synthetic account identity")
+            .ctx
+    }
+
+    #[test]
+    fn external_receipts_bind_operation_account_generation_target_and_handle() {
+        let mut registry = AccountRegistry::new(1);
+        let a = online(&mut registry, "a");
+        let b = online(&mut registry, "b");
+        let operation = registry
+            .begin_credential_commit(&a)
+            .expect("prepare credential operation for current account")
+            .operation_id;
+        let target = registry
+            .credential_target(&a, &operation)
+            .expect("read prepared credential target");
+        let staged = StagedRef {
+            target,
+            handle: "external-stage".into(),
+        };
+        assert!(registry.credential_target(&b, &operation).is_err());
+        assert!(registry
+            .record_credential_staged(&b, &operation, &staged)
+            .is_err());
+        let mut forged = staged.clone();
+        forged.target.key.push_str("-foreign");
+        assert!(registry
+            .record_credential_staged(&a, &operation, &forged)
+            .is_err());
+        registry
+            .record_credential_staged(&a, &operation, &staged)
+            .expect("record matching staged receipt");
+        let mut wrong_handle = staged.clone();
+        wrong_handle.handle.push_str("-other");
+        assert!(registry
+            .record_credential_promoted(&a, &operation, &wrong_handle)
+            .is_err());
+        assert_eq!(registry.credential_revision(&a.account_id), 0);
+        let fresh = online(&mut registry, "a");
+        assert!(registry
+            .record_credential_promoted(&a, &operation, &staged)
+            .is_err());
+        assert!(
+            registry
+                .record_credential_promoted(&fresh, &operation, &staged)
+                .is_err(),
+            "substituting a fresh ctx cannot authorize an older operation"
+        );
+        assert_eq!(registry.credential_revision(&a.account_id), 0);
+    }
+
+    #[test]
+    fn competing_promotions_compare_old_index_and_cleanup_cannot_undo_new_index() {
+        let mut registry = AccountRegistry::new(1);
+        let a = online(&mut registry, "a");
+        let mut store = MemorySecretStore::new();
+        let mut operations = Vec::new();
+        for _ in 0..2 {
+            let op = registry
+                .begin_credential_commit(&a)
+                .expect("prepare competing credential operation")
+                .operation_id;
+            let target = registry
+                .credential_target(&a, &op)
+                .expect("read competing operation target");
+            let staged = store
+                .stage(&target, &Secret::new(b"marker".to_vec()))
+                .expect("stage synthetic marker in memory store");
+            registry
+                .record_credential_staged(&a, &op, &staged)
+                .expect("record competing staged receipt");
+            store
+                .commit(&staged)
+                .expect("promote staged synthetic marker");
+            operations.push((op, staged));
+        }
+        let (op, staged) = &operations[1];
+        registry
+            .record_credential_promoted(&a, op, staged)
+            .expect("publish matching promotion receipt");
+        assert!(registry
+            .record_credential_promoted(&a, &operations[0].0, &operations[0].1)
+            .is_err());
+        assert!(registry
+            .record_credential_discarded(op, Some(staged))
+            .is_err());
+        assert!(registry
+            .record_credential_cleanup(op, Some(&staged.target))
+            .is_err());
+        registry
+            .record_credential_cleanup(op, None)
+            .expect("acknowledge cleanup with no previous credential");
+        assert_eq!(
+            registry.credential_revision(&a.account_id),
+            staged.target.revision
+        );
+    }
+
+    #[test]
+    fn restart_does_not_restore_external_receipt_authority() {
+        let mut registry = AccountRegistry::new(1);
+        let a = online(&mut registry, "a");
+        let op = registry
+            .begin_credential_commit(&a)
+            .expect("prepare credential operation before restart")
+            .operation_id;
+        let staged = StagedRef {
+            target: registry
+                .credential_target(&a, &op)
+                .expect("read credential target before restart"),
+            handle: "stage".into(),
+        };
+        registry
+            .record_credential_staged(&a, &op, &staged)
+            .expect("record staged receipt before restart");
+        let mut reopened = AccountRegistry::restore(&registry.to_json(), 2)
+            .expect("restore persisted credential ledger");
+        let fresh = online(&mut reopened, "a");
+        assert!(reopened
+            .record_credential_promoted(&fresh, &op, &staged)
+            .is_err());
     }
 }

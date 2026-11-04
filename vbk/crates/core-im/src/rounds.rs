@@ -258,8 +258,7 @@ impl EvaluationSummary {
 /// Unbounded replies use strict time ordering; unplaceable boundaries can
 /// only establish ambiguity. Keeping these three classes separate preserves
 /// older replies whose wider boundaries cover more than the latest reply.
-/// Construction and evaluation are O(N) expected time with O(N) storage,
-/// plus the caller's per-reply boundary lookup cost.
+/// Construction and evaluation are O(N) expected time with O(N) storage.
 #[derive(Debug)]
 pub(crate) struct DefaultCoverage<'a> {
     positions: HashMap<&'a str, usize>,

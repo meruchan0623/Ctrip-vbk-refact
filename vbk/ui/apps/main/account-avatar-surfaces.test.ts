@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -36,7 +37,7 @@ function render(name: string, next: string, state: unknown, conv?: unknown): Nod
   const accountName = new Function('accountLabel', actualFunction('accountAvatarName', 'activeConv') + '\nreturn accountAvatarName;')(accountLabel);
   const env = {
     document: doc, renderMessageAvatar, accountAvatarName: accountName, accountInitial, accountLabel, initialOf, sameAccount, cx,
-    h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key,
+    h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, t: translateUi,
     activeAccount: (s: ReturnType<typeof fixture>['state']) => s.accounts.accounts.find((a) => a.context.account_id === s.accounts.active_account_id),
     onTitleMouseDown: () => undefined, agentView: () => ({ label: 'online', colorVar: '--c-ok' }), browserTabs: { activate() {}, close() {} }, webTabView: () => null, switchAccount() {}, startLogin() {}, saveRemark() {}, cancelLogin() {}, store: { patch() {} }, invokeSafe() {}, unreadTotal: () => 0, AGENT_STATUS_ORDER, agentStatusColorVar: () => '', agentStatusLabel: () => '', agentStatusDesc: () => '',
     memberPillsFor: () => ({ count: null, isMaster: false }), activeConv: () => conv, historyScopeKey: () => '', isDone: () => true, customerLanguage: () => 'zh', netEverConnected: true, netView: () => ({ offline: false }), messagePane: () => null, composer: () => null, emojiPicker: () => null, part: (_name: string, build: () => unknown) => build(), featureRuntime: { renderSlot: () => [] }, EMPTY_MESSAGES: [],

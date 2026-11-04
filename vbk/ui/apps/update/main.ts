@@ -16,6 +16,7 @@ import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { UPDATE_STRINGS as S, fmt } from './strings.ts';
+document.title = S.title;
 import { checkUpdate, versionText } from './viewmodel.ts';
 import type { UpdatePhase } from './viewmodel.ts';
 

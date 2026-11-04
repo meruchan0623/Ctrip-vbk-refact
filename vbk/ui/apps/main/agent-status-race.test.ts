@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 
 const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
 function fixture() {
@@ -17,7 +18,7 @@ function fixture() {
     store: { patch: (p: object) => Object.assign(state, p), subscribe: () => () => {} }, ipc: { invoke }, invokeQuiet: invoke,
     UiCommands: commands, isUiAgentStatus: (v: any) => v && typeof v.confirmed === 'boolean',
     isUiConversation: () => true, isUiNetStatus: () => false, sameAccount: () => true,
-    t: (k: string) => k, toast: () => {}, agentStatusLabel: (s: string) => s, errorMessage: String,
+    t: translateUi, toast: () => {}, agentStatusLabel: (s: string) => s, errorMessage: String,
     releaseAttachment: async () => {}, noticeQuery: { categories: async () => {} } };
   function extract(start: string, end: string, name: string, prefix = '') {
     const a = source.indexOf(start), b = source.indexOf(end, a);

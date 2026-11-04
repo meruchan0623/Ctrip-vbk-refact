@@ -189,7 +189,8 @@ impl PendingTable {
         self.map.remove(req_id);
     }
 
-    /// Fails every request of `ctx`'s identity at or below its generation.
+    /// Cancels requests of this identity at or below its generation. Host
+    /// teardown cannot assert that an already-emitted page write was rejected.
     pub fn fail_account(&mut self, ctx: &AccountContext) {
         let ids: Vec<String> = self
             .map
@@ -201,9 +202,10 @@ impl PendingTable {
             .map(|(k, _)| k.clone())
             .collect();
         for id in ids {
-            if let Some(e) = self.map.remove(&id) {
-                let _ = e.tx.send(Err(not_ready("account was removed")));
-            }
+            // Dropping the sender selects await_reply's transport-loss branch
+            // (emitted=true/from_page=false), preserving Unknown and its journal
+            // fence. Only PendingTable::complete carries an actual page answer.
+            self.map.remove(&id);
         }
     }
 
@@ -554,6 +556,58 @@ pub(crate) fn cached_thread(
         .collect())
 }
 
+/// Local draft/media storage uses the existing outbound store and writer lock.
+/// Callers must authorize the local view and account before entering this helper.
+pub(crate) fn with_outbound<T>(
+    app: &AppHandle,
+    account: &AccountContext,
+    operation: impl FnOnce(&outbound_journal::OutboundJournal) -> Result<T, AppError>,
+) -> Result<T, AppError> {
+    let state = module(app)?;
+    let journal = state.outbound.as_ref().ok_or_else(|| {
+        AppError::new(
+            "im.journal_unavailable",
+            "durable attachment storage unavailable",
+        )
+    })?;
+    outbound_journal::with_authorized(
+        journal,
+        || app.state::<HostState>().lock().accounts.validate(account),
+        operation,
+    )
+}
+
+/// Lifecycle callers hold LoginState.lifecycle before entering here. The
+/// journal mutex spans registry transition and disk marker, but Cores is held
+/// only inside the transition's short in-memory sections. Absence of storage
+/// must never prevent revoking an account; the callback reports the IO failure.
+pub(crate) fn with_outbound_transition<T>(
+    app: &AppHandle,
+    operation: impl FnOnce(Option<&outbound_journal::OutboundJournal>) -> T,
+) -> T {
+    let state = app.try_state::<AdapterState>();
+    outbound_journal::with_transition(state.as_ref().and_then(|s| s.outbound.as_ref()), operation)
+}
+
+/// Revocation may outlive its login generation. This accepts only the actual
+/// host-owned handle removed from the table, and cannot delete referenced data.
+pub(crate) fn release_unused_attachment(
+    app: &AppHandle,
+    frozen: &media_outbound::FrozenAttachment,
+) -> Result<(), AppError> {
+    let Some(lease) = frozen.dto.lease_id.as_deref() else {
+        return Ok(());
+    };
+    let state = module(app)?;
+    let journal = state
+        .outbound
+        .as_ref()
+        .ok_or_else(|| not_ready("attachment store unavailable"))?;
+    let guard = lock(journal);
+    let account: AccountContext = frozen.dto.owner.account.clone().into();
+    guard.release_attachment(&account, &frozen.dto.owner.gid, lease)
+}
+
 // ------------------------------------------------------------------ helpers
 
 /// Account bound to the calling `acct-*` webview, if any.
@@ -813,20 +867,34 @@ async fn request_inner(
             "the account's official page has not published this identity yet",
         )));
     }
-    let (req_id, rx) = lock(&m.pending).insert(account.clone());
+    dispatch_pending(&m.pending, account, op, args, timeout, |msg| {
+        app.emit_to(label.as_str(), events::ADAPTER_REQUEST, msg)
+            .is_ok()
+    })
+    .await
+}
+
+/// Shared production boundary for registering, emitting and awaiting a page
+/// request. The emitter reports delivery admission, never upstream acceptance.
+async fn dispatch_pending(
+    pending: &Mutex<PendingTable>,
+    account: &AccountContext,
+    op: &str,
+    args: Value,
+    timeout: Duration,
+    emit: impl FnOnce(Value) -> bool,
+) -> Result<Value, RequestFailure> {
+    let (req_id, rx) = lock(pending).insert(account.clone());
     let msg = serde_json::json!({ "req_id": req_id, "op": op, "args": args });
-    if app
-        .emit_to(label.as_str(), events::ADAPTER_REQUEST, msg)
-        .is_err()
-    {
-        lock(&m.pending).cancel(&req_id);
+    if !emit(msg) {
+        lock(pending).cancel(&req_id);
         return Err(RequestFailure::before_emit(not_ready(
             "could not reach the official page",
         )));
     }
     let result = await_reply(rx, timeout).await;
     if result.is_err() {
-        lock(&m.pending).cancel(&req_id);
+        lock(pending).cancel(&req_id);
     }
     result
 }
@@ -1014,18 +1082,12 @@ pub async fn im_send_media(
     if gid.is_empty() || local_id.is_empty() {
         return Err(e2dto(media_outbound::invalid()));
     }
-    let m = module(&app).map_err(e2dto)?;
-    let journal = m.outbound.as_ref().ok_or_else(|| {
-        e2dto(AppError::new(
-            "im.journal_unavailable",
-            "durable media storage unavailable (nothing submitted)",
-        ))
-    })?;
     let selected = crate::shell::frozen_attachment(&app, &attachment_id, &ctx, &gid);
     let candidate_payload = selected.as_ref().ok().map(|f| f.payload());
-    if let Some((stage, started, d, verified)) = lock(journal)
-        .replay_media(&ctx, &local_id, &gid, candidate_payload.as_ref())
-        .map_err(e2dto)?
+    if let Some((stage, started, d, verified)) = with_outbound(&app, &ctx, |journal| {
+        journal.replay_media(&ctx, &local_id, &gid, candidate_payload.as_ref())
+    })
+    .map_err(e2dto)?
     {
         let mut result = MediaSendResult::replay(stage, started, d);
         result.replay_only = !verified;
@@ -1060,6 +1122,12 @@ pub async fn im_send_media(
             &format!("{}: {}", violation.code, violation.message),
         ));
     }
+    // Freeze the draft edit revision before any official-page/network await.
+    // Later edits of the same lease must not be cleared by this send's receipt.
+    let draft_version = with_outbound(&app, &ctx, |journal| {
+        journal.capture_media_draft_version(&ctx, &frozen)
+    })
+    .map_err(e2dto)?;
     if validate_media_target(&app, &ctx, &gid, &frozen.target)
         .await
         .is_err()
@@ -1107,12 +1175,15 @@ pub async fn im_send_media(
             ));
         }
     }
-    let new = lock(journal)
-        .reserve_media(&ctx, &local_id, &payload, &frozen.dto.kind)
-        .map_err(e2dto)?;
+    let new = with_outbound(&app, &ctx, |journal| {
+        journal.reserve_media_attachment_captured(&ctx, &local_id, &frozen, draft_version)
+    })
+    .map_err(e2dto)?;
     if !new {
         let _ = request(&app, &ctx, "media.discard", args.clone(), READ_TIMEOUT).await;
-        let (stage, started, d) = lock(journal).media_status(&ctx, &local_id).map_err(e2dto)?;
+        let (stage, started, d) =
+            with_outbound(&app, &ctx, |journal| journal.media_status(&ctx, &local_id))
+                .map_err(e2dto)?;
         return Ok(MediaSendResult::replay(stage, started, d));
     }
     crate::shell::consume_attachment(&app, &attachment_id, &ctx, &gid);
@@ -1147,9 +1218,10 @@ pub async fn im_send_media(
                 code: "media.upload_rejected".into(),
                 reason: "media upload was rejected or failed local validation".into(),
             };
-            if lock(journal)
-                .finish_media(&ctx, &local_id, &payload, disposition.clone())
-                .is_err()
+            if with_outbound(&app, &ctx, |journal| {
+                journal.finish_media(&ctx, &local_id, &payload, disposition.clone())
+            })
+            .is_err()
             {
                 return Ok(MediaSendResult::blocked(
                     "upload",
@@ -1196,9 +1268,10 @@ pub async fn im_send_media(
             ))
         }
     };
-    if lock(journal)
-        .advance_media(&ctx, &local_id, &payload, &body, false)
-        .is_err()
+    if with_outbound(&app, &ctx, |journal| {
+        journal.advance_media(&ctx, &local_id, &payload, &body, false)
+    })
+    .is_err()
     {
         return Ok(MediaSendResult::blocked(
             "upload",
@@ -1216,9 +1289,10 @@ pub async fn im_send_media(
             "target changed after upload; no SDK submission was admitted",
         ));
     }
-    if lock(journal)
-        .advance_media(&ctx, &local_id, &payload, &body, true)
-        .is_err()
+    if with_outbound(&app, &ctx, |journal| {
+        journal.advance_media(&ctx, &local_id, &payload, &body, true)
+    })
+    .is_err()
     {
         return Ok(MediaSendResult::blocked(
             "upload",
@@ -1253,9 +1327,9 @@ pub async fn im_send_media(
     // fabricated Unknown) and carries the barrier error to the caller. Any
     // other failure (nothing committed) stays Unknown.
     let held = outbound_journal::normalize(observed.clone());
-    let (disposition, barrier_error) = match lock(journal)
-        .finish_media(&ctx, &local_id, &payload, observed)
-    {
+    let (disposition, barrier_error) = match with_outbound(&app, &ctx, |journal| {
+        journal.finish_media(&ctx, &local_id, &payload, observed)
+    }) {
         Ok(saved) => (saved, None),
         Err(error) if error.code == core_im::media_contract::codes::IM_JOURNAL_BARRIER_FAILED => {
             (held, Some(error.message))
@@ -1315,18 +1389,19 @@ pub fn adapter_ready(
     state: State<'_, HostState>,
     request: Request<'_>,
 ) -> CmdResult<AdapterReadyAckDto> {
-    let account = caller(&app, &state, &webview, "adapter_ready")?;
+    guard(&state, webview.label(), "adapter_ready")?;
     let _payload: ReadyPayload = body(&request, "payload").map_err(e2dto)?;
-    let account = account.filter(|c| state.lock().accounts.validate(c).is_ok());
-    let begin_msg_time = account
-        .as_ref()
-        .map(|c| state.compensation_watermark(c))
-        .unwrap_or(0);
     let initial_epoch = module(&app)
         .map_err(e2dto)?
         .epoch
         .fetch_add(1, Ordering::SeqCst)
         + 1;
+    let account =
+        login::issue_adapter_ready(&app, webview.label(), initial_epoch).map_err(e2dto)?;
+    let begin_msg_time = account
+        .as_ref()
+        .map(|c| state.compensation_watermark(c))
+        .unwrap_or(0);
     Ok(AdapterReadyAckDto {
         account: account.as_ref().map(AccountContextDto::from),
         begin_msg_time,
@@ -1354,6 +1429,23 @@ pub fn adapter_identity(
     Ok((&ctx).into())
 }
 
+fn validate_bridge_fault_control(
+    envelope: &AdapterFactEnvelopeDto,
+    boot_epoch: u64,
+) -> Result<(), AppError> {
+    if envelope.stream != "im.transport"
+        || envelope.epoch != boot_epoch
+        || boot_epoch == 0
+        || envelope.seq != 0
+    {
+        return Err(AppError::new(
+            "adapter.invalid_payload",
+            "invalid bridge fault control envelope",
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn adapter_push_fact(
     app: AppHandle,
@@ -1361,8 +1453,28 @@ pub fn adapter_push_fact(
     state: State<'_, HostState>,
     request: Request<'_>,
 ) -> CmdResult<IngestReportDto> {
-    let ctx = bound_caller(&app, &state, &webview, "adapter_push_fact")?;
+    guard(&state, webview.label(), "adapter_push_fact")?;
     let mut envelope: AdapterFactEnvelopeDto = body(&request, "envelope").map_err(e2dto)?;
+    if let AdapterFactDto::BridgeFault { fault } = &envelope.fact {
+        // Host-only terminal control, never an IM cursor/fact or auth signal.
+        validate_bridge_fault_control(&envelope, fault.boot_epoch).map_err(e2dto)?;
+        let account: AccountContext = envelope.account.clone().into();
+        let suspended = login::suspend_faulted_adapter(
+            &app,
+            webview.label(),
+            &account,
+            fault.boot_epoch,
+            &fault.reason,
+        )
+        .map_err(e2dto)?;
+        return Ok(IngestReportDto {
+            applied: suspended,
+            dropped: (!suspended).then(|| "stale_adapter_boot".into()),
+            needs_resync: None,
+            auth_invalid: false,
+        });
+    }
+    let ctx = bound_caller(&app, &state, &webview, "adapter_push_fact")?;
     let claimed: AccountContext = envelope.account.clone().into();
     if claimed != ctx {
         return Err(e2dto(unauthorized(
@@ -1382,10 +1494,12 @@ pub fn adapter_push_fact(
         AdapterFactDto::Conversation { fact } => Some(fact.gid.clone()),
         _ => None,
     };
-    let report = state.push_fact(envelope).map_err(e2dto)?;
-    if report.auth_invalid {
-        login::on_auth_invalid(&app, &ctx);
+    let report = if matches!(&envelope.fact, AdapterFactDto::AuthInvalid) {
+        login::push_auth_invalid(&app, envelope)
+    } else {
+        state.push_fact(envelope)
     }
+    .map_err(e2dto)?;
     if let (true, Some(gid)) = (report.applied, gid) {
         // The round may have started or ended: refresh the row's waiting state.
         emit_conversations(&app, &ctx, &[gid]);
@@ -1814,10 +1928,17 @@ pub async fn im_send_text(
         original,
         quote_id,
     };
-    outbound_journal::send_once(journal, &ctx, &local_id, &payload, || async {
-        let result = request_inner(&app, &ctx, "im.send_text", args, WRITE_TIMEOUT).await;
-        send_outcome(result)
-    })
+    outbound_journal::send_once_authorized(
+        journal,
+        &ctx,
+        &local_id,
+        &payload,
+        || state.lock().accounts.validate(&ctx),
+        || async {
+            let result = request_inner(&app, &ctx, "im.send_text", args, WRITE_TIMEOUT).await;
+            send_outcome(result)
+        },
+    )
     .await
     .map_err(e2dto)
 }
@@ -2393,6 +2514,69 @@ pub async fn notice_mark_read(
     .map_err(e2dto)
 }
 
+/// Resolve only an already-cached image in this account's exact thread.
+pub(crate) fn cached_image_url(
+    app: &AppHandle,
+    ctx: &AccountContext,
+    gid: &str,
+    message_id: &str,
+) -> Result<String, AppError> {
+    let m = module(app)?;
+    let messages = lock(&m.display).messages(ctx, gid)?.unwrap_or_default();
+    messages
+        .into_iter()
+        .find(|message| {
+            message.gid == gid
+                && message.message_id.as_deref() == Some(message_id)
+                && message.kind == "image"
+        })
+        .and_then(|message| message.media_url.filter(|url| !url.is_empty()))
+        .ok_or_else(|| not_ready("cached image is unavailable"))
+}
+
+/// Read-only server search. Results stay outside the host conversation cache.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_server_search(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    query: Value,
+) -> CmdResult<Value> {
+    guard(&state, webview.label(), "im_server_search")?;
+    let ctx = read_account(&state, account)?;
+    if !query.is_object() || query.to_string().len() > 2048 {
+        return Err(e2dto(bad_reply()));
+    }
+    let result = request(&app, &ctx, "im.server_search", query, READ_TIMEOUT)
+        .await
+        .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    tagged_object(result, "groups").map_err(e2dto)
+}
+
+/// Selection token is resolved by the account's current adapter RPC instance;
+/// the UI cannot provide arbitrary gid, service identity, or message body.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_search_history(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    query: Value,
+) -> CmdResult<Value> {
+    guard(&state, webview.label(), "im_search_history")?;
+    let ctx = read_account(&state, account)?;
+    if !query.is_object() || query.to_string().len() > 1024 {
+        return Err(e2dto(bad_reply()));
+    }
+    let result = request(&app, &ctx, "im.search_history", query, READ_TIMEOUT)
+        .await
+        .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    tagged_object(result, "items").map_err(e2dto)
+}
+
 /// `OrderSearchResult` / `{gid, reused}` are passed through after a shape check.
 fn tagged_object(v: Value, required: &str) -> Result<Value, AppError> {
     if v.get(required).is_some() {
@@ -2638,6 +2822,7 @@ pub async fn request(
 
 /// Drops display cache and pending requests of a removed / logged-out account.
 pub fn on_account_removed(app: &AppHandle, account: &contracts::AccountContext) {
+    login::adapter_account_removed(app, account);
     crate::clock_anchor::stop(app, account);
     let Ok(m) = module(app) else {
         return;
@@ -2645,10 +2830,7 @@ pub fn on_account_removed(app: &AppHandle, account: &contracts::AccountContext) 
     lock(&m.display).remove(account);
     lock(&m.pending).fail_account(account);
     let mut focus = lock(&m.focus);
-    if focus
-        .as_ref()
-        .is_some_and(|f| f.persistent_key() == account.persistent_key())
-    {
+    if focus.as_ref().is_some_and(|f| f == account) {
         *focus = None;
     }
 }
@@ -2657,6 +2839,38 @@ pub fn on_account_removed(app: &AppHandle, account: &contracts::AccountContext) 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bridge_fault_control_requires_reserved_stream_boot_epoch_and_sequence() {
+        use serde_json::json;
+        let value = json!({"account":{"account_id":"synthetic","environment":"production","session_generation":7},"stream":"im.transport","epoch":11,"seq":0,"fact":{"kind":"bridge_fault","fault":{"boot_epoch":11,"reason":"queue_overflow"}}});
+        let valid: super::AdapterFactEnvelopeDto = serde_json::from_value(value.clone()).unwrap();
+        assert!(super::validate_bridge_fault_control(&valid, 11).is_ok());
+        for reason in ["queue_overflow", "delivery_failed"] {
+            let mut control = value.clone();
+            control["fact"]["fault"]["reason"] = json!(reason);
+            let parsed: super::AdapterFactEnvelopeDto = serde_json::from_value(control).unwrap();
+            let super::AdapterFactDto::BridgeFault { fault } = &parsed.fact else {
+                panic!("expected host control")
+            };
+            assert_eq!(serde_json::to_value(&fault.reason).unwrap(), json!(reason));
+            assert!(super::validate_bridge_fault_control(&parsed, fault.boot_epoch).is_ok());
+        }
+        for (field, changed) in [
+            ("stream", json!("im.message")),
+            ("epoch", json!(12)),
+            ("seq", json!(1)),
+        ] {
+            let mut invalid = value.clone();
+            invalid[field] = changed;
+            let invalid: super::AdapterFactEnvelopeDto = serde_json::from_value(invalid).unwrap();
+            assert!(super::validate_bridge_fault_control(&invalid, 11).is_err());
+        }
+        assert!(super::validate_bridge_fault_control(&valid, 0).is_err());
+        let mut invalid = value;
+        invalid["fact"]["fault"]["reason"] = json!("auth_invalid");
+        assert!(serde_json::from_value::<super::AdapterFactEnvelopeDto>(invalid).is_err());
+    }
+
     #[test]
     fn unwrap_arg_accepts_named_and_bare_payloads() {
         use serde_json::json;
@@ -2867,6 +3081,161 @@ mod tests {
         assert_eq!(t.len(), 2);
         let f = block_on(await_reply(rx_a1, Duration::from_secs(1))).expect_err("failed");
         assert!(f.error.is(codes::ADAPTER_NOT_READY));
+        assert!(f.emitted && !f.from_page);
+    }
+
+    #[test]
+    fn account_teardown_is_transport_loss_while_explicit_page_rejection_is_preserved() {
+        let account = ctx("teardown", 1);
+        let mut pending = PendingTable::default();
+        let (cancelled, rx) = pending.insert(account.clone());
+        pending.fail_account(&account);
+        let failed = block_on(await_reply(rx, Duration::from_secs(1)));
+        let failure = failed.as_ref().expect_err("host removed the page");
+        assert!(failure.emitted && !failure.from_page);
+        assert_eq!(send_outcome(failed).unwrap(), SendDispositionDto::Unknown);
+        assert!(pending
+            .complete(&account, &cancelled, Ok(Value::Null))
+            .is_err());
+
+        let (id, rx) = pending.insert(account.clone());
+        pending
+            .complete(&account, &id, Err(not_ready("page explicitly refused")))
+            .unwrap();
+        let page = block_on(await_reply(rx, Duration::from_secs(1)));
+        assert!(page.as_ref().unwrap_err().from_page);
+        assert!(matches!(
+            send_outcome(page).unwrap(),
+            SendDispositionDto::Rejected { .. }
+        ));
+
+        // A host failure before emit remains a local error, not a fabricated
+        // upstream rejection or a claim that a request reached the page.
+        let not_sent = RequestFailure::before_emit(not_ready("no page to emit to"));
+        assert!(!not_sent.emitted && !not_sent.from_page);
+        assert!(send_outcome(Err(not_sent))
+            .unwrap_err()
+            .is(codes::ADAPTER_NOT_READY));
+    }
+
+    #[test]
+    fn production_dispatch_distinguishes_unemitted_failure_and_removed_emitted_page() {
+        let account = ctx("dispatch", 1);
+        let pending = Mutex::new(PendingTable::default());
+        let unsent = block_on(dispatch_pending(
+            &pending,
+            &account,
+            "im.send_text",
+            Value::Null,
+            Duration::from_secs(1),
+            |_| false,
+        ));
+        let failure = unsent.as_ref().unwrap_err();
+        assert!(!failure.emitted && !failure.from_page);
+        assert!(send_outcome(unsent)
+            .unwrap_err()
+            .is(codes::ADAPTER_NOT_READY));
+        assert!(lock(&pending).is_empty());
+
+        let admitted = block_on(dispatch_pending(
+            &pending,
+            &account,
+            "im.send_text",
+            Value::Null,
+            Duration::from_secs(1),
+            |_| {
+                lock(&pending).fail_account(&account);
+                true
+            },
+        ));
+        let failure = admitted.as_ref().unwrap_err();
+        assert!(failure.emitted && !failure.from_page);
+        assert_eq!(send_outcome(admitted).unwrap(), SendDispositionDto::Unknown);
+        assert!(lock(&pending).is_empty());
+    }
+
+    #[test]
+    fn emitted_send_cancelled_by_account_teardown_stays_unknown_and_never_replays_after_restart() {
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Cleanup(
+            std::env::temp_dir().join(format!("vbk-teardown-send-{}", uuid::Uuid::new_v4())),
+        );
+        let account = ctx("teardown-journal", 1);
+        let payload = outbound_journal::SendPayload {
+            gid: "selected-room".into(),
+            text: "synthetic private body".into(),
+            original: None,
+            quote_id: None,
+        };
+        let journal = Mutex::new(outbound_journal::OutboundJournal::open(&root.0).unwrap());
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let outcome = block_on(outbound_journal::send_once(
+            &journal,
+            &account,
+            "local-1",
+            &payload,
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                let pending = Mutex::new(PendingTable::default());
+                let failed = dispatch_pending(
+                    &pending,
+                    &account,
+                    "im.send_text",
+                    Value::Null,
+                    Duration::from_secs(1),
+                    |msg| {
+                        assert_eq!(msg["op"], "im.send_text");
+                        // on_account_removed takes this same host cancellation path
+                        // after admission to the renderer, before any page answer.
+                        lock(&pending).fail_account(&account);
+                        true
+                    },
+                )
+                .await;
+                assert!(failed.as_ref().unwrap_err().emitted);
+                assert!(!failed.as_ref().unwrap_err().from_page);
+                assert!(lock(&pending).is_empty());
+                send_outcome(failed)
+            },
+        ))
+        .unwrap();
+        assert_eq!(outcome, SendDispositionDto::Unknown);
+        let rows = lock(&journal).unknown_metadata(&account).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].write_started);
+        assert_eq!(rows[0].phase, "unknown");
+        drop(journal);
+
+        let recovered = Mutex::new(outbound_journal::OutboundJournal::open(&root.0).unwrap());
+        let next_login = ctx("teardown-journal", 2);
+        let replay = block_on(outbound_journal::send_once(
+            &recovered,
+            &next_login,
+            "local-1",
+            &payload,
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(SendDispositionDto::Rejected {
+                    code: "must-not-dispatch".into(),
+                    reason: String::new(),
+                })
+            },
+        ))
+        .unwrap();
+        assert_eq!(replay, SendDispositionDto::Unknown);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            lock(&recovered)
+                .unknown_metadata(&next_login)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

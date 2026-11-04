@@ -14,7 +14,7 @@ export function createAccountNavigation(deps: {
     const account = desired.account;
     const target = snapshot.accounts.find(a => a.context.account_id === account.account_id && a.context.environment === account.environment && a.context.session_generation === account.session_generation);
     // Removal, reauthentication and login lifecycle events remain authoritative.
-    if (!target || target.state === 'logging_in') { desired = null; return snapshot; }
+    if (!target || target.state === 'logging_in' || target.state === 'expired') { desired = null; return snapshot; }
     return snapshot.active_account_id === account.account_id ? snapshot : { ...snapshot, active_account_id: account.account_id };
   }
   function select(account: AccountContext): Promise<UiAccountSnapshot | null> {

@@ -8,6 +8,7 @@ import { createMockIpc } from '../../packages/ipc/src/mock.ts';
 import {
   waitTier,
   MARK_COLORS,
+  previewOf,
   safeMediaUrl,
   mergeHistory,
   visibleMessages,

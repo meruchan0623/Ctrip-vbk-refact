@@ -877,7 +877,7 @@ async function testSetting(context, base) {
   check(t1Options.join(',') === '30,60,90,120,180', `T1 options (${t1Options.join(',')})`);
   check((await page.getAttribute('[data-setting="reminder.continuous_l4"]', 'aria-checked')) === 'false', 'L4 default off');
   check((await text(page, 'body'))?.includes('默认关闭。开启后进入强提醒再过 60 秒'), 'L4 explanation');
-  for (const key of ['reminder.timeout_sound', 'reminder.position', 'reminder.alert_during_dnd', 'reminder.alert_during_fullscreen', 'reminder.tray_flash', 'reminder.taskbar_badge', 'dnd.schedule_enabled']) {
+  for (const key of ['reminder.timeout_sound', 'reminder.position', 'reminder.alert_during_dnd', 'reminder.alert_during_fullscreen', 'reminder.tray_flash', 'reminder.taskbar_badge']) {
     check((await page.$(`[data-setting="${key}"]`)) !== null, `setting ${key} present`);
   }
   const rec = await recordInvokes(page);

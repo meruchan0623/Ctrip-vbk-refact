@@ -69,18 +69,20 @@ export interface VoiceProgress {
 }
 
 export interface VoicePlayer {
-  state(url: string): VoiceState;
+  state(url: string, key?: string): VoiceState;
   /** Position of `url` while it is the current clip, else null. */
-  progress(url: string): VoiceProgress | null;
+  progress(url: string, key?: string): VoiceProgress | null;
   /** Plays `url` (stopping any other clip), pauses it when playing, resumes it when paused. */
-  toggle(url: string): Promise<VoiceState>;
+  toggle(url: string, key?: string): Promise<VoiceState>;
   stop(): void;
   /** Fires on time and duration updates of the current clip; returns the unsubscribe. */
-  onProgress(listener: (url: string, progress: VoiceProgress) => void): () => void;
+  onProgress(listener: (url: string, progress: VoiceProgress, key: string) => void): () => void;
 }
 
 interface Attempt {
   readonly url: string;
+  /** Playback identity: two messages sharing one URL are separate targets. Defaults to the URL. */
+  readonly key: string;
   readonly audio: AudioLike;
   readonly index: number;
   paused: boolean;
@@ -89,7 +91,7 @@ interface Attempt {
 export function createVoicePlayer(factory: (url: string) => AudioLike, onChange: () => void): VoicePlayer {
   let current: Attempt | null = null;
   const errored = new Set<string>();
-  const listeners = new Set<(url: string, progress: VoiceProgress) => void>();
+  const listeners = new Set<(url: string, progress: VoiceProgress, key: string) => void>();
 
   function release(): void {
     if (!current) return;
@@ -120,21 +122,21 @@ export function createVoicePlayer(factory: (url: string) => AudioLike, onChange:
     if (current !== attempt) return;
     release();
     if (attempt.index + 1 < voiceCandidates(attempt.url).length) {
-      await start(attempt.url, attempt.index + 1);
+      await start(attempt.url, attempt.index + 1, attempt.key);
       return;
     }
-    errored.add(attempt.url);
+    errored.add(attempt.key);
     onChange();
   }
 
-  async function start(url: string, index: number): Promise<void> {
+  async function start(url: string, index: number, key: string): Promise<void> {
     const audio = factory(voiceCandidates(url)[index]!);
-    const mine: Attempt = { url, audio, index, paused: false };
+    const mine: Attempt = { url, key, audio, index, paused: false };
     current = mine;
     const notify = (): void => {
       if (current !== mine) return;
       const progress = progressOf(mine);
-      for (const listener of listeners) listener(url, progress);
+      for (const listener of listeners) listener(url, progress, key);
     };
     audio.ontimeupdate = notify;
     audio.ondurationchange = notify;
@@ -158,31 +160,31 @@ export function createVoicePlayer(factory: (url: string) => AudioLike, onChange:
   }
 
   const player: VoicePlayer = {
-    state(url) {
-      if (current?.url === url) return current.paused ? 'paused' : 'playing';
-      return errored.has(url) ? 'error' : 'idle';
+    state(url, key = url) {
+      if (current?.key === key) return current.paused ? 'paused' : 'playing';
+      return errored.has(key) ? 'error' : 'idle';
     },
-    progress(url) {
-      return current?.url === url ? progressOf(current) : null;
+    progress(url, key = url) {
+      return current?.key === key ? progressOf(current) : null;
     },
-    async toggle(url) {
+    async toggle(url, key = url) {
       if (!isPlayableVoiceUrl(url)) {
-        errored.add(url);
+        errored.add(key);
         onChange();
         return 'error';
       }
-      if (current?.url === url) {
+      if (current?.key === key) {
         const attempt = current;
         attempt.paused = !attempt.paused;
         if (attempt.paused) attempt.audio.pause();
         else await playAttempt(attempt);
       } else {
         release();
-        errored.delete(url);
-        await start(url, 0);
+        errored.delete(key);
+        await start(url, 0, key);
       }
       onChange();
-      return player.state(url);
+      return player.state(url, key);
     },
     stop() {
       const was = current !== null;
@@ -250,6 +252,10 @@ export function voicePlayerOf(features: readonly FeatureModule[]): VoicePlayer |
   return module?.player ?? null;
 }
 
+function scopeKeyOf(s: ReturnType<FeatureContext['scope']>): string {
+  return s ? JSON.stringify([s.account.environment, s.account.account_id, s.account.session_generation, s.gid ?? '']) : '';
+}
+
 export function createVoicePlayerModule(factory: (url: string) => AudioLike = browserAudio): VoicePlayerModule {
   let ctx: FeatureContext | null = null;
   let off: (() => void) | null = null;
@@ -260,11 +266,14 @@ export function createVoicePlayerModule(factory: (url: string) => AudioLike = br
     commands: [],
     player,
     mount(c) {
+      off?.();
       ctx = c;
+      lastScope = scopeKeyOf(c.scope());
       // stop on conversation / account change; no timers
       off = c.subscribe(() => {
+        if (ctx !== c) return; // disposed or remounted: a stale subscription must not stop the new one's clip
         const s = c.scope();
-        const next = s ? `${s.account.account_id}|${s.account.session_generation}|${s.gid ?? ''}` : '';
+        const next = scopeKeyOf(s);
         if (next !== lastScope) {
           lastScope = next;
           player.stop();
@@ -274,8 +283,9 @@ export function createVoicePlayerModule(factory: (url: string) => AudioLike = br
     dispose() {
       off?.();
       off = null;
-      player.stop();
       ctx = null;
+      lastScope = '';
+      player.stop();
     },
   };
 }

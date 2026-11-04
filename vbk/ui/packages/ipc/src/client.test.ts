@@ -132,3 +132,64 @@ test('contract handshake: a transient hello failure is retried by the next call'
     await ipc.invoke('prefs_snapshot');
     assert.deepEqual(calls, ['contract_hello', 'contract_hello', 'prefs_snapshot']);
   }));
+
+test('listenReady acknowledges installation, propagates failure and disposes once', () =>
+  withWindow(async () => {
+    let ready: ((off: () => void) => void) | undefined;
+    let handler: ((ev: { payload: unknown }) => void) | undefined;
+    let stopped = 0;
+    const values: unknown[] = [];
+    g['window'] = { __TAURI__: {
+      core: { invoke: async () => null },
+      event: { listen: (_event: string, cb: typeof handler) => {
+        handler = cb;
+        return new Promise<() => void>((resolve) => { ready = resolve; });
+      } },
+    } };
+    const client = createTauriIpc();
+    let acknowledged = false;
+    const pending = client.listenReady!('test', (p) => values.push(p)).then((off) => { acknowledged = true; return off; });
+    await Promise.resolve();
+    assert.equal(acknowledged, false);
+    handler!({ payload: 'during-install' });
+    ready!(() => { stopped++; });
+    const off = await pending;
+    assert.equal(acknowledged, true);
+    off(); off();
+    handler!({ payload: 'after-dispose' });
+    assert.deepEqual(values, ['during-install']);
+    assert.equal(stopped, 1);
+    g['window'] = { __TAURI__: { core: { invoke: async () => null }, event: { listen: async () => { throw new Error('registration failed'); } } } };
+    await assert.rejects(client.listenReady!('test', () => undefined), /registration failed/);
+    delete g['window'];
+    await assert.rejects(client.listenReady!('test', () => undefined), (e: unknown) => isAppError(e) && e.code === HOST_UNAVAILABLE);
+  }));
+
+async function settleDisposal(): Promise<void> { await new Promise<void>(resolve => setImmediate(resolve)); }
+test('listen and listenReady cleanup handle synchronous throws and asynchronous rejection without commands or duplicate cleanup', () =>
+  withWindow(async () => {
+    for (const entry of ['listen', 'listenReady'] as const) for (const mode of ['sync', 'throw', 'reject'] as const) {
+      let cleanups = 0, handler: ((value: { payload: unknown }) => void) | undefined;
+      const received: unknown[] = [], commands: string[] = [];
+      g['window'] = { __TAURI__: { core: { invoke: async (command: string) => { commands.push(command); return null; } }, event: { listen: async (_event: string, callback: typeof handler) => {
+        handler = callback;
+        return () => { cleanups++; if (mode === 'throw') throw new Error('native cleanup'); if (mode === 'reject') return Promise.reject(new Error('async native cleanup')); };
+      } } } };
+      const client = createTauriIpc(), off = entry === 'listenReady' ? await client.listenReady!('test', value => received.push(value)) : client.listen('test', value => received.push(value));
+      await settleDisposal(); handler!({ payload: 'before' });
+      assert.doesNotThrow(off); assert.doesNotThrow(off); handler!({ payload: 'after' }); await settleDisposal();
+      assert.equal(cleanups, 1, `${entry}/${mode}`); assert.deepEqual(received, ['before']); assert.deepEqual(commands, []);
+    }
+  }));
+test('disposing before listen resolves safely cleans up a late asynchronous unlisten exactly once', () =>
+  withWindow(async () => {
+    let installed!: (off: () => Promise<void>) => void, handler: ((event: { payload: unknown }) => void) | undefined, cleanups = 0;
+    g['window'] = { __TAURI__: { core: { invoke: async () => assert.fail('cleanup must not invoke commands') }, event: { listen: (_event: string, callback: typeof handler) => {
+      handler = callback; return new Promise<() => Promise<void>>(resolve => { installed = resolve; });
+    } } } };
+    const values: unknown[] = [], client = createTauriIpc(), off = client.listen('test', value => values.push(value));
+    off(); off(); handler!({ payload: 'before-registration-completed' });
+    installed(async () => { cleanups++; throw new Error('late native cleanup'); });
+    await settleDisposal(); off(); handler!({ payload: 'after' }); await settleDisposal();
+    assert.equal(cleanups, 1); assert.deepEqual(values, []);
+  }));

@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -30,7 +31,7 @@ for (const outcome of ['success', 'failure'] as const) {
       stillActive: () => true,
       translationApplies: (tr: { gid: string; draftVersion: number }, gid: string, version: number) => tr.gid === gid && tr.draftVersion === version,
       isAppError: () => false,
-      t: () => 'synthetic error',
+      t: translateUi,
       errorMessage: () => 'synthetic error',
     };
     const run = new Function(...Object.keys(env), body + '\nreturn runPreviewTranslation;')(...Object.values(env)) as () => Promise<void>;

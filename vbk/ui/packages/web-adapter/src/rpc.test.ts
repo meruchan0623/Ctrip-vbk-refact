@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AdapterFact } from '../../ipc/src/contracts.ts';
+import type { AdapterFact, AppError } from '../../ipc/src/contracts.ts';
 import type { AdapterDisplayPayload, AdapterReplyPayload } from '../../ipc/src/adapterProtocol.ts';
-import { createRpc, type AgentStatusBox, type RpcContext } from './rpc.ts';
+import { outcomeError, createRpc, type AgentStatusBox, type RpcContext } from './rpc.ts';
 import { ConversationStore, RoleBook, roomJidFromMessage } from './stores.ts';
-import { SoaClient } from './soa.ts';
+import { SoaClient, type SoaOutcome } from './soa.ts';
 import { FakePageSdk, OK_STATUS, flush, jsonResponse, makeDeps, sampleRow, type FetchScript } from './testing.ts';
 
 const GID = '123456';

@@ -65,6 +65,8 @@ impl Role {
         const MAIN_CMDS: &[&str] = &[
             "shell_read_clipboard_text",
             "shell_write_clipboard_text",
+            "webview_recovery_status",
+            "webview_recovery_retry",
             "contract_hello",
             "im_send_input_state",
             "im_recall_message",
@@ -72,6 +74,8 @@ impl Role {
             "im_queue_drop_out",
             "im_draft_load",
             "im_draft_save",
+            "im_draft_attachment_save",
+            "im_draft_attachment_restore",
             "account_snapshot",
             "account_start_login",
             "account_cancel_login",
@@ -84,12 +88,15 @@ impl Role {
             "account_set_agent_status",
             "im_conversation_snapshot",
             "im_locate_conversation",
+            "deep_link_take",
             "im_conversations",
             "im_messages",
             "im_unknown_outbound",
             "im_outbound_lookup",
             "im_message_page",
             "im_translate_messages",
+            "im_server_search",
+            "im_search_history",
             "im_send_text",
             "im_copy_message_image",
             "im_save_message_image",
@@ -126,6 +133,10 @@ impl Role {
             "browser_show",
             "browser_nav",
             "browser_close",
+            "media_screenshot",
+            "media_save_attachment",
+            "media_annotation_source",
+            "media_annotation_apply",
             "media_pick",
             "media_accept_drop",
             "media_release",
@@ -164,7 +175,10 @@ impl Role {
         const SETTING_CMDS: &[&str] = &[
             "shell_read_clipboard_text",
             "shell_write_clipboard_text",
+            "webview_recovery_status",
+            "webview_recovery_retry",
             "contract_hello",
+            "deep_link_setting_take",
             "prefs_snapshot",
             "prefs_set",
             "account_snapshot",
@@ -199,6 +213,7 @@ impl Role {
             "shell_window",
             "media_viewer_current",
             "media_viewer_open_external",
+            "media_save_image",
         ];
         const UPDATE_CMDS: &[&str] = &["contract_hello", "prefs_snapshot", "shell_window"];
         const LOGIN_CMDS: &[&str] = &[
@@ -301,6 +316,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn server_search_and_history_are_main_only_read_capabilities() {
+        for command in ["im_server_search", "im_search_history"] {
+            let mut registry = ViewRegistry::default();
+            registry.register(MAIN);
+            assert!(registry.authorize(MAIN, command).is_ok());
+            for label in [ALARM, SETTING, UPDATE, LOGIN, "acct-synthetic", "webview-1"] {
+                registry.register(label);
+                assert!(registry.authorize(label, command).is_err());
+            }
+            registry.unregister(MAIN);
+            assert!(registry.authorize(MAIN, command).is_err());
+        }
+    }
+
+    #[test]
     fn quick_reply_and_product_card_commands_are_registered_main_only() {
         let commands = [
             "im_quick_reply_categories",
@@ -385,6 +415,31 @@ mod tests {
         assert!(registry.authorize(SETTING, "shell_open_webview").is_ok());
         assert!(registry.authorize(ALARM, "shell_open_webview").is_err());
         assert!(registry.authorize(UPDATE, "shell_open_webview").is_err());
+    }
+
+    #[test]
+    fn recovery_commands_are_local_control_views_only() {
+        let mut registry = ViewRegistry::default();
+        for label in [
+            MAIN,
+            SETTING,
+            ALARM,
+            UPDATE,
+            LOGIN,
+            "acct-synthetic",
+            "webview-1",
+        ] {
+            registry.register(label);
+            for command in ["webview_recovery_status", "webview_recovery_retry"] {
+                assert_eq!(
+                    registry.authorize(label, command).is_ok(),
+                    matches!(label, MAIN | SETTING),
+                    "{label}: {command}"
+                );
+            }
+        }
+        registry.unregister(MAIN);
+        assert!(registry.authorize(MAIN, "webview_recovery_retry").is_err());
     }
 
     #[test]
@@ -480,6 +535,7 @@ mod tests {
         for command in [
             "media_viewer_current",
             "media_viewer_open_external",
+            "media_save_image",
             "shell_window",
         ] {
             assert!(
@@ -490,6 +546,7 @@ mod tests {
         for command in [
             "media_viewer_open_message",
             "media_viewer_open_emoji",
+            "media_save_attachment",
             "shell_open_external",
             "shell_open_webview",
             "im_send_text",
@@ -505,6 +562,8 @@ mod tests {
             .authorize(MAIN, "media_viewer_open_message")
             .is_ok());
         assert!(registry.authorize(MAIN, "media_viewer_current").is_err());
+        assert!(registry.authorize(MAIN, "media_save_image").is_err());
+        assert!(registry.authorize(MAIN, "media_save_attachment").is_ok());
         assert!(registry
             .authorize(MAIN, "media_viewer_open_external")
             .is_err());

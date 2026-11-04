@@ -375,6 +375,95 @@ impl CredentialLedger {
         Ok(entry)
     }
 
+    /// Records a completed external stage without calling the credential IO
+    /// backend. The operation's immutable target is the authority boundary.
+    pub fn record_staged(
+        &mut self,
+        operation_id: &str,
+        staged: &StagedRef,
+    ) -> Result<(), AppError> {
+        let entry = self.entry_mut(operation_id, CommitStage::Prepared)?;
+        if entry.new_ref != staged.target {
+            return Err(err(
+                codes::ACCOUNT_CREDENTIAL_OPERATION,
+                "staged target does not match operation",
+            ));
+        }
+        entry.staged = Some(staged.clone());
+        entry.stage = CommitStage::SecretStaged;
+        Ok(())
+    }
+
+    /// External promotion has succeeded. Switch only the matching operation's
+    /// index; leave old-key cleanup journaled until the host persists this index.
+    pub fn record_promoted(
+        &mut self,
+        operation_id: &str,
+        staged: &StagedRef,
+    ) -> Result<(CredentialRef, Option<CredentialRef>), AppError> {
+        let entry = self
+            .journal
+            .entries
+            .get_mut(operation_id)
+            .ok_or_else(|| err(codes::ACCOUNT_CREDENTIAL_OPERATION, "unknown operation"))?;
+        if entry.stage != CommitStage::SecretStaged
+            || entry.staged.as_ref() != Some(staged)
+            || self.index.get(&entry.account_id) != entry.old_ref.as_ref()
+        {
+            return Err(err(
+                codes::ACCOUNT_CREDENTIAL_OPERATION,
+                "promotion receipt does not match current operation",
+            ));
+        }
+        let (account, target, old) = (
+            entry.account_id.clone(),
+            entry.new_ref.clone(),
+            entry.old_ref.clone(),
+        );
+        entry.stage = CommitStage::IndexCommitted;
+        self.index.insert(account, target.clone());
+        Ok((target, old))
+    }
+
+    /// Called only after old-key deletion, which is deliberately outside the
+    /// registry lock. This removes journal metadata, never changes an index.
+    pub fn record_cleanup(
+        &mut self,
+        operation_id: &str,
+        old: Option<&CredentialRef>,
+    ) -> Result<(), AppError> {
+        let entry = self.entry_mut(operation_id, CommitStage::IndexCommitted)?;
+        if entry.old_ref.as_ref() != old {
+            return Err(err(
+                codes::ACCOUNT_CREDENTIAL_OPERATION,
+                "cleanup receipt does not match operation",
+            ));
+        }
+        self.journal.entries.remove(operation_id);
+        Ok(())
+    }
+
+    /// Discard has completed externally; only an uncommitted operation can
+    /// be forgotten. A stale discard can never remove an authoritative index.
+    pub fn record_discarded(
+        &mut self,
+        operation_id: &str,
+        staged: Option<&StagedRef>,
+    ) -> Result<(), AppError> {
+        let entry = self
+            .journal
+            .get(operation_id)
+            .ok_or_else(|| err(codes::ACCOUNT_CREDENTIAL_OPERATION, "unknown operation"))?;
+        if entry.stage == CommitStage::IndexCommitted || entry.staged.as_ref() != staged {
+            return Err(err(
+                codes::ACCOUNT_CREDENTIAL_OPERATION,
+                "discard receipt does not match operation",
+            ));
+        }
+        self.journal.entries.remove(operation_id);
+        Ok(())
+    }
+
     /// Step 2: writes the secret under the new revision and records the
     /// staged reference in the journal. The old revision is untouched.
     pub fn stage(
@@ -385,8 +474,7 @@ impl CredentialLedger {
     ) -> Result<StagedRef, AppError> {
         let entry = self.entry_mut(operation_id, CommitStage::Prepared)?;
         let staged = store.stage(&entry.new_ref, secret)?;
-        entry.staged = Some(staged.clone());
-        entry.stage = CommitStage::SecretStaged;
+        self.record_staged(operation_id, &staged)?;
         Ok(staged)
     }
 
@@ -403,17 +491,7 @@ impl CredentialLedger {
             .clone()
             .ok_or_else(|| err(codes::ACCOUNT_CREDENTIAL_OPERATION, "no staged reference"))?;
         store.commit(&staged)?;
-        let (account_id, new_ref, old_ref) = (
-            entry.account_id.clone(),
-            entry.new_ref.clone(),
-            entry.old_ref.clone(),
-        );
-        // Index switch + journal stage are one in-memory step (one SQLite
-        // transaction in the real store).
-        self.index.insert(account_id, new_ref.clone());
-        if let Some(e) = self.journal.entries.get_mut(operation_id) {
-            e.stage = CommitStage::IndexCommitted;
-        }
+        let (new_ref, old_ref) = self.record_promoted(operation_id, &staged)?;
         self.finish_committed(operation_id, old_ref.as_ref(), store);
         Ok(new_ref)
     }

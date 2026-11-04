@@ -6,7 +6,7 @@
  * per conversation. The throttle lives here AND in the UI feature so a second
  * caller cannot multiply it. This module sends nothing by itself: the frame
  * is handed to `ctx.sdk.sendInputState`, a capability the page glue provides
- * once the web facade is verified. Without it the op reports `unsupported`
+ * after the web facade contract was statically verified (sdk-facade.md). Without it the op reports `unsupported`
  * and does not consume the throttle.
  *
  * Inbound: `input_state` frames (msgtype 9901) from someone other than the
@@ -23,36 +23,38 @@ export const TYPING_THROTTLE_MS = 3000;
 export const TYPING_VISIBLE_MS = 5000;
 export const TYPING_MAX_TRACKED = 256;
 
+/** sent:true means the official SDK handed the pulse to its socket, not delivery. */
 export type TypingSendResult =
   | { readonly sent: true }
   | { readonly sent: false; readonly reason: 'throttled' | 'unsupported' | 'not_sent' | 'unknown_conversation' };
 
 /** Per-gid send throttle; pure, the caller supplies the clock. */
 export class TypingThrottle {
-  readonly #last = new Map<string, number>();
+  readonly #last = new Map<string, { readonly at: number; readonly attempt: symbol }>();
 
-  /** True (and recorded) when a frame for `gid` may go out at `nowMs`. */
-  admit(gid: string, nowMs: number): boolean {
+  /** A unique attempt when admitted, or null while the latest pulse is throttled. */
+  admit(gid: string, nowMs: number): symbol | null {
     const last = this.#last.get(gid);
-    if (last !== undefined && nowMs >= last && nowMs - last < TYPING_THROTTLE_MS) return false;
+    if (last !== undefined && nowMs >= last.at && nowMs - last.at < TYPING_THROTTLE_MS) return null;
     if (last === undefined && this.#last.size >= TYPING_MAX_TRACKED) {
       let oldest: string | null = null;
       let oldestAt = Infinity;
       for (const [k, v] of this.#last) {
-        if (v < oldestAt) {
+        if (v.at < oldestAt) {
           oldest = k;
-          oldestAt = v;
+          oldestAt = v.at;
         }
       }
       if (oldest !== null) this.#last.delete(oldest);
     }
-    this.#last.set(gid, nowMs);
-    return true;
+    const attempt = Symbol();
+    this.#last.set(gid, { at: nowMs, attempt });
+    return attempt;
   }
 
-  /** Releases a slot recorded by `admit` when the frame was not actually sent. */
-  release(gid: string): void {
-    this.#last.delete(gid);
+  /** A failed old pulse cannot release a newer admission, even after eviction/clear. */
+  release(gid: string, attempt: symbol): void {
+    if (this.#last.get(gid)?.attempt === attempt) this.#last.delete(gid);
   }
 
   clear(): void {
@@ -70,7 +72,8 @@ export async function sendTypingState(throttle: TypingThrottle, ctx: FeatureOpCo
   if (!view) return { sent: false, reason: 'unknown_conversation' };
   const send = ctx.sdk.sendInputState;
   if (typeof send !== 'function') return { sent: false, reason: 'unsupported' };
-  if (!throttle.admit(gid, ctx.deps.now())) return { sent: false, reason: 'throttled' };
+  const attempt = throttle.admit(gid, ctx.deps.now());
+  if (attempt === null) return { sent: false, reason: 'throttled' };
   let ok = false;
   try {
     ok = (await send.call(ctx.sdk, { gid, partnerJid: null })) === true;
@@ -78,7 +81,7 @@ export async function sendTypingState(throttle: TypingThrottle, ctx: FeatureOpCo
     ok = false;
   }
   if (!ok) {
-    throttle.release(gid);
+    throttle.release(gid, attempt);
     return { sent: false, reason: 'not_sent' };
   }
   return { sent: true };

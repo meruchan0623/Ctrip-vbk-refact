@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -20,7 +21,7 @@ function fixture() {
   const env = { activeAccount: () => ({ context: account }), S: () => state, canContactOrder: () => true, noticeQuery, store, UiCommands,
     ipc: { async invoke(command: string, payload: unknown) { calls.push({ command, payload }); return await (command === UiCommands.ORDER_CREATE_IM_CHAT ? createResult : listResult); } },
     isUiConversation: (value: unknown) => value !== null && typeof value === 'object' && 'gid' in value,
-    openConversation: async (gid: string) => { opened.push(gid); }, toast: (text: unknown) => { toasts.push(text); }, t: (_key: string, values: unknown) => values, errorMessage: String,
+    openConversation: async (gid: string) => { opened.push(gid); }, toast: (text: unknown) => { toasts.push(text); }, t: translateUi, errorMessage: String,
   };
   const a = source.indexOf('async function contactViaIm('), b = source.indexOf('\nasync function openWebAdvanced(', a);
   const contact = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn contactViaIm;')(...Object.values(env)) as (order: unknown) => Promise<void>;

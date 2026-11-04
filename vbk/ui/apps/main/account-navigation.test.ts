@@ -38,7 +38,7 @@ test('rapid selections skip obsolete queued switches and preserve lifecycle meta
   const gate = deferred(), calls: string[] = []; let host = 'b';
   const navigation = createAccountNavigation({ async switch(account) { calls.push(account.account_id); if (account.account_id === 'a') await gate.promise; host = account.account_id; return snapshot(host); }, snapshot: async () => snapshot(host), valid: (v): v is UiAccountSnapshot => !!v });
   const first = navigation.select(a); await settle(); const obsolete = navigation.select(b), latest = navigation.select(c);
-  const event = snapshot('a', 'fresh-profile'); event.accounts[0]!.state; const projected = navigation.project(event);
+  const event = snapshot('a', 'fresh-profile'); const projected = navigation.project(event);
   assert.equal(projected.active_account_id, 'c'); assert.equal(projected.accounts, event.accounts);
   gate.resolve(); await first; assert.equal(await obsolete, null); assert.equal((await latest)?.active_account_id, 'c'); assert.deepEqual(calls, ['a', 'c']);
 });
@@ -62,4 +62,33 @@ test('main applies the pending selection projection to real account snapshots an
   assert.ok(source.includes('snap = accountNavigation.project(snap)'));
   assert.ok(source.includes('&& !accountNavigation.pending()) return'));
   assert.ok(source.includes('const snap = await accountNavigation.select(a.context)'));
+});
+
+test('manually opening a B conversation while A switch is pending compensates the host to B', async () => {
+  const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+  const { stripTypeScriptTypes } = await import('node:module');
+  const gate = deferred(), calls: string[] = [];
+  let host = 'b';
+  let state: Record<string, any> = { accounts: snapshot('b'), activeGid: 'room-b', view: 'messages', conversations: [{ gid: 'room-b' }], history: { 'room-b': { firstPage: 'loaded' } }, banners: [] };
+  const navigation = createAccountNavigation({ async switch(account) { calls.push(account.account_id); if (account.account_id === 'a') await gate.promise; host = account.account_id; const event = snapshot(host); state = { ...state, accounts: navigation.project(event) }; return event; }, snapshot: async () => snapshot(host), valid: (v): v is UiAccountSnapshot => !!v });
+  const env: Record<string, any> = { restoreRoomAttachment: async () => undefined, S: () => state, accountNavigation: navigation, store: { patch: (p: object) => { state = { ...state, ...p }; } }, activeAccount: () => snapshot('b').accounts[1], isUiAccountSnapshot: (v: unknown) => !!v, applyAccountSnapshot: (next: UiAccountSnapshot) => { state.accounts = navigation.project(next); }, visibleReads: { retry() {} }, sameAccount: () => true };
+  const startSwitch = source.indexOf('async function switchAccount('), endSwitch = source.indexOf('\n/** `account_start_login`', startSwitch);
+  env.switchAccount = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(startSwitch, endSwitch)) + '\nreturn switchAccount;')(...Object.values(env));
+  const startOpen = source.indexOf('async function openConversation('), endOpen = source.indexOf('\nasync function loadEarlier(', startOpen);
+  const open = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(startOpen, endOpen)) + '\nreturn openConversation;')(...Object.values(env));
+  const old = navigation.select(a); await settle(); await open('room-b');
+  gate.resolve(); await old; await settle();
+  assert.deepEqual(calls, ['a', 'b']); assert.equal(host, 'b'); assert.equal(state.accounts.active_account_id, 'b'); assert.equal(state.activeGid, 'room-b');
+});
+
+
+test('expired and logging-in target lifecycle events cancel pending selection without masking host selection', async () => {
+  for (const state of ['expired', 'logging_in'] as const) {
+    const gate = deferred(), navigation = createAccountNavigation({ switch: async () => { await gate.promise; return snapshot('a'); }, snapshot: async () => snapshot('b'), valid: (v): v is UiAccountSnapshot => !!v });
+    const pending = navigation.select(a); await settle();
+    const event = snapshot('b');
+    const changed = { ...event, accounts: event.accounts.map(item => item.context.account_id === 'a' ? { ...item, state } : item) };
+    assert.equal(navigation.project(changed), changed); assert.equal(navigation.pending(), false);
+    gate.resolve(); assert.equal(await pending, null);
+  }
 });

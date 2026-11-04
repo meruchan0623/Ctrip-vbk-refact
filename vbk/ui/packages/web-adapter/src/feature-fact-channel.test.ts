@@ -87,7 +87,7 @@ test('bridge: a host rejection of a feature fact (adapter.invalid_payload) is re
     onPushError: (_env, e) => errors.push(e),
   });
   bridge.push({ kind: 'feature', fact: { kind: 'queue_notice', gid: '' } });
-  await bridge.flush();
+  await assert.rejects(bridge.flush(), { code: 'bridge.delivery_failed' });
   assert.equal(calls, 1);
   assert.equal(errors.length, 1);
   assert.equal((errors[0] as { code: string }).code, 'adapter.invalid_payload');

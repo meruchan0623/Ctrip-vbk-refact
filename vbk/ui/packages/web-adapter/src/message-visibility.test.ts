@@ -82,3 +82,14 @@ test('card-message text is not governed by custom-content metadata', () => {
   assert.equal(sdk?.text, 'card title');
   assert.equal(previewOf(row), '[卡片]');
 });
+
+
+test('image original and thumbnail stay distinct so a missing original cannot be saved as a thumbnail', () => {
+  for (const body of [{ thumbUrl: 'https://example.invalid/thumb.png' }, { url: 'https://example.invalid/original.png', thumbUrl: 'https://example.invalid/thumb.png' }]) {
+    const { http, sdk } = project(1, body);
+    for (const message of [http, sdk]) {
+      assert.equal(message?.media_url, 'url' in body ? body.url : null);
+      assert.equal(message?.media_thumbnail, body.thumbUrl);
+    }
+  }
+});

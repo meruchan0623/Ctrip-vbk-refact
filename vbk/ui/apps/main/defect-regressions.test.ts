@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 // Regression cases for the open defects D4 and D5 (docs/reverse/2026-11-01-rea/04-target-vs-vbk-gap.md).
 // Each case drives the real main.ts message row / merge code with synthetic data.
 import { test } from 'node:test';

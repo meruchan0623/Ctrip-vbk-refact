@@ -152,7 +152,7 @@ export class FakeSdk implements ImSdkHandle {
   readonly readReceipts: SdkReadReceiptRequest[] = [];
   socketConnected = true;
   readReceiptOutcome: SdkCallOutcome = { kind: 'success', raw: null };
-  #listeners: { [K in keyof SdkEventMap]: Listener<K>[] } = { message: [], send_result: [], socket_status: [] };
+  #listeners: { [K in keyof SdkEventMap]: Listener<K>[] } = { message: [], send_result: [], socket_status: [], terminal: [] };
 
   on<K extends keyof SdkEventMap>(event: K, cb: Listener<K>): () => void {
     const list = this.#listeners[event] as Listener<K>[];

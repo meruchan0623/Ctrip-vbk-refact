@@ -21,7 +21,7 @@
  * Candidate global names remain feature-detected; no generic XML sender is used.
  */
 
-import type { ImSdkHandle, SdkCallOutcome, SdkEventMap, SdkMessageEvent, SdkReadReceiptRequest, SdkSendRequest, SdkSendResultEvent, SdkSocketStatus, TimerDeps } from './deps.ts';
+import type { ImSdkHandle, SdkCallOutcome, SdkEventMap, SdkMessageEvent, SdkReadReceiptRequest, SdkSendRequest, SdkSendResultEvent, SdkSocketStatus, SdkTerminalStatus, TimerDeps } from './deps.ts';
 import { jidLocal } from './facts.ts';
 import { recordOrNull } from './soa.ts';
 
@@ -214,10 +214,13 @@ function isEmitter(x: unknown): x is EmitterLike {
 }
 
 export interface ImClientLike {
+  sendInputState?: (request: { readonly partnerJid: string; readonly conversationType: 'groupchat' }, success: () => void, failure: (raw: unknown) => void) => unknown;
   sendMessageInSocket?: (message: unknown, success: (raw: unknown) => void, failure: (raw: unknown) => void) => unknown;
   putAdviceOfReadByMsgId?: (req: unknown, success: (raw: unknown) => void, failure: (raw: unknown) => void) => unknown;
   getSocketStatus?: () => unknown;
   sdkVersion?: unknown;
+  setConnectionStatusListener?: (listener: { onChanged: (status: unknown) => void }) => unknown;
+  disconnect?: () => unknown;
 }
 
 /** Candidate globals for the SDK facade (unverified names; first match wins). */
@@ -226,7 +229,7 @@ export const IM_CLIENT_CANDIDATES: readonly string[] = ['IMClient', 'imClient', 
 function asImClient(x: unknown): ImClientLike | null {
   if ((typeof x !== 'object' && typeof x !== 'function') || x === null) return null;
   const c = x as ImClientLike;
-  if (typeof c.sendMessageInSocket === 'function' || typeof c.putAdviceOfReadByMsgId === 'function') return c;
+  if (typeof c.sendMessageInSocket === 'function' || typeof c.putAdviceOfReadByMsgId === 'function' || typeof c.setConnectionStatusListener === 'function') return c;
   return null;
 }
 
@@ -278,6 +281,8 @@ export interface PageSdk extends ImSdkHandle {
   /** Only booleans, fixed enums and counters; no upstream data. */
   readonly bindingDiagnostics?: SdkBindingDiagnostics;
   readonly receiveDiagnostics?: import('../../ipc/src/client.ts').UiSdkReceiveDiagnostics;
+  /** Optional verified facade. True means socket handoff, never server ACK. */
+  readonly sendInputState?: ((request: { readonly gid: string; readonly partnerJid: string | null }) => Promise<boolean>) | undefined;
   sdkVersion(): string | null;
   /** Bare room jid learnt from inbound frames for this gid (SDK target JID). */
   partnerJidOf(gid: string): string | null;
@@ -310,16 +315,41 @@ function integerCode(value: unknown): number | null {
   return n !== null && Number.isSafeInteger(n) ? n : null;
 }
 
+// The public setter appends a listener and exposes no individual removal API.
+// Share one registration among active observers. A later handle registers anew
+// because official destroy/re-init may clear listeners without changing facade.
+const terminalObservers = new WeakMap<ImClientLike, Set<(status: unknown) => void>>();
+function observeFacadeStatus(facade: ImClientLike, callback: (status: unknown) => void): () => void {
+  let callbacks = terminalObservers.get(facade);
+  if (!callbacks) {
+    callbacks = new Set();
+    terminalObservers.set(facade, callbacks);
+    callbacks.add(callback);
+    try { facade.setConnectionStatusListener?.({ onChanged: status => { for (const cb of [...callbacks!]) cb(status); } }); }
+    catch { /* Do not repeat an uncertain registration or disturb official listeners. */ }
+  } else callbacks.add(callback);
+  return () => {
+    callbacks!.delete(callback);
+    if (!callbacks!.size && terminalObservers.get(facade) === callbacks) terminalObservers.delete(facade);
+    // Any old SDK registration retains this empty set and becomes inert.
+  };
+}
+
 export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions): PageSdk {
-  const listeners: { [K in keyof SdkEventMap]: Listener<K>[] } = { message: [], send_result: [], socket_status: [] };
+  const listeners: { [K in keyof SdkEventMap]: Listener<K>[] } = { message: [], send_result: [], socket_status: [], terminal: [] };
   const partnerJids = new Map<string, string>();
-  const readyWaiters: (() => void)[] = [];
+  const readyWaiters: ((ready: boolean) => void)[] = [];
   const pendingReadReceipts = new Set<() => void>();
+  const pendingTyping = new Set<() => void>();
   const pendingFacadeSends = new Map<string, () => void>();
   let client: EmitterLike | null = null;
   let detach: (() => void) | null = null;
   let probeTimer: unknown = null;
   let disposed = false;
+  let terminalStatus: SdkTerminalStatus | null = null;
+  let observedFacade: ImClientLike | null = null;
+  let unobserveFacade: (() => void) | null = null;
+  const facade = (): ImClientLike | null => findImClient(win);
   let bindingGeneration = 0;
   let attachCount = 0, repairCount = 0;
   let reportedUnhealthy = false;
@@ -342,7 +372,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
   };
 
   const onStanza = (el: unknown): void => {
-    if (disposed) return;
+    if (disposed || terminalStatus !== null) return;
     const g = stanzaToEvent(el);
     if (g.kind === 'message') {
       receive.messages = Math.min(Number.MAX_SAFE_INTEGER, receive.messages + 1);
@@ -383,7 +413,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
     }
     return health;
   };
-  const currentBinding = (): boolean => !disposed && client !== null && globalClient().emitter === client;
+  const currentBinding = (): boolean => !disposed && terminalStatus === null && client !== null && globalClient().emitter === client;
   const attached = (): boolean => currentBinding() && listenerHealth() !== 'missing';
   const canRebind = (): boolean => bindingHooks.length > 0 && bindingHooks.every(hook => {
     try { return typeof hook.emitter.removeListener === 'function' || typeof hook.emitter.off === 'function'; }
@@ -394,7 +424,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
     detach?.();
     client = c;
     const generation = ++bindingGeneration;
-    const current = (): boolean => !disposed && generation === bindingGeneration && client === c && globalClient().emitter === c;
+    const current = (): boolean => !disposed && terminalStatus === null && generation === bindingGeneration && client === c && globalClient().emitter === c;
     // Removing listeners does not cancel callbacks already queued by a source.
     const boundStanza = (el: unknown): void => {
       receive.callbacks = Math.min(Number.MAX_SAFE_INTEGER, receive.callbacks + 1);
@@ -427,11 +457,35 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
     reportedUnhealthy = !attached();
     log('xmpp listener binding attempted');
     emit('socket_status', reportedUnhealthy ? 'disconnected' : mapXmppStatus((c as { status?: unknown }).status));
-    if (!reportedUnhealthy) for (const waiter of readyWaiters.splice(0)) waiter();
+    if (!reportedUnhealthy) for (const waiter of readyWaiters.splice(0)) waiter(true);
   };
 
   const probe = (): void => {
-    if (disposed) return;
+    if (disposed || terminalStatus !== null) return;
+    const f = facade();
+    if (f !== observedFacade) {
+      for (const cancel of [...pendingTyping]) cancel();
+      unobserveFacade?.(); unobserveFacade = null; observedFacade = f;
+      if (f && typeof f.setConnectionStatusListener === 'function') unobserveFacade = observeFacadeStatus(f, status => {
+        if (disposed || terminalStatus !== null || facade() !== f || observedFacade !== f) return;
+        // Exact official ConnectionStatus values: target token (5) and ordinary
+        // network/socket statuses are not evidence this account is invalid.
+        if (status !== 4 && status !== 6 && status !== 8) return;
+        terminalStatus = status;
+        if (probeTimer !== null) opts.clearTimeout(probeTimer);
+        probeTimer = null;
+        detach?.(); detach = null; bindingGeneration++;
+        for (const cancel of [...pendingReadReceipts]) cancel();
+        for (const cancel of [...pendingTyping]) cancel();
+        for (const cancel of [...pendingFacadeSends.values()]) cancel();
+        // Public disconnect stops both SDK socket recovery and SDK compensation.
+        // It preserves official facade listeners; destroy() would remove them.
+        try { f.disconnect?.(); } catch { /* Host invalidation still tears down the page. */ }
+        for (const waiter of readyWaiters.splice(0)) waiter(false);
+        emit('terminal', status);
+      });
+    }
+    if (terminalStatus !== null) return;
     const next = globalClient().emitter;
     if (!next) {
       if (client !== null) {
@@ -451,10 +505,36 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
   };
   probe();
 
-  const facade = (): ImClientLike | null => findImClient(win);
   const bindingSnapshot = (): SdkBindingDiagnostics => ({ global_state: globalClient().state, listener_health: currentBinding() ? listenerHealth() : 'detached', attached: attached(), can_rebind: currentBinding() && canRebind(), binding_generation: bindingGeneration, attach_count: attachCount, repair_count: repairCount });
 
+  const sendTyping = (request: { readonly gid: string; readonly partnerJid: string | null }): Promise<boolean> => {
+    const f = facade(), send = f?.sendInputState;
+    const partner = partnerJids.get(request.gid), generation = bindingGeneration, emitter = globalClient().emitter;
+    if (disposed || terminalStatus !== null || !f || typeof send !== 'function' || !partner || jidLocal(partner) !== request.gid || (request.partnerJid !== null && request.partnerJid !== partner) || pendingTyping.size >= 256) return Promise.resolve(false);
+    try { if (f.getSocketStatus?.() !== true) return Promise.resolve(false); } catch { return Promise.resolve(false); }
+    return new Promise<boolean>(resolve => {
+      let settled = false, timer: unknown = null;
+      const finish = (handedOff: boolean): void => {
+        if (settled) return;
+        settled = true;
+        if (timer !== null) opts.clearTimeout(timer);
+        pendingTyping.delete(cancel);
+        resolve(handedOff && !disposed && terminalStatus === null && facade() === f && bindingGeneration === generation && globalClient().emitter === emitter);
+      };
+      const cancel = (): void => finish(false);
+      pendingTyping.add(cancel);
+      timer = opts.setTimeout(cancel, opts.facadeSendTimeoutMs ?? 15_000);
+      try {
+        // Public wrapper expands the bare gid; omitted status keeps its proven
+        // default 0. Its callback means handoff only, not an acknowledgement.
+        // The captured facade returns void; never infer success from a return.
+        send.call(f, { partnerJid: request.gid, conversationType: 'groupchat' }, () => finish(true), cancel);
+      } catch { finish(false); }
+    });
+  };
+
   return {
+    get terminalStatus() { return terminalStatus; },
     get attached() {
       return attached();
     },
@@ -463,8 +543,9 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
     },
     get receiveDiagnostics() { return { binding: bindingSnapshot(), counters: { ...receive }, last_stanza_ms: lastStanzaMs }; },
     get canSend() {
-      return !disposed && typeof facade()?.sendMessageInSocket === 'function';
+      return !disposed && terminalStatus === null && typeof facade()?.sendMessageInSocket === 'function';
     },
+    get sendInputState() { return typeof facade()?.sendInputState === 'function' ? sendTyping : undefined; },
     sdkVersion() {
       const v = facade()?.sdkVersion;
       return typeof v === 'string' && v !== '' ? v : null;
@@ -474,20 +555,21 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
       if (gid !== '' && jid !== '' && jidLocal(jid) === gid) partnerJids.set(gid, bareJid(jid));
     },
     waitReady(timeoutMs) {
-      if (disposed) return Promise.resolve(false);
+      if (disposed || terminalStatus !== null) return Promise.resolve(false);
       if (attached()) return Promise.resolve(true);
       return new Promise((resolve) => {
         let done = false;
-        readyWaiters.push(() => {
+        let timer: unknown = null;
+        const settle = (ready: boolean): void => {
           if (done) return;
           done = true;
-          resolve(true);
-        });
-        opts.setTimeout(() => {
-          if (done) return;
-          done = true;
-          resolve(false);
-        }, timeoutMs);
+          if (timer !== null) opts.clearTimeout(timer);
+          const index = readyWaiters.indexOf(settle);
+          if (index >= 0) readyWaiters.splice(index, 1);
+          resolve(ready);
+        };
+        readyWaiters.push(settle);
+        timer = opts.setTimeout(() => settle(false), timeoutMs);
       });
     },
     on<K extends keyof SdkEventMap>(event: K, cb: Listener<K>): () => void {
@@ -512,6 +594,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
     },
     sendMessage(req: SdkSendRequest) {
       if (disposed) throw new Error('sdk disposed (nothing sent)');
+      if (terminalStatus !== null) throw new Error('sdk account inactive (nothing sent)');
       const f = facade();
       if (typeof f?.sendMessageInSocket !== 'function') throw new Error('sdk send unavailable');
       const partnerJid = partnerJids.get(req.gid);
@@ -559,6 +642,7 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
     },
     async putAdviceOfReadByMsgId(req: SdkReadReceiptRequest): Promise<SdkCallOutcome> {
       if (disposed) throw new Error('sdk disposed (nothing sent)');
+      if (terminalStatus !== null) throw new Error('sdk account inactive (nothing sent)');
       const f = facade();
       const send = f?.putAdviceOfReadByMsgId;
       if (typeof send !== 'function' && !opts.httpReadReceipt) throw new Error('read receipt unavailable');
@@ -606,9 +690,12 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
     },
     dispose() {
       disposed = true;
+      unobserveFacade?.(); unobserveFacade = null;
+      for (const waiter of readyWaiters.splice(0)) waiter(false);
       bindingGeneration++;
       for (const cancel of [...pendingReadReceipts]) cancel();
       for (const cancel of [...pendingFacadeSends.values()]) cancel();
+      for (const cancel of [...pendingTyping]) cancel();
       if (probeTimer !== null) opts.clearTimeout(probeTimer);
       probeTimer = null;
       detach?.();

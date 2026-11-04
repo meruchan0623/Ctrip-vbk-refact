@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 import { UiCommands, type UiCustomerScripts, type UiQuickReplyCategories, type UiQuickReplyCategory, type UiQuickReplyScript } from '../../packages/ipc/src/client.ts';
 import { h } from '../../packages/ui-kit/src/h.ts';
@@ -38,7 +39,7 @@ export function createQuickReplies(deps: {
     publish({ scope: context, mode: 'categories', type, query: '', version: context.version, categories: [], items: [], busy: true, error: null });
     try {
       const result = await deps.invoke(UiCommands.IM_QUICK_REPLY_CATEGORIES, { account: context.account, type }) as UiQuickReplyCategories;
-      if (!result || !Array.isArray(result.categories)) throw new Error('快捷回复返回格式无效');
+      if (!result || !Array.isArray(result.categories)) throw new Error(t('repliesRuntime.malformed'));
       if (valid(id, context) && state) publish({ ...state, categories: result.categories, busy: false });
     } catch (error) { if (valid(id, context) && state) publish({ ...state, busy: false, error: errorMessage(error) }); }
   }
@@ -89,24 +90,24 @@ export function filteredReplyCategories(categories: readonly UiQuickReplyCategor
 export function quickRepliesView(state: QuickRepliesState | null, context: ReplyContext | null, controller: ReturnType<typeof createQuickReplies>): HTMLElement | null {
   if (!state || !sameReplyScope(state.scope, context)) return null;
   const row = (item: UiQuickReplyScript) => h('button', { class: 'reply-choice', type: 'button', dataset: { replyId: item.id }, onclick: () => controller.select(item) }, item.content);
-  if (state.mode === 'suggestions') return h('div', { class: 'reply-suggestions', 'aria-label': '快捷回复联想' },
-    h('button', { class: 'ibtn reply-dismiss', 'aria-label': '关闭快捷回复联想', onclick: controller.close }, '×'), state.items.map(row));
+  if (state.mode === 'suggestions') return h('div', { class: 'reply-suggestions', 'aria-label': t('repliesRuntime.suggestions') },
+    h('button', { class: 'ibtn reply-dismiss', 'aria-label': t('repliesRuntime.closeSuggestions'), onclick: controller.close }, '×'), state.items.map(row));
   const query = state.query.trim().toLocaleLowerCase();
   const groups = filteredReplyCategories(state.categories, query);
   const count = groups.reduce((total, group) => total + group.scripts.length, 0);
-  return h('div', { class: 'shade', onclick: controller.close }, h('div', { class: 'dlg replies-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': '快捷回复', tabindex: '-1', dataset: { commerceDialog: 'replies' }, onclick: (e: Event) => e.stopPropagation() },
-    h('div', { class: 'dlg-h' }, h('span', null, '快捷回复'), h('button', { class: 'ibtn', 'aria-label': '关闭快捷回复', onclick: controller.close }, '×')),
+  return h('div', { class: 'shade', onclick: controller.close }, h('div', { class: 'dlg replies-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('repliesRuntime.heading'), tabindex: '-1', dataset: { commerceDialog: 'replies' }, onclick: (e: Event) => e.stopPropagation() },
+    h('div', { class: 'dlg-h' }, h('span', null, t('repliesRuntime.heading')), h('button', { class: 'ibtn', 'aria-label': t('repliesRuntime.close'), onclick: controller.close }, '×')),
     h('div', { class: 'reply-toolbar' },
-      h('div', { class: 'reply-tabs', role: 'group', 'aria-label': '回复来源' }, (['VAGENT', 'VSKILLGROUP'] as const).map(type => h('button', { class: 'reply-tab', type: 'button', 'aria-pressed': String(state.type === type), onclick: () => void controller.open(type) }, type === 'VAGENT' ? '个人' : '团队'))),
-      h('input', { class: 'inp reply-search', type: 'search', 'aria-label': '搜索快捷回复', placeholder: '搜索内容或快捷词', value: state.query, dataset: { fid: 'reply-search' }, oninput: (e: Event) => controller.filter((e.target as HTMLInputElement).value) }),
-      h('button', { class: 'btn reply-refresh', disabled: state.busy, onclick: () => void controller.open(state.type) }, '刷新')),
+      h('div', { class: 'reply-tabs', role: 'group', 'aria-label': t('repliesRuntime.source') }, (['VAGENT', 'VSKILLGROUP'] as const).map(type => h('button', { class: 'reply-tab', type: 'button', 'aria-pressed': String(state.type === type), onclick: () => void controller.open(type) }, type === 'VAGENT' ? t('repliesRuntime.personal') : t('repliesRuntime.team')))),
+      h('input', { class: 'inp reply-search', type: 'search', 'aria-label': t('repliesRuntime.searchLabel'), placeholder: t('repliesRuntime.searchPlaceholder'), value: state.query, dataset: { fid: 'reply-search' }, oninput: (e: Event) => controller.filter((e.target as HTMLInputElement).value) }),
+      h('button', { class: 'btn reply-refresh', disabled: state.busy, onclick: () => void controller.open(state.type) }, t('repliesRuntime.refresh'))),
     h('div', { class: 'reply-body', 'aria-busy': String(state.busy), dataset: { keepScroll: 'quick-replies' } },
-      state.busy ? h('p', { class: 'reply-empty', role: 'status' }, '正在加载…')
+      state.busy ? h('p', { class: 'reply-empty', role: 'status' }, t('repliesRuntime.loading'))
         : state.error ? h('p', { class: 'reply-empty', role: 'alert' }, state.error)
         : groups.length ? h('div', { class: 'reply-masonry' }, groups.flatMap(c => c.scripts.map(item =>
-          h('button', { class: 'reply-choice reply-card', type: 'button', dataset: { replyId: item.id }, title: '插入到输入框', onclick: () => controller.select(item) },
+          h('button', { class: 'reply-choice reply-card', type: 'button', dataset: { replyId: item.id }, title: t('repliesRuntime.insert'), onclick: () => controller.select(item) },
             h('span', { class: 'reply-card-heading' }, h('span', { class: 'reply-card-category' }, c.name), item.short_cut ? h('span', { class: 'reply-shortcut' }, item.short_cut) : null),
             h('span', { class: 'reply-card-content' }, item.content)))))
-        : h('p', { class: 'reply-empty', role: 'status' }, state.query ? '没有找到匹配的快捷回复' : '暂无快捷回复')),
-    h('div', { class: 'reply-footer' }, h('span', { role: 'status' }, state.busy || state.error ? '' : `${count} 条回复`), h('span', null, '点击插入输入框'))));
+        : h('p', { class: 'reply-empty', role: 'status' }, state.query ? t('repliesRuntime.noMatches') : t('repliesRuntime.empty'))),
+    h('div', { class: 'reply-footer' }, h('span', { role: 'status' }, state.busy || state.error ? '' : t('repliesRuntime.count', { count })), h('span', null, t('repliesRuntime.insertHint')))));
 }

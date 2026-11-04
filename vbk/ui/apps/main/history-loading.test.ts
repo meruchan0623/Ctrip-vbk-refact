@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { readHistoryPage } from './history-read.ts';
 import { createMessagePane, PIN_THRESHOLD, sameWindow } from './message-pane.ts';
 import { test } from 'node:test';
@@ -17,7 +18,7 @@ function fixture() {
   const requests: string[] = [];
   const invoke = async (cmd: string) => { requests.push(cmd); return await (typeof response === 'function' ? response() : response); };
   const visibility = { visibilityState: 'visible' };
-  const env = { closeCommerce() {}, visibleReads: { retry() {}, afterRender() {} }, ...vm, readHistoryPage, document: visibility, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => uiAccount, stillActive: () => active, peripheral: { close() {} }, isUiMessage, TRANSLATION_IDLE: vm.TRANSLATION_IDLE, PKG_IDLE: {}, releaseAttachment: async () => {}, autoQueryPackage() {}, UiCommands: { IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages', IM_MARK_READ: 'read' }, invokeQuiet: invoke, invokeSafe: invoke };
+  const env = { restoreRoomAttachment: async () => undefined, accountNavigation: { pending: () => false }, closeCommerce() {}, visibleReads: { retry() {}, afterRender() {} }, ...vm, readHistoryPage, document: visibility, S: () => state, store: { patch: (patch: object) => Object.assign(state, patch) }, activeAccount: () => uiAccount, stillActive: () => active, peripheral: { close() {} }, isUiMessage, TRANSLATION_IDLE: vm.TRANSLATION_IDLE, PKG_IDLE: {}, releaseAttachment: async () => {}, autoQueryPackage() {}, UiCommands: { IM_MESSAGE_PAGE: 'page', IM_MESSAGES: 'messages', IM_MARK_READ: 'read' }, invokeQuiet: invoke, invokeSafe: invoke };
   const a = source.indexOf('async function openConversation('), b = source.indexOf('\nasync function loadEarlier(', a);
   const open = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn openConversation;')(...Object.values(env));
   const loadEnd = source.indexOf('\n/** `im://locate-conversation`', b);

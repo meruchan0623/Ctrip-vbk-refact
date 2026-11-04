@@ -100,6 +100,10 @@ export function resolveHostBridge(win: unknown): HostBridge | null {
   const w = (typeof win === 'object' && win !== null ? win : {}) as TauriGlobals;
   const api = w.__TAURI__;
   const internals = w.__TAURI_INTERNALS__;
+  const eventInternals = w.__TAURI_EVENT_PLUGIN_INTERNALS__;
+  const unregister = typeof eventInternals?.unregisterListener === 'function'
+    ? (eventInternals.unregisterListener as (event: string, id: unknown) => void).bind(eventInternals)
+    : null;
   const invoke: InvokeFn | null =
     typeof api?.core?.invoke === 'function' ? (api.core.invoke as InvokeFn) : typeof internals?.invoke === 'function' ? (internals.invoke as InvokeFn).bind(internals) : null;
   if (!invoke) return null;
@@ -120,19 +124,32 @@ export function resolveHostBridge(win: unknown): HostBridge | null {
       const label = internals?.metadata?.currentWebview?.label;
       if (typeof label !== 'string' || label.length === 0) throw new Error('current webview label unavailable');
       const target = { kind: 'Webview' as const, label };
-      if (apiListen) return apiListen(event, (ev) => cb(ev?.payload), { target });
+      if (apiListen) {
+        const cleanup = await apiListen(event, (ev) => cb(ev?.payload), { target });
+        return () => {
+          if (w.__TAURI_INTERNALS__ !== internals) return;
+          try {
+            // The public event API returns an async cleanup, while HostBridge
+            // disposal is synchronous. Handle host shutdown/rejection locally.
+            void Promise.resolve(cleanup()).catch(() => undefined);
+          } catch {
+            // Match the internals-only disposal path during host shutdown.
+          }
+        };
+      }
       const handler = (transform as (cb: (ev: unknown) => void, once?: boolean) => number)((ev: unknown) => {
         cb(typeof ev === 'object' && ev !== null ? (ev as { payload?: unknown }).payload : undefined);
       });
       const eventId = await invoke('plugin:event|listen', { event, target, handler });
       return () => {
         try {
-          const unreg = w.__TAURI_EVENT_PLUGIN_INTERNALS__?.unregisterListener;
-          if (typeof unreg === 'function') (unreg as (e: string, id: unknown) => void)(event, eventId);
+          if (w.__TAURI_INTERNALS__ === internals) unregister?.(event, eventId);
         } catch {
           // ignore
         }
-        void Promise.resolve(invoke('plugin:event|unlisten', { event, eventId })).catch(() => undefined);
+        if (w.__TAURI_INTERNALS__ === internals) {
+          void Promise.resolve(invoke('plugin:event|unlisten', { event, eventId })).catch(() => undefined);
+        }
       };
     },
   };

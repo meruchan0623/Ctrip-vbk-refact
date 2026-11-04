@@ -1,3 +1,4 @@
+import type { UiServerSearchQuery, UiServerSearchPage, UiSearchHistoryRequest, UiSearchHistoryPage } from './server-search.ts';
 /**
  * Wire protocol between the per-account official-page webview (`acct-*`,
  * running `web-adapter` boot script) and the host. FROZEN 2026-10-30 by the
@@ -134,6 +135,8 @@ export type AdapterRequest =
   | { readonly req_id: string; readonly op: 'notice.watch'; readonly args: Record<string, never> }
   | { readonly req_id: string; readonly op: 'notice.list'; readonly args: { readonly category_id: string; readonly before_ms?: number | null } }
   | { readonly req_id: string; readonly op: 'notice.mark_read'; readonly args: { readonly category_id: string; readonly id: string | null } }
+  | { readonly req_id: string; readonly op: 'im.server_search'; readonly args: UiServerSearchQuery }
+  | { readonly req_id: string; readonly op: 'im.search_history'; readonly args: UiSearchHistoryRequest }
   | { readonly req_id: string; readonly op: 'order.search'; readonly args: { readonly order_id: string } }
   | { readonly req_id: string; readonly op: 'order.create_im_chat'; readonly args: { readonly order_id: string } }
   | { readonly req_id: string; readonly op: 'agent.set_status'; readonly args: { readonly status: AgentStatus } }
@@ -143,6 +146,8 @@ export type AdapterOp = AdapterRequest['op'];
 
 /** Result data per op (reply `data`). */
 export interface AdapterResultMap {
+  'im.server_search': UiServerSearchPage;
+  'im.search_history': UiSearchHistoryPage;
   'clock.sample': { readonly server_ms: number };
   'assistant.scope': { readonly context_revision: string; readonly order_id: string | null };
   'media.target': MediaTarget;

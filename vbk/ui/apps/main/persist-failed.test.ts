@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 /**
  * I-04a send barrier, UI side: `UiAccountSnapshot.persist_failed` pauses the
  * composer, shows the status-bar notice, and the host's `store.persist_failed`
@@ -32,7 +33,7 @@ function composerFixture(persist_failed: boolean | undefined) {
     activeAccount: () => store.get().accounts.accounts[0], activeConv: () => store.get().conversations[0],
     scheduleTranslation() {}, clearTimeout,
     h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
-    t: (key: string) => key, icon: () => null, IC: {}, translationOn: () => false, translationBar: () => null, notWired: (x: unknown) => x,
+    t: translateUi, icon: () => null, IC: {}, translationOn: () => false, translationBar: () => null, notWired: (x: unknown) => x,
     handleSend: () => { sends++; }, subscribeFrame: subscribeBatched, fillHistoryViewport() {}, syncConversationViewport() {}, withMessageAnchor: (_: unknown, redraw: () => void) => redraw(), root: {}, rerender() {},
   };
   env['setDraft'] = new Function(...Object.keys(env), slice('setDraft', 'async function resend(') + '\nreturn setDraft;')(...Object.values(env));
@@ -72,7 +73,7 @@ test('actual composer: persist_failed disables the send button and replaces the 
   assert.equal(blocked.send.props.disabled, true);
   assert.ok(blocked.hint, 'hint carries data-persist-failed');
   assert.equal(blocked.hint!.props.role, 'status');
-  assert.deepEqual(blocked.hint!.children, ['composer.persistFailed']);
+  assert.deepEqual(blocked.hint!.children, [translateUi('composer.persistFailed')]);
   assert.equal(nodes(blocked.tree).find((x) => x.tag === 'textarea')!.props.value, 'kept draft');
   for (const flag of [false, undefined]) {
     const open = composerFixture(flag);
@@ -84,11 +85,11 @@ test('actual composer: persist_failed disables the send button and replaces the 
 test('actual handleSend: refuses with a toast while persist_failed, without calling sendComposer', async () => {
   let composed = 0; const toasts: string[] = [];
   const state = { draft: 'x', attachment: null, prefs: null, accounts: { persist_failed: true } };
-  const env: Record<string, any> = { ...vm, S: () => state, activeConv: () => conv, toast: (m: string) => toasts.push(m), t: (k: string) => k, sendComposer: async () => { composed++; return 'sent'; }, sendText: async () => {}, translateAndSend: async () => {}, sendMediaAttachment: async () => {}, translationOn: () => false, ATTACHMENT_SEND_UNAVAILABLE: 'x' };
+  const env: Record<string, any> = { ...vm, S: () => state, activeConv: () => conv, toast: (m: string) => toasts.push(m), t: translateUi, sendComposer: async () => { composed++; return 'sent'; }, sendText: async () => {}, translateAndSend: async () => {}, sendMediaAttachment: async () => {}, translationOn: () => false, ATTACHMENT_SEND_UNAVAILABLE: 'x' };
   const handleSend = new Function(...Object.keys(env), slice('handleSend', 'function ownedAttachment(') + '\nreturn handleSend;')(...Object.values(env));
   await handleSend();
   assert.equal(composed, 0);
-  assert.deepEqual(toasts, ['bar.persistFailed']);
+  assert.deepEqual(toasts, [translateUi('bar.persistFailed')]);
   state.accounts.persist_failed = false;
   await handleSend();
   assert.equal(composed, 1, 'sending resumes once the host clears the flag');

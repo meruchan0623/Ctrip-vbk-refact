@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -33,7 +34,7 @@ function render(overrides: Record<string, unknown> = {}) {
   const d = { kind: 'invite', scope: { account: {}, gid: 'room' }, busy: false, refreshing: false, submitted: false, onlineOnly: true, roleFilter: '4', selected: ['offline'], candidates: { agents, skill_groups: [], selection_token: 'token', expires_at_ms: 2000 }, known: Object.fromEntries(agents.map((a) => [a.uid, a])), ...overrides };
   const state = { peripheral: d, activeGid: 'room', now: 1000, inviteQuery: '' };
   const peripheral = Object.fromEntries(['select', 'setOnlineOnly', 'setRoleFilter', 'close', 'refresh', 'expand', 'submit'].map((method) => [method, (...args: unknown[]) => calls.push([method, ...args])]));
-  const env = { cx, personDisplayName, peripheral, stillActive: () => true, activeConv: () => ({ title: '会话' }), isDone: () => false,
+  const env = { t: translateUi, cx, personDisplayName, peripheral, stillActive: () => true, activeConv: () => ({ title: '会话' }), isDone: () => false,
     filteredInviteAgents: () => overrides['visibleAgents'] ?? agents, renderMessageAvatar: () => null, document: {},
     h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
     icon: () => null, IC: {}, S: () => state, store: { patch: () => {} }, peripheralWriteView: () => null, openPeripheral: () => {},

@@ -692,6 +692,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-media"
+version = "0.1.0"
+
+[[package]]
 name = "core-net"
 version = "0.1.0"
 dependencies = [
@@ -711,6 +715,10 @@ version = "0.1.0"
 dependencies = [
  "contracts",
 ]
+
+[[package]]
+name = "core-update"
+version = "0.1.0"
 
 [[package]]
 name = "cpufeatures"
@@ -4963,12 +4971,15 @@ dependencies = [
  "core-assistant",
  "core-diag",
  "core-im",
+ "core-media",
  "core-net",
  "core-notify",
  "core-store",
+ "core-update",
  "fs2",
  "image",
  "keyring",
+ "libc",
  "log",
  "objc2",
  "objc2-foundation",

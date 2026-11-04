@@ -39,3 +39,12 @@ test('no attachment and empty draft stays a no-op', async () => {
   assert.equal(await sendComposer({ draft: ' \n ', attachment: null }, async () => { calls++; }), 'empty');
   assert.equal(calls, 0);
 });
+
+
+test('missing, corrupt, pending and loading attachment placeholders block all outbound callbacks until explicit removal', async () => {
+  for (const unavailable of ['missing', 'corrupt', 'pending', 'loading', 'error']) {
+    let outbound = 0; const attachment = { name: 'persisted image.png', unavailable };
+    assert.equal(await sendComposer({ draft: 'must remain unchanged', attachment }, async () => { outbound++; }, async () => { outbound++; }), 'blocked_attachment');
+    assert.equal(outbound, 0);
+  }
+});

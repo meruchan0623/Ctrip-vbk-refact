@@ -230,6 +230,8 @@ export type FeatureFact =
   | { readonly kind: 'queue_notice'; readonly gid: string };
 
 export type AdapterFact =
+  /** Host-only control signal on the existing narrow bridge; never an IM fact. */
+  | { readonly kind: 'bridge_fault'; readonly fault: { readonly boot_epoch: number; readonly reason: 'queue_overflow' | 'delivery_failed' } }
   | { readonly kind: 'message'; readonly fact: MessageFact }
   | { readonly kind: 'conversation'; readonly fact: ConversationFact }
   | { readonly kind: 'conversation_list_sync'; readonly full: boolean; readonly last_update_time_ms: number | null }

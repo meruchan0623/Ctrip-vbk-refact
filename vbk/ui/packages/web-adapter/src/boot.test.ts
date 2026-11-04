@@ -228,3 +228,89 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
   for (const cb of pagehide) cb();
   for (const h of timers) clearTimeout(h);
 });
+
+for (const useApi of [false, true]) {
+  for (const navigateDuringListen of [false, true]) {
+    test(`host bridge cleanup keeps original document (api=${useApi}, duringListen=${navigateDuringListen})`, async () => {
+      const calls: string[] = [];
+      let complete: (value: unknown) => void = () => {};
+      const pending = new Promise<unknown>(resolve => { complete = resolve; });
+      const oldInternals = {
+        metadata: { currentWebview: { label: 'old' } },
+        transformCallback: () => 7,
+        invoke: async (command: string) => {
+          calls.push(`old:${command}`);
+          return command === 'plugin:event|listen' ? pending : null;
+        },
+      };
+      const oldPage: Record<string, unknown> = {
+        __TAURI_INTERNALS__: oldInternals,
+        __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => calls.push('old:local-unregister') },
+        ...(useApi ? { __TAURI__: { event: { listen: async () => {
+          await pending;
+          return () => calls.push('api:dynamic-cleanup');
+        } } } } : {}),
+      };
+      let current = oldPage;
+      const proxy = new Proxy({}, { get: (_target, key) => current[String(key)] });
+      const bridge = resolveHostBridge(proxy);
+      assert.ok(bridge);
+      const listening = bridge.listen('adapter://request', () => {});
+      const nextPage = {
+        __TAURI_INTERNALS__: { ...oldInternals, metadata: { currentWebview: { label: 'new' } } },
+        __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => calls.push('new:local-unregister') },
+      };
+      if (navigateDuringListen) current = nextPage;
+      complete(7);
+      const cleanup = await listening;
+      if (!navigateDuringListen) current = nextPage;
+      calls.length = 0;
+      cleanup();
+      await Promise.resolve();
+      assert.deepEqual(calls, []);
+    });
+  }
+}
+
+test('host bridge captures local unregister function before awaiting registration', async () => {
+  const seen: string[] = [];
+  const page = {
+    __TAURI_INTERNALS__: {
+      metadata: { currentWebview: { label: 'same' } },
+      transformCallback: () => 7,
+      invoke: async () => 7,
+    },
+    __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => { seen.push('original'); } },
+  };
+  const bridge = resolveHostBridge(page);
+  assert.ok(bridge);
+  const listening = bridge.listen('adapter://request', () => {});
+  page.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => { seen.push('replacement'); } };
+  const cleanup = await listening;
+  cleanup();
+  assert.deepEqual(seen, ['original']);
+});
+
+test('host bridge handles synchronous and asynchronous global cleanup failures', async () => {
+  for (const asynchronous of [false, true]) {
+    let calls = 0;
+    const cleanup = () => {
+      calls++;
+      if (asynchronous) return Promise.reject(new Error('host closed'));
+      throw new Error('host closed');
+    };
+    const bridge = resolveHostBridge({
+      __TAURI_INTERNALS__: { metadata: { currentWebview: { label: 'main' } } },
+      __TAURI__: {
+        core: { invoke: async () => null },
+        event: { listen: async () => cleanup },
+      },
+    });
+    assert.ok(bridge);
+    const dispose = await bridge.listen('adapter://request', () => {});
+    assert.doesNotThrow(dispose);
+    // Let rejected cleanup promises settle; an unhandled rejection fails the test.
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(calls, 1);
+  }
+});

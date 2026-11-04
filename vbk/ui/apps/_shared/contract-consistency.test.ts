@@ -66,9 +66,11 @@ test('contract handshake is enforced in HostState::authorize and no module bypas
   const body = state.slice(state.indexOf('pub fn authorize('));
   assert.ok(/contract_check\(label\)/.test(body.slice(0, body.indexOf('\n    }\n'))), 'HostState::authorize calls commands::contract_check');
   const walk = (dir: string): string[] => readdirSync(join(vbk, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}/${e.name}`) : [`${dir}/${e.name}`]));
+  // Test-only helper methods may precede production methods; only the test
+  // module boundary ends this scan, not the first cfg(test) attribute.
   const direct = walk('src-tauri/src')
     .filter((f) => f.endsWith('.rs') && !/(?:_tests|tests)\.rs$/.test(f))
-    .filter((f) => /\.views\s*\.authorize\(/.test(read(f).split('#[cfg(test)]')[0]!));
+    .filter((f) => /\.views\s*\.authorize\(/.test(read(f).split(/#\[cfg\(test\)\]\s*mod\s+\w+\s*\{/)[0]!));
   assert.deepEqual(direct.sort(), ['src-tauri/src/assistant/order_commands.rs', 'src-tauri/src/state.rs']);
   // order_commands captures the ViewContext only after the gated check
   const cap = read('src-tauri/src/assistant/order_commands.rs');

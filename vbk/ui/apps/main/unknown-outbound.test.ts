@@ -1,3 +1,4 @@
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createUnknownOutbound, type UnknownOutboundView } from './unknown-outbound.ts';
@@ -94,7 +95,7 @@ test('actual upload-stage dialog displays stage evidence and disables message-pa
   for (const phase of ['upload_started', 'uploaded']) {
     const f = fixture(); f.list([{ ...meta, phase, write_started: false }]); await f.panel.open();
     const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
-    const env = { h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), stillActive: () => true, unknownOutbound: f.panel, formatDate: () => 'date', formatClock: () => 'time', icon: () => null, IC: {} };
+    const env = { t: translateUi, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), stillActive: () => true, unknownOutbound: f.panel, formatDate: () => 'date', formatClock: () => 'time', icon: () => null, IC: {} };
     const a = source.indexOf('function unknownOutboundDialog('), b = source.indexOf('\nfunction receiveDiagnosticsDialog(', a);
     const dialog = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn unknownOutboundDialog;')(...Object.values(env));
     const tree = dialog({ unknownOutbound: f.view() }), rendered = JSON.stringify(tree);
@@ -107,7 +108,7 @@ test('actual upload-stage dialog displays stage evidence and disables message-pa
 test('actual status-bar -> dialog -> selected latest-page click uses only metadata/page commands and displays no body', async () => {
   const f = fixture();
   const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
-  const env: Record<string, unknown> = { cx, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), stillActive: () => true, unknownOutbound: f.panel, peripheral: { close() {} }, receiveDiagnostics: { close() {} }, formatDate: () => 'synthetic-date', formatClock: () => 'synthetic-time', icon: () => null, IC: {}, t: (key: string) => key, agentView: () => ({ known: false }), netEverConnected: true, netView: () => ({ ok: true }), persistFailedView: () => null, activeAccount: () => ({ context: account }), sel: { mock: false }, clockEl: null };
+  const env: Record<string, unknown> = { cx, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), stillActive: () => true, unknownOutbound: f.panel, peripheral: { close() {} }, receiveDiagnostics: { close() {} }, formatDate: () => 'synthetic-date', formatClock: () => 'synthetic-time', icon: () => null, IC: {}, t: translateUi, agentView: () => ({ known: false }), netEverConnected: true, netView: () => ({ ok: true }), persistFailedView: () => null, activeAccount: () => ({ context: account }), sel: { mock: false }, clockEl: null };
   function actual(name: string, next: string) { const a = source.indexOf(`function ${name}(`), b = source.indexOf(`\nfunction ${next}(`, a); assert.ok(a >= 0 && b > a); return new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + `\nreturn ${name};`)(...Object.values(env)); }
   env['openUnknownOutbound'] = actual('openUnknownOutbound', 'openPeripheral');
   const bar = actual('statusBar', 'unknownOutboundDialog')({ now: 100, alarmCount: 0, clockTrusted: true });

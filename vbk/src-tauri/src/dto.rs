@@ -413,12 +413,30 @@ pub enum AdapterFactDto {
         state: String,
     },
     AuthInvalid,
+    /// Host-only terminal control; never enters the IM core.
+    BridgeFault {
+        fault: BridgeFaultDto,
+    },
     /// Page feature fact (typing / recalled / queue notice). Never enters the
     /// IM core: `adapter_push_fact` validates it and forwards it to the main
     /// window as `feature://fact` (`FeatureFactEventDto`).
     Feature {
         fact: FeatureFactDto,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BridgeFaultReason {
+    QueueOverflow,
+    DeliveryFailed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BridgeFaultDto {
+    pub boot_epoch: u64,
+    pub reason: BridgeFaultReason,
 }
 
 /// Mirrors `FeatureFact` in contracts.ts (adapter side, no account).

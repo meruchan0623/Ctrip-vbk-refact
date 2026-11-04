@@ -16,10 +16,13 @@ import { Endpoints } from './endpoints.ts';
  *   changes the conversation fact is re-emitted (`is_full_snapshot:false`).
  */
 
+import { FactStreams } from '../../ipc/src/contracts.ts';
 import type { AccountContext, AdapterFact, TransportState } from '../../ipc/src/contracts.ts';
 import type { UiMessage } from '../../ipc/src/client.ts';
+import { AdapterCommands } from '../../ipc/src/adapterProtocol.ts';
 import type { AdapterDisplayPayload, DisplayConversation } from '../../ipc/src/adapterProtocol.ts';
 import type { AdapterDeps, SdkMessageEvent, SdkSocketStatus } from './deps.ts';
+import { BridgeQueueError } from './bridge.ts';
 import { createAdapter, type Adapter } from './index.ts';
 import { SoaClient, isBizSuccess, recordOrNull, type SoaOutcome } from './soa.ts';
 import { toConversationFact, type ConversationListItem, type ConversationListResponse, type ConversationListVariant, type VisibilityGate } from './conversationList.ts';
@@ -38,6 +41,7 @@ import { LATEST_CONVERSATION } from './peripheral.ts';
 import { businessHead } from './heads.ts';
 
 export interface PageSessionOptions {
+  readonly bridgeCapacity?: number;
   readonly account: AccountContext;
   readonly selfUid: string;
   readonly productNameCache?: ProductNameCache;
@@ -94,6 +98,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   const displayContexts = new Map<string, string>();
   const sentDisplays = new Map<string, DisplayConversation>();
   let recoverDisplaySnapshot = false;
+  let queueFaulted = false;
   // Only display-sized evidence is retained while the first row is in flight.
   // Never replay a gid-only preview into a newly claimed customer/service.
   const pendingPreviews = new Map<string, { preview: string; time: number; sender: string; room: string; thread: string | null; order: string | null; expires: number }>();
@@ -306,7 +311,10 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       const row = store.row(gid);
       if (!row) continue;
       const fact = toConversationFact(row, false, unread);
-      if (fact) adapter.bridge.push({ kind: 'conversation', fact });
+      if (fact) {
+        try { adapter.bridge.push({ kind: 'conversation', fact }); }
+        catch (error) { if (queueFaulted && error instanceof BridgeQueueError) return; throw error; }
+      }
       const base = toDisplayConversation(row, false, unread, roles.selfUid);
       const uid = store.view(gid)?.customerUid;
       const d = base ? { ...base, title: uid ? roles.profileOf(uid).name ?? base.title : base.title, order: store.order(gid) ?? base.order } : null;
@@ -619,6 +627,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   const boundToCurrentContext = (ticket: CompensationTicket | undefined, gid: string): boolean =>
     !ticket || (ticket.generation === runGeneration && ticket.contexts.has(gid) && ticket.contexts.get(gid) === store.messageContext(gid));
   const onCompensation = (outcome: SoaOutcome<RecentMessagesResponse>, ticket?: unknown): void => {
+    if (!running) return;
     const bound = ticket as CompensationTicket | undefined;
     if (outcome.kind === 'auth_invalid') presence.invalidate();
     diagnostics.compensation.last_outcome_ms = deps.now();
@@ -673,6 +682,21 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
 
   const variants = opts.variants ?? ['plain'];
   const adapter: Adapter = createAdapter(deps, {
+    onTerminal: stopSession,
+    ...(opts.bridgeCapacity !== undefined ? { bridgeCapacity: opts.bridgeCapacity } : {}),
+    onQueueFault: (_diagnostics, error) => {
+      if (queueFaulted) return;
+      queueFaulted = true;
+      stopSession();
+      adapter.bridge.dispose();
+      opts.sdk.dispose();
+      void pushDisplay({ kind: 'transport', state: 'disconnected' });
+      // One out-of-band lifecycle report; it cannot wait behind the full fact
+      // queue. Unknown outcome is never replayed and no SDK reconnect is made.
+      try {
+        void deps.invoke(AdapterCommands.PUSH_FACT, { account: opts.account, stream: FactStreams.TRANSPORT, epoch: opts.initialEpoch, seq: 0, fact: { kind: 'bridge_fault', fault: { boot_epoch: opts.initialEpoch, reason: error.code === 'bridge.delivery_failed' ? 'delivery_failed' : 'queue_overflow' } } }).catch(() => log('bridge queue fault host notification failed; session remains stopped'));
+      } catch { log('bridge queue fault host notification failed; session remains stopped'); }
+    },
     account: opts.account,
     initialBeginMsgTime: opts.beginMsgTime,
     initialEpoch: opts.initialEpoch,
@@ -760,7 +784,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (display) await pushDisplay({ kind: 'conversations', full: false, items: [{ ...display, unread_count: 0 }], removed_gids: [] });
       scheduleUnread([gid]);
     },
-    receiveDiagnostics: () => ({ version: 1, captured_at_ms: deps.now(), running, run_generation: runGeneration, sdk: opts.sdk.receiveDiagnostics ?? null,
+    receiveDiagnostics: () => ({ version: 1, captured_at_ms: deps.now(), running, run_generation: runGeneration, sdk: opts.sdk.receiveDiagnostics ?? null, bridge: adapter.bridge.diagnostics,
       session: { ...diagnostics.session }, compensation: { ...diagnostics.compensation, outcomes: { ...diagnostics.compensation.outcomes }, running: adapter.compensation.running, mode: adapter.compensation.mode, cursor_ms: adapter.compensation.cursor } }),
     captureWriteGuard: () => {
       const generation = runGeneration;
@@ -771,6 +795,33 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   });
 
   let unsubs: (() => void)[] = [];
+  function stopSession(): void {
+    if (!running) return;
+    runGeneration++;
+    running = false;
+    presence.stop();
+    // Revoke queued/in-flight member enrichment before it can start remark
+    // requests or publish profiles after this run has stopped.
+    for (const gid of store.gids()) roles.invalidate(gid);
+    for (const u of unsubs) u();
+    unsubs = [];
+    if (unreadTimer !== null) deps.clearTimeout(unreadTimer);
+    unreadTimer = null;
+    unreadInFlight = null;
+    conversationPending?.done(false);
+    conversationPending = null;
+    pendingUnread.clear();
+    readStatuses?.reset();
+    pendingPreviews.clear();
+    previewVersions.clear();
+    incomingEvidence.clear();
+    incomingVersions.clear();
+    productQueue.clear();
+    productAttempts.clear();
+    previewQueue.clear();
+    previewAttempts.clear();
+    adapter.stop();
+  }
 
   return {
     adapter,
@@ -779,7 +830,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     roles,
     unread,
     start() {
-      if (running) return;
+      if (running || queueFaulted) return;
       runGeneration++;
       running = true;
       sentDisplays.clear();
@@ -791,29 +842,6 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       adapter.start();
       log(`adapter started (epoch ${adapter.bridge.epoch})`);
     },
-    stop() {
-      if (!running) return;
-      runGeneration++;
-      running = false;
-      presence.stop();
-      for (const u of unsubs) u();
-      unsubs = [];
-      if (unreadTimer !== null) deps.clearTimeout(unreadTimer);
-      unreadTimer = null;
-      unreadInFlight = null;
-      conversationPending?.done(false);
-      conversationPending = null;
-      pendingUnread.clear();
-      readStatuses?.reset();
-      pendingPreviews.clear();
-      previewVersions.clear();
-      incomingEvidence.clear();
-      incomingVersions.clear();
-      productQueue.clear();
-      productAttempts.clear();
-      previewQueue.clear();
-      previewAttempts.clear();
-      adapter.stop();
-    },
+    stop: stopSession,
   };
 }

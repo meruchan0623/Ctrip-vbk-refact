@@ -53,6 +53,7 @@ test('review/bridge: envelope keys/value types equal AdapterFactEnvelope; stream
     conversation_list_sync: FactStreams.CONVERSATION,
     transport: FactStreams.TRANSPORT,
     auth_invalid: FactStreams.TRANSPORT,
+    bridge_fault: FactStreams.TRANSPORT,
     feature: FactStreams.FEATURE,
   };
   for (const fact of ALL_FACTS) {
@@ -72,7 +73,7 @@ test('review/bridge: envelope keys/value types equal AdapterFactEnvelope; stream
   await bridge.flush();
 });
 
-test('review/bridge: a host AppError rejection is reported once, never retried, and does not break ordering or seq', async () => {
+test('review/bridge: a host AppError rejection is reported once, never retried, and stops the suffix before any later seq is invoked', async () => {
   const invoked: { cmd: string; seq: number }[] = [];
   const errors: [AdapterFactEnvelope, unknown][] = [];
   let n = 0;
@@ -89,11 +90,9 @@ test('review/bridge: a host AppError rejection is reported once, never retried, 
   bridge.push({ kind: 'auth_invalid' });
   bridge.push({ kind: 'transport', state: 'connected' });
   bridge.push({ kind: 'transport', state: 'disconnected' });
-  await bridge.flush();
+  await assert.rejects(bridge.flush(), { code: 'bridge.delivery_failed' });
   assert.deepEqual(invoked, [
     { cmd: ImCommands.PUSH_FACT, seq: 1 },
-    { cmd: ImCommands.PUSH_FACT, seq: 2 },
-    { cmd: ImCommands.PUSH_FACT, seq: 3 },
   ]);
   assert.equal(errors.length, 1);
   assert.equal(errors[0]?.[0].seq, 1);
@@ -107,7 +106,7 @@ test('review/bridge: a host AppError rejection is reported once, never retried, 
     onPushError: (env) => errors.push([env, null]),
   });
   bridge2.push({ kind: 'auth_invalid' });
-  await bridge2.flush();
+  await assert.rejects(bridge2.flush(), { code: 'bridge.delivery_failed' });
   assert.equal(errors.length, 2);
 });
 

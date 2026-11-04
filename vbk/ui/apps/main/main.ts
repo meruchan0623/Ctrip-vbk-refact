@@ -6,6 +6,11 @@ import { createWorkspaceColumns } from './workspace-columns.ts';
 import { browserStage, createBrowserTabs, webTabView } from './browser-tabs.ts';
 import { voiceBubble } from './voice-bubble.ts';
 import { voicePlayerOf } from './features/voice-player.ts';
+import { createAttachmentDraftBook, unavailableAttachment, type UnavailableAttachment } from './attachment-draft-book.ts';
+import { createRecovery, recoveryView, type RecoveryState } from '../_shared/recovery.ts';
+import { createAnnotationEditor, sameAnnotationOwner, type AnnotationOwner } from './annotation-editor.ts';
+import type { AnnotationSource } from '../../packages/ipc/src/annotation.ts';
+import { createServerSearchPanel, EMPTY_SERVER_SEARCH, serverSearchView, type ServerSearchState } from './server-search.ts';
 import { createAccountNavigation } from './account-navigation.ts';
 import { bannerKey, loadIgnored, saveIgnored, splitCategories, toggleIgnored, withBannerCategory } from './notice-ignore.ts';
 import { createNoticeQuery, EMPTY_NOTICE_QUERY, type NoticeQueryState } from './notice-query.ts';
@@ -21,6 +26,7 @@ import { personDisplayName } from './person-name.ts';
 import { createHistoryLayoutFrames, startHistoryLayout } from './history-layout.ts';
 import { createMessagePane, historyPrefetchDistance, HISTORY_RUNWAY, PIN_THRESHOLD } from './message-pane.ts';
 import { createDraftBook, createIpcDraftPort } from './draft-book.ts';
+import { createDraftFailureNotice, type DraftRetryAction } from './draft-notice.ts';
 import type { MeasuredPane, PaneGeometry, PaneWindow } from './message-pane.ts';
 import { sameWindow } from './message-pane.ts';
 import type { MessageAnchor } from './message-window.ts';
@@ -74,6 +80,7 @@ import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched, subscribeFrame } from '../../packages/ui-kit/src/store.ts';
 import { hasKey, t } from '../../packages/ui-kit/src/i18n.ts';
 import { badgeText, formatClock, formatDate, formatDuration, formatRelativeTime, formatStopwatch } from '../../packages/ui-kit/src/format.ts';
+document.title = t('app.name');
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import {
@@ -105,7 +112,7 @@ import { messageAlignment } from './message-alignment.ts';
 import { mergeMessageProfile, renderMessageAvatar } from './message-profile.ts';
 import { createUnknownOutbound, type UnknownOutboundView } from './unknown-outbound.ts';
 import { createReceiveCounters, createReceiveDiagnostics, receiveDiagnosticsJson, type ReceiveDiagnosticsView } from './receive-diagnostics.ts';
-import { sendComposer, attachmentSendUnavailable, isRegisteredMediaAttachment, ATTACHMENT_SEND_UNAVAILABLE } from './sendComposer.ts';
+import { sendComposer, attachmentSendUnavailable, isRegisteredMediaAttachment, attachmentBlockReason, ATTACHMENT_SEND_UNAVAILABLE } from './sendComposer.ts';
 import { createTsimOrderOpener, orderInfoSection } from './order-info.ts';
 import { createPackagePreview, EMPTY_PACKAGE_PREVIEW, packageIdentity, packageOrderId, packageViewApplies, type PackageContext, type PackagePreviewState } from './package-preview.ts';
 import {
@@ -192,10 +199,10 @@ const workspaceColumns = createWorkspaceColumns();
 const EMOJI = ['😀', '😊', '😂', '🙏', '👍', '👌', '👏', '🎉', '❤️', '😅', '🤔', '😢', '🌹', '☀️', '✈️', '🏨', '🎫', '🚌', '📍', '⏰', '✅', '❗', '💡', '🙂'];
 const TR_TARGETS = OUTBOUND_TARGETS;
 
-type View = 'messages' | 'notifications' | 'order';
+type View = 'messages' | 'notifications' | 'order' | 'search';
 
 interface Attachment {
-  readonly attachment_id: string;
+  readonly attachment_id?: string;
   readonly name: string;
 }
 interface MediaOperation {
@@ -206,15 +213,21 @@ interface MediaOperation {
   readonly status: 'busy' | 'not_submitted' | 'unknown' | 'rejected';
   readonly error: string | null;
 }
-interface AttachmentSelection { readonly account: AccountContext; readonly gid: string; readonly draftVersion: number }
+interface AttachmentSelection { readonly account: AccountContext; readonly gid: string; readonly draftVersion: number; readonly accountVisit?: object | undefined; readonly roomVisit?: object | undefined }
+interface NavigationOperation { readonly targetAccount?: AccountContext; readonly fromVisit?: object | undefined; targetVisit?: object; transferred?: boolean }
 
 interface MainState {
-  readonly navigationOperation?: object;
+  readonly recovery?: RecoveryState;
+  readonly annotationEditing?: boolean;
+  readonly navigationOperation?: NavigationOperation | undefined;
+  readonly accountVisit?: object;
+  readonly roomVisit?: object;
   readonly accounts: UiAccountSnapshot | null;
   readonly accountsError: string | null;
   readonly loginAttempt: string | null;
   readonly view: View;
   readonly agent: AgentDisplayStatus;
+  readonly serverSearch: ServerSearchState;
   readonly agentOperation: object | null;
   readonly agentBusy: boolean;
   /** null until the host has reported the network state. */
@@ -230,6 +243,8 @@ interface MainState {
   readonly messageView?: { readonly scope: string; readonly top: number; readonly height: number; readonly anchor: MessageAnchor | null; readonly rev: number };
   // messages
   readonly conversations: readonly UiConversation[];
+  readonly conversationsError?: string | null;
+  readonly conversationsLoading?: boolean;
   readonly business: BusinessTab;
   readonly tab: ListTab;
   readonly query: string;
@@ -240,7 +255,10 @@ interface MainState {
   readonly drafts: Readonly<Record<string, string>>;
   readonly draftVersion: number;
   readonly quote: UiMessage | null;
-  readonly attachment: Attachment | null;
+  readonly attachment: Attachment | UnavailableAttachment | null;
+  readonly attachmentRestore?: object | null;
+  readonly attachmentRoom?: string | null;
+  readonly attachmentDraftError?: string | null;
   readonly attachmentSelection: AttachmentSelection | null;
   readonly mediaOperation: MediaOperation | null;
   readonly mediaAttempts: Readonly<Record<string, true>>;
@@ -298,6 +316,7 @@ interface MainState {
   readonly banners: readonly BannerItem[];
   readonly bannerHoverAt: number | null;
   readonly toast: string | null;
+  readonly toastAction: { readonly label: string; readonly run: () => void } | null;
 }
 
 const PKG_IDLE = EMPTY_PACKAGE_PREVIEW;
@@ -307,6 +326,7 @@ const initial: MainState = {
   accountsError: null,
   loginAttempt: null,
   view: 'messages',
+  serverSearch: EMPTY_SERVER_SEARCH,
   agent: { status: 'online', confirmed: false },
   agentOperation: null,
   agentBusy: false,
@@ -329,6 +349,9 @@ const initial: MainState = {
   quote: null,
   attachment: null,
   attachmentSelection: null,
+  attachmentRestore: null,
+  attachmentRoom: null,
+  attachmentDraftError: null,
   mediaOperation: null,
   mediaAttempts: {},
   translation: TRANSLATION_IDLE,
@@ -368,6 +391,7 @@ const initial: MainState = {
   banners: [],
   bannerHoverAt: null,
   toast: null,
+  toastAction: null,
 };
 
 const store = createStore<MainState>(initial);
@@ -412,6 +436,7 @@ store.subscribe((s) => {
 });
 window.addEventListener('pagehide', () => { forwardDialog.close(); savedEmojiPanel.close(); conversationContextMenu.close(); });
 
+const historyLayoutFrames = createHistoryLayoutFrames();
 const accountNavigation = createAccountNavigation({
   switch: (account) => invokeSafe(AccountCommands.SWITCH, { account }),
   snapshot: () => invokeQuiet(AccountCommands.SNAPSHOT),
@@ -419,6 +444,104 @@ const accountNavigation = createAccountNavigation({
 });
 const root = document.getElementById('app');
 if (!root) throw new Error('#app missing');
+const attachmentDraftBook = createAttachmentDraftBook({ invoke: (command, payload) => ipc.invoke(command, payload), release: releaseAttachment });
+const recovery = createRecovery({
+  invoke: (command, payload) => ipc.invoke(command, payload),
+  listenReady: ipc.listenReady?.bind(ipc),
+  publish: (recovery) => store.patch({ recovery }),
+  diagnostics: async () => { await ipc.invoke(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); return 'opened'; },
+});
+void recovery.connect();
+const refreshRecovery = () => void recovery.refresh();
+window.addEventListener('focus', refreshRecovery);
+window.addEventListener('pagehide', () => { recovery.dispose(); window.removeEventListener('focus', refreshRecovery); }, { once: true });
+
+
+let annotationSession: { source: UiAttachment; previous: Attachment | null; owner: AnnotationOwner; isNew: boolean; saved?: UiAttachment } | null = null;
+let annotationPortal: HTMLElement | null = null;
+let annotationReturnFocus: HTMLElement | null = null;
+function annotationContext(): AnnotationOwner | null {
+  const s = S(), selection = s.attachmentSelection, conv = activeConv(s);
+  if (annotationSession && s.attachment !== annotationSession.previous) return null;
+  if (!selection || selection.accountVisit !== s.accountVisit || selection.roomVisit !== s.roomVisit || !conv || !composerInputContext(s) || isDone(conv) || s.draftVersion !== selection.draftVersion || conv.gid !== selection.gid || !stillActive(selection.account)) return null;
+  return { account: selection.account, gid: selection.gid, revision: `${conv.assistant_context_revision ?? ''}:${conv.status}`, draftVersion: selection.draftVersion, operationToken: selection };
+}
+const annotationEditor = createAnnotationEditor({
+  current: annotationContext,
+  source: (attachment, owner) => ipc.invoke<AnnotationSource>(UiCommands.MEDIA_ANNOTATION_SOURCE, { account: owner.account, gid: owner.gid, attachment_id: attachment.attachment_id }),
+  apply: async ({ attachment, owner, source, annotations, png_base64, width, height }) => {
+    const result = await ipc.invoke<unknown>(UiCommands.MEDIA_ANNOTATION_APPLY, { account: owner.account, gid: owner.gid, attachment_id: attachment.attachment_id, source_hash: source.source_hash, annotations, png_base64, width, height });
+    if (!isRegisteredMediaAttachment(result)) throw new Error('invalid annotated attachment');
+    return result;
+  },
+  release: releaseAttachment,
+  save: async (attachment) => {
+    const result = await ipc.invoke<unknown>(UiCommands.MEDIA_SAVE_ATTACHMENT, { account: attachment.owner.account, gid: attachment.owner.gid, attachment_id: attachment.attachment_id });
+    if (!result || typeof result !== 'object' || typeof (result as { saved?: unknown }).saved !== 'boolean') throw new Error('invalid image save result');
+    return (result as { saved: boolean }).saved;
+  },
+  publish: (node) => {
+    annotationPortal?.remove(); annotationPortal = node;
+    if (node) { annotationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null; document.body.appendChild(node); }
+    store.patch({ annotationEditing: !!node });
+    if (!node) { const focus = annotationReturnFocus; annotationReturnFocus = null; if (focus?.isConnected) focus.focus({ preventScroll: true }); }
+  },
+  onCancel: (source, owner) => {
+    const session = annotationSession;
+    if (!session || session.owner.operationToken !== owner.operationToken) return;
+    annotationSession = null;
+    if (S().attachmentSelection === owner.operationToken) store.patch({ attachmentSelection: null, annotationEditing: false });
+    if (session.isNew) void releaseAttachment(source);
+  },
+  onConfirm: async (attachment, _source, owner) => {
+    const session = annotationSession;
+    if (!session || !sameAnnotationOwner(owner, annotationContext()) || !ownedAttachment(attachment, owner.account, owner.gid) || attachment.kind !== 'image' || attachment.mime !== 'image/png') return false;
+    const saved = await persistSelectedAttachment(attachment, owner.operationToken as AttachmentSelection);
+    if (!saved || annotationSession !== session || !sameAnnotationOwner(owner, annotationContext())) return false;
+    session.saved = saved; return true;
+  },
+  onCommit: (_attachment, source, owner) => {
+    const session = annotationSession;
+    if (!session?.saved || !sameAnnotationOwner(owner, annotationContext())) {
+      if (session?.owner.operationToken === owner.operationToken) {
+        annotationSession = null;
+        if (session.isNew) void releaseAttachment(source);
+        if (S().attachmentSelection === owner.operationToken) store.patch({ attachmentSelection: null, annotationEditing: false });
+      }
+      return false;
+    }
+    annotationSession = null;
+    store.patch({ attachment: session.saved, attachmentSelection: null, annotationEditing: false, attachmentDraftError: null, mediaOperation: null });
+    void releaseAttachment(source);
+    if (session.previous && session.previous !== source) void releaseAttachment(session.previous);
+    focusComposer(); return true;
+  },
+});
+store.subscribe(() => annotationEditor.sync());
+async function openAttachmentEditor(source: UiAttachment, selection: AttachmentSelection, isNew: boolean): Promise<void> {
+  const owner = annotationContext();
+  if (!owner || owner.operationToken !== selection || source.mime !== 'image/png') {
+    if (S().attachmentSelection === selection) store.patch({ attachmentSelection: null });
+    if (isNew) await releaseAttachment(source);
+    toast(t('attachment.pngUnchanged')); return;
+  }
+  annotationSession = { source, previous: S().attachment, owner, isNew };
+  closeCommerce(); peripheral.close();
+  const opened = await annotationEditor.open(source, owner);
+  if (!opened && !annotationEditor.active() && annotationSession?.owner.operationToken === selection) {
+    annotationSession = null;
+    if (S().attachmentSelection === selection) store.patch({ attachmentSelection: null });
+    if (isNew) await releaseAttachment(source);
+  }
+}
+async function editSelectedAttachment(): Promise<void> {
+  const s = S(), source = s.attachment, conv = activeConv(s), account = activeAccount(s)?.context;
+  if (!source || !isRegisteredMediaAttachment(source) || !conv || !account || s.attachmentSelection || s.annotationEditing || isDone(conv) || (s.mediaOperation && s.mediaOperation.status !== 'not_submitted')) return;
+  if (source.mime !== 'image/png') { toast(t('attachment.pngUnchanged')); return; }
+  const selection: AttachmentSelection = { account: { ...account }, gid: conv.gid, draftVersion: s.draftVersion, accountVisit: s.accountVisit, roomVisit: s.roomVisit };
+  store.patch({ attachmentSelection: selection }); await openAttachmentEditor(source, selection, false);
+}
+
 
 const memberPreload = createMemberPreload({
   invoke: (command, payload) => ipc.invoke(command, payload),
@@ -532,7 +655,7 @@ function openPeripheral(kind: PeripheralKind): void {
   if (activeAccount() && conv) {
     if (kind !== 'scripts' && isDone(conv)) {
       peripheral.close();
-      toast('会话已结束，无法管理成员');
+      toast(t("main.openPeripheral.membersFinished"));
       return;
     }
     if (kind === 'scripts') { peripheral.close(); recommendations.close(); void quickReplies.open(); return; }
@@ -597,9 +720,15 @@ function stillActive(account: AccountContext): boolean {
   return !!acc && sameAccount(acc.context, account) && acc.context.session_generation === account.session_generation;
 }
 
-/** Per-account state that must not leak across an account switch (navigation itself is kept). */
+/** Each account reset starts a new visit and revokes old navigation/publication tickets. */
 const ACCOUNT_SCOPED_RESET = {
+  get accountVisit() { return {}; },
+  get roomVisit() { return {}; },
+  get navigationOperation() { return {}; },
+  serverSearch: EMPTY_SERVER_SEARCH,
   conversations: [],
+  conversationsError: null,
+  conversationsLoading: false,
   business: 'customer',
   tab: 'doing',
   query: '',
@@ -611,6 +740,9 @@ const ACCOUNT_SCOPED_RESET = {
   quote: null,
   attachment: null,
   attachmentSelection: null,
+  attachmentRestore: null,
+  attachmentRoom: null,
+  attachmentDraftError: null,
   mediaOperation: null,
   mediaAttempts: {},
   translation: TRANSLATION_IDLE,
@@ -637,9 +769,24 @@ function announce(text: string): void {
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function toast(text: string): void {
   announce(text);
-  store.patch({ toast: text });
+  store.patch({ toast: text, toastAction: null });
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { announce(''); store.patch({ toast: null }); }, 2600);
+  toastTimer = setTimeout(() => { announce(''); store.patch({ toast: null, toastAction: null }); }, 2600);
+}
+function showDraftSyncNotice(retry: DraftRetryAction): void {
+  const text = t('mainRuntime.draftSyncFailed');
+  announce(text);
+  store.patch({ toast: text, toastAction: { label: t('mainRuntime.retryDraftSync'), run: () => { void retry(); } } });
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = null;
+}
+function runToastAction(action: NonNullable<MainState['toastAction']>): void {
+  if (S().toastAction !== action) return;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = null;
+  announce('');
+  store.patch({ toast: null, toastAction: null });
+  action.run();
 }
 
 /** User-initiated command: a failure is shown. */
@@ -683,7 +830,7 @@ function notWired(control: HTMLElement, reason: string): HTMLElement {
 async function loadAccounts(): Promise<void> {
   try {
     const snap = await ipc.invoke<unknown>(AccountCommands.SNAPSHOT);
-    if (!isUiAccountSnapshot(snap)) throw new Error('account_snapshot 返回格式不正确');
+    if (!isUiAccountSnapshot(snap)) throw new Error(t("main.loadAccounts.invalidAccountSnapshot"));
     store.patch({ accounts: snap, accountsError: null });
   } catch (e) {
     store.patch({ accounts: { accounts: [], active_account_id: null, max_accounts: 16 }, accountsError: errorMessage(e) });
@@ -698,8 +845,9 @@ async function loadForActiveAccount(): Promise<void> {
   stopAccountLoadObservation?.();
   stopAccountLoadObservation = null;
   const acc = activeAccount();
-  if (!acc) return;
+  if (!acc) { store.patch({ conversationsLoading: false, conversationsError: null }); return; }
   const account = acc.context;
+  store.patch({ conversationsLoading: true, conversationsError: null });
   void noticeQuery.categories();
   const agentAtRead = S().agent;
   const belongs = (c: UiConversation): boolean => sameAccount(c.account, account) && c.account.session_generation === account.session_generation;
@@ -724,17 +872,31 @@ async function loadForActiveAccount(): Promise<void> {
     ]);
     if (ticket !== accountLoadTicket || !stillActive(account)) return;
     const s = S();
-    const snapshot = Array.isArray(convs) ? convs.filter(isUiConversation).filter(belongs) : [];
+    if (!Array.isArray(convs) || convs.some(c => !isUiConversation(c))) {
+      // A failed read is not an authoritative empty snapshot. Keep only this
+      // account generation's latest cache, including realtime edits/removals.
+      const conversations = s.conversations.filter(belongs);
+      const lostConversation = !!s.activeGid && !conversations.some(c => c.gid === s.activeGid);
+      if (lostConversation && s.attachment) void releaseAttachment(s.attachment);
+      store.patch({ conversations, conversationsLoading: false, conversationsError: conversations.length ? t("main.loadForActiveAccount.listFailedRetained") : t("main.loadForActiveAccount.listFailed"),
+        agent: s.agent === agentAtRead && isUiAgentStatus(agent) ? mergeAgentStatus(s.agent, agent) : s.agent,
+        net: isUiNetStatus(net) ? noteNet(net) : s.net,
+        activeGid: lostConversation ? null : s.activeGid,
+        ...(lostConversation ? { attachment: null, attachmentSelection: null, attachmentRestore: null, attachmentRoom: null, attachmentDraftError: null, mediaOperation: null } : {}),
+      });
+      return;
+    }
+    const snapshot = convs.filter(isUiConversation).filter(belongs);
     const conversations = snapshot.filter(c => !changes.has(c.gid));
     for (const c of changes.values()) if (c) conversations.push(c);
     const lostConversation = !!s.activeGid && !conversations.some(c => c.gid === s.activeGid);
     if (lostConversation && s.attachment) void releaseAttachment(s.attachment);
     store.patch({
-      conversations,
+      conversations, conversationsLoading: false, conversationsError: null,
       agent: s.agent === agentAtRead && isUiAgentStatus(agent) ? mergeAgentStatus(s.agent, agent) : s.agent,
       net: isUiNetStatus(net) ? noteNet(net) : s.net,
       activeGid: lostConversation ? null : s.activeGid,
-      ...(lostConversation ? { attachment: null, attachmentSelection: null, mediaOperation: null } : {}),
+      ...(lostConversation ? { attachment: null, attachmentSelection: null, attachmentRestore: null, attachmentRoom: null, attachmentDraftError: null, mediaOperation: null } : {}),
     });
     // Opening a conversation can acknowledge unread messages. Background account
     // refresh must wait for an explicit user selection instead of opening row one.
@@ -778,7 +940,17 @@ function applyAccountSnapshot(snap: UiAccountSnapshot): void {
     receiveDiagnostics.close();
     unknownOutbound.close();
     noticeQuery.reset();
-    store.patch({ accounts: snap, accountsError: null, loginAttempt, ...ACCOUNT_SCOPED_RESET });
+    serverSearchPanel.reset();
+    const navigation = S().navigationOperation;
+    const transfer = navigation?.targetAccount && !navigation.transferred && navigation.fromVisit === S().accountVisit
+      && nextAccount?.state === 'online' && sameAccount(navigation.targetAccount, nextAccount.context)
+      && navigation.targetAccount.session_generation === nextAccount.context.session_generation;
+    const accountVisit = {};
+    // An explicit account-selection intent may cross its own first host
+    // transition. A second transition, including A→B→A, revokes it.
+    if (transfer) { navigation.transferred = true; navigation.targetVisit = accountVisit; }
+    store.patch({ accounts: snap, accountsError: null, loginAttempt, ...ACCOUNT_SCOPED_RESET, accountVisit,
+      ...(transfer ? { navigationOperation: navigation } : {}) });
     void loadForActiveAccount();
   } else {
     store.patch({ accounts: snap, accountsError: null, loginAttempt });
@@ -787,12 +959,21 @@ function applyAccountSnapshot(snap: UiAccountSnapshot): void {
 
 async function switchAccount(a: UiAccount): Promise<void> {
   if (a.state === 'logging_in') return;
-  const navigationOperation = {};
+  const before = S(), source = before.accounts?.accounts.find(item => item.context.account_id === before.accounts?.active_account_id)?.context;
+  const navigationOperation: NavigationOperation = { targetAccount: { ...a.context }, fromVisit: before.accountVisit };
   store.patch({ navigationOperation });
+  const sourceCurrent = () => S().accountVisit === before.accountVisit && S().roomVisit === before.roomVisit && S().activeGid === before.activeGid
+    && S().accounts?.active_account_id === before.accounts?.active_account_id
+    && (!source || S().accounts?.accounts.some(item => item.context.account_id === source.account_id && item.context.environment === source.environment && item.context.session_generation === source.session_generation));
+  const current = () => S().navigationOperation === navigationOperation && (sourceCurrent()
+    || (navigationOperation.transferred === true && S().accountVisit === navigationOperation.targetVisit));
+  const currentAttachment = before.attachment;
+  if (a.context.account_id !== before.accounts?.active_account_id && currentAttachment && isRegisteredMediaAttachment(currentAttachment) && !currentAttachment.lease_id && !await persistAttachmentBeforeLeave()) return;
+  if (!current()) return;
   // Staying on this tab also cancels older pending navigation without dropping its conversation or draft.
   if (a.context.account_id === S().accounts?.active_account_id && !accountNavigation.pending()) return;
   const snap = await accountNavigation.select(a.context);
-  if (S().navigationOperation === navigationOperation && isUiAccountSnapshot(snap)) applyAccountSnapshot(snap);
+  if (current() && isUiAccountSnapshot(snap)) applyAccountSnapshot(snap);
 }
 
 /** `account_start_login` → `{attempt_id}`; the host opens the login window and publishes the account itself. */
@@ -859,10 +1040,14 @@ async function setAgentStatus(status: AgentStatus): Promise<void> {
 
 /** `reveal`: switch to the messages view (user action); the automatic first-open keeps the current view. */
 async function openConversation(gid: string, reveal = true, refreshContext = true): Promise<void> {
-  if (reveal) store.patch({ navigationOperation: {} });
   const acc = activeAccount();
   if (!acc) return;
-  const s = S();
+  if (reveal && accountNavigation.pending()) void switchAccount(acc);
+  const navigationOperation = reveal ? {} : S().navigationOperation;
+  if (reveal) store.patch({ navigationOperation });
+  const s = S(), accountVisit = s.accountVisit, roomVisit = s.roomVisit;
+  const currentAccount = () => S().accountVisit === accountVisit && stillActive(acc.context);
+  const currentNavigation = () => currentAccount() && S().navigationOperation === navigationOperation;
   const readContextRevision = s.conversations.find(c => c.gid === gid)?.assistant_context_revision;
   if (reveal) visibleReads.retry(acc.context, gid, readContextRevision);
   const previousHistory = s.history[gid];
@@ -876,25 +1061,32 @@ async function openConversation(gid: string, reveal = true, refreshContext = tru
   if (s.activeGid === gid) {
     store.patch({ view, ctxMenu: null, banners });
     if (S().history[gid]?.firstPage === 'loaded') {
+      const room = JSON.stringify([acc.context.environment, acc.context.account_id, acc.context.session_generation, gid, readContextRevision ?? '']);
+      if (S().attachmentRoom !== room) void restoreRoomAttachment(acc.context, gid, room);
       return;
     }
   } else {
     closeCommerce();
     peripheral.close();
-    if (s.attachment) void releaseAttachment(s.attachment);
-    store.patch({ activeGid: gid, view, banners, draft: s.drafts[gid] ?? s.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, attachmentSelection: null, mediaOperation: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
+    if (s.attachment && isRegisteredMediaAttachment(s.attachment) && !s.attachment.lease_id && !await persistAttachmentBeforeLeave()) return;
+    if (!currentNavigation() || S().roomVisit !== roomVisit || S().activeGid !== s.activeGid || S().draftVersion !== s.draftVersion || S().view !== s.view) return;
+    const leaving = S(), departingAttachment = leaving.attachment;
+    if (departingAttachment) void releaseAttachment(departingAttachment);
+    store.patch({ roomVisit: {}, attachmentRoom: null, attachmentRestore: null, attachmentDraftError: null, activeGid: gid, view, banners: leaving.banners.filter((b) => !(b.gid === gid && sameAccount(b.account, acc.context))), draft: leaving.drafts[gid] ?? leaving.conversations.find((c) => c.gid === gid)?.draft ?? '', draftVersion: leaving.draftVersion + 1, quote: null, attachment: null, attachmentSelection: null, mediaOperation: null, translation: TRANSLATION_IDLE, pkg: PKG_IDLE, pkgHot: false, hotOrder: false, ctxMenu: null, emoOpen: false });
   }
+  const attachmentRoom = JSON.stringify([acc.context.environment, acc.context.account_id, acc.context.session_generation, gid, readContextRevision ?? '']);
+  if (S().attachmentRoom !== attachmentRoom) void restoreRoomAttachment(acc.context, gid, attachmentRoom);
   if (S().history[gid]?.firstPage === 'loading' || S().history[gid]?.firstPage === 'loaded') return;
   const request = { hasMore: false, beforeMs: null, busy: true, firstPage: 'loading' as const, readContextRevision };
   store.patch({ history: { ...S().history, [gid]: request } });
   const read = () => readHistoryPage(invokeQuiet<UiMessagePage>(UiCommands.IM_MESSAGE_PAGE, { account: acc.context, gid, ...(readContextRevision ? { expected_context_revision: readContextRevision } : {}) }));
   let page = await read();
   // A first-open RPC can race adapter readiness. Recover once before asking the user.
-  if (!page && stillActive(acc.context) && S().history[gid] === request && S().activeGid === gid
+  if (!page && currentAccount() && S().history[gid] === request && S().activeGid === gid
     && S().conversations.find(c => c.gid === gid)?.assistant_context_revision === readContextRevision) {
     page = await read();
   }
-  if (!stillActive(acc.context) || S().history[gid] !== request) return;
+  if (!currentAccount() || S().history[gid] !== request) return;
   if (S().conversations.find(c => c.gid === gid)?.assistant_context_revision !== readContextRevision) {
     // Startup can learn the room/service identity while the first page is in flight.
     // Discard that page and read against the new identity once, without another click.
@@ -956,9 +1148,10 @@ async function navigateToAccount(account: AccountContext): Promise<(() => boolea
   const snap = S().accounts;
   const target = snap?.accounts.find((a) => a.context.account_id === account.account_id && a.context.environment === account.environment);
   if (!target || target.context.session_generation !== account.session_generation) return null; // stale generation or unknown account
-  const navigationOperation = {};
+  const navigationOperation: NavigationOperation = { targetAccount: { ...target.context }, fromVisit: S().accountVisit };
   store.patch({ navigationOperation });
-  const currentNavigation = () => S().navigationOperation === navigationOperation;
+  const currentNavigation = () => S().navigationOperation === navigationOperation
+    && S().accountVisit === (navigationOperation.transferred ? navigationOperation.targetVisit : navigationOperation.fromVisit);
   if (snap?.active_account_id !== target.context.account_id || accountNavigation.pending()) {
     const next = await accountNavigation.select(target.context);
     if (!currentNavigation() || !isUiAccountSnapshot(next)) return null;
@@ -1025,22 +1218,26 @@ function upsertConversation(c: UiConversation): void {
   // Conversation previews do not prove that their latest message has been displayed.
 }
 
-async function sendText(text: string, original: string | null): Promise<void> {
+async function sendText(text: string, original: string | null, retry?: UiMessage): Promise<void> {
+  if (S().annotationEditing || S().attachmentSelection || S().attachmentDraftError || S().attachmentRestore) return;
   if (attachmentSendUnavailable(S().attachment)) { toast(ATTACHMENT_SEND_UNAVAILABLE); return; }
   const acc = activeAccount();
   const conv = activeConv();
   // 已结束的会话照常发送：适配器在提交前重新开启会话（evidence 49）；只有转出的会话锁定。
   if (!acc || !conv || composerLocked(conv)) return;
-  const s = S();
+  const s = S(), accountVisit = s.accountVisit;
+  if (persistFailed(s.accounts)) { toast(t('bar.persistFailed')); return; }
+  const previous = s.messages[conv.gid] ?? [];
+  if (retry && (retry.gid !== conv.gid || !previous.includes(retry))) return;
   const localId = nextLocalId(Date.now());
   const quote = selectedQuoteReference(s.quote, s.messages[conv.gid] ?? [], conv.gid);
   const local: QuotedUiMessage = { gid: conv.gid, message_id: null, local_id: localId, create_time_ms: Date.now(), sender_role: 'merchant_self', kind: 'text', text, translation: null, original, quote: quote?.target_id ?? null, quote_target_id: quote?.target_id ?? null, order_id: null, disposition: null };
-  store.patch({ messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] }, drafts: { ...s.drafts, [conv.gid]: '' }, draft: '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: { ...TRANSLATION_IDLE, gid: s.translation.gid, target: s.translation.target } });
+  store.patch({ messages: { ...s.messages, [conv.gid]: [...(retry ? previous.filter(message => message !== retry) : previous), local] }, drafts: { ...s.drafts, [conv.gid]: '' }, draft: '', draftVersion: s.draftVersion + 1, quote: null, attachment: null, translation: { ...TRANSLATION_IDLE, gid: s.translation.gid, target: s.translation.target } });
   const result = await settleAccountSend(acc.context,
     () => ipc.invoke<SendDisposition>(UiCommands.IM_SEND_TEXT, { account: acc.context, gid: conv.gid, local_id: localId, text, original: original ?? undefined, quote_id: quote?.target_id }),
     () => activeAccount()?.context ?? null);
   // The helper guards success and failure; re-check at the actual projection boundary too.
-  if (result.kind === 'stale' || !stillActive(acc.context)) return;
+  if (result.kind === 'stale' || S().accountVisit !== accountVisit || !stillActive(acc.context)) return;
   if (result.kind === 'result') {
     const d = result.value;
     upsertMessage({ ...local, disposition: d, message_id: d.kind === 'confirmed' ? d.server_message_id : null });
@@ -1060,7 +1257,8 @@ function translationOn(s: MainState, conv: UiConversation): boolean {
 async function handleSend(): Promise<void> {
   const s = S();
   const conv = activeConv(s);
-  if (!conv || composerLocked(conv)) return;
+  // A pending replacement picker never blocks sending the current attachment; sending clears the token.
+  if (!conv || composerLocked(conv) || s.annotationEditing || (s.attachmentSelection && !isRegisteredMediaAttachment(s.attachment)) || s.attachmentDraftError || s.attachmentRestore) return;
   // Send barrier (I-04a): keyboard path too (the button is already disabled); the draft is kept.
   if (persistFailed(s.accounts)) { toast(t('bar.persistFailed')); return; }
   const result = await sendComposer({ draft: s.draft, attachment: s.attachment }, async (text) => {
@@ -1084,7 +1282,7 @@ async function handleSend(): Promise<void> {
     }
     await sendText(text, null);
   }, (attachment) => sendMediaAttachment(attachment));
-  if (result === 'blocked_attachment') toast(ATTACHMENT_SEND_UNAVAILABLE);
+  if (result === 'blocked_attachment') toast(attachmentBlockReason(s.attachment));
 }
 
 function ownedAttachment(attachment: unknown, account: AccountContext, gid: string): attachment is UiAttachment {
@@ -1097,12 +1295,14 @@ function mediaOperationCurrent(operation: MediaOperation): boolean {
 }
 
 async function sendMediaAttachment(attachment: UiAttachment): Promise<void> {
-  const s = S(), account = activeAccount(s)?.context, conv = activeConv(s);
-  if (conv && isDone(conv)) { toast('会话已结束：请先发送文字消息重新激活会话，再发送附件。'); return; }
-  if (!account || !conv || isDone(conv) || s.attachment !== attachment || !ownedAttachment(attachment, account, conv.gid)) { toast('附件不属于当前会话，请重新选择。'); return; }
+  // A media send clears attachmentSelection below, which invalidates a still-pending picker.
+  if (S().annotationEditing || S().attachmentDraftError || S().attachmentRestore) return;
+  const s = S(), accountVisit = s.accountVisit, account = activeAccount(s)?.context, conv = activeConv(s);
+  if (conv && isDone(conv)) { toast(t('attachment.finished')); return; }
+  if (!account || !conv || isDone(conv) || s.attachment !== attachment || !ownedAttachment(attachment, account, conv.gid)) { toast(t('attachment.wrongOwner')); return; }
   if (s.mediaOperation && s.mediaOperation.status !== 'not_submitted') return;
   const attemptKey = JSON.stringify([account.environment, account.account_id, account.session_generation, conv.gid, attachment.attachment_id]);
-  if (s.mediaAttempts?.[attemptKey]) { toast('该附件已有发送操作，请核对原记录，勿重复发送。'); return; }
+  if (s.mediaAttempts?.[attemptKey]) { toast(t('attachment.alreadyAttempted')); return; }
   const operation: MediaOperation = { attachment, localId: nextLocalId(Date.now()), draftVersion: s.draftVersion, stage: 'prepare', status: 'busy', error: null };
   const local: UiMessage = { gid: conv.gid, local_id: operation.localId, message_id: null, sender_role: 'merchant_self', kind: attachment.kind, media_filename: attachment.name, text: '', create_time_ms: Date.now(), translation: null, original: null, quote: null, order_id: null, disposition: null };
   store.patch({ mediaOperation: operation, mediaAttempts: { ...s.mediaAttempts, [attemptKey]: true }, attachmentSelection: null, messages: { ...s.messages, [conv.gid]: [...(s.messages[conv.gid] ?? []), local] } });
@@ -1117,17 +1317,20 @@ async function sendMediaAttachment(attachment: UiAttachment): Promise<void> {
     if (result.kind === 'rejected' && (d?.kind !== 'rejected' || typeof d.code !== 'string' || typeof d.reason !== 'string')) throw new Error('invalid media rejection');
   } catch {
     // IPC failure does not prove whether upload/submission started. Never create a retry.
-    result = { stage: 'send', kind: 'unknown', write_started: true, disposition: { kind: 'unknown' }, message: null, error: '结果未知，请核对消息记录，勿重复发送。' };
+    result = { stage: 'send', kind: 'unknown', write_started: true, disposition: { kind: 'unknown' }, message: null, error: t('attachment.unknown') };
   }
   if (result.replay_only === true) {
-    if (!stillActive(account)) return;
+    if (S().accountVisit !== accountVisit || !stillActive(account)) return;
     // This is evidence about an older intent, never proof that the current attachment was sent.
     store.patch({ messages: { ...S().messages, [conv.gid]: (S().messages[conv.gid] ?? []).filter(m => m !== local) } });
-    if (mediaOperationCurrent(operation)) store.patch({ mediaOperation: { ...operation, status: 'unknown', error: '已有意图记录，仅供核验；当前附件未发送。请核对原记录，勿重复发送。' } });
+    if (mediaOperationCurrent(operation)) store.patch({ mediaOperation: { ...operation, status: 'unknown', error: t('attachment.existingIntent') } });
     return;
   }
-  if (result.kind === 'confirmed' && result.disposition?.kind === 'confirmed') void releaseAttachment(attachment);
-  if (!stillActive(account)) return;
+  if (result.kind === 'confirmed' && result.disposition?.kind === 'confirmed') {
+    if (attachment.lease_id) attachmentDraftBook.invalidateVersion({ account, gid: conv.gid });
+    void releaseAttachment(attachment);
+  }
+  if (S().accountVisit !== accountVisit || !stillActive(account)) return;
   const projected = (S().messages[conv.gid] ?? []).some(m => m.local_id === operation.localId && m !== local);
   const responseConflict = !result.write_started && projected;
   const notSubmitted = result.kind === 'not_submitted' && !result.write_started && !responseConflict;
@@ -1146,9 +1349,9 @@ async function sendMediaAttachment(attachment: UiAttachment): Promise<void> {
   if (result.kind === 'confirmed' && result.disposition?.kind === 'confirmed') store.patch({ attachment: null, mediaOperation: null });
   else {
     const status = responseConflict ? 'unknown' : notSubmitted ? 'not_submitted' : result.kind === 'rejected' ? 'rejected' : 'unknown';
-    const error = responseConflict ? '附件返回与已收到的消息事件不一致，请核对原记录，勿重复发送。'
-      : !result.write_started && !notSubmitted ? `${result.kind === 'rejected' ? '附件上传被拒绝' : '附件上传结果待核对'}，消息尚未提交；勿重复上传或发送。${result.error ? ` ${result.error}` : ''}`
-      : result.error ?? (notSubmitted ? '附件未发送，可检查后重试。' : result.kind === 'rejected' ? '附件发送被拒绝。' : '结果未知，请核对消息记录，勿重复发送。');
+    const error = responseConflict ? t('attachment.responseConflict')
+      : !result.write_started && !notSubmitted ? (result.kind === 'rejected' ? t('attachment.uploadRejected', { detail: result.error ? ` ${result.error}` : '' }) : t('attachment.uploadUnknown', { detail: result.error ? ` ${result.error}` : '' }))
+      : result.error ?? (notSubmitted ? t('attachment.notSubmitted') : result.kind === 'rejected' ? t('attachment.rejected') : t('attachment.unknown'));
     store.patch({ mediaOperation: { ...operation, stage: result.stage, status, error } });
   }
 }
@@ -1266,42 +1469,125 @@ function setDraft(value: string): void {
 }
 
 async function resend(m: UiMessage): Promise<void> {
-  if (m.kind !== 'text') { toast('媒体消息不能按文字重发，请核对发送结果。'); return; }
-  const s = S();
-  const list = s.messages[m.gid] ?? [];
-  store.patch({ messages: { ...s.messages, [m.gid]: list.filter((x) => x !== m) } });
-  await sendText(m.text, m.original);
+  if (m.kind !== 'text') { toast(t("main.resend.mediaResendBlocked")); return; }
+  // All send barriers run before replacing the exact failed row with a new local intent.
+  await sendText(m.text, m.original, m);
 }
 
 async function releaseAttachment(attachment: Attachment | null): Promise<void> {
   if (isRegisteredMediaAttachment(attachment)) await invokeQuiet(UiCommands.MEDIA_RELEASE, { account: attachment.owner.account, gid: attachment.owner.gid, attachment_id: attachment.attachment_id });
 }
 
-async function acceptAttachment(request: (args: { account: AccountContext; gid: string }) => Promise<unknown>, accepts: (kind: string) => boolean): Promise<UiAttachment | null> {
-  const s = S(), account = activeAccount(s)?.context, conv = activeConv(s);
-  if (!account || !conv || isDone(conv) || (s.mediaOperation && s.mediaOperation.status !== 'not_submitted')) return null;
-  const selection: AttachmentSelection = { account: { ...account }, gid: conv.gid, draftVersion: s.draftVersion };
+async function restoreRoomAttachment(account: AccountContext, gid: string, room: string): Promise<void> {
+  if (!stillActive(account) || S().activeGid !== gid) return;
+  const before = S(), accountVisit = before.accountVisit, roomVisit = before.roomVisit, navigationOperation = before.navigationOperation;
+  const visitCurrent = () => S().accountVisit === accountVisit && S().roomVisit === roomVisit && stillActive(account) && S().activeGid === gid;
+  const previous = before.attachment;
+  if (previous && isRegisteredMediaAttachment(previous) && !previous.lease_id && !await persistAttachmentBeforeLeave()) return;
+  if (!visitCurrent() || S().navigationOperation !== navigationOperation) return;
+  const released = S().attachment, revision = activeConv()?.assistant_context_revision;
+  const request = {}, placeholder = unavailableAttachment({ account, gid }, 'loading');
+  store.patch({ attachmentRestore: request, attachmentRoom: room, attachment: placeholder, attachmentDraftError: null });
+  if (released && isRegisteredMediaAttachment(released)) void releaseAttachment(released);
+  const valid = () => visitCurrent() && S().attachmentRestore === request && S().attachment === placeholder && activeConv()?.assistant_context_revision === revision;
+  try {
+    const result = await attachmentDraftBook.restore({ account, gid }, valid);
+    if (result.kind !== 'current' || !valid()) return;
+    store.patch({ attachment: result.attachment, attachmentRestore: null, attachmentDraftError: null });
+  } catch { if (valid()) store.patch({ attachment: unavailableAttachment({ account, gid }, 'error'), attachmentRestore: null, attachmentDraftError: t('attachment.readFailed') }); }
+  finally {
+    if (S().attachmentRestore === request) {
+      if (visitCurrent() && S().attachment === placeholder) store.patch({ attachment: unavailableAttachment({ account, gid }, 'error'), attachmentRestore: null, attachmentDraftError: t('attachment.contextChanged') });
+      else store.patch({ attachmentRestore: null });
+    }
+  }
+}
+
+async function retryAttachmentDraft(): Promise<void> {
+  const s = S(), account = activeAccount(s)?.context, gid = s.activeGid;
+  if (s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable === 'pending') { toast(t('attachment.pendingNoReplay')); return; }
+  if (!account || !gid || s.attachmentSelection || s.annotationEditing || s.attachmentRestore || s.mediaOperation?.status === 'busy') return;
+  await restoreRoomAttachment(account, gid, s.attachmentRoom ?? JSON.stringify([account, gid]));
+}
+async function persistSelectedAttachment(attachment: UiAttachment, selection: AttachmentSelection): Promise<UiAttachment | null> {
+  let success = false;
+  const revision = activeConv()?.assistant_context_revision, status = activeConv()?.status, view = S().view;
+  const valid = () => S().attachmentSelection === selection && S().accountVisit === selection.accountVisit && S().roomVisit === selection.roomVisit && stillActive(selection.account) && S().activeGid === selection.gid && activeConv()?.assistant_context_revision === revision && activeConv()?.status === status && S().view === view;
+  try {
+    const result = await attachmentDraftBook.save({ account: selection.account, gid: selection.gid }, attachment, valid);
+    if (result.kind !== 'current' || !valid()) return null;
+    success = true; return result.attachment;
+  } catch {
+    if (valid()) store.patch({ attachmentDraftError: t('attachment.saveUnconfirmed') });
+    return null;
+  } finally { if (!success && S().attachmentSelection === selection) store.patch({ attachmentSelection: null }); }
+}
+async function persistAttachmentBeforeLeave(): Promise<boolean> {
+  const s = S(), account = activeAccount(s)?.context, gid = s.activeGid;
+  if (!s.attachment || !isRegisteredMediaAttachment(s.attachment) || s.attachment.lease_id) return true;
+  if (!account || !gid || s.attachmentSelection || s.attachmentRestore) { toast(t('attachment.busySwitch')); return false; }
+  const revision = activeConv()?.assistant_context_revision, status = activeConv()?.status;
+  const selection: AttachmentSelection = { account: { ...account }, gid, draftVersion: s.draftVersion, accountVisit: s.accountVisit, roomVisit: s.roomVisit };
   store.patch({ attachmentSelection: selection });
+  const saved = await persistSelectedAttachment(s.attachment, selection);
+  const current = S();
+  const valid = current.attachmentSelection === selection && current.accountVisit === selection.accountVisit && current.roomVisit === selection.roomVisit && stillActive(account) && current.activeGid === gid && current.view === s.view && current.attachment === s.attachment && activeConv()?.assistant_context_revision === revision && activeConv()?.status === status;
+  if (!saved || !valid) {
+    if (current.attachmentSelection === selection) store.patch({ attachmentSelection: null });
+    if (saved && S().attachment !== s.attachment) await releaseAttachment(saved);
+    if (valid) toast(t('attachment.unsavedStay'));
+    return false;
+  }
+  store.patch({ attachment: saved, attachmentSelection: null }); return true;
+}
+
+function receiveScreenshotRequest(): void {
+  const s = S(), conv = activeConv(s);
+  if (!composerInputContext(s) || !conv || isDone(conv) || composerInput.active() || s.attachmentSelection
+    || s.annotationEditing || s.logoutDialog || s.peripheral || s.receiveDiagnostics || s.unknownOutbound || s.quickReplies?.mode === 'categories' || s.recommendations) return;
+  // Global shortcuts must not capture while the user edits a search, account remark or dialog field.
+  const editor = document.activeElement?.closest<HTMLElement>('input, textarea, [contenteditable]');
+  if (editor && editor.dataset['fid'] !== 'draft') return;
+  void attach('screenshot');
+}
+
+async function acceptAttachment(request: (args: { account: AccountContext; gid: string }) => Promise<unknown>, accepts: (kind: string) => boolean, screenshot = false): Promise<UiAttachment | null> {
+  const s = S(), account = activeAccount(s)?.context, conv = activeConv(s);
+  // A newer picker supersedes a pending one (its selection token invalidates the older reply);
+  // restoring a persisted draft or an open annotation editor owns the composer and blocks it.
+  if (!account || !conv || s.attachmentRestore || s.annotationEditing || isDone(conv) || (s.mediaOperation && s.mediaOperation.status !== 'not_submitted')) return null;
+  const revision = conv.assistant_context_revision, status = conv.status;
+  const selection: AttachmentSelection = { account: { ...account }, gid: conv.gid, draftVersion: s.draftVersion, accountVisit: s.accountVisit, roomVisit: s.roomVisit };
+  store.patch({ attachmentSelection: selection });
+  const currentSelection = () => S().attachmentSelection === selection && S().accountVisit === selection.accountVisit && S().roomVisit === selection.roomVisit && stillActive(selection.account) && S().activeGid === selection.gid && S().view === 'messages' && activeConv()?.assistant_context_revision === revision && activeConv()?.status === status;
   const attachment = await request({ account: selection.account, gid: selection.gid });
-  if (S().attachmentSelection !== selection || !stillActive(selection.account) || S().activeGid !== selection.gid || S().draftVersion !== selection.draftVersion) {
+  // Editing the draft while the picker is open invalidates it; once the pick returned, typing during persistence is fine.
+  if (!currentSelection() || S().draftVersion !== selection.draftVersion) {
     if (S().attachmentSelection === selection) store.patch({ attachmentSelection: null });
     if (isRegisteredMediaAttachment(attachment)) await releaseAttachment(attachment);
     return null;
   }
-  store.patch({ attachmentSelection: null });
-  if (!attachment) return null;
+  if (!attachment) { store.patch({ attachmentSelection: null }); return null; }
   if (!ownedAttachment(attachment, selection.account, selection.gid) || !accepts(attachment.kind)) {
+    store.patch({ attachmentSelection: null });
     if (isRegisteredMediaAttachment(attachment)) await releaseAttachment(attachment);
-    toast('附件不可用或不属于当前会话，请重新选择。'); return null;
+    toast(t('attachment.invalidSelection')); return null;
   }
+  if (screenshot) { await openAttachmentEditor(attachment, selection, true); return null; }
   const previous = S().attachment;
-  store.patch({ attachment, mediaOperation: null, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target: translationTarget(S(), conv) } });
+  const saved = await persistSelectedAttachment(attachment, selection);
+  if (!saved || !currentSelection() || S().attachment !== previous) {
+    if (S().attachmentSelection === selection) store.patch({ attachmentSelection: null });
+    await releaseAttachment(attachment); return null;
+  }
+  store.patch({ attachment: saved, attachmentSelection: null, attachmentDraftError: null, mediaOperation: null, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target: translationTarget(S(), conv) } });
   await releaseAttachment(previous);
   return attachment;
 }
 
-async function attach(kind: 'image' | 'file'): Promise<void> {
-  await acceptAttachment((args) => invokeSafe<unknown>(UiCommands.MEDIA_PICK, { ...args, kind }), (got) => got === kind);
+async function attach(kind: 'screenshot' | 'image' | 'file'): Promise<void> {
+  if (kind === 'screenshot') await acceptAttachment((args) => invokeSafe<unknown>(UiCommands.MEDIA_SCREENSHOT, args), (got) => got === 'image', true);
+  else await acceptAttachment((args) => invokeSafe<unknown>(UiCommands.MEDIA_PICK, { ...args, kind }), (got) => got === kind);
 }
 
 function receiveFileDrag(value: unknown): void {
@@ -1333,13 +1619,21 @@ async function setSendMode(mode: 'replace_draft' | 'send_direct'): Promise<void>
   scheduleTranslation();
 }
 
-async function removeAttachment(attachment: Attachment): Promise<void> {
-  const s = S();
-  if (s.attachment !== attachment || s.mediaOperation?.status === 'busy') return;
-  if (isRegisteredMediaAttachment(attachment) && (!stillActive(attachment.owner.account) || s.activeGid !== attachment.owner.gid)) return;
-  // This only removes the local selection. An uploaded/submitted message is never recalled.
-  store.patch({ attachment: null, mediaOperation: null, attachmentSelection: null });
-  await releaseAttachment(attachment);
+async function removeAttachment(attachment: Attachment | UnavailableAttachment): Promise<void> {
+  const s = S(), account = activeAccount(s)?.context, gid = s.activeGid;
+  if (!account || !gid || s.attachment !== attachment || s.mediaOperation?.status === 'busy' || s.attachmentSelection || s.attachmentRestore) return;
+  if (isRegisteredMediaAttachment(attachment) && (!stillActive(attachment.owner.account) || gid !== attachment.owner.gid)) return;
+  const selection: AttachmentSelection = { account: { ...account }, gid, draftVersion: s.draftVersion, accountVisit: s.accountVisit, roomVisit: s.roomVisit };
+  const revision = activeConv()?.assistant_context_revision, status = activeConv()?.status;
+  store.patch({ attachmentSelection: selection });
+  try {
+    const valid = () => S().attachmentSelection === selection && S().accountVisit === selection.accountVisit && S().roomVisit === selection.roomVisit && stillActive(account) && S().activeGid === gid && S().attachment === attachment && activeConv()?.assistant_context_revision === revision && activeConv()?.status === status;
+    const result = await attachmentDraftBook.save({ account, gid }, null, valid);
+    if (result.kind !== 'current' || !valid()) return;
+    store.patch({ attachment: null, mediaOperation: null, attachmentSelection: null, attachmentDraftError: null });
+    await releaseAttachment(attachment);
+  } catch { if (S().attachmentSelection === selection) store.patch({ attachmentSelection: null, attachmentDraftError: t('attachment.removeUnconfirmed') }); }
+  finally { if (S().attachmentSelection === selection) store.patch({ attachmentSelection: null }); }
 }
 
 async function toggleTop(c: UiConversation): Promise<void> {
@@ -1422,7 +1716,7 @@ const operatorOverlay = createOperatorOverlay(document);
 const tsimOrder = createTsimOrderOpener({
   current: () => { const s = S(), account = activeAccount(s)?.context, conversation = activeConv(s); return s.view === 'messages' && account && conversation && sameAccount(account, conversation.account) && account.session_generation === conversation.account.session_generation ? { account, conversation, identity: s.tsimStatus } : null; },
   invoke: (command, payload) => ipc.invoke(command, payload), notify: toast, login: () => openTsimSettings(),
-  show: (grant, current) => { if (operatorGrant(grant)) operatorOverlay.open(grant, current); else toast('TSIM 查询页授权无效，请核对登录状态后重试。'); },
+  show: (grant, current) => { if (operatorGrant(grant)) operatorOverlay.open(grant, current); else toast(t("main.global.invalidQueryGrant")); },
 });
 // This listener runs synchronously before the batched UI paint. A reply or a
 // message from an old account/order cannot keep a remote page mounted.
@@ -1437,7 +1731,7 @@ window.addEventListener('pagehide', () => operatorOverlay.dispose());
 function openTsimSettings(): void { void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); }
 
 function receivePackageIdentity(value: unknown): void {
-  if (!packageIdentity(value)) { packagePreview.reset(); store.patch({ packageIdentityRequest: (S().packageIdentityRequest ?? 0) + 1, tsimStatus: null, pkg: { ...PKG_IDLE, status: 'error', failure: 'login', error: '无法核对 TSim 登录状态，请打开设置登录或刷新状态。' } }); return; }
+  if (!packageIdentity(value)) { packagePreview.reset(); store.patch({ packageIdentityRequest: (S().packageIdentityRequest ?? 0) + 1, tsimStatus: null, pkg: { ...PKG_IDLE, status: 'error', failure: 'login', error: t("main.receivePackageIdentity.loginCheckFailed") } }); return; }
   const previous = S().tsimStatus;
   if (!previous || previous.session_epoch !== value.session_epoch || previous.logged_in !== value.logged_in || previous.user !== value.user) packagePreview.reset();
   store.patch({ tsimStatus: value, packageIdentityRequest: (S().packageIdentityRequest ?? 0) + 1 });
@@ -1461,6 +1755,14 @@ function autoQueryPackage(): void {
 }
 
 // --------------------------------------------------------------- notifications
+
+const serverSearchPanel = createServerSearchPanel({
+  account: () => activeAccount()?.state === 'online' ? activeAccount()!.context : null,
+  current: () => S().serverSearch,
+  publish: serverSearch => store.patch({ serverSearch }),
+  invoke: (command, payload) => ipc.invoke(command, payload),
+  error: errorMessage,
+});
 
 const noticeQuery = createNoticeQuery({
   account: () => activeAccount()?.context ?? null,
@@ -1697,7 +1999,7 @@ function titleBar(s: MainState): HTMLElement {
     h('div', { class: 'tb-logo', 'data-tauri-drag-region': true }, h('div', { class: 'logo', 'aria-hidden': 'true', 'data-tauri-drag-region': true }, 'V')),
     h(
       'div',
-      { class: 'tabs', role: 'tablist', 'aria-label': '已登录账号', 'data-tauri-drag-region': true },
+      { class: 'tabs', role: 'tablist', 'aria-label': t("main.titleBar.signedInAccounts"), 'data-tauri-drag-region': true },
       tabs,
       s.webTabs.map((tab) => webTabView(tab, tab.tab_id === s.activeWeb, snap?.accounts.find((a) => a.context.account_id === tab.account_id)?.remark ?? snap?.accounts.find((a) => a.context.account_id === tab.account_id)?.nick ?? '', { onSelect: () => browserTabs.activate(tab.tab_id), onClose: () => void browserTabs.close(tab.tab_id) }, h, icon)),
       canAdd ? h('button', { class: 'tab-add', 'aria-label': t('tab.add'), title: t('tab.addTitle', { max: snap?.max_accounts ?? 16 }), dataset: { action: 'add-account' }, onclick: () => void startLogin() }, icon(IC.plus, 16)) : null,
@@ -1730,8 +2032,9 @@ function navBar(s: MainState): HTMLElement {
   const alarm = s.alarmCount > 0 ? h('span', { class: 'nav-alarm', title: t('tb.alarmTitle', { n: s.alarmCount }), dataset: { navAlarm: String(s.alarmCount) } }, icon(IC.clock, 9), String(s.alarmCount)) : null;
   return h(
     'nav',
-    { class: 'nav', 'aria-label': '导航' },
+    { class: 'nav', 'aria-label': t("main.navBar.navigation") },
     item('messages', t('nav.messages'), IC.chat, unreadMsgs, alarm),
+    item('search', t("main.navBar.chatHistory"), IC.search, 0),
     item('notifications', t('nav.notifications'), IC.bell, unreadNotice),
     item('order', t('nav.orderContact'), IC.order, 0),
     h('div', { class: 'nav-sp' }),
@@ -1902,7 +2205,7 @@ function conversationList(s: MainState): HTMLElement {
           ) : null,
         ),
       ),
-      h('label', { class: 'search', title: '仅筛选当前账号已加载的会话名称、最新消息摘要和订单号；主动联系客人请用「订单联系」' }, icon(IC.search, 15), h('input', { class: 'inp', placeholder: '搜索本地会话', 'aria-label': '搜索本地会话', value: s.query, dataset: { fid: 'search' }, oninput: (e: Event) => store.patch({ query: (e.target as HTMLInputElement).value }) })),
+      h('label', { class: 'search', title: t("main.conversationList.localSearchDescription") }, icon(IC.search, 15), h('input', { class: 'inp', placeholder: t("main.conversationList.localSearch"), 'aria-label': t("main.conversationList.localSearch"), value: s.query, dataset: { fid: 'search' }, oninput: (e: Event) => store.patch({ query: (e.target as HTMLInputElement).value }) })),
       h(
         'div',
         { class: 'ftabs', role: 'tablist' },
@@ -1910,6 +2213,9 @@ function conversationList(s: MainState): HTMLElement {
         h('button', { class: cx('ftab', { on: s.tab === 'done' }), role: 'tab', 'aria-selected': String(s.tab === 'done'), dataset: { tab: 'done', fid: 'list-tab:done' } , onclick: () => store.patch({ tab: 'done' }) }, `${t('list.done')} ${counts.done}`),
       ),
     )),
+    s.conversationsError ? h('div', { class: 'conversation-load-error', role: 'alert', dataset: { conversationsError: '1' } },
+      h('span', null, s.conversationsError), h('button', { class: 'btn sm', type: 'button', disabled: !!s.conversationsLoading, dataset: { action: 'retry-conversations', fid: 'retry-conversations' }, onclick: () => void loadForActiveAccount() }, t("main.conversationList.reloadConversations"))) : null,
+    s.conversationsLoading ? h('div', { class: 'conversation-load-status', role: 'status' }, t("main.conversationList.readingConversations")) : null,
     nv.offline ? h('div', { class: 'netbar' }, h('span', { class: 'spin', style: { 'border-top-color': '#87500A' } }), h('span', { style: { flex: '1' } }, t('list.offline')), h('button', { class: 'link', onclick: () => void loadForActiveAccount() }, t('list.retryNow'))) : null,
     acc?.state === 'expired' ? h('div', { class: 'netbar err', dataset: { expired: '1' } }, icon(IC.alert, 15), h('span', { style: { flex: '1' } }, t('list.expired')), h('button', { class: 'link', onclick: () => void startLogin(acc.context) }, t('list.relogin'))) : null,
     h('div', { class: 'cscroll', dataset: { keepScroll: `clist:${scope}`, listScope: scope }, onscroll: (event: Event) => {
@@ -2112,7 +2418,6 @@ function onMessageScroll(scroll: HTMLElement): void {
     persistMessageView(scroll, scope, scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < PIN_THRESHOLD);
   }, MESSAGE_SCROLL_IDLE_MS);
 }
-const historyLayoutFrames = createHistoryLayoutFrames();
 function withMessageAnchor(s: MainState, redraw: () => void): void {
   const anchor = captureMessageAnchor(s);
   liveAnchor = anchor;
@@ -2196,7 +2501,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
   } else if (m.kind === 'voice' && voicePlayer) {
     body = voiceBubble(m, voicePlayer, h, icon, { onOpenExternal: (url: string) => void invokeSafe(UiCommands.SHELL_OPEN_EXTERNAL, { url }) });
   } else if (m.kind === 'image' || m.kind === 'video' || m.kind === 'file') {
-    const url = safeMediaUrl(m.media_url ?? (m.kind !== 'file' ? m.text : null));
+    const url = safeMediaUrl(m.media_url ?? (m.kind === 'image' ? m.media_thumbnail ?? m.text : m.kind !== 'file' ? m.text : null));
     const thumbnail = safeMediaUrl(m.media_thumbnail);
     const name = m.media_filename || (m.kind === 'file' ? m.text : previewOf(m));
     if (url && m.kind === 'image') {
@@ -2266,10 +2571,10 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
 
 function translationBar(s: MainState, conv: UiConversation): HTMLElement | null {
   const p = s.prefs;
-  if (!p || !shouldShowTranslationBar(conv, !!p.assistant.enabled, !!p.assistant.outbound_translation, customerLanguage(conv, s.messages[conv.gid] ?? []))) return null;
+  if (!p || !translationOn(s, conv)) return null;
   const direct = p.assistant.send_mode === 'send_direct';
   const sendKey = (p.keys?.send_key ?? 'enter') === 'enter' ? 'Enter' : 'Ctrl/⌘+Enter';
-  const modeHint = s.attachment ? `${sendKey} 仅发送附件，文字保留` : direct ? `直接发送模式，此时按${sendKey}将直接发送输入框原文` : `替换草稿模式，此时按${sendKey}将直接${s.draft.trim() && !needsOutboundTranslation(s.draft) ? '发送输入框内容' : '发送译文'}`;
+  const modeHint = s.attachment ? t('attachment.sendKeyKeepText', { key: sendKey }) : direct ? t("main.translationBar.directSendKey", { key: sendKey }) : t("main.translationBar.replaceSendKey", { key: sendKey, action: s.draft.trim() && !needsOutboundTranslation(s.draft) ? t("main.translationBar.sendDraft") : t("tr.sendTranslated") });
   const tr = s.translation;
   const account = activeAccount(s)?.context;
   const owner = account ? { ...account } : null;
@@ -2277,7 +2582,7 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
   const attachment = s.attachment;
   const applies = (): boolean => {
     const current = S();
-    return !current.trBarOff && !!owner && stillActive(owner) && current.activeGid === conv.gid && current.draftVersion === draftVersion && current.translation === tr && current.attachment === attachment;
+    return !!owner && stillActive(owner) && current.activeGid === conv.gid && current.draftVersion === draftVersion && current.translation === tr && current.attachment === attachment;
   };
   const target = translationTarget(s, conv);
   const stale = tr.status === 'done' && tr.draftVersion !== s.draftVersion;
@@ -2287,13 +2592,13 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
       'div',
       { class: 'trrow', dataset: { trState: 'error' } },
       icon(IC.alert, 14, { style: 'color: var(--c-alert)' }),
-      h('span', { style: { color: 'var(--c-alert-text)' } }, `${t('tr.failed')}：${tr.error ?? ''}`),
+      h('span', { style: { color: 'var(--c-alert-text)' } }, t("main.translationBar.translationError", { label: t('tr.failed'), message: tr.error ?? '' })),
       h('span', { class: 'sp' }),
       h('button', { class: 'btn sm', dataset: { tr: 'send-original', fid: 'tr:send-original' } , onclick: () => { if (applies()) void sendText(S().draft.trim(), null); } }, t('tr.sendOriginal')),
       h('button', { class: 'btn sm pri', dataset: { tr: 'retry', fid: 'tr:retry' } , onclick: () => { if (applies()) { void runPreviewTranslation(); } } }, t('tr.retry')),
     );
   } else if (direct) {
-    bodyEl = h('div', { class: 'trprev wait', dataset: { trState: tr.status } }, tr.status === 'busy' ? h('span', { class: 'spin' }) : null, tr.status === 'busy' ? t('tr.busy') : '输入内容后，按发送键直接发送输入框原文。');
+    bodyEl = h('div', { class: 'trprev wait', dataset: { trState: tr.status } }, tr.status === 'busy' ? h('span', { class: 'spin' }) : null, tr.status === 'busy' ? t('tr.busy') : t("main.translationBar.directSendHint"));
   } else if ((tr.status === 'busy' || stale) && tr.gid === conv.gid) {
     bodyEl = h('div', { class: 'trprev wait', dataset: { trState: 'busy' } }, h('span', { class: 'spin' }), stale ? t('tr.stale') : t('tr.busy'));
   } else if (tr.status === 'done' && tr.gid === conv.gid) {
@@ -2315,28 +2620,19 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
   }
   return h(
     'div',
-    { class: cx('trbar', { 'trbar-off': s.trBarOff }) },
+    { class: 'trbar' },
     h(
       'div',
       { class: 'trrow trhead' },
-      h('button', {
-        type: 'button', class: 'tr-switch', role: 'switch', 'aria-label': '出站翻译', 'aria-checked': String(!s.trBarOff),
-        onclick: () => {
-          if (!owner || !stillActive(owner) || S().activeGid !== conv.gid) return;
-          if (trTimer) clearTimeout(trTimer);
-          trTimer = null;
-          store.patch({ trBarOff: !S().trBarOff, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target: translationTarget(S(), conv) } });
-          scheduleTranslation();
-        },
-      }, h('span', { class: 'tr-switch-knob' })),
+      icon(IC.translate, 15, { style: 'color: var(--c-primary)' }),
       h('span', { class: 'trlabel', style: { 'font-weight': '600' } }, t('tr.title')),
       h('span', { class: 'muted trlabel' }, t('tr.target')),
       h(
         'select',
         {
           class: 'sel',
-          disabled: s.trBarOff,
-          'aria-label': '目标语言',
+          style: { height: '24px' },
+          'aria-label': t("main.translationBar.targetLanguage"),
           value: target,
           onchange: (e: Event) => {
             if (!applies()) return;
@@ -2346,9 +2642,9 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
         },
         TR_TARGETS.map((code) => h('option', { value: code, selected: code === target }, `${langName(code)} ${code}`)),
       ),
-      h('span', { class: 'muted trmode', style: { 'margin-left': 'auto' } }, s.trBarOff ? '翻译已关闭，发送输入框原文' : modeHint),
+      h('span', { class: 'muted trmode', style: { 'margin-left': 'auto' } }, modeHint),
     ),
-    s.trBarOff ? null : bodyEl,
+    bodyEl,
   );
 }
 
@@ -2382,11 +2678,12 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
   const locked = composerLocked(conv);
   const media = s.attachment && isRegisteredMediaAttachment(s.attachment) ? s.attachment : null;
   const operation = s.mediaOperation?.attachment === s.attachment ? s.mediaOperation : null;
-  const mediaLocked = !!operation && operation.status !== 'not_submitted';
+  const mediaLocked = !!s.attachmentDraftError || !!s.attachmentRestore || !!s.annotationEditing || !!s.attachmentSelection || (!!operation && operation.status !== 'not_submitted');
   // Send barrier (I-04a): the host refuses sends while persistence is failed; the composer mirrors it.
   const saveBlocked = persistFailed(s.accounts);
-  const mediaLabel = operation?.status === 'busy' ? ({ prepare: '正在准备附件…', upload: '正在上传附件…', send: '正在提交附件消息…' } as const)[operation.stage]
-    : operation?.error ?? (media ? '仅发送附件，文字/引用保留。' : s.attachment ? ATTACHMENT_SEND_UNAVAILABLE : '');
+  const unavailableDraftAttachment = !!s.attachment && !isRegisteredMediaAttachment(s.attachment);
+  const mediaLabel = operation?.status === 'busy' ? ({ prepare: t('attachment.prepare'), upload: t('attachment.upload'), send: t('attachment.send') } as const)[operation.stage]
+    : operation?.error ?? (media ? t('attachment.onlyMedia') : s.attachment ? attachmentBlockReason(s.attachment) : '');
   const trOn = translationOn(s, conv);
   const direct = s.prefs?.assistant.send_mode === 'send_direct' && trOn;
   const sendKey = s.prefs?.keys.send_key ?? 'enter';
@@ -2399,6 +2696,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
       'div',
       { class: 'ctools', role: 'toolbar', 'aria-label': '消息工具' },
       ctool('emoji', t('composer.emoji'), IC.smile, { disabled: locked, on: s.emoOpen, onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen, composerMore: false }); } }),
+      ctool('screenshot', t('composer.screenshot'), IC.scissors, { disabled: finished || mediaLocked, onclick: () => void attach('screenshot') }),
       ctool('image', t('composer.image'), IC.image, { disabled: finished || mediaLocked, onclick: () => void attach('image') }),
       ctool('file', t('composer.file'), IC.file, { disabled: finished || mediaLocked, onclick: () => void attach('file') }),
       ctool('phrases', t('composer.phrases'), IC.chat, { onclick: () => openPeripheral('scripts') }),
@@ -2409,11 +2707,12 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
       composerMoreMenu(s),
     ),
     quote ? h('div', { class: 'quote-bar' }, h('span', { style: { flex: '1', overflow: 'hidden', 'white-space': 'nowrap', 'text-overflow': 'ellipsis' } }, t('chat.quotePrefix'), quote.text), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('chat.cancelQuote'), onclick: () => store.patch({ quote: null }) }, icon(IC.close, 12))) : null,
-    s.attachment ? h('div', { class: 'attach', title: mediaLabel, dataset: { mediaStatus: operation?.status ?? (media ? 'ready' : 'unsupported') } }, operation?.status === 'busy' ? h('span', { class: 'spin' }) : media?.preview_data_url ? h('img', { class: 'attach-thumb', src: media.preview_data_url, alt: '' }) : h('span', { class: 'attach-icon' }, icon(IC.file, 20)), h('span', { class: 'attach-t', role: 'status', 'aria-live': 'polite' }, h('span', { class: 'attach-name' }, s.attachment.name), h('span', { class: 'attach-meta' }, [media ? formatFileSize(media.size) : '', mediaLabel].filter(Boolean).join(' · '))), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), title: operation && operation.status !== 'not_submitted' ? '仅移除本地选择，不会撤回已上传或提交的消息。' : '移除本地附件', disabled: operation?.status === 'busy', onclick: () => void removeAttachment(s.attachment!) }, icon(IC.close, 12))) : null,
+    (s.attachmentDraftError || (s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable !== 'loading' && s.attachment.unavailable !== 'pending')) ? h('div', { class: 'hint-bad', role: 'alert' }, s.attachmentDraftError ?? attachmentBlockReason(s.attachment), h('button', { class: 'btn sm', type: 'button', disabled: !!s.attachmentSelection || !!s.attachmentRestore, dataset: { action: 'retry-attachment-draft', fid: 'retry-attachment-draft' }, onclick: () => void retryAttachmentDraft() }, t('attachment.retryRead'))) : null,
+    s.attachment ? h('div', { class: 'attach', title: mediaLabel, dataset: { mediaStatus: operation?.status ?? (media ? 'ready' : 'unsupported') } }, operation?.status === 'busy' ? h('span', { class: 'spin' }) : null, h('span', { style: { 'font-size': '12px' }, role: 'status', 'aria-live': 'polite' }, t('attachment.summary', { name: s.attachment.name, status: mediaLabel })), isRegisteredMediaAttachment(s.attachment) && s.attachment.lease_id ? h('button', { class: 'btn sm', type: 'button', disabled: mediaLocked, title: t('attachment.reloadTitle'), dataset: { action: 'reload-attachment', fid: 'reload-attachment' }, onclick: () => void retryAttachmentDraft() }, t('attachment.reload')) : null, s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable === 'pending' ? h('button', { class: 'btn sm', type: 'button', dataset: { action: 'verify-pending-attachment', fid: 'verify-pending-attachment' }, onclick: openUnknownOutbound }, t('attachment.verify')) : null, isRegisteredMediaAttachment(s.attachment) && s.attachment.kind === 'image' ? h('button', { class: 'btn sm', type: 'button', disabled: mediaLocked, title: s.attachment.mime === 'image/png' ? t('attachment.annotateTitle') : t('attachment.pngOnly'), dataset: { action: 'annotate-attachment', fid: 'annotate-attachment' }, onclick: () => void editSelectedAttachment() }, t('attachment.annotate')) : null, h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), title: operation && operation.status !== 'not_submitted' ? t('attachment.removeSelection') : t('attachment.removeLocal'), disabled: operation?.status === 'busy', onclick: () => void removeAttachment(s.attachment!) }, icon(IC.close, 12))) : null,
     h('textarea', {
       class: 'ta',
       placeholder: locked ? t('composer.placeholderLocked') : finished ? t('composer.placeholderFinished') : t('composer.placeholder'),
-      'aria-label': '输入消息',
+      'aria-label': t("main.composer.messageInput"),
       value: s.draft,
       disabled: locked,
       // key 随作废次数变化：被作废（失焦/过期的输入法会话）的节点不会被增量渲染复用。
@@ -2428,7 +2727,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
         }
       },
     }),
-    h('div', { class: 'cfoot' }, h('span', { class: cx('hint', { 'hint-bad': saveBlocked }), ...(saveBlocked ? { role: 'status', dataset: { persistFailed: '1' } } : {}) }, saveBlocked ? t('composer.persistFailed') : media ? `${sendKey === 'enter' ? 'Enter' : 'Ctrl/⌘+Enter'} 仅发送附件，文字/引用保留` : trOn ? `${sendKey === 'enter' ? 'Enter' : 'Ctrl/⌘+Enter'} ${direct ? '发送输入框原文' : needsOutboundTranslation(s.draft) ? '发送译文' : '发送输入框内容'} · ${sendKey === 'enter' ? 'Shift+Enter' : 'Enter'} 换行` : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: locked || (finished && !!s.attachment) || mediaLocked || saveBlocked, onclick: () => { if (!composerInput.active()) void handleSend(); } }, icon(IC.send, 14), media ? '发送附件' : t('composer.send'))),
+    h('div', { class: 'cfoot' }, h('span', { class: cx('hint', { 'hint-bad': saveBlocked }), ...(saveBlocked ? { role: 'status', dataset: { persistFailed: '1' } } : {}) }, saveBlocked ? t('composer.persistFailed') : media ? t('attachment.sendKeyKeepQuote', { key: sendKey === 'enter' ? 'Enter' : 'Ctrl/⌘+Enter' }) : trOn ? t("main.composer.sendKeyHint", { key: sendKey === 'enter' ? 'Enter' : 'Ctrl/⌘+Enter', action: direct ? t("main.composer.sendOriginal") : needsOutboundTranslation(s.draft) ? t("tr.sendTranslated") : t("main.translationBar.sendDraft"), newlineKey: sendKey === 'enter' ? 'Shift+Enter' : 'Enter' }) : sendKey === 'enter' ? t('composer.hintEnter') : t('composer.hintCtrlEnter')), h('button', { class: 'btn pri', dataset: { action: 'send' }, disabled: locked || unavailableDraftAttachment || (finished && !!s.attachment) || mediaLocked || saveBlocked, onclick: () => { if (!composerInput.active()) void handleSend(); } }, icon(IC.send, 14), media ? t('attachment.sendButton') : t('composer.send'))),
   );
 }
 
@@ -2444,26 +2743,26 @@ function emojiPicker(s: MainState): HTMLElement | null {
 
 function packageCard(s: MainState, conv: UiConversation): HTMLElement | null {
   if (!packageEnabled(s)) return null;
-  const view: PackagePreviewState = !s.tsimStatus ? { ...PKG_IDLE, status: 'error', failure: 'login', error: s.pkg.error ?? 'TSim 登录状态尚未核验，请刷新状态或打开设置登录。' } : packageViewApplies(s.pkg, packageContext()) ? s.pkg : PKG_IDLE;
+  const view: PackagePreviewState = !s.tsimStatus ? { ...PKG_IDLE, status: 'error', failure: 'login', error: s.pkg.error ?? t("main.packageCard.loginUnverified") } : packageViewApplies(s.pkg, packageContext()) ? s.pkg : PKG_IDLE;
   const order = packageOrderId(conv), iccids = findIccids(s.messages[conv.gid] ?? []);
   const plans = view.summary?.plans ?? (view.info ? [view.info] : []);
   const busy = view.status === 'busy';
   const owner = { ...conv.account };
   const applies = (): boolean => stillActive(owner) && activeConv()?.gid === conv.gid && (view === S().pkg || !S().tsimStatus) && (view.key === null || packageViewApplies(view, packageContext()));
   const notice = [
-    !s.tsimStatus?.logged_in || view.failure === 'login' ? h('div', { class: 'callout', dataset: { tone: 'info' } }, h('div', null, h('p', null, s.tsimStatus ? 'TSim 尚未登录' : 'TSim 登录状态待核对'), h('button', { class: 'solid', dataset: { packageAction: 'login' }, onclick: () => { if (applies()) openTsimSettings(); } }, '打开设置登录 TSim'))) : null,
-    view.error ? h('div', { class: 'callout', dataset: { tone: 'bad' }, role: 'alert' }, h('div', null, h('p', null, view.error), h('button', { class: 'outline', disabled: busy, dataset: { packageAction: 'retry' }, onclick: () => { if (applies()) void refreshPackages(); } }, '重新核对'))) : null,
-    busy ? h('div', { class: 'skeleton', role: 'status' }, h('i'), h('i'), h('span', null, '正在查询订单套餐…')) : null,
-    view.status === 'done' && !plans.length ? h('div', { class: 'callout' }, h('p', null, '该订单暂无可查看套餐')) : null,
-    view.status === 'idle' && !order && !iccids.length ? h('div', { class: 'callout' }, h('p', null, '当前会话暂无有效订单号或 ICCID')) : null,
+    !s.tsimStatus?.logged_in || view.failure === 'login' ? h('div', { class: 'callout', dataset: { tone: 'info' } }, h('div', null, h('p', null, s.tsimStatus ? t("main.packageCard.notLoggedIn") : t("main.packageCard.loginPending")), h('button', { class: 'solid', dataset: { packageAction: 'login' }, onclick: () => { if (applies()) openTsimSettings(); } }, t("main.packageCard.openLoginSettings")))) : null,
+    view.error ? h('div', { class: 'callout', dataset: { tone: 'bad' }, role: 'alert' }, h('div', null, h('p', null, view.error), h('button', { class: 'outline', disabled: busy, dataset: { packageAction: 'retry' }, onclick: () => { if (applies()) void refreshPackages(); } }, t("main.packageCard.verifyAgain")))) : null,
+    busy ? h('div', { class: 'skeleton', role: 'status' }, h('i'), h('i'), h('span', null, t("main.packageCard.queryingPackages"))) : null,
+    view.status === 'done' && !plans.length ? h('div', { class: 'callout' }, h('p', null, t("main.packageCard.noPackages"))) : null,
+    view.status === 'idle' && !order && !iccids.length ? h('div', { class: 'callout' }, h('p', null, t("main.packageCard.noOrderOrIccid"))) : null,
   ];
   return companionPackageCard({ plans, total: view.summary?.total ?? plans.length, open: s.pkgOpen, busy, hot: s.pkgHot, scope: view.key ?? JSON.stringify([owner, conv.gid, conv.assistant_context_revision]),
-    identity: order ? `关联订单：${order}` : iccids.length ? '按 ICCID 查询' : '暂无关联订单',
+    identity: order ? t("main.packageCard.relatedOrder", { order: order }) : iccids.length ? t("main.packageCard.queryIccid") : t("side.noOrder"),
     refreshDisabled: busy || !order && !iccids.length, notice,
     cacheKey: [view, s.pkgOpen, s.pkgHot, s.tsimStatus, conv, s.messages[conv.gid]],
     refresh: () => { if (applies()) void refreshPackages(); },
     toggle: () => store.patch({ pkgOpen: !S().pkgOpen }),
-    copy: (value) => { if (applies()) void copyText(value, '已复制'); },
+    copy: (value) => { if (applies()) void copyText(value, t("misc.copied")); },
   }, h, icon);
 }
 
@@ -2553,7 +2852,7 @@ function chatPane(s: MainState): HTMLElement {
       h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)),
       h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, h('span', { class: 'chat-name-text', title: conv.title }, conv.title), pills.count !== null ? h('span', { class: 'chip chip-members', title: t('chat.memberCountLabel', { n: pills.count }), 'aria-label': t('chat.memberCountLabel', { n: pills.count }) }, t('chat.memberCount', { n: pills.count })) : null, pills.isMaster ? masterPill() : null, customerLanguage(conv, s.messages[conv.gid] ?? EMPTY_MESSAGES) !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(customerLanguage(conv, s.messages[conv.gid] ?? EMPTY_MESSAGES)) })) : null), sub ? h('div', { class: 'chat-sub', dataset: { chatWaitingGid: conv.gid } }, sub) : null),
       h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end', fid: 'chat-act:end' } , onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),
-      h('button', { class: 'btn sm', 'aria-label': '成员管理', disabled: isDone(conv), title: isDone(conv) ? '会话已结束，无法管理成员' : '成员管理', dataset: { chatAct: 'members', fid: 'chat-act:members' } , onclick: () => openPeripheral('members') }, icon(IC.users, 17), '成员管理'),
+      h('button', { class: 'btn sm', 'aria-label': t("main.chatPane.memberManagement"), disabled: isDone(conv), title: isDone(conv) ? t("main.openPeripheral.membersFinished") : t("main.chatPane.memberManagement"), dataset: { chatAct: 'members', fid: 'chat-act:members' } , onclick: () => openPeripheral('members') }, icon(IC.users, 17), t("main.chatPane.memberManagement")),
       h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side', fid: 'chat-act:side' } , onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     )),
     netView(s.net, netEverConnected).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
@@ -2601,7 +2900,7 @@ function notificationsView(s: MainState): HTMLElement {
     h(
       'div',
       { class: 'nlist' },
-      h('div', { class: 'ph' }, h('span', null, cat ? cat.name : t('notice.title'), cat && cat.unread > 0 ? h('span', { class: 'muted', style: { 'font-size': '12px', 'font-weight': '400', 'margin-left': '8px' } }, t('notice.unread', { n: cat.unread })) : null), h('button', { class: 'btn sm', dataset: { action: 'mark-all' }, disabled: !cat || s.noticeListStatus !== 'loaded' || !s.notices.some(n => n.unread), onclick: () => void markAllNotices() }, t('notice.markAll')), h('button', { class: 'btn sm', dataset: { action: 'refresh-notices' }, onclick: () => void noticeQuery.categories() }, '刷新')),
+      h('div', { class: 'ph' }, h('span', null, cat ? cat.name : t('notice.title'), cat && cat.unread > 0 ? h('span', { class: 'muted', style: { 'font-size': '12px', 'font-weight': '400', 'margin-left': '8px' } }, t('notice.unread', { n: cat.unread })) : null), h('button', { class: 'btn sm', dataset: { action: 'mark-all' }, disabled: !cat || s.noticeListStatus !== 'loaded' || !s.notices.some(n => n.unread), onclick: () => void markAllNotices() }, t('notice.markAll')), h('button', { class: 'btn sm', dataset: { action: 'refresh-notices' }, onclick: () => void noticeQuery.categories() }, t("main.notificationsView.refresh"))),
       h(
         'div',
         { class: 'nscroll', dataset: { keepScroll: 'notices' } },
@@ -2613,10 +2912,10 @@ function notificationsView(s: MainState): HTMLElement {
             h('div', { style: { display: 'flex', 'flex-direction': 'column', 'align-items': 'flex-end', gap: '6px' } }, h('span', { class: 'muted', dataset: { relativeTime: String(n.time_ms) }, style: { 'font-size': '12px' } }, formatRelativeTime(n.time_ms, s.now)), h('button', { class: 'link', onclick: () => void openNotice(n) }, t('notice.open'), ' ', icon(IC.external, 11))),
           ),
         ),
-        s.noticeMoreStatus === 'error' || s.noticeMoreStatus === 'expired' ? h('div', { class: 'notice-box err', role: 'alert' }, s.noticeMoreStatus === 'expired' ? '登录已过期，请重新登录。' : '更多通知加载失败：', s.noticeMoreError, ' ', h('button', { class: 'link', onclick: () => { const account = activeAccount(); if (s.noticeMoreStatus === 'expired' && account) void startLogin(account.context); else void noticeQuery.more(); } }, s.noticeMoreStatus === 'expired' ? '重新登录' : '重试')) : null,
-        s.noticeHasMore && s.noticeMoreStatus !== 'error' && s.noticeMoreStatus !== 'expired' ? h('button', { class: 'btn sm', dataset: { action: 'more-notices' }, disabled: s.noticeMoreStatus === 'loading', onclick: () => void noticeQuery.more() }, s.noticeMoreStatus === 'loading' ? '正在加载…' : '加载更多') : null,
-        s.noticeListStatus === 'loading' ? h('div', { class: 'empty', role: 'status' }, '正在加载通知…') : null,
-        s.noticeListStatus === 'error' || s.noticeListStatus === 'expired' ? h('div', { class: 'notice-box err', role: 'alert' }, s.noticeListStatus === 'expired' ? '登录已过期，请重新登录。' : '通知加载失败：', s.noticeListError, ' ', h('button', { class: 'link', onclick: () => { const account = activeAccount(); if (s.noticeListStatus === 'expired' && account) void startLogin(account.context); else void noticeQuery.list(); } }, s.noticeListStatus === 'expired' ? '重新登录' : '重试')) : null,
+        s.noticeMoreStatus === 'error' || s.noticeMoreStatus === 'expired' ? h('div', { class: 'notice-box err', role: 'alert' }, s.noticeMoreStatus === 'expired' ? t("main.notificationsView.loginExpired") : t("main.notificationsView.moreNoticesFailed"), s.noticeMoreError, ' ', h('button', { class: 'link', onclick: () => { const account = activeAccount(); if (s.noticeMoreStatus === 'expired' && account) void startLogin(account.context); else void noticeQuery.more(); } }, s.noticeMoreStatus === 'expired' ? t("list.relogin") : t("tr.retry"))) : null,
+        s.noticeHasMore && s.noticeMoreStatus !== 'error' && s.noticeMoreStatus !== 'expired' ? h('button', { class: 'btn sm', dataset: { action: 'more-notices' }, disabled: s.noticeMoreStatus === 'loading', onclick: () => void noticeQuery.more() }, s.noticeMoreStatus === 'loading' ? t("app.loading") : t("main.notificationsView.loadMore")) : null,
+        s.noticeListStatus === 'loading' ? h('div', { class: 'empty', role: 'status' }, t("main.notificationsView.loadingNotices")) : null,
+        s.noticeListStatus === 'error' || s.noticeListStatus === 'expired' ? h('div', { class: 'notice-box err', role: 'alert' }, s.noticeListStatus === 'expired' ? t("main.notificationsView.loginExpired") : t("main.notificationsView.noticesFailed"), s.noticeListError, ' ', h('button', { class: 'link', onclick: () => { const account = activeAccount(); if (s.noticeListStatus === 'expired' && account) void startLogin(account.context); else void noticeQuery.list(); } }, s.noticeListStatus === 'expired' ? t("list.relogin") : t("tr.retry"))) : null,
         s.noticeCat && s.noticeListStatus === 'loaded' && s.notices.length === 0 ? h('div', { class: 'empty', style: { margin: '16px' } }, t('notice.empty')) : null,
       ),
     ),
@@ -2655,8 +2954,8 @@ function orderView(s: MainState): HTMLElement {
   if (st.kind === 'loading') result = h('div', { class: 'panel', style: { padding: '16px', display: 'flex', 'flex-direction': 'column', gap: '10px' }, dataset: { orderState: 'loading' } }, h('div', { class: 'skel', style: { height: '30px' } }), h('div', { class: 'skel', style: { height: '30px', width: '70%' } }));
   else if (st.kind === 'none') result = h('div', { class: 'empty', style: { background: '#fff' }, dataset: { orderState: 'none' } }, t('order.none'));
   else if (st.kind === 'forbidden') result = h('div', { class: 'notice-box err', dataset: { orderState: 'forbidden' } }, t('order.forbidden'));
-  else if (st.kind === 'failed') result = h('div', { class: 'notice-box err', dataset: { orderState: 'failed' } }, t('order.failed'), st.message ? ` （${st.message}）` : '');
-  else if (st.kind === 'unknown') result = h('div', { class: 'notice-box warn', dataset: { orderState: 'unknown' } }, t('order.unknown'), st.message ? ` （${st.message}）` : '');
+  else if (st.kind === 'failed') result = h('div', { class: 'notice-box err', dataset: { orderState: 'failed' } }, t('order.failed'), st.message ? t("main.orderView.detailSuffix", { message: st.message }) : '');
+  else if (st.kind === 'unknown') result = h('div', { class: 'notice-box warn', dataset: { orderState: 'unknown' } }, t('order.unknown'), st.message ? t("main.orderView.detailSuffix", { message: st.message }) : '');
   else if (st.kind === 'one' || st.kind === 'multiple') {
     const orders = st.kind === 'one' ? [st.order] : st.orders;
     result = h(
@@ -2684,11 +2983,11 @@ function orderView(s: MainState): HTMLElement {
           h(
             'div',
             { style: { display: 'flex', gap: '8px' } },
-            h('input', { class: 'inp', style: { width: '300px', height: '34px' }, placeholder: t('order.placeholder'), 'aria-label': '订单号', value: s.orderQuery, dataset: { fid: 'order-query' }, inputmode: 'numeric', oninput: (e: Event) => store.patch({ orderQuery: (e.target as HTMLInputElement).value }), onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') void runOrderQuery(); } }),
+            h('input', { class: 'inp', style: { width: '300px', height: '34px' }, placeholder: t('order.placeholder'), 'aria-label': t("order.col.id"), value: s.orderQuery, dataset: { fid: 'order-query' }, inputmode: 'numeric', oninput: (e: Event) => store.patch({ orderQuery: (e.target as HTMLInputElement).value }), onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') void runOrderQuery(); } }),
             h('button', { class: 'btn pri', style: { height: '34px' }, dataset: { action: 'order-query' }, onclick: () => void runOrderQuery() }, t('order.query')),
           ),
           // Sample chips exist only in the browser demo; the real host never shows fake orders.
-          sel.mock ? h('div', { style: { display: 'flex', 'flex-wrap': 'wrap', gap: '8px', 'align-items': 'center' } }, h('span', { class: 'muted', style: { 'font-size': '12px' } }, t('order.samples')), MOCK_ORDER_SAMPLES.map((x) => h('button', { class: 'chipbtn', title: `查询 ${x.id}`, dataset: { sample: x.id }, onclick: () => void runOrderQuery(x.id) }, x.label))) : null,
+          sel.mock ? h('div', { style: { display: 'flex', 'flex-wrap': 'wrap', gap: '8px', 'align-items': 'center' } }, h('span', { class: 'muted', style: { 'font-size': '12px' } }, t('order.samples')), MOCK_ORDER_SAMPLES.map((x) => h('button', { class: 'chipbtn', title: t("main.orderView.querySample", { id: x.id }), dataset: { sample: x.id }, onclick: () => void runOrderQuery(x.id) }, x.label))) : null,
         ),
         result,
       ),
@@ -2768,8 +3067,9 @@ function statusBar(s: MainState): HTMLElement {
     s.alarmCount > 0 ? h('span', { class: 'sb-item sb-alarm', dataset: { sb: 'alarm' } }, icon(IC.clock, 13), t('bar.alarmCount', { n: s.alarmCount })) : null,
     // Send barrier (I-04a): host-reported, cleared by the host when a retry lands.
     pf ? h('span', { class: 'sb-item sb-bad', role: 'alert', title: pf.title, dataset: { sb: 'persist-failed' } }, icon(IC.alert, 13), pf.label) : null,
-    h('button', { class: 'link sb-diagnostics', disabled: !hasAccount, dataset: { action: 'unknown-outbound' }, onclick: openUnknownOutbound }, '未知发送核验'),
-    h('button', { class: 'link sb-diagnostics', dataset: { action: 'receive-diagnostics' }, onclick: () => void receiveDiagnostics.open() }, '接收诊断'),
+    h('button', { class: 'link sb-diagnostics', disabled: !hasAccount, dataset: { action: 'unknown-outbound' }, onclick: openUnknownOutbound }, t("main.statusBar.unknownSendVerification")),
+    h('button', { class: 'link sb-diagnostics', dataset: { action: 'receive-diagnostics' }, onclick: () => void receiveDiagnostics.open() }, t("main.statusBar.receiveDiagnostics")),
+    h('button', { class: 'link sb-diagnostics', dataset: { action: 'recovery-status', fid: 'recovery-status' }, onclick: () => void recovery.refresh() }, t("set.runtime.recoveryTitle")),
     h('span', { class: 'sp' }),
     sel.mock ? h('span', { class: 'sb-item muted' }, t('app.mockMode')) : null,
     s.clockTrusted ? null : h('span', { class: 'sb-item sb-warn', title: t('bar.clockUntrustedTitle'), dataset: { sb: 'clock-untrusted' } }, icon(IC.alert, 13), t('bar.clockUntrusted')),
@@ -2783,48 +3083,48 @@ function unknownOutboundDialog(s: MainState): HTMLElement | null {
   if (!view || !stillActive(view.scope)) return null;
   return h('div', { class: 'shade', onclick: () => unknownOutbound.close() },
     h('div', { class: 'dlg peripheral-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'unknown-outbound-title', tabindex: '-1', dataset: { unknownOutbound: '1' }, onclick: (e: Event) => e.stopPropagation() },
-      h('div', { class: 'dlg-h' }, h('span', { id: 'unknown-outbound-title' }, '未知发送只读核验'), h('button', { class: 'ibtn', 'aria-label': '关闭未知发送核验', onclick: () => unknownOutbound.close() }, icon(IC.close, 16))),
+      h('div', { class: 'dlg-h' }, h('span', { id: 'unknown-outbound-title' }, t("main.unknownOutboundDialog.readonlyUnknownSend")), h('button', { class: 'ibtn', 'aria-label': t("main.unknownOutboundDialog.closeUnknownSend"), onclick: () => unknownOutbound.close() }, icon(IC.close, 16))),
       h('div', { class: 'peripheral-body' },
-        h('p', null, '仅查询当前账号的操作元数据。上传阶段不代表消息已发送，也不能查询消息页；消息提交阶段可选择后读取当前最新页。不会重发、清除账本或标记客户消息已读。'),
+        h('p', null, t("main.unknownOutboundDialog.unknownSendDescription")),
         view.notice ? h('p', { class: 'notice-box', role: 'status' }, view.notice) : null,
-        view.busy ? h('p', { role: 'status' }, '正在只读查询…') : null,
-        !view.busy && !view.records.length ? h('p', null, '当前没有可显示的未知发送记录。') : null,
-        h('div', { class: 'peripheral-list', role: 'radiogroup', 'aria-label': '未知发送记录' }, view.records.map((row) => h('label', { class: 'peripheral-member' },
+        view.busy ? h('p', { role: 'status' }, t("main.unknownOutboundDialog.readonlyQuery")) : null,
+        !view.busy && !view.records.length ? h('p', null, t("main.unknownOutboundDialog.noUnknownSends")) : null,
+        h('div', { class: 'peripheral-list', role: 'radiogroup', 'aria-label': t("main.unknownOutboundDialog.unknownSendRecords") }, view.records.map((row) => h('label', { class: 'peripheral-member' },
           h('input', { type: 'radio', name: 'unknown-outbound-record', checked: view.selected?.gid === row.gid && view.selected?.local_id === row.local_id, disabled: view.busy || !row.write_started, onchange: () => unknownOutbound.select(row.gid, row.local_id) }),
-          h('span', null, h('b', null, `本地ID：${row.local_id}`), h('span', { class: 'peripheral-id' }, `会话：${row.gid}`), h('span', { class: 'peripheral-id' }, `${formatDate(row.created_at_ms)} ${formatClock(row.created_at_ms, true)} · 创建代次 ${row.creation_generation} · ${row.write_started ? row.phase === 'write_started' ? '消息提交已开始，结果未知' : '消息提交结果未知' : row.phase === 'uploaded' ? '附件已上传，消息尚未提交' : '附件上传已开始，上传结果待核对；消息尚未提交'}`))))),
-        view.result ? h('div', { class: 'notice-box', role: 'status' }, view.result.message, view.result.server_id ? h('div', { class: 'mono' }, `服务端消息ID：${view.result.server_id}`) : null) : null),
+          h('span', null, h('b', null, t("main.unknownOutboundDialog.localId", { id: row.local_id })), h('span', { class: 'peripheral-id' }, t("main.unknownOutboundDialog.conversationId", { gid: row.gid })), h('span', { class: 'peripheral-id' }, t("main.unknownOutboundDialog.intentMetadata", { date: formatDate(row.created_at_ms), time: formatClock(row.created_at_ms, true), generation: row.creation_generation, phase: row.write_started ? row.phase === 'write_started' ? t("main.unknownOutboundDialog.submissionStartedUnknown") : t("main.unknownOutboundDialog.submissionUnknown") : row.phase === 'uploaded' ? t("main.unknownOutboundDialog.uploadedNotSubmitted") : t("main.unknownOutboundDialog.uploadStartedUnverified") })))))),
+        view.result ? h('div', { class: 'notice-box', role: 'status' }, view.result.message, view.result.server_id ? h('div', { class: 'mono' }, t("main.unknownOutboundDialog.serverId", { id: view.result.server_id })) : null) : null),
       h('div', { class: 'dlg-f' },
-        h('button', { class: 'btn', disabled: view.busy, onclick: () => void unknownOutbound.refresh() }, '只读刷新列表'),
-        h('button', { class: 'btn pri', disabled: view.busy || !view.selected || !view.records.some(row => row.gid === view.selected?.gid && row.local_id === view.selected?.local_id && row.write_started), onclick: () => void unknownOutbound.verify() }, '读取所选会话最新页'),
-        h('button', { class: 'btn', onclick: () => unknownOutbound.close() }, '关闭'))));
+        h('button', { class: 'btn', disabled: view.busy, onclick: () => void unknownOutbound.refresh() }, t("main.unknownOutboundDialog.readonlyRefreshList")),
+        h('button', { class: 'btn pri', disabled: view.busy || !view.selected || !view.records.some(row => row.gid === view.selected?.gid && row.local_id === view.selected?.local_id && row.write_started), onclick: () => void unknownOutbound.verify() }, t("main.unknownOutboundDialog.readSelectedLatest")),
+        h('button', { class: 'btn', onclick: () => unknownOutbound.close() }, t("win.close")))));
 }
 
 function receiveDiagnosticsDialog(s: MainState): HTMLElement | null {
   const view = s.receiveDiagnostics;
   if (!view) return null;
   const snapshot = view.snapshot;
-  const labels = { ready: '已读取', no_account: '未选择账号', timeout: '页面诊断超时', unavailable: '暂不可用', invalid: '诊断格式无效' };
+  const labels = { ready: t("main.receiveDiagnosticsDialog.received"), no_account: t("main.receiveDiagnosticsDialog.noAccount"), timeout: t("main.receiveDiagnosticsDialog.pageDiagnosticsTimeout"), unavailable: t("main.receiveDiagnosticsDialog.unavailable"), invalid: t("main.receiveDiagnosticsDialog.invalidDiagnostics") };
   return h('div', { class: 'shade', onclick: () => receiveDiagnostics.close() },
     h('div', { class: 'dlg receive-diagnostics', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'receive-diagnostics-title', tabindex: '-1', dataset: { receiveDiagnostics: '1' }, onclick: (e: Event) => e.stopPropagation() },
-      h('div', { class: 'dlg-h' }, h('span', { id: 'receive-diagnostics-title' }, '接收诊断'), h('button', { class: 'ibtn', 'aria-label': '关闭接收诊断', onclick: () => receiveDiagnostics.close() }, icon(IC.close, 16))),
+      h('div', { class: 'dlg-h' }, h('span', { id: 'receive-diagnostics-title' }, t("main.statusBar.receiveDiagnostics")), h('button', { class: 'ibtn', 'aria-label': t("main.receiveDiagnosticsDialog.closeReceiveDiagnostics"), onclick: () => receiveDiagnostics.close() }, icon(IC.close, 16))),
       h('div', { class: 'receive-diagnostics-body' },
-        h('p', { class: 'muted' }, '当前账号的只读快照。手动刷新不会重连、加载历史或发送消息。'),
-        view.busy ? h('p', { role: 'status' }, '正在读取接收链路…') : null,
+        h('p', { class: 'muted' }, t("main.receiveDiagnosticsDialog.diagnosticsDescription")),
+        view.busy ? h('p', { role: 'status' }, t("main.receiveDiagnosticsDialog.readingReceiveChain")) : null,
         snapshot ? h('div', { class: 'receive-diagnostics-summary', role: 'status' },
           h('p', null, `${labels[snapshot.availability]} · ${formatClock(snapshot.captured_at_ms, true)}`),
-          h('p', null, `SDK：${snapshot.page?.sdk?.binding.listener_health ?? '无数据'}；页面消息：${snapshot.page?.session.received ?? '—'}；宿主投影：${snapshot.host?.changed_messages ?? '—'}`),
-          h('p', null, `主界面：收到 ${snapshot.main.received} / 格式拒绝 ${snapshot.main.guard_rejected} / 账号丢弃 ${snapshot.main.account_dropped} / 已写入 ${snapshot.main.upserted}`)) : null,
-        snapshot ? h('pre', { class: 'receive-diagnostics-json', tabindex: '0', 'aria-label': '不含身份或消息正文的接收诊断JSON' }, receiveDiagnosticsJson(snapshot)) : null,
-        h('p', { class: 'muted' }, `滚动诊断：${historyDiagnostics.active() ? '记录中' : '已停止'}。仅在本机内存保留行数、匹配数量与位置，不记录消息正文或身份。`),
-        h('button', { class: 'btn', dataset: { historyDiagnostic: 'start' }, onclick: () => { historyDiagnostics.start(); store.patch({}); } }, '开始滚动诊断'),
-        h('button', { class: 'btn', dataset: { historyDiagnostic: 'stop' }, onclick: () => { historyDiagnostics.stop(); store.patch({}); } }, '停止滚动诊断'),
-        h('button', { class: 'btn', dataset: { historyDiagnostic: 'clear' }, onclick: () => { historyDiagnostics.clear(); store.patch({}); } }, '清空滚动诊断'),
-        h('button', { class: 'btn', dataset: { historyDiagnostic: 'copy' }, onclick: () => copyText(JSON.stringify(historyDiagnostics.snapshot(), null, 2)) }, '复制滚动诊断'),
-        h('pre', { class: 'receive-diagnostics-json', tabindex: '0', 'aria-label': '不含身份或正文的滚动诊断JSON' }, JSON.stringify(historyDiagnostics.snapshot(), null, 2))),
+          h('p', null, t("main.receiveDiagnosticsDialog.receiveSummary", { sdk: snapshot.page?.sdk?.binding.listener_health ?? t("main.receiveDiagnosticsDialog.noData"), page: snapshot.page?.session.received ?? '—', host: snapshot.host?.changed_messages ?? '—' })),
+          h('p', null, t("main.receiveDiagnosticsDialog.mainSummary", { received: snapshot.main.received, rejected: snapshot.main.guard_rejected, dropped: snapshot.main.account_dropped, upserted: snapshot.main.upserted }))) : null,
+        snapshot ? h('pre', { class: 'receive-diagnostics-json', tabindex: '0', 'aria-label': t("main.receiveDiagnosticsDialog.safeReceiveJson") }, receiveDiagnosticsJson(snapshot)) : null,
+        h('p', { class: 'muted' }, t("main.receiveDiagnosticsDialog.scrollSummary", { status: historyDiagnostics.active() ? t("main.receiveDiagnosticsDialog.recording") : t("main.receiveDiagnosticsDialog.stopped") })),
+        h('button', { class: 'btn', dataset: { historyDiagnostic: 'start' }, onclick: () => { historyDiagnostics.start(); store.patch({}); } }, t("main.receiveDiagnosticsDialog.startScrollDiagnostics")),
+        h('button', { class: 'btn', dataset: { historyDiagnostic: 'stop' }, onclick: () => { historyDiagnostics.stop(); store.patch({}); } }, t("main.receiveDiagnosticsDialog.stopScrollDiagnostics")),
+        h('button', { class: 'btn', dataset: { historyDiagnostic: 'clear' }, onclick: () => { historyDiagnostics.clear(); store.patch({}); } }, t("main.receiveDiagnosticsDialog.clearScrollDiagnostics")),
+        h('button', { class: 'btn', dataset: { historyDiagnostic: 'copy' }, onclick: () => copyText(JSON.stringify(historyDiagnostics.snapshot(), null, 2)) }, t("main.receiveDiagnosticsDialog.copyScrollDiagnostics")),
+        h('pre', { class: 'receive-diagnostics-json', tabindex: '0', 'aria-label': t("main.receiveDiagnosticsDialog.safeScrollJson") }, JSON.stringify(historyDiagnostics.snapshot(), null, 2))),
       h('div', { class: 'dlg-f' },
-        h('button', { class: 'btn', disabled: view.busy, onclick: () => void receiveDiagnostics.refresh() }, '只读刷新'),
-        h('button', { class: 'btn', disabled: view.busy || !snapshot, onclick: () => { if (snapshot) copyText(receiveDiagnosticsJson(snapshot)); } }, '复制安全JSON'),
-        h('button', { class: 'btn', onclick: () => receiveDiagnostics.close() }, '关闭'))));
+        h('button', { class: 'btn', disabled: view.busy, onclick: () => void receiveDiagnostics.refresh() }, t("main.receiveDiagnosticsDialog.readonlyRefresh")),
+        h('button', { class: 'btn', disabled: view.busy || !snapshot, onclick: () => { if (snapshot) copyText(receiveDiagnosticsJson(snapshot)); } }, t("main.receiveDiagnosticsDialog.copySafeJson")),
+        h('button', { class: 'btn', onclick: () => receiveDiagnostics.close() }, t("win.close")))));
 }
 
 function logoutDialog(s: MainState): HTMLElement | null {
@@ -2849,7 +3149,7 @@ function logoutDialog(s: MainState): HTMLElement | null {
 function peripheralDialog(s: MainState): HTMLElement | null {
   const d = s.peripheral;
   if (!d || !stillActive(d.scope.account) || s.activeGid !== d.scope.gid) return null;
-  const titles: Record<PeripheralKind, string> = { members: '成员管理', scripts: '快捷话术', invite: '成员管理', transfer: '成员管理', finish: '结束会话' };
+  const titles: Record<PeripheralKind, string> = { members: t("main.chatPane.memberManagement"), scripts: t("main.peripheralDialog.quickScripts"), invite: t("main.chatPane.memberManagement"), transfer: t("main.chatPane.memberManagement"), finish: t("chat.end") };
   const title = titles[d.kind];
   const managing = d.kind === 'members' || d.kind === 'invite' || d.kind === 'transfer';
   const target = activeConv(s)?.title || d.scope.gid;
@@ -2859,7 +3159,7 @@ function peripheralDialog(s: MainState): HTMLElement | null {
   const expired = selectedExpired > 0 && selectedExpired <= s.now;
   const tokenReady = !!selection?.selection_token?.trim() && Number.isFinite(selectedExpired) && selectedExpired > s.now;
   const result = d.write?.kind === 'not_submitted'
-    ? { title: '尚未提交', message: managing ? '本次操作尚未提交，成员状态更新后可再次选择。' : '未进入上游写入。请只读刷新成员和会话后，再次确认。', confirmed: false }
+    ? { title: t("main.peripheralDialog.notSubmitted"), message: managing ? t("main.peripheralDialog.notSubmittedSelectAgain") : t("main.peripheralDialog.notWrittenConfirmAgain"), confirmed: false }
     : d.write ? peripheralWriteView(d.write) : null;
   const memberRows = d.members?.members ?? [];
   const transferRows = d.kind === 'transfer' ? memberRows.filter((member) => member.can_transfer === true) : memberRows;
@@ -2870,17 +3170,17 @@ function peripheralDialog(s: MainState): HTMLElement | null {
   if (d.kind === 'scripts') {
     body = h('div', { class: 'peripheral-body' },
       h('form', { class: 'peripheral-search', onsubmit: (e: Event) => { e.preventDefault(); void peripheral.refresh(undefined, S().scriptsQuery); } },
-        h('input', { class: 'inp', 'aria-label': '搜索话术', placeholder: '搜索话术', value: s.scriptsQuery, dataset: { fid: 'scripts-search' }, oninput: (e: Event) => store.patch({ scriptsQuery: (e.target as HTMLInputElement).value }) }),
-        h('button', { class: 'btn', type: 'submit', disabled: d.busy }, '搜索')),
-      d.scripts?.kind === 'empty' ? h('p', { class: 'peripheral-empty' }, '暂无可用话术') : null,
-      d.scripts?.kind === 'unsupported' ? h('div', { class: 'notice-box' }, '返回了话术条目，但内容格式尚未验证，暂不支持插入或发送。') : null);
+        h('input', { class: 'inp', 'aria-label': t("main.peripheralDialog.searchScripts"), placeholder: t("main.peripheralDialog.searchScripts"), value: s.scriptsQuery, dataset: { fid: 'scripts-search' }, oninput: (e: Event) => store.patch({ scriptsQuery: (e.target as HTMLInputElement).value }) }),
+        h('button', { class: 'btn', type: 'submit', disabled: d.busy }, t("main.peripheralDialog.search"))),
+      d.scripts?.kind === 'empty' ? h('p', { class: 'peripheral-empty' }, t("main.peripheralDialog.noScripts")) : null,
+      d.scripts?.kind === 'unsupported' ? h('div', { class: 'notice-box' }, t("main.peripheralDialog.scriptsUnverified")) : null);
   } else if (d.kind === 'invite') {
     const agents = filteredInviteAgents(d);
     const picked: UiInviteAgent[] = d.selected.map((uid) => d.known?.[uid] ?? d.candidates?.agents.find((agent) => agent.uid === uid) ?? { uid, nickname: null });
     body = h('div', { class: 'peripheral-body invite-body' },
       h('form', { class: 'peripheral-search', onsubmit: (e: Event) => { e.preventDefault(); void peripheral.refresh(undefined, S().inviteQuery); } },
-        h('input', { class: 'inp', type: 'search', 'aria-label': '搜索成员或部门', placeholder: '搜索成员或部门', maxlength: '50', value: s.inviteQuery, dataset: { fid: 'invite-search' }, oninput: (e: Event) => { const v = (e.target as HTMLInputElement).value; store.patch({ inviteQuery: v }); if (!v && S().peripheral?.query) void peripheral.refresh(undefined, ''); } }),
-        h('button', { class: 'btn', type: 'submit', disabled: d.busy }, '搜索')),
+        h('input', { class: 'inp', type: 'search', 'aria-label': t("main.peripheralDialog.searchMembers"), placeholder: t("main.peripheralDialog.searchMembers"), maxlength: '50', value: s.inviteQuery, dataset: { fid: 'invite-search' }, oninput: (e: Event) => { const v = (e.target as HTMLInputElement).value; store.patch({ inviteQuery: v }); if (!v && S().peripheral?.query) void peripheral.refresh(undefined, ''); } }),
+        h('button', { class: 'btn', type: 'submit', disabled: d.busy }, t("main.peripheralDialog.search"))),
       h('div', { class: 'invite-filters' },
         h('label', { class: 'invite-online-filter' },
           h('input', { type: 'checkbox', checked: d.onlineOnly, disabled: d.submitted, onchange: (e: Event) => peripheral.setOnlineOnly((e.target as HTMLInputElement).checked) }),
@@ -2890,8 +3190,8 @@ function peripheralDialog(s: MainState): HTMLElement | null {
             [['all', '全部角色'], ['4', '客服'], ['1', '管理员'], ['3', '运营'], ['2', '财务'], ['unknown', '其他角色']].map(([value, label]) => h('option', { value, selected: d.roleFilter === value }, label)))),
         h('span', { class: 'invite-department-scope' }, '全部部门')),
       h('div', { class: 'invite-columns' },
-        h('div', { class: 'peripheral-list invite-tree', role: 'group', 'aria-label': '可邀请成员' },
-          h('div', { class: 'invite-tree-h' }, h('span', null, '可邀请成员'), h('span', null, `${agents.length} 人`)),
+        h('div', { class: 'peripheral-list invite-tree', role: 'group', 'aria-label': t("main.peripheralDialog.availableAgents") },
+          h('div', { class: 'invite-tree-h' }, h('span', null, t("main.peripheralDialog.availableAgents")), h('span', null, t("main.peripheralDialog.personCount", { count: agents.length }))),
           agents.map((agent) => inviteAgentRow(d, agent, expired)),
           !d.busy && (d.tree || d.candidates) && agents.length === 0 ? h('p', { class: 'peripheral-empty' }, d.onlineOnly ? '暂无符合条件的在线、挂起或离开成员' : '没有符合条件的成员') : null),
         h('div', { class: 'peripheral-list invite-picked', 'aria-label': '已选成员' },
@@ -2900,11 +3200,11 @@ function peripheralDialog(s: MainState): HTMLElement | null {
           picked.map((agent) => h('div', { class: 'peripheral-member invite-picked-agent' },
             h('span', { class: 'ava sm', 'aria-hidden': 'true' }, renderMessageAvatar(document, personDisplayName(agent.nickname, agent.uid), agent.avatar)),
             h('span', { class: 'invite-agent-main' }, h('b', null, personDisplayName(agent.nickname, agent.uid)), invitePresence(agent)),
-            h('button', { class: 'ibtn', type: 'button', 'aria-label': `取消选择${personDisplayName(agent.nickname, agent.uid)}`, disabled: d.busy || d.submitted, onclick: () => peripheral.select(agent.uid) }, icon(IC.close, 12)))))));
+            h('button', { class: 'ibtn', type: 'button', 'aria-label': t("main.peripheralDialog.unselectPerson", { name: personDisplayName(agent.nickname, agent.uid) }), disabled: d.busy || d.submitted, onclick: () => peripheral.select(agent.uid) }, icon(IC.close, 12)))))));
   } else if (d.kind === 'finish') {
     body = h('div', { class: 'peripheral-body' },
-      h('p', null, '确认结束当前服务会话？'),
-      h('p', { class: 'muted' }, '请先确认客户已得到回复，并完成必要的主客服交接。结束后以服务器读回的会话状态为准。'));
+      h('p', null, t("main.peripheralDialog.finishConfirm")),
+      h('p', { class: 'muted' }, t("main.peripheralDialog.finishDescription")));
   } else {
     const manage = d.kind === 'members';
     const selfMaster = d.members?.self_is_master === true;
@@ -2913,76 +3213,76 @@ function peripheralDialog(s: MainState): HTMLElement | null {
     const selectedRows = memberRows.filter((m) => d.selected.includes(m.uid));
     body = h('div', { class: 'peripheral-body' },
       manage ? h('div', { class: 'members-bar' },
-        h('span', { class: 'member-num' }, `当前成员 · ${memberRows.length}`),
-        d.selected.length ? h('span', { class: 'muted' }, `已选 ${d.selected.length} 人`) : null) : null,
-      d.kind === 'transfer' ? h('p', { class: 'muted' }, '选择一位当前可接任的成员。可转交范围由服务器核验。') : null,
-      manage && d.selected.length > 1 && selectedRows.every((m) => m.can_transfer) && canTransfer ? h('p', { class: 'muted' }, '转移主客服目标仅可为一人') : null,
+        h('span', { class: 'member-num' }, t("main.peripheralDialog.memberCount", { count: memberRows.length })),
+        d.selected.length ? h('span', { class: 'muted' }, t("main.peripheralDialog.selectedCount", { count: d.selected.length })) : null) : null,
+      d.kind === 'transfer' ? h('p', { class: 'muted' }, t("main.peripheralDialog.transferDescription")) : null,
+      manage && d.selected.length > 1 && selectedRows.every((m) => m.can_transfer) && canTransfer ? h('p', { class: 'muted' }, t("main.peripheralDialog.transferSingle")) : null,
       h('div', { class: 'peripheral-list', role: d.kind === 'transfer' ? 'radiogroup' : 'list', 'aria-label': title }, transferRows.map((member) => {
         const role = member.role ?? (member.roles?.[1] === 4 ? 'master' : 'other');
         const checkable = manage && (member.can_transfer || member.can_remove === true);
         return h(d.kind === 'transfer' || checkable ? 'label' : 'div', { class: cx('peripheral-member', { 'is-master': role === 'master' }), ...(manage ? { role: 'listitem' } : {}) },
           d.kind === 'transfer' ? h('input', { type: 'radio', name: 'transfer-member', checked: d.selected.includes(member.uid), disabled: d.busy || d.submitted || expired, onchange: () => peripheral.select(member.uid) }) : null,
-          checkable ? h('input', { type: 'checkbox', 'aria-label': `选择${personDisplayName(member.nickname, member.uid)}`, checked: d.selected.includes(member.uid), disabled: d.busy || d.submitted || expired, onchange: () => peripheral.select(member.uid) }) : manage ? h('span', { class: 'member-check-space', 'aria-hidden': 'true' }) : null,
+          checkable ? h('input', { type: 'checkbox', 'aria-label': t("main.peripheralDialog.selectPerson", { name: personDisplayName(member.nickname, member.uid) }), checked: d.selected.includes(member.uid), disabled: d.busy || d.submitted || expired, onchange: () => peripheral.select(member.uid) }) : manage ? h('span', { class: 'member-check-space', 'aria-hidden': 'true' }) : null,
           h('span', { class: cx('ava sm', { lord: role === 'master' }), 'aria-hidden': 'true' }, renderMessageAvatar(document, personDisplayName(member.nickname, member.uid), member.avatar)),
-          h('span', { class: 'member-name' }, h('b', null, personDisplayName(member.nickname, member.uid), member.is_self ? '（我）' : '')),
+          h('span', { class: 'member-name' }, h('b', null, personDisplayName(member.nickname, member.uid), member.is_self ? t("main.peripheralDialog.selfSuffix") : '')),
           h('span', { class: cx('peripheral-member-status', `role-${role}`) }, MEMBER_ROLE[role]));
       })),
-      !d.busy && d.members && transferRows.length === 0 ? h('p', { class: 'peripheral-empty' }, d.kind === 'transfer' ? '当前没有可转交的成员' : '未返回会话成员') : null,
-      manage && d.members && !selfMaster ? h('p', { class: 'muted' }, '仅主客服可以转移主客服或移除成员。') : null,
-      manage && d.confirming === 'remove' ? h('div', { class: 'notice-box peripheral-note', role: 'alertdialog', 'aria-label': '确认移除' },
-        h('b', null, '确定要移除会话成员？'),
-        h('p', null, selectedRows.map((m) => personDisplayName(m.nickname, m.uid)).join('、')),
+      !d.busy && d.members && transferRows.length === 0 ? h('p', { class: 'peripheral-empty' }, d.kind === 'transfer' ? t("main.peripheralDialog.noTransferTarget") : t("main.peripheralDialog.noMembers")) : null,
+      manage && d.members && !selfMaster ? h('p', { class: 'muted' }, t("main.peripheralDialog.primaryOnly")) : null,
+      manage && d.confirming === 'remove' ? h('div', { class: 'notice-box peripheral-note', role: 'alertdialog', 'aria-label': t("main.peripheralDialog.confirmRemove") },
+        h('b', null, t("main.peripheralDialog.removeMembersQuestion")),
+        h('p', null, selectedRows.map((m) => personDisplayName(m.nickname, m.uid)).join(t("main.peripheralDialog.nameSeparator"))),
         h('div', { class: 'dlg-f' },
-          h('button', { class: 'btn', onclick: () => peripheral.confirmRemove(false) }, '取消'),
-          h('button', { class: 'btn danger', disabled: locked, dataset: { action: 'peripheral-remove-confirm' }, onclick: () => void peripheral.submit('remove') }, '确认移除'))) : null);
+          h('button', { class: 'btn', onclick: () => peripheral.confirmRemove(false) }, t("dlg.cancel")),
+          h('button', { class: 'btn danger', disabled: locked, dataset: { action: 'peripheral-remove-confirm' }, onclick: () => void peripheral.submit('remove') }, t("main.peripheralDialog.confirmRemove")))) : null);
     if (manage && !d.submitted) actions = [
-      canTransfer ? h('button', { class: 'btn', disabled: locked || d.selected.length !== 1 || !selectedRows.every((m) => m.can_transfer), dataset: { action: 'peripheral-members-transfer' }, onclick: () => void peripheral.submit('transfer') }, '设为主客服') : null,
-      canRemove ? h('button', { class: 'btn danger', disabled: locked || d.selected.length === 0 || !selectedRows.every((m) => m.can_remove === true) || d.confirming === 'remove', dataset: { action: 'peripheral-members-remove' }, onclick: () => peripheral.confirmRemove(true) }, '移除成员') : null,
+      canTransfer ? h('button', { class: 'btn', disabled: locked || d.selected.length !== 1 || !selectedRows.every((m) => m.can_transfer), dataset: { action: 'peripheral-members-transfer' }, onclick: () => void peripheral.submit('transfer') }, t("main.peripheralDialog.makePrimary")) : null,
+      canRemove ? h('button', { class: 'btn danger', disabled: locked || d.selected.length === 0 || !selectedRows.every((m) => m.can_remove === true) || d.confirming === 'remove', dataset: { action: 'peripheral-members-remove' }, onclick: () => peripheral.confirmRemove(true) }, t("main.peripheralDialog.removeMembers")) : null,
     ].filter((n): n is HTMLButtonElement => n !== null);
   }
   return h('div', { class: 'shade peripheral-shade', onclick: () => peripheral.close() },
     h('div', { class: cx('dlg peripheral-dialog', { 'peripheral-wide': managing, 'member-management': managing }), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'peripheral-title', tabindex: '-1', dataset: { peripheralDialog: d.kind }, onclick: (e: Event) => e.stopPropagation() },
-      h('div', { class: 'dlg-h' }, h('span', { id: 'peripheral-title' }, title), h('button', { class: 'ibtn', 'aria-label': '关闭对话框', onclick: () => peripheral.close() }, icon(IC.close, 16))),
-      h('div', { class: 'peripheral-context' }, h('span', null, target), managing ? h('span', { class: 'member-auto-update' }, d.busy || d.refreshing ? '更新中…' : '自动更新') : null),
-      managing ? h('nav', { class: 'member-tabs', 'aria-label': '成员管理功能' },
-        h('button', { class: cx('member-tab', { on: d.kind !== 'invite' }), 'aria-current': d.kind !== 'invite' ? 'page' : undefined, disabled: d.busy, onclick: () => openPeripheral('members') }, icon(IC.users, 16), '当前成员'),
-        h('button', { class: cx('member-tab', { on: d.kind === 'invite' }), 'aria-current': d.kind === 'invite' ? 'page' : undefined, disabled: d.busy || !!activeConv(s) && isDone(activeConv(s)!), onclick: () => openPeripheral('invite') }, icon(IC.userPlus, 16), '邀请成员')) : null,
+      h('div', { class: 'dlg-h' }, h('span', { id: 'peripheral-title' }, title), h('button', { class: 'ibtn', 'aria-label': t("main.peripheralDialog.closeDialog"), onclick: () => peripheral.close() }, icon(IC.close, 16))),
+      h('div', { class: 'peripheral-context' }, h('span', null, target), managing ? h('span', { class: 'member-auto-update' }, d.busy || d.refreshing ? t("main.peripheralDialog.updating") : t("main.peripheralDialog.autoUpdate")) : null),
+      managing ? h('nav', { class: 'member-tabs', 'aria-label': t("main.peripheralDialog.memberManagementTabs") },
+        h('button', { class: cx('member-tab', { on: d.kind !== 'invite' }), 'aria-current': d.kind !== 'invite' ? 'page' : undefined, disabled: d.busy, onclick: () => openPeripheral('members') }, icon(IC.users, 16), t("main.peripheralDialog.currentMembers")),
+        h('button', { class: cx('member-tab', { on: d.kind === 'invite' }), 'aria-current': d.kind === 'invite' ? 'page' : undefined, disabled: d.busy || !!activeConv(s) && isDone(activeConv(s)!), onclick: () => openPeripheral('invite') }, icon(IC.userPlus, 16), t("chat.invite"))) : null,
       body,
-      d.busy ? h('div', { class: 'peripheral-note', role: 'status' }, h('span', { class: 'spin' }), d.submitted ? '正在提交，请勿重复操作…' : '正在只读加载…') : null,
+      d.busy ? h('div', { class: 'peripheral-note', role: 'status' }, h('span', { class: 'spin' }), d.submitted ? t("main.peripheralDialog.submitting") : t("main.peripheralDialog.readonlyLoading")) : null,
       d.error ? h('div', { class: 'notice-box err peripheral-note', role: 'alert' }, d.error) : null,
-      d.notice || expired ? h('div', { class: 'notice-box peripheral-note', role: 'status' }, d.notice || (managing ? '成员状态已过期，正在自动更新…' : '候选已过期。请只读刷新后重新选择。')) : null,
+      d.notice || expired ? h('div', { class: 'notice-box peripheral-note', role: 'status' }, d.notice || (managing ? t("main.peripheralDialog.membersExpiredUpdating") : t("main.peripheralDialog.candidatesExpired"))) : null,
       result ? h('div', { class: cx('notice-box', 'peripheral-note', { 'peripheral-confirmed': result.confirmed }), role: 'status' }, h('b', null, result.title), h('p', null, result.message)) : null,
       h('div', { class: 'dlg-f' },
-        !managing ? h('button', { class: 'btn', disabled: d.busy, onclick: () => void peripheral.refresh(undefined, d.kind === 'scripts' ? S().scriptsQuery : '') }, d.kind === 'scripts' ? '刷新话术' : '刷新') : null,
+        !managing ? h('button', { class: 'btn', disabled: d.busy, onclick: () => void peripheral.refresh(undefined, d.kind === 'scripts' ? S().scriptsQuery : '') }, d.kind === 'scripts' ? t("main.peripheralDialog.refreshScripts") : t("main.notificationsView.refresh")) : null,
         ...actions,
-        h('button', { class: 'btn', onclick: () => peripheral.close() }, '关闭'),
-        writable && !d.submitted ? h('button', { class: 'btn pri', disabled: submitDisabled, dataset: { action: `peripheral-${d.kind}-confirm` }, onclick: () => void peripheral.submit() }, d.kind === 'finish' ? '确认结束' : d.kind === 'transfer' ? '确认转交' : `确认邀请${d.selected.length ? `（${d.selected.length}）` : ''}`) : null)));
+        h('button', { class: 'btn', onclick: () => peripheral.close() }, t("win.close")),
+        writable && !d.submitted ? h('button', { class: 'btn pri', disabled: submitDisabled, dataset: { action: `peripheral-${d.kind}-confirm` }, onclick: () => void peripheral.submit() }, d.kind === 'finish' ? t("main.peripheralDialog.confirmFinish") : d.kind === 'transfer' ? t("main.peripheralDialog.confirmTransfer") : t("main.peripheralDialog.confirmInvite", { count: d.selected.length ? t("main.peripheralDialog.countSuffix", { count: d.selected.length }) : '' })) : null)));
 }
 
 /** Official imWindow DE/Fh chat status: 0 在线 ico_free, 1 挂起, 2 离开, 3 下班. */
 const AGENT_CHAT_STATUS: Record<number, { readonly name: string; readonly cls: string }> = {
-  0: { name: '在线', cls: 'free' }, 1: { name: '挂起', cls: 'busy' }, 2: { name: '离开', cls: 'leave' }, 3: { name: '下班', cls: 'exit' },
+  0: { name: t("status.online"), cls: 'free' }, 1: { name: t("status.hangup"), cls: 'busy' }, 2: { name: t("status.leaving"), cls: 'leave' }, 3: { name: t("status.getoff"), cls: 'exit' },
 };
-const JOB_POSITION: Record<number, string> = { 1: '管理员', 2: '财务', 3: '运营', 4: '客服' };
-const MEMBER_ROLE: Record<UiMemberRole, string> = { master: '主客服', agent: '客服', customer: '客人', robot: '机器人', company: '携程客服', other: '成员' };
+const JOB_POSITION: Record<number, string> = { 1: t("main.peripheralDialog.administrator"), 2: t("main.peripheralDialog.finance"), 3: t("main.peripheralDialog.operations"), 4: t("main.peripheralDialog.agent") };
+const MEMBER_ROLE: Record<UiMemberRole, string> = { master: t("main.global.primaryAgent"), agent: t("main.peripheralDialog.agent"), customer: t("list.customerBusiness"), robot: t("chat.role.robot"), company: t("main.global.companyAgent"), other: t("main.global.member") };
 
 function invitePresence(agent: UiInviteAgent): HTMLElement {
   const chat = agent.status != null ? AGENT_CHAT_STATUS[agent.status] : undefined;
   return h('span', { class: cx('invite-presence', chat?.cls ?? 'unknown') },
-    h('i', { 'aria-hidden': 'true' }), chat?.name ?? '状态未知');
+    h('i', { 'aria-hidden': 'true' }), chat?.name ?? t("status.unknown"));
 }
 
 function inviteAgentRow(d: PeripheralPanelState, agent: UiInviteAgent, expired: boolean): HTMLElement {
   const name = personDisplayName(agent.nickname, agent.uid);
-  const job = (agent.job_position_type != null ? JOB_POSITION[agent.job_position_type] : undefined) ?? agent.job_position ?? '其他角色';
-  const duty = agent.duty_status == null ? null : agent.duty_status === 1 ? '上班' : '下班';
+  const job = (agent.job_position_type != null ? JOB_POSITION[agent.job_position_type] : undefined) ?? agent.job_position ?? t("main.peripheralDialog.otherRoles");
+  const duty = agent.duty_status == null ? null : agent.duty_status === 1 ? t("main.inviteAgentRow.onDuty") : t("status.getoff");
   return h('label', { class: cx('peripheral-member', 'invite-agent', { 'is-disabled': agent.in_group === true }), title: agent.skill_group_full_name ?? '' },
-    h('input', { type: 'checkbox', 'aria-label': `选择${name}`, checked: agent.in_group === true || d.selected.includes(agent.uid), disabled: agent.in_group === true || d.busy || d.submitted || expired, onchange: () => peripheral.select(agent.uid) }),
+    h('input', { type: 'checkbox', 'aria-label': t("main.peripheralDialog.selectPerson", { name: name }), checked: agent.in_group === true || d.selected.includes(agent.uid), disabled: agent.in_group === true || d.busy || d.submitted || expired, onchange: () => peripheral.select(agent.uid) }),
     h('span', { class: 'ava sm invite-ava', 'aria-hidden': 'true' }, renderMessageAvatar(document, name, agent.avatar)),
     h('span', { class: 'invite-agent-main' }, h('b', null, name),
       h('span', { class: 'peripheral-id' }, [job, agent.skill_group_full_name].filter(Boolean).join(' · '))),
     h('span', { class: 'invite-agent-state' }, invitePresence(agent),
-      agent.in_group ? h('span', { class: 'invite-duty' }, '已在群中') : duty ? h('span', { class: 'invite-duty' }, duty) : null));
+      agent.in_group ? h('span', { class: 'invite-duty' }, t("main.inviteAgentRow.alreadyInGroup")) : duty ? h('span', { class: 'invite-duty' }, duty) : null));
 }
 
 /**
@@ -3015,11 +3315,12 @@ function part<T extends Node | null>(name: string, build: () => T): T {
 function render(s: MainState): Node {
   markRenderFrame(s);
   const hasAccount = !!activeAccount(s);
-  const view = !hasAccount ? welcomeView(s) : s.view === 'messages' ? messagesView(s) : s.view === 'notifications' ? notificationsView(s) : orderView(s);
+  const view = !hasAccount ? welcomeView(s) : s.view === 'messages' ? messagesView(s) : s.view === 'notifications' ? notificationsView(s) : s.view === 'search' ? serverSearchView(s.serverSearch, serverSearchPanel) : orderView(s);
   return h(
     'div',
     { class: 'app', dataset: { view: hasAccount ? s.view : 'welcome', ...(s.activeWeb ? { web: '1' } : {}) } },
     part('titleBar', () => titleBar(s)),
+    recoveryView(s.recovery, recovery),
     h('div', { class: 'body' }, part('navBar', () => navBar(s)), view, part('webStage', () => webStage(s))),
     part('statusBar', () => statusBar(s)),
     contextMenu(s),
@@ -3031,7 +3332,7 @@ function render(s: MainState): Node {
     part('unknownOutbound', () => unknownOutboundDialog(s)),
     s.fileDrag && !s.activeWeb && composerInputContext(s) ? h('div', { class: 'drop-overlay', 'aria-hidden': 'true' }, h('div', null, icon(IC.file, 28), t('composer.dropHint'))) : null,
     part('banners', () => bannerStack(s)),
-    s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast) : null,
+    s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast, s.toastAction ? h('button', { class: 'link', type: 'button', dataset: { action: 'draft-sync-retry' }, onclick: () => runToastAction(s.toastAction!) }, s.toastAction.label) : null) : null,
   );
 }
 
@@ -3044,7 +3345,7 @@ const visibleReads = createVisibleRead({
       messages: conversation ? s.messages[conversation.gid] ?? [] : [],
       firstPage: conversation ? s.history[conversation.gid]?.firstPage : undefined,
       readContextRevision: conversation ? s.history[conversation.gid]?.readContextRevision : undefined,
-      view: s.view, blocked: !!(s.activeWeb || s.logoutDialog || s.peripheral || s.receiveDiagnostics || s.unknownOutbound || s.quickReplies?.mode === 'categories' || s.recommendations) };
+      view: s.view, blocked: !!(s.activeWeb || s.annotationEditing || s.logoutDialog || s.peripheral || s.receiveDiagnostics || s.unknownOutbound || s.quickReplies?.mode === 'categories' || s.recommendations) };
   },
   pane: () => root.querySelector<HTMLElement>('[data-keep-scroll="msgs"]'),
   visible: () => document.visibilityState === 'visible' && document.hasFocus(),
@@ -3054,14 +3355,19 @@ const visibleReads = createVisibleRead({
 // ---- drafts per (account, conversation) (I-09)
 // The state map is per account generation and is reset on every account switch; the book remembers each
 // persistent account's drafts and stores them through the host's `im_draft_load/save` (core-store DraftBook).
+const draftFailureNotice = createDraftFailureNotice({
+  notify: showDraftSyncNotice,
+  retry: retryDraftSync,
+});
 const draftBook = createDraftBook(createIpcDraftPort(
   (command, payload) => ipc.invoke(command, payload),
   { load: ImCommands.DRAFT_LOAD, save: ImCommands.DRAFT_SAVE },
   owner => S().accounts?.accounts.find(a => a.context.account_id === owner.account_id && a.context.environment === owner.environment)?.context ?? null,
-));
+), { onError: draftFailureNotice.onError });
 async function restoreDrafts(context: AccountContext): Promise<void> {
+  const accountVisit = S().accountVisit;
   const stored = await draftBook.restore(context);
-  if (!stillActive(context)) return;
+  if (S().accountVisit !== accountVisit || !stillActive(context)) return;
   const s = S();
   const drafts = { ...s.drafts };
   let changed = false;
@@ -3071,6 +3377,12 @@ async function restoreDrafts(context: AccountContext): Promise<void> {
   // Never overwrite what the agent has typed since the account became active.
   const fill = !!active && s.draft === '' && s.drafts[active] === undefined && drafts[active] !== undefined;
   store.patch({ drafts, ...(fill ? { draft: drafts[active]!, draftVersion: s.draftVersion + 1 } : {}) });
+}
+async function retryDraftSync(): Promise<void> {
+  const context = activeAccount(S())?.context;
+  if (!context) throw new Error('draft.account_unavailable');
+  await restoreDrafts(context);
+  await draftBook.flush();
 }
 store.subscribe((s, prev) => {
   const a = activeAccount(s)?.context ?? null, b = activeAccount(prev)?.context ?? null;
@@ -3132,11 +3444,16 @@ featureRuntime.start();
 /** Slots are rendered inline by `chatPane` (`featureRuntime.renderSlot`); `requestRender` patches the store, so a fact never misses a frame. */
 const voicePlayer = voicePlayerOf(FEATURES);
 
+let lastSearchAnchor: string | null = null;
 subscribeFrame(store, (s) => {
   if (composerInput.deferRender()) return;
   // 增量 morph：已挂载的节点（滚动容器、行、头像、按 data-media-key 配对的 video）原地保留，
   // 计时刷新和实时更新既不重启播放，也不把正在滚动的列表/对话串从文档里拔下来（否则触控板惯性丢失、整树重排）。
   withMessageAnchor(s, () => rerender(root, () => render({ ...s, now: Date.now() }), { morph: true }));
+  if (s.view === 'search' && s.serverSearch.selected?.selection_token !== lastSearchAnchor) {
+    const anchor = root.querySelector<HTMLElement>('[data-search-message][data-anchor="true"]');
+    if (anchor) { anchor.scrollIntoView({ block: 'center' }); lastSearchAnchor = s.serverSearch.selected?.selection_token ?? null; }
+  }
   visibleReads.afterRender();
   fillHistoryViewport();
   syncConversationViewport();
@@ -3165,6 +3482,7 @@ document.addEventListener('mousedown', () => {
   if (s.ctxMenu || s.meMenu || s.emoOpen || s.composerMore) store.patch({ ctxMenu: null, meMenu: false, emoOpen: false, composerMore: false });
 });
 document.addEventListener('keydown', (e) => {
+  if (S().annotationEditing) { if (e.key === 'Escape') annotationEditor.cancel(); return; }
   if (e.key === 'Tab' && (S().peripheral || S().receiveDiagnostics || S().unknownOutbound || S().quickReplies?.mode === 'categories' || S().recommendations)) {
     const dialog = document.querySelector<HTMLElement>((S().quickReplies?.mode === 'categories' || S().recommendations) ? '[data-commerce-dialog]' : S().unknownOutbound ? '[data-unknown-outbound]' : S().receiveDiagnostics ? '[data-receive-diagnostics]' : '[data-peripheral-dialog]');
     const controls = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')] : [];
@@ -3185,6 +3503,34 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// Host queues validated native links until this window is ready. Polling also
+// recovers a cold-launch event emitted before the renderer subscribed.
+let takingDeepLink = false;
+let deepLinkIntent = S();
+let deepLinkSerial = 0;
+async function takeDeepLinks(): Promise<void> {
+  if (takingDeepLink) return;
+  takingDeepLink = true;
+  const before = deepLinkIntent;
+  const serial = deepLinkSerial;
+  try {
+    const pending = await ipc.invoke<unknown>(UiCommands.DEEP_LINK_TAKE);
+    if (serial !== deepLinkSerial || !Array.isArray(pending) || S().navigationOperation !== before.navigationOperation || S().activeGid !== before.activeGid || S().view !== before.view) return;
+    for (const item of pending.slice(0, 16).reverse()) {
+      if (!item || typeof item !== 'object' || item.action !== 'conversation' || !isLocatePayload(item) || !stillActive(item.account)) continue;
+      await locateConversation(item.account, item.gid);
+      break; // The newest queued link wins; never replay older navigation after awaiting.
+    }
+  } catch { /* Startup/contract handshake may still be pending; bounded host TTL applies. */ }
+  finally { takingDeepLink = false; if (serial !== deepLinkSerial) void takeDeepLinks(); }
+}
+if (!sel.mock) {
+  void ipc.listen('deeplink://pending', () => { deepLinkSerial++; store.patch({ navigationOperation: {} }); deepLinkIntent = S(); void takeDeepLinks(); });
+  const deepLinkTimer = setInterval(() => void takeDeepLinks(), 2000);
+  window.addEventListener('pagehide', () => clearInterval(deepLinkTimer), { once: true });
+  void takeDeepLinks();
+}
+
 // subscribe first, then request snapshots; every payload is validated before it reaches the store
 ipc.listen<unknown>(Events.ACCOUNT_CHANGED, guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, applyAccountSnapshot));
 ipc.listen<unknown>(
@@ -3197,6 +3543,7 @@ ipc.listen<unknown>(Events.IM_MESSAGE_NEW, receiveMainMessage);
 ipc.listen<unknown>(Events.IM_MESSAGE_READ_STATUSES, receiveMessageReadStatuses);
 ipc.listen<unknown>(Events.IM_CONVERSATIONS_INVALIDATED, receiveConversationInvalidation);
 ipc.listen<unknown>(UiEvents.MEDIA_SEND_PROGRESS, receiveMediaProgress);
+ipc.listen<unknown>(UiEvents.SCREENSHOT_REQUEST, receiveScreenshotRequest);
 ipc.listen<unknown>(UiEvents.BROWSER_TAB_OPENED, browserTabs.receiveOpened);
 ipc.listen<unknown>(UiEvents.BROWSER_TAB_CHANGED, browserTabs.receiveChanged);
 ipc.listen<unknown>(UiEvents.BROWSER_TAB_CLOSED, browserTabs.receiveClosed);
@@ -3294,4 +3641,4 @@ void (async () => {
   await loadForActiveAccount();
 })();
 
-exposeForTests(sel, { __vbkStore: store, __vbkOpenConversation: openConversation, __vbkSoundLog: soundLog });
+exposeForTests(sel, { __vbkStore: store, __vbkOpenConversation: openConversation, __vbkSoundLog: soundLog, __vbkSearch: serverSearchPanel });

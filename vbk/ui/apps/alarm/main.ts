@@ -23,6 +23,7 @@ import { guarded, isAlarmSnapshot } from '../_shared/guards.ts';
 import { acceptsSnapshotResponse, avatarColor, deriveAlarmRows, entryCommand, hasL4, headerTitle, hideAllCommand, rowKey, thresholdText } from './viewmodel.ts';
 import type { AlarmAction, AlarmRow } from './viewmodel.ts';
 import { ALARM_STRINGS as S } from './strings.ts';
+document.title = S.documentTitle;
 
 interface AlarmState {
   readonly snapshot: AlarmSnapshot | null;
