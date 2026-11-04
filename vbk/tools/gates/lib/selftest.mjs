@@ -11,6 +11,7 @@ import * as csp from '../csp.mjs';
 import * as cap from '../capability-matrix.mjs';
 import * as dev from '../devtools-launch.mjs';
 import * as pw from '../no-password-fields.mjs';
+import * as cjk from '../cjk-literals.mjs';
 
 export const MIN_FIXTURES = 3;
 const fixturesDir = join(gatesDir, 'fixtures');
@@ -28,6 +29,7 @@ const runners = {
   'capability-matrix': (name, text, ctx) => cap.check(mergePatch(ctx.base, JSON.parse(text))),
   'devtools-launch': (name, text) => dev.scanFile(name, text, ['--vbk-crash-monitor']),
   'no-password-fields': (name, text) => pw.scanFile(name, text),
+  'cjk-literals': (name, text) => cjk.scanFile(name, text),
 };
 
 export function selfTest() {
