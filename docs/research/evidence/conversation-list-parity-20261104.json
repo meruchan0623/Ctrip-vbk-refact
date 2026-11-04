@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-04",
+  "method": "read-only static analysis of installed official desktop; synthetic probes of local implementation",
+  "file": "/Applications/旅游商家桌面版.app/Contents/Resources/app.asar.unpacked/dist/js/imWindow-BaGPtUvK.js",
+  "sha256": "9b4894abe8eab7274749169b8db0660e43301beeebdd30a4bc384ce216bfce47",
+  "regions": [
+    {
+      "label": "function Kr(",
+      "utf8_byte_offset": 7323,
+      "excerpt": "function Kr(t,r,n,i){let{actionCode:o,messageType:d,title:s=\"\",status:p,operatorName:h,fromUid:g,content:e=\"\",messageBody:c=\"\",ext:a,extPropertys:l}=t,v=\"\";switch(d){case 7:switch(o){case\"CBZ03\":v=r[D.order]||\"订单\",v=`[${v}]`;break;case\"CBZ09\":v=r[D.voice]||\"语音\",v=`[${v}]`;break;case\"CBZ04\":v=r[D.aiFAQTitlte]||\"问答消息\",v=`[${v}]`;break;case\"CBZ59\":v=`[${r[D.content]||\"内容\"}]`;break;case\"CBZ95\":{v=YTe(c)??i??\"[卡片消息]\";break}default:v=s||(a==null?void 0:a.title)||(l==null?void 0:l.title)||\"\";break}break;case 1007:v=s;break;case re.WithDraw:p==2&&!h&&(h=g),v=(h||r[D.system]||\"系统\")+\" \"+(r[D.messageRevoked]||\"撤回了一条消息\");break;case 0:v=e||c;break;case 1:v=r[D.picture]||\"图片\",v=`[${v}]`;break;case 2:v=r[D.card]||\"卡片\",v=`[${v}]`;break;case 3:v=r[D.video]||\"视频\",v=`[${v}]`;break;case 4:v=r[D.voice]||\"语音\",v=`[${v}]`;break;case 5:v=r[D.file]||\"文件\",v=`[${v}]`;break;case 6:v=r[D.location]||\"位置\",v=`[${v}]`;break;case 9:v=c;break}return n||(v=Yr(v),v=Ii((v||\"\").toString())),o==\"CBZ58\"&&(v=\"商品\",v=`[${v}]`),o==\"CBZ59\"&&(v=\"内容\",v=`[${v}]`),v}"
+    },
+    {
+      "label": "function ri(",
+      "utf8_byte_offset": 30722,
+      "excerpt": "function ri(t,r,n){let{gid:i,lastMessage:o,message:d,lastUpdateTime:s=0}=t;const{groupTitle:p,groupAvatar:h}=V0e(t,r);!o&&d&&(o=va(d));const{createTime:g=0,fromJid:e}=o||{};return{...t,groupTitle:p,groupAvatar:h,lastUpdateTime:g||s,lastMessageText:Kr(o||{},n),lastMessage:o}}"
+    },
+    {
+      "label": "function Nve(",
+      "utf8_byte_offset": 2602774,
+      "excerpt": "function Nve(){const{conversationList:t=[],currentTab:r=\"BC\",currentStatus:n=\"ACTIVE\",currentStar:i=0}=de();let o=t.filter(d=>{const{conversationType:s=\"\",serviceType:p}=d;return LE(s,p,r)});return o=o.filter(d=>We[n].values.includes(d.status||0)),i&&(o=o.filter(d=>d.star==i)),o.sort((d,s)=>{if(d.isTop&&!s.isTop)return-1;if(!d.isTop&&s.isTop)return 1;const p=d.lastUpdateTime||0,h=s.lastUpdateTime||0;return p>h?-1:p<h?1:0}),o}"
+    },
+    {
+      "label": "function Fje(",
+      "utf8_byte_offset": 29940,
+      "excerpt": "function Fje(t,r,n,i){const{ext:o={},memberHash:d={},ctripAgentId:s,sessionId:p,lastMessage:h}=t,{ext:g={},memberHash:e={},ctripAgentId:c,sessionId:a,unreadCount:l=0,lastMessage:v}=r;for(let T in e){const{roles:P,avatar:j}=d[T]||{},{roles:C,avatar:k}=e[T]||{};e[T]={...e[T],roles:C||P,avatar:k||j}}const{createTime:u=0}=v||{},{createTime:f=0}=h||{},O={...t,...r,ext:{...o,...g},memberHash:{...d,...e},isCtripAgentChange:s!=c,sessionId:a||p||\"\",unreadCount:l,lastMessage:u>=f?v:h};return We.ACTIVE.values.includes(O.status||0)&&O.inGroup===0&&t.inGroup===1&&(O.inGroup=1),ri(O,n,i)}function B0e(t){return t.sort((n,i)=>{const{lastMessage:o,lastUpdateTime:d=0}=n,{lastMessage:s,lastUpdateTime:p=0}=i;let h=(o==null?void 0:o.createTime)||d;return((s==null?void 0:s.createTime)||p)-h})}function ri(t,r,n){let{gid:i,lastMessage:o,message:d,lastUpdateTime:s=0}=t;const{groupTitle:p,groupAvatar:h}=V0e(t,r);!o&&d&&(o=va(d));const{createTime:g=0,fromJid:e}=o||{};return{...t,groupTitle:p,groupAvatar:h,lastUpdateTime:g||s,lastMessageText:Kr(o||{},n),lastMessage:o}}function V0e(t,r){let{groupTitle:n=\"\",groupAvatar:i=qo,memberHash:o={}}=t;const d=VE(t,r),s=Fh(t);let{nickName:p,remark:h,avatar:g=\"\",username:e=\"\"}=o[s]||{};p=h||p;const c=HW(e);return p?p+=`(${c})`:p=c,p||(p=HW(s)),d==\"user\"||!n?{groupAvatar:g||qo,groupTitle:p||n}:{groupAvatar:i,groupTitle:n}}function _S(t,r){return t.map(n=>{const{nickName:i}=n;return i!=D.robotNickName?n:{...n,nickName:r}})}function Dje(t,r,n,i){const o=U0e(r);return t.map(d=>{const s=Fh(d),{memberHash:p={}}=d;if(o[s]){const{avatar:h}=o[s],{avatar:g}=p[s]||{};return ri({...d,memberHash:{...p,[s]:{...p[s],...o[s],avatar:h||g}}},n,i)}return d})}"
+    },
+    {
+      "label": "function Aje(",
+      "utf8_byte_offset": 32614,
+      "excerpt": "function Aje(t){let{conv:r,messageInfo:n,currentConvId:i,currentUid:o}=t,d=!1,{messageCategory:s,messageType:p,extPropertys:h,isPresent:g,createTime:e,bSee:c,fromUid:a,recallMessageId:l,actionCode:v}=n,{unreadCount:u=0,gid:f,lastMessageList:O=[]}=r;const T=e;if(s==re.SystemMessage){if(p==re.OtherHasRead)return{nextConv:r,sortable:d};if(p==re.SystemHasRead||p==re.GroupHasRead)return{nextConv:{...r,unreadCount:0},sortable:d}}if(n.threadId!==r.threadId&&(r={...r,threadId:n.threadId}),v==\"NBZ12\"&&(r={...r,status:zE.finish,threadId:n.threadId}),p==1007||p==7){if(typeof(h==null?void 0:h.visibleRule)==\"number\"){if(!(h.visibleRule&4))return{nextConv:r,sortable:d}}else if(g===!1)return{nextConv:r,sortable:d};if(c==1)return{nextConv:r,sortable:d}}if(p==re.WithDraw){const j=O.find(C=>C.messageId==l);j&&(e=j.createTime,typeof j.isTargetRead<\"u\"&&!j.isTargetRead&&u--,j.status=pa.Recall)}else i==f&&document.visibilityState==\"visible\"?u=0:a!==o&&u++;n={...n,createTime:e};let P=!1;return O=O.map(j=>{const{messageId:C,localId:k}=j;return C&&j.messageId==n.messageId||k&&j.localId==n.localId?(P=!0,{...j,...n}):j}),P||(O=O.concat(n)),O=O.sort((j,C)=>(j.createTime||0)-(C.createTime||0)).slice(-20),{nextConv:{...r,unreadCount:Math.max(0,u),lastMessageList:[...O],lastMessage:O.reverse().find(j=>Kr(j,{})),lastMessageTime:T},sortable:!0}}"
+    },
+    {
+      "label": "function bje(",
+      "utf8_byte_offset": 26437,
+      "excerpt": "function bje(t,r,n){const{conversationList:i=[]}=t,o=[],d=r.filter(s=>{if(i.find(g=>g.gid==s.gid))return!1;const{lastUpdateTime:h=Date.now()}=s;return h>Date.now()-30*24*60*60*1e3?(s.gid&&s.inGroup==1&&o.push(s.gid),!1):!0}).map(s=>s.gid).filter(Boolean);return d.length&&(await ft.delete(ht).where(xW(mk(ht.gid,d),St(ht.buid,n))),await ft.delete(jr).where(mk(jr.gid,d))),o.length&&await ft.update(ht).set({inGroup:0}).where(xW(mk(ht.gid,o),St(ht.buid,n))),await Ok.read(n,{},()=>{})||t}"
+    },
+    {
+      "label": "Le(this,\"fetchLastMessage\"",
+      "utf8_byte_offset": 2739089,
+      "excerpt": "Le(this,\"fetchLastMessage\",async n=>{const{conversationList:i=[]}=this.store.getState(),o=async d=>{const{gid:s,conversationType:p}=d,h=await Promise.race([this.post(this.API.getMessageList,{head:this.getHead(),showTargetIsRead:!0,groupId:s,conversationType:p,pageSize:20}),new Promise(e=>{setTimeout(()=>{e(void 0)},5e3)})]);if(!h||this.checkResponse(h))return;const{UPDATE_CONVERSATION_LAST_MESSAGE:g}=this.store.actions;g(h)};i.filter(d=>{const{gid:s}=d;return n.find(p=>p.gid==s)&&We.ACTIVE.values.includes(d.status||0)}).map(o)});"
+    },
+    {
+      "label": "async getConversationListDetail(",
+      "utf8_byte_offset": 2761000,
+      "excerpt": "async getConversationListDetail(n,i){const o=n.map(h=>h.gid).filter(Boolean),{UPDATE_CONVERSATION_DETAIL:d,UPDATE_CONVERSATION_REMARK:s}=this.store.actions;i||this.post(this.API.getRemarkList,{head:this.getHead(),uidList:n.map(Fh)}).then(h=>{const g=this.checkResponse(h);if(g){document.visibilityState==\"visible\"&&g!=\"net error\"&&ye.error(g);return}const{remarkList:e=[]}=h||{};s(e),h&&AD(h)});const p=h=>{const g=e=>{const c=this.checkResponse(e);if(c){document.visibilityState==\"visible\"&&c!=\"net error\"&&ye.error(c);return}const{conversationInfoList:a=[]}=e||{};d(a),i||this.fetchLastMessage(a),this.checkConvObj()};this.postDBAndServer(this.API.getConversationInfoByGidList,{head:this.getHead(),gidList:h},g)};IPe(o,50).map(p)}"
+    }
+  ]
+}

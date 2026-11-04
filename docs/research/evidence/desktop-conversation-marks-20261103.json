@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-03",
+  "method": "read-only static inspection of installed official desktop client",
+  "file": "/Applications/旅游商家桌面版.app/Contents/Resources/app.asar.unpacked/dist/js/imWindow-BaGPtUvK.js",
+  "sha256": "9b4894abe8eab7274749169b8db0660e43301beeebdd30a4bc384ce216bfce47",
+  "regions": [
+    {
+      "label": "menu",
+      "utf8_byte_offset": 2669545,
+      "excerpt": "function Tyt(t){const{conv:r,onHide:n,pos:i}=t,{lang:o={},prefrences:d}=de(),{isTop:s}=r,p=Te(),{starList:h=[]}=d||{},{UPDATE_CONVERSATION_TOP:g}=Qe();return typeof document>\"u\"?null:EE.createPortal(_.jsx(Ko,{onClick:n,children:_.jsxs(\"div\",{className:\"mark-box\",style:i,children:[_.jsx(\"p\",{className:\"mark-box-txt opt\",onClick:()=>{g({gid:r.gid||\"\",top:!s}),n()},children:s?o[D.cancelTop]||\"取消置顶\":o[D.pinToTop]||\"置顶\"}),_.jsx(hS,{className:\"mark-split\"}),_.jsxs(\"p\",{className:\"mark-box-txt\",children:[o[D.starConversation]||\"标记会话\",\"：\"]}),_.jsxs(\"ul\",{className:\"mark-group\",children:[Ek.map(e=>{const{className:c,key:a}=e;return _.jsx(\"li\",{onClick:async l=>{l.stopPropagation(),await p.setConversationStar(r,a)&&n()},children:_.jsx(\"i\",{className:`mark-star ${c}`})},a)}),h.map(e=>{const{key:c,color:a}=e;return _.jsx(\"li\",{onClick:async()=>{await p.setConversationStar(r,c)&&n()},children:_.jsx(\"i\",{className:\"mark-star\",style:{backgroundColor:a}})},c)})]})]})}),document.body)}"
+    },
+    {
+      "label": "mark_request",
+      "utf8_byte_offset": 2770214,
+      "excerpt": "async setConversationStar(n,i){const{sessionId:o,gid:d=\"\",id:s}=n,p=await this.post(this.API.setWorkSheetStar,{head:this.getHead(),sessionId:o,groupId:d?+d:void 0,worksheetId:s,action:i}),h=this.checkResponse(p);if(h)return ye.error(h),!1;const{UPDATE_CONVERSATION_STAR:g}=this.store.actions;return g({groupId:d,star:i}),!0}"
+    },
+    {
+      "label": "pin_reducer",
+      "utf8_byte_offset": 44556,
+      "excerpt": "NCe=(t,r)=>{const{conversationList:n=[]}=t,{gid:i,top:o}=r;return Cje(i,o),{...t,conversationList:n.map(d=>d.gid==i?{...d,isTop:o}:d)}}"
+    },
+    {
+      "label": "pin_storage",
+      "utf8_byte_offset": 28390,
+      "excerpt": "async function Cje(t,r){t&&await ft.update(ht).set({isTop:r}).where(St(ht.gid,t))}"
+    },
+    {
+      "label": "mark_reducer",
+      "utf8_byte_offset": 41807,
+      "excerpt": "hCe=(t,r)=>{const{conversationList:n=[]}=t,{groupId:i,star:o}=r;return{...t,conversationList:xje(n,i,o)}}"
+    },
+    {
+      "label": "row_menu_gate",
+      "utf8_byte_offset": 2671339,
+      "excerpt": "function Cyt(t){var Z,N;const{info:r,info:{unreadCount:n=0,gid:i=\"\",lastMessage:o,lastUpdateTime:d,status:s,conversationType:p=\"\",uid:h,vendorName:g,star:e,draftDesc:c,groupAvatar:a=\"\",groupTitle:l,lastMessageText:v=\"\",inGroup:u},virtualStyle:f}=t,{currentConvId:O,currentTab:T,prefrences:P}=de(),j=m.useRef(!1),[C,k]=m.useState(),S=Te(),W=m.useRef(null),{fromJid:E}=o||{};let q=s!=We.FINISH.value&&E&&h&&E.includes(h.toLowerCase())&&Jr.BOP.convTypes.indexOf(p)<0;m.useEffect(()=>{i===O&&setTimeout(()=>{W.current&&(W.current.scrollLeft=0)})},[i===O]);const F=(Z=Ek.find(B=>B.key==e))==null?void 0:Z.className,{starList:A=[]}=P||{},z=(N=A.find(B=>B.key==e))==null?void 0:N.color;return _.jsxs(\"li\",{className:Ze(\"conv-item-wrapper\",{\"im_friend-sel\":i===O}),style:f,onClick:async()=>{if(!j.current){j.current=!0;try{await S.conversationChange(i)}catch{}j.current=!1}},onContextMenu:B=>{B.preventDefault(),u!=0&&setTimeout(()=>{k({left:B.pageX,top:Math.min(B.pageY,window.innerHeight-96)})})},children:[C&&_.jsx(Tyt,{pos:C,conv:r,onHide:()=>{k(void 0)}}),_.jsx(Un,{avatar:a,lazyLoad:!0,className:\"\"}),_.jsxs(\"div\",{className:\"conv-detail\",children:[_.jsxs(\"div\",{className:\"conv-title\",children:[_.jsx(\"span\",{className:\"title-txt\",ref:W,children:l}),d&&_.jsx(\"span\",{className:\"conv-date\",children:Go(d)})]}),_.jsxs(\"div\",{className:\"content-wrapper\",children:[_.jsx(\"p\",{className:Ze(\"conv-content\",{customer:q&&!c}),dangerouslySetInnerHTML:{__html:c||v||\"\"}}),_.jsxs(\"div\",{className:\"extra-opt\",children:[!!e&&_.jsx(\"i\",{className:Ze(\"mark-star\",F),style:z?{backgroundColor:z}:void 0}),n>0&&s!=We.FINISH.value&&_.jsx(w5,{count:n,size:\"small\",className:\"small-badge\"})]})]}),T!==\"BOP\"&&_.jsx(\"p\",{className:\"vendor-name\",children:g})]})]})}"
+    },
+    {
+      "label": "list_merge",
+      "utf8_byte_offset": 29940,
+      "excerpt": "function Fje(t,r,n,i){const{ext:o={},memberHash:d={},ctripAgentId:s,sessionId:p,lastMessage:h}=t,{ext:g={},memberHash:e={},ctripAgentId:c,sessionId:a,unreadCount:l=0,lastMessage:v}=r;for(let T in e){const{roles:P,avatar:j}=d[T]||{},{roles:C,avatar:k}=e[T]||{};e[T]={...e[T],roles:C||P,avatar:k||j}}const{createTime:u=0}=v||{},{createTime:f=0}=h||{},O={...t,...r,ext:{...o,...g},memberHash:{...d,...e},isCtripAgentChange:s!=c,sessionId:a||p||\"\",unreadCount:l,lastMessage:u>=f?v:h};return We.ACTIVE.values.includes(O.status||0)&&O.inGroup===0&&t.inGroup===1&&(O.inGroup=1),ri(O,n,i)}"
+    },
+    {
+      "label": "star_cache_update",
+      "utf8_byte_offset": 33949,
+      "excerpt": "function xje(t,r,n){return t.map(i=>i.gid==r?{...i,star:n}:i)}"
+    }
+  ]
+}

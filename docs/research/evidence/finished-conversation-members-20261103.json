@@ -1,0 +1,54 @@
+{
+  "date": "2026-11-03",
+  "method": "Read-only static inspection of installed official application. No app execution, server requests or membership writes.",
+  "findings": {
+    "active_statuses": [
+      1,
+      2
+    ],
+    "finished_status": 4,
+    "panel_entry": "YEe: c=We.ACTIVE.values.includes(s); onClick executes f(!u) only when c. KEe has one render reference in this bundle.",
+    "invite_remove": "lje requires status===2; invite j and remove C both require lje.",
+    "transfer": "T itself has role/type/count checks; it is behind the same active-only panel entry.",
+    "local_error": "rpc.ts peripheralError maps biz_failure to generic peripheral operation rejected; exact remote cause not captured.",
+    "recommendation": "Do not enable member management for finished conversations. Disable entry with explanation; preserve role/service checks for active conversations.",
+    "limits": "Static shipped-client behavior, not live API acceptance or every remotely configurable client version."
+  },
+  "evidence": [
+    {
+      "key": "member_panel_entry",
+      "file": "/Applications/旅游商家桌面版.app/Contents/Resources/app.asar.unpacked/dist/js/imWindow-BaGPtUvK.js",
+      "sha256": "9b4894abe8eab7274749169b8db0660e43301beeebdd30a4bc384ce216bfce47",
+      "utf8_byte_offset": 230821,
+      "excerpt": "function YEe(){const{lang:t={},currentAgentInfo:r={}}=de(),n=Te(),{UPDATE_CURRENT_CONVERSATION:i,DELETE_CONVERSATION:o}=Qe(),d=Ie()||{};let{status:s=0,relationOrderId:p,inGroup:h,groupTitle:g,isTyping:e}=d;const c=We.ACTIVE.values.includes(s),a=nje(d,r)&&h==1,l=x0e(d,r),v=oje(d,r),[u,f]=m.useState(!1),O=jS().length;return _.jsxs(_.Fragment,{children:[_.jsxs(\"div\",{className:\"im_detail_hd chat-group-name\",children:[_.jsxs(\"h3\",{className:\"group-title\",onClick:T=>{c&&(T.stopPropagation(),f(!u))},children:[_.jsx(Ge,{className:\"group-icon\",component:HE}),_.jsx(\"span\",{className:\"title-text\",children:e?t[D.otherIsTyping]||\"对方正在输入...\":g}),c&&O>1&&_.jsxs(\"span\",{className:\"num-text\",children:[\"(\",(t[D.personText]||\"XX人\").replace(\"XX\",O.toString()),\")\"]}),_.jsx(Ge,{className:\"arrow-icon\",component:STe})]}),_.jsxs(\"div\",{className:\"opt-bar\",children:[l&&_.jsx(wt,{type:\"primary\",ghost:!0,shape:\"round\",className:\"mr-8\",onClick:()=>{n.showCommentPop({triggerSource:\"button\"})},children:t[D.doComment]||\"评价\"}),a&&_.jsx(wt,{type:\"primary\",danger:!0,shape:\"round\",onClick:()=>{zt.confirm({title:t[D.endCurrentConvConfirm]||\"确定结束会话吗？\",cancelText:t[D.cancel],okText:t[D.comfirm],onOk:()=>{n.finishConversation()}})},children:t[D.finish]||\"结束\"}),h==0&&_.jsx(wt,{type:\"primary\",danger:!0,shape:\"round\",onClick:()=>{zt.confirm({title:t[D.removeDevicePopTitle]||\"确认删除吗？\",cancelText:t[D.cancel],okText:t[D.comfirm],onOk:()=>{d.gid&&(i(\"\"),o(d.gid))}})},children:t[D.delete]||\"删除\"})]}),(g||p&&!v)&&_.jsxs(\"div\",{className:\"group-chat-hover-box\",children:[_.jsx(\"div\",{className:\"group-chat-hover-box-title\",children:t[D.groupMessage]||\"群消息\"}),g&&_.jsxs(\"div\",{className:\"group-chat-hover-box-txt\",children:[t[D.imGroupName]||\"群名称\",\"：\",g]}),p&&!v&&_.jsxs(\"div\",{className:\"group-chat-hover-box-txt\",children:[t[D.orderNo]||\"订单号\",\"：\",p]})]})]}),u&&_.jsx(Ko,{onClick:()=>f(!1),children:_.jsx(KEe,{})})]})}const JEe=[{code:\"im_emoji_grin\",en:\"[Grin]\",cn:\"[龇牙]\"},{code:\"im_emoji_joyful\",en:\"[Joyful]\",cn:\"[愉快]\"},{code:\"im_emoji_smile\",en:\"[Smile]\",cn:\"[微笑]\"},{code:\"im_emoji_trick\",en:\"[Trick]\",cn:\"[坏笑]\"},{code:\"im_emoji_askance\",en:\"[Askance]\",cn:\"[斜眼看]\"},{code:\"im_emoji_chukle\",en:\"[Chukle]\",cn:\"[偷笑]\"},{code:\"imkit_emoji_jingxi\",en:\"[Surprising]\",cn:\"[惊喜]\"},{code:\"imkit_emoji_ye\",en:\"[Yeah!]\",cn:\"[耶]\"},{code:\"imkit_emoji_yanjing\",en:\"[Glasses]\",cn:\"[眼镜]\"},{code:\"im_emoji_tiptop\",en:\"[Tiptop]\",cn:\"[强]\"},{co"
+    },
+    {
+      "key": "member_panel_actions",
+      "file": "/Applications/旅游商家桌面版.app/Contents/Resources/app.asar.unpacked/dist/js/imWindow-BaGPtUvK.js",
+      "sha256": "9b4894abe8eab7274749169b8db0660e43301beeebdd30a4bc384ce216bfce47",
+      "utf8_byte_offset": 228398,
+      "excerpt": "function KEe(){const{lang:t={},currentAgentInfo:r={}}=de(),n=Te(),{UPDATE_SHOW_INVITE:i,UPDATE_COPY_CONVERSATION:o}=Qe(),d=n.getCurrentUserUid(),s=Ie()||{},{memberHash:p={},conversationType:h,serviceType:g,gid:e,sessionId:c}=s,[a,l]=XEe(),v=(a==null?void 0:a.toLowerCase())===d.toLowerCase(),u=q0e(p,d),f=XTe(p,d),O=W0e(p,d),T=(u||v)&&h!=\"B2MC\"&&O>0,P=lje(s,r),j=(u||f||v)&&P,C=u&&O>0&&P;let k=z0e(s,r).length>0,S=uje(s,r),W=cje(s,r);const[E,q]=m.useState([]),[F,A]=m.useState(!1),z=jS();return m.useEffect(()=>{n.refreshGroupMember()},[]),_.jsxs(\"div\",{className:\"group_chat\",children:[_.jsxs(\"div\",{className:\"group-infor clearfix\",children:[_.jsxs(\"span\",{className:\"member_num\",children:[t[D.groupChattingPersonn]||\"群聊人员\",\"（\",_.jsx(\"span\",{children:z.length}),\"）\"]}),_.jsxs(\"span\",{className:\"group_chat_btn\",children:[(T||C)&&_.jsx(\"span\",{className:\"group-select-num\",children:(t[D.selectedPerson]||\"已选XX人\").replace(\"XX\",E.length.toString())}),k&&_.jsx(\"span\",{onClick:()=>{o(!0)},className:\"transfer_lord\",children:t[D.copyNewGroup]||\"复制并新建群\"}),T&&_.jsx(\"span\",{onClick:()=>{if(E.length!=1){ye.warn(t[D.transferNumberTips]||\"请选择一位作为主客服\");return}v?n.post(n.API.updateGroupOwner,{sessionId:c,groupId:e,transferUid:E[0].toUpperCase()}).then(Z=>{n.checkResponse(Z)||l(E[0])}):n.transferVenMaster(E[0])},className:\"transfer_lord\",children:t[D.transferCustomerService]||\"转移主客服\"}),j&&_.jsx(\"span\",{onClick:()=>{let Z=L0e(s,r);!Z.OP&&Z.AGENT?i(!0):A(!0)},className:\"transfer_lord\",children:t[D.inviteMember]||\"邀请成员\"}),S&&_.jsx(\"span\",{onClick:()=>{},className:\"transfer_lord\",children:t[D.updateGroupName]||\"修改群名称\"}),W&&_.jsx(\"span\",{onClick:()=>{},className:\"transfer_lord\",children:t[D.updateWelcomeTip]||\"设置群欢迎语\"}),C&&_.jsx(\"span\",{onClick:async()=>{if(E.length==0){ye.warn(t[D.selectGroupMembersTips]||\"请选择群成员\");return}zt.confirm({title:t[D.removeMembersConfirm]||\"确定要移除会话成员？\",okText:t[D.comfirm],cancelText:t[D.cancel],onOk:async()=>{await n.deleteChatMember(E)&&q([])}})},className:\"delete_member\",children:t[D.removeMembers]||\"移除成员\"})]})]}),T&&E.length>1&&_.jsx(\"p\",{className:\"group_notice\",children:t[D.transferCustomerOnlyPerson]||\"转移主客服目标仅可为一人\"}),_.jsx(UEe,{memberEditable:C||T,selectList:E,setSelectList:q,tourMasterUid:a}),F&&_.jsx(VEe,{hide:()=>A(!1)})]})}function YEe(){const{lang:t={},currentAgentInfo:r={}}=de(),n=Te(),{UPDATE_CURRENT_CONVERSATION:i,DELETE_CONVERSATION:o}=Qe(),d=Ie()"
+    },
+    {
+      "key": "invite_status_gate",
+      "file": "/Applications/旅游商家桌面版.app/Contents/Resources/app.asar.unpacked/dist/js/imWindow-BaGPtUvK.js",
+      "sha256": "9b4894abe8eab7274749169b8db0660e43301beeebdd30a4bc384ce216bfce47",
+      "utf8_byte_offset": 23484,
+      "excerpt": "function lje(t,r){const{serviceType:n=\"\",status:i}=t,d=(tr(r,n,\"ebk_customer_allowed_to_invite\")||\"0|1\").split(\"|\"),s=tr(r,n,\"show_invite_page\")||\"Y\";return i===2&&d.some(p=>\"1\")&&s==\"Y\"}function z0e(t,r){const{serviceType:n=\"\"}=t,i=tr(r,n,\"allow_b2mc_biztypes_config\");return i?i.split(\";\").reduce((o,d)=>{const[s,p]=d.split(\"|\");return[...o,{key:s,name:p}]},[]):[]}function L0e(t,r){const{serviceType:n=\"\"}=t;let o=(tr"
+    },
+    {
+      "key": "membership_read",
+      "file": "/Applications/旅游商家桌面版.app/Contents/Resources/app.asar.unpacked/dist/js/imWindow-BaGPtUvK.js",
+      "sha256": "9b4894abe8eab7274749169b8db0660e43301beeebdd30a4bc384ce216bfce47",
+      "utf8_byte_offset": 2743651,
+      "excerpt": "Le(this,\"refreshGroupMember\",()=>{const{currentConvId:n=\"\"}=this.store.getState();this.postDBAndServer(this.API.checkMemberStatus,{head:this.getHead(),groupId:n},i=>{var s;if(n!=this.store.getState().currentConvId)return;const o=this.checkResponse(i);if(o){ye.error(o);return}if(!((s=i==null?void 0:i.members)!=null&&s.length))return;const{REFRESH_CURRENT_MEMBER_LIST:d}=this.store.actions;d((i==null?void 0:i.members)||[])})});Le(this,\"getCurrentAllGroupMembers\",async()=>{const{currentConvId:n}=this.store.getState();n&&await this.getGroupMembersByGid(n,i=>{if(n!=this.store.getState().currentConvId||!i.length)return;const{UPDATE_CURRENT_MEMBER_LIST:o}=this.store.actions;o(i)}"
+    },
+    {
+      "key": "conversation_status",
+      "file": "/Applications/旅游商家桌面版.app/Contents/Resources/app.asar.unpacked/dist/js/index-DKzkzNcK.js",
+      "sha256": "8122702433fd92c9522ebe9fe5e979d7a35ff29c46692fdf73ef538130e7898f",
+      "utf8_byte_offset": 1509,
+      "excerpt": "_={autoActive:1,manualActive:2,finish:4},I={ACTIVE:{name:\"处理中\",type:\"ACTIVE\",tranKey:m.proccessing,value:_.manualActive,values:[_.autoActive,_.manualActive]},FINISH:{name:\"已完成\",type:\"FINISH\",tranKey:m.finished,value:_.finish,values:[_.finish]}},w=[\"NBZ10\",\"NBZ30\",\"NBZ37\",\"NBZ12\",\"NBZ99\",\"CBZ19\"],L=[\"1001\",\"1002\",\"1003\"],R=[{className:\"chosen\",key:0},{className:\"orange\",key:1},{className:\"green\",ke"
+    }
+  ]
+}
