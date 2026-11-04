@@ -1,4 +1,5 @@
 import { UiCommands, type UiBrowserTab } from '../../packages/ipc/src/client.ts';
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { h as dom, icon as glyph } from '../../packages/ui-kit/src/h.ts';
 
 /** Inline stroke paths (24x24); kept here so the shared icon table stays untouched. */
@@ -41,7 +42,7 @@ export function displayAddress(url: string): string {
 export function tabLabel(tab: Pick<UiBrowserTab, 'title' | 'url'>): string {
   const title = tab.title.trim();
   if (title) return title;
-  try { return new URL(tab.url).hostname || '网页'; } catch { return '网页'; }
+  try { return new URL(tab.url).hostname || t('companionTabs.web.fallbackLabel'); } catch { return t('companionTabs.web.fallbackLabel'); }
 }
 
 export function webTabView(
@@ -53,7 +54,7 @@ export function webTabView(
     class: on ? 'tab web-tab on' : 'tab web-tab',
     role: 'tab',
     'aria-selected': String(on),
-    title: owner ? `${tabLabel(tab)}（${owner}）` : tabLabel(tab),
+    title: owner ? t('companionTabs.web.ownedLabel', { label: tabLabel(tab), owner }) : tabLabel(tab),
     dataset: { webTab: tab.tab_id },
     onclick: () => handlers.onSelect(),
     // 中键关闭仅限网页选项卡；账号选项卡不挂此处理。mousedown 拦截是为了避免 Windows 上中键触发自动滚动。
@@ -69,7 +70,7 @@ export function webTabView(
   h('span', { class: 'tab-name' }, tabLabel(tab)),
   tab.loading ? h('span', { class: 'spin' }) : null,
   h('button', {
-    class: 'tab-x', type: 'button', 'aria-label': '关闭网页', title: '关闭网页',
+    class: 'tab-x', type: 'button', 'aria-label': t('companionTabs.web.close'), title: t('companionTabs.web.close'),
     onclick: (e: Event) => { e.stopPropagation(); handlers.onClose(); },
   }, icon(WEB_ICONS.close, 13)));
 }
@@ -84,12 +85,12 @@ export function browserStage(
   const address = displayAddress(tab.url);
   return h('div', { class: 'web-stage', dataset: { webStage: tab.tab_id } },
     h('div', { class: 'web-bar' },
-      btn('后退', WEB_ICONS.back, handlers.onBack),
-      btn('前进', WEB_ICONS.forward, handlers.onForward),
-      btn('刷新', WEB_ICONS.reload, handlers.onReload),
+      btn(t('companionTabs.web.back'), WEB_ICONS.back, handlers.onBack),
+      btn(t('companionTabs.web.forward'), WEB_ICONS.forward, handlers.onForward),
+      btn(t('companionTabs.web.reload'), WEB_ICONS.reload, handlers.onReload),
       h('div', { class: 'web-addr', title: address }, address),
       notice,
-      btn('系统浏览器打开', WEB_ICONS.external, handlers.onExternal)),
+      btn(t('companionTabs.web.openExternal'), WEB_ICONS.external, handlers.onExternal)),
     h('div', { class: 'web-view', ref: (el: Element) => attach(el as HTMLElement) }));
 }
 
@@ -162,9 +163,9 @@ export function createBrowserTabs(deps: BrowserTabsDeps) {
   async function open(account: unknown, url: string): Promise<void> {
     let res: unknown;
     try { res = await deps.invoke(UiCommands.SHELL_OPEN_WEBVIEW, { account, url }); }
-    catch { if (!disposed) deps.notify('打开网页失败，请稍后重试'); return; }
+    catch { if (!disposed) deps.notify(t('companionTabs.web.openFailed')); return; }
     if (disposed) return;
-    if (!isBrowserTab(res)) { deps.notify('打开网页失败：宿主返回异常'); return; }
+    if (!isBrowserTab(res)) { deps.notify(t('companionTabs.web.openInvalid')); return; }
     upsert(res);
     activate(res.tab_id);
   }
@@ -172,7 +173,7 @@ export function createBrowserTabs(deps: BrowserTabsDeps) {
   async function close(id: string): Promise<void> {
     if (!has(id)) return;
     try { await deps.invoke(UiCommands.BROWSER_CLOSE, { tab_id: id }); }
-    catch { if (!disposed) deps.notify('关闭网页失败，请稍后重试'); return; }
+    catch { if (!disposed) deps.notify(t('companionTabs.web.closeFailed')); return; }
     if (disposed) return;
     removeLocal(id);
   }
@@ -180,7 +181,7 @@ export function createBrowserTabs(deps: BrowserTabsDeps) {
   async function nav(id: string, action: 'back' | 'forward' | 'reload'): Promise<void> {
     if (!has(id)) return;
     try { await deps.invoke(UiCommands.BROWSER_NAV, { tab_id: id, action }); }
-    catch { if (!disposed) deps.notify('网页操作失败'); }
+    catch { if (!disposed) deps.notify(t('companionTabs.web.actionFailed')); }
   }
 
   function receiveOpened(payload: unknown): void {

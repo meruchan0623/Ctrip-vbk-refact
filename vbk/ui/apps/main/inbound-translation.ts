@@ -11,6 +11,7 @@
 import type { UiMessage, UiMessageTranslations } from '../../packages/ipc/src/client.ts';
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 import { suggestLanguage } from '../../packages/ipc/src/customer-language.ts';
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 
 export interface InboundTranslationScope {
   readonly key: string;
@@ -214,9 +215,9 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     try {
       result = await Promise.race([
         deps.invoke(TRANSLATE_COMMAND, { account: owner.account, gid: owner.gid, message_ids: ids }) as Promise<UiMessageTranslations>,
-        new Promise<never>((_, reject) => { handle = deps.setTimeout(() => reject(new Error('翻译请求超时')), REQUEST_TIMEOUT_MS); }),
+        new Promise<never>((_, reject) => { handle = deps.setTimeout(() => reject(new Error(t('orderMisc.translate.requestTimeout'))), REQUEST_TIMEOUT_MS); }),
       ]);
-      if (!Array.isArray(result?.items)) { result = null; failure = new Error('翻译结果无效'); }
+      if (!Array.isArray(result?.items)) { result = null; failure = new Error(t('orderMisc.translate.invalidResult')); }
     } catch (error) {
       failure = error;
     } finally {

@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 /** Compact package typography, isolated by the companion-card shadow root. */
 export const COMPANION_CARD_STYLE = `:host{all:initial;
 --accent:#2f54d6;--accent-ink:#1e3fb8;--accent-soft:#edf1fd;--ink:#171d2b;--ink-2:#454e62;--ink-3:#6b7386;--line:#e4e8ef;--line-soft:#eef1f6;--sunken:#f5f6f9;--hover:#eaedf3;
@@ -58,7 +59,7 @@ svg{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:
 .nm{display:flex;flex-direction:column;gap:3px}
 .ch{font-weight:650;font-size:var(--fs-base);line-height:1.35;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
 .src{font-size:var(--fs-xs);line-height:1.4;color:var(--ink-3);overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
-.src::before{content:"源";display:inline-block;margin-right:5px;padding:0 4px;border-radius:3px;background:var(--sunken);color:var(--ink-3);font-size:var(--fs-micro);line-height:15px}
+.src::before{content:"${t('companionTabs.sourceBadge')}";display:inline-block;margin-right:5px;padding:0 4px;border-radius:3px;background:var(--sunken);color:var(--ink-3);font-size:var(--fs-micro);line-height:15px}
 /* Columns grow toward their content, so a short supplier code stays whole while a long name still wraps. */
 .spec{display:grid;grid-template-columns:repeat(3,minmax(0,auto));gap:6px;margin-top:8px}
 .spec div{padding:5px 7px;border-radius:7px;background:var(--sunken);display:flex;flex-direction:column;gap:1px}

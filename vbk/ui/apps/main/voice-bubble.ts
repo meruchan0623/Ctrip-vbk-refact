@@ -8,6 +8,7 @@
 import type { UiMessage } from '../../packages/ipc/src/client.ts';
 import type { h as realH, icon as realIcon } from '../../packages/ui-kit/src/h.ts';
 import { featureText } from './features/strings.ts';
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { isPlayableVoiceUrl, type VoicePlayer, type VoiceProgress } from './features/voice-player.ts';
 
 const PLAY_ICON = 'M8 5v14l11-7z';
@@ -106,7 +107,7 @@ export function voiceBubble(m: UiMessage, player: VoicePlayer, h: typeof realH, 
     ),
     state === 'error'
       ? h('div', { class: 'voice-note', role: 'status' }, featureText('voice.failed'),
-          options.onOpenExternal ? h('button', { type: 'button', class: 'voice-external', onclick: () => options.onOpenExternal?.(url) }, '外部打开') : null)
+          options.onOpenExternal ? h('button', { type: 'button', class: 'voice-external', onclick: () => options.onOpenExternal?.(url) }, t('orderMisc.voice.openExternal')) : null)
       : null,
   );
 }

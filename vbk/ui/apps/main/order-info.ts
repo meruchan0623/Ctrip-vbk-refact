@@ -6,17 +6,17 @@ import type { Child, h as dom, icon as glyph } from '../../packages/ui-kit/src/h
 
 /** 参考图的标签顺序；没有值的行整行隐藏，不编造。 */
 export const ORDER_INFO_LABELS = [
-  ['来源渠道', 'source_channel'],
-  ['订单ID', 'order_id'],
-  ['客户语言', 'customer_language'],
-  ['产品ID', 'product_id'],
-  ['产品名称', 'product'],
-  ['产品价格', 'product_price'],
-  ['使用日期', 'use_date'],
-  ['订单总额', 'total_amount'],
-  ['备注名称', 'remark_name'],
-  ['数量', 'quantity'],
-  ['订单状态', 'status'],
+  [t('orderMisc.orderInfo.sourceChannel'), 'source_channel'],
+  [t('orderMisc.orderInfo.orderId'), 'order_id'],
+  [t('orderMisc.orderInfo.customerLanguage'), 'customer_language'],
+  [t('orderMisc.orderInfo.productId'), 'product_id'],
+  [t('orderMisc.orderInfo.product'), 'product'],
+  [t('orderMisc.orderInfo.productPrice'), 'product_price'],
+  [t('orderMisc.orderInfo.useDate'), 'use_date'],
+  [t('orderMisc.orderInfo.totalAmount'), 'total_amount'],
+  [t('orderMisc.orderInfo.remarkName'), 'remark_name'],
+  [t('orderMisc.orderInfo.quantity'), 'quantity'],
+  [t('orderMisc.orderInfo.status'), 'status'],
 ] as const satisfies readonly (readonly [string, keyof UiOrderSummary])[];
 
 export function orderInfoRows(order: UiOrderSummary): readonly (readonly [label: string, key: keyof UiOrderSummary, value: string])[] {

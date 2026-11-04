@@ -403,7 +403,7 @@ window.addEventListener('pagehide', () => messageContextMenu.close());
 
 const sel = selectIpc();
 const ipc = sel.ipc;
-const conversationContextMenu = createContextMenu('ctx-menu', '会话操作');
+const conversationContextMenu = createContextMenu('ctx-menu', t('mainTs.conversationMenu.title'));
 const messageToolOptions: MessageToolOptions = {
   current: account => stillActive(account),
   conversations: () => S().conversations,
@@ -411,7 +411,7 @@ const messageToolOptions: MessageToolOptions = {
   toast,
   nextLocalId: () => nextLocalId(Date.now()),
   validTarget: (account, gid) => stillActive(account) && !persistFailed(S().accounts) && S().conversations.some(c => c.gid === gid && c.agent_in_group && c.status === 'active'),
-  menu: (x, y, actions, container) => messageContextMenu.open(x, y, actions, () => !!container?.isConnected, () => toast('表情操作失败，请重试'), container),
+  menu: (x, y, actions, container) => messageContextMenu.open(x, y, actions, () => !!container?.isConnected, () => toast(t('mainTs.reaction.failed')), container),
   preview: (account, id) => void invokeSafe(UiCommands.MEDIA_VIEWER_OPEN_EMOJI, { account, id }),
 };
 const forwardDialog = createForwardDialog(messageToolOptions);
@@ -1272,7 +1272,7 @@ async function handleSend(): Promise<void> {
         else if (tr.status === 'busy' && tr.gid === conv.gid && tr.draftVersion === now.draftVersion) {
           // 预览翻译请求还在途：预定发送，译文返回后自动发出，不另起请求；改动草稿即取消。
           const owner = activeAccount(now)?.context;
-          if (owner && !queuedSend) { queuedSend = { account: owner, gid: conv.gid, draftVersion: now.draftVersion }; toast('译文返回后自动发送，修改草稿可取消'); }
+          if (owner && !queuedSend) { queuedSend = { account: owner, gid: conv.gid, draftVersion: now.draftVersion }; toast(t('mainTs.translation.autoSendQueued')); }
         } else {
           if (trTimer) { clearTimeout(trTimer); trTimer = null; }
           await translateAndSend(text);
@@ -1601,12 +1601,12 @@ async function receiveFileDrop(value: unknown): Promise<void> {
   const drop = value as { drop_id?: unknown; count?: unknown } | null;
   if (!drop || !Number.isSafeInteger(drop.drop_id) || !Number.isSafeInteger(drop.count)) return;
   const s = S(), conv = activeConv(s);
-  if (s.activeWeb) { toast('请切回消息页，再拖入文件。'); return; }
-  if (!composerInputContext(s) || !conv) { toast('请先打开一个会话，再拖入文件。'); return; }
-  if (isDone(conv) || composerLocked(conv)) { toast('当前会话不能发送附件。'); return; }
-  if (s.mediaOperation && s.mediaOperation.status !== 'not_submitted') { toast('上一个附件尚未处理完，请先核对或移除后再拖入。'); return; }
+  if (s.activeWeb) { toast(t('mainTs.drop.switchToMessages')); return; }
+  if (!composerInputContext(s) || !conv) { toast(t('mainTs.drop.openConversation')); return; }
+  if (isDone(conv) || composerLocked(conv)) { toast(t('mainTs.drop.attachmentBlocked')); return; }
+  if (s.mediaOperation && s.mediaOperation.status !== 'not_submitted') { toast(t('mainTs.drop.previousPending')); return; }
   const attachment = await acceptAttachment((args) => invokeSafe<unknown>(UiCommands.MEDIA_ACCEPT_DROP, { ...args, drop_id: drop.drop_id }), () => true);
-  if (attachment && (drop.count as number) > 1) toast(`一次发送一个附件，已添加：${attachment.name}`);
+  if (attachment && (drop.count as number) > 1) toast(t('mainTs.drop.onlyOneAttachment', { name: String(attachment.name) }));
   if (attachment) focusComposer();
 }
 
@@ -1698,7 +1698,7 @@ function webNotice(s: MainState): HTMLElement | null {
   const conv = s.conversations.find((c) => c.gid === banner.gid && sameAccount(c.account, banner.account));
   const owner = s.accounts?.accounts.find((a) => sameAccount(a.context, banner.account));
   const name = conv?.title ?? (owner ? accountLabel(owner) : '');
-  return h('button', { type: 'button', class: 'web-notice', dataset: { webNotice: String(banner.id) }, onclick: () => { dismissBanner(banner.id); void locateConversation(banner.account, banner.gid); } }, icon(IC.bell, 13), `${name} · ${banner.count} 条新消息`);
+  return h('button', { type: 'button', class: 'web-notice', dataset: { webNotice: String(banner.id) }, onclick: () => { dismissBanner(banner.id); void locateConversation(banner.account, banner.gid); } }, icon(IC.bell, 13), t('mainTs.webNotice.count', { name: String(name), count: String(banner.count) }));
 }
 function webStage(s: MainState): HTMLElement | null {
   const tab = s.webTabs.find((x) => x.tab_id === s.activeWeb);
@@ -1774,7 +1774,7 @@ const noticeQuery = createNoticeQuery({
   ignored: () => ignoredNoticeCats(S()),
 });
 
-const noticeCatMenu = createContextMenu('ncat-menu', '通知分类操作');
+const noticeCatMenu = createContextMenu('ncat-menu', t('mainTs.noticeCatMenu.title'));
 
 function ignoredNoticeCats(s: MainState): readonly string[] {
   const ctx = activeAccount(s)?.context;
@@ -1815,10 +1815,10 @@ function openNoticeCatMenu(e: MouseEvent, c: { readonly id: string; readonly nam
   if (!account) return;
   const banner = noticeBannerCats(S()).includes(c.id);
   noticeCatMenu.open(e.clientX, e.clientY, ignored
-    ? [{ id: 'unignore', label: `取消忽略「${c.name}」`, icon: IC.bell, dataset: { ncatMenu: 'unignore', fid: 'ncat-menu:unignore' }, run: () => setNoticeCatIgnored(c.id, false) }]
-    : [{ id: 'banner', label: banner ? '取消横幅提醒' : '使用横幅提醒', icon: IC.bell, dataset: { ncatMenu: 'banner', fid: 'ncat-menu:banner' }, run: () => setNoticeCatBanner(c.id, !banner) },
-      { id: 'ignore', label: `忽略「${c.name}」`, icon: IC.close, dataset: { ncatMenu: 'ignore', fid: 'ncat-menu:ignore' }, run: () => setNoticeCatIgnored(c.id, true) }],
-    () => stillActive(account), () => toast('通知分类操作失败，请重试'));
+    ? [{ id: 'unignore', label: t('mainTs.noticeCatMenu.unignore', { name: String(c.name) }), icon: IC.bell, dataset: { ncatMenu: 'unignore', fid: 'ncat-menu:unignore' }, run: () => setNoticeCatIgnored(c.id, false) }]
+    : [{ id: 'banner', label: banner ? t('mainTs.noticeCatMenu.bannerOff') : t('mainTs.noticeCatMenu.bannerOn'), icon: IC.bell, dataset: { ncatMenu: 'banner', fid: 'ncat-menu:banner' }, run: () => setNoticeCatBanner(c.id, !banner) },
+      { id: 'ignore', label: t('mainTs.noticeCatMenu.ignore', { name: String(c.name) }), icon: IC.close, dataset: { ncatMenu: 'ignore', fid: 'ncat-menu:ignore' }, run: () => setNoticeCatIgnored(c.id, true) }],
+    () => stillActive(account), () => toast(t('mainTs.noticeCatMenu.failed')));
 }
 
 async function pickNoticeCat(id: string): Promise<void> { await noticeQuery.pick(id); }
@@ -2249,7 +2249,7 @@ function openConversationContextMenu(s: MainState): void {
     ) },
   ];
   if (items.showClear) actions.push({ id:'clear',label:t('ctx.clearMark'),dataset:{ctx:'clear',fid:'ctx-menu:clear'},run:()=>setMark(c,0) });
-  conversationContextMenu.open(position.x,position.y,actions,valid,()=>toast('会话操作失败，请重试'));
+  conversationContextMenu.open(position.x,position.y,actions,valid,()=>toast(t('mainTs.conversationMenu.failed')));
 }
 
 function richText(text: string): HTMLElement[] {
@@ -2284,7 +2284,7 @@ function richText(text: string): HTMLElement[] {
 function openMessageAttachment(message: UiMessage, conversation: UiConversation, account: UiAccount | null): void {
   if (!account || !stillActive(account.context) || S().view !== 'messages' || S().activeGid !== conversation.gid || !mediaNodeKey(account.context, conversation, message)) return;
   if (message.kind !== 'image' && message.kind !== 'video' && message.kind !== 'file') return;
-  if (!message.message_id) { toast('消息确认发送后才能预览'); return; }
+  if (!message.message_id) { toast(t('mainTs.message.previewAfterSent')); return; }
   void invokeSafe(UiCommands.MEDIA_VIEWER_OPEN_MESSAGE, { account: account.context, gid: conversation.gid, message_id: message.message_id });
 }
 
@@ -2301,7 +2301,7 @@ function openMessageOrder(m: UiMessage, rendered: UiConversation, account: UiAcc
   const current = activeConv();
   if (S().activeGid !== m.gid || m.gid !== rendered.gid || !current || current.gid !== m.gid || !sameAccount(current.account, account.context) || current.account.session_generation !== account.context.session_generation) return;
   if (!m.order_id) {
-    toast('当前未提供此订单的可用详情，请在订单查询中核对。');
+    toast(t('mainTs.order.detailsUnavailable'));
     return;
   }
   void openWebAdvanced(m.order_id);
@@ -2439,8 +2439,8 @@ async function refreshMessageTranslation(message: UiMessage, conv: UiConversatio
   syncInboundTranslation();
   const outcome = await inboundTranslation.retry(message);
   if (!stillActive(acc.context) || S().activeGid !== conv.gid) return;
-  if (outcome === 'not_needed') toast('该消息无需翻译');
-  else if (outcome === 'unsupported') toast('当前会话暂不支持翻译');
+  if (outcome === 'not_needed') toast(t('mainTs.translate.notNeeded'));
+  else if (outcome === 'unsupported') toast(t('mainTs.translate.unsupported'));
 }
 
 function openMessageMenu(event: MouseEvent | KeyboardEvent, message: UiMessage, conv: UiConversation, acc: UiAccount | null, x?: number, y?: number): void {
@@ -2450,28 +2450,28 @@ function openMessageMenu(event: MouseEvent | KeyboardEvent, message: UiMessage, 
     && (S().messages[conv.gid] ?? []).some(row => row === message);
   if (!valid()) return;
   const actions: MessageMenuAction[] = [];
-  if (message.kind === 'image' && message.message_id && safeMediaUrl(message.media_url)) actions.push({ id: 'copy', label: '复制图片', run: async () => { await ipc.invoke(UiCommands.IM_COPY_MESSAGE_IMAGE, {account:acc.context,gid:conv.gid,message_id:message.message_id}); if (stillActive(acc.context)) toast('图片已复制'); } });
-  if (message.kind === 'text' && message.text) actions.push({ id: 'copy', label: '复制', run: () => copyText(message.text) });
-  if (selectedQuoteReference(message, S().messages[conv.gid] ?? [], conv.gid)) actions.push({ id: 'quote', label: '引用', run: () => store.patch({ quote: message }) });
-  if (message.message_id && (message.platform_type == null ? ['text','image','video','file','order_card'].includes(message.kind) : [0,1,2,3,5,8,9].includes(message.platform_type)) && (!message.disposition || message.disposition.kind === 'confirmed')) actions.push({ id:'forward',label:'转发',run:()=>forwardDialog.open(message,acc.context) });
+  if (message.kind === 'image' && message.message_id && safeMediaUrl(message.media_url)) actions.push({ id: 'copy', label: t('mainTs.message.copyImage'), run: async () => { await ipc.invoke(UiCommands.IM_COPY_MESSAGE_IMAGE, {account:acc.context,gid:conv.gid,message_id:message.message_id}); if (stillActive(acc.context)) toast(t('mainTs.message.imageCopied')); } });
+  if (message.kind === 'text' && message.text) actions.push({ id: 'copy', label: t('mainTs.message.copy'), run: () => copyText(message.text) });
+  if (selectedQuoteReference(message, S().messages[conv.gid] ?? [], conv.gid)) actions.push({ id: 'quote', label: t('mainTs.message.quote'), run: () => store.patch({ quote: message }) });
+  if (message.message_id && (message.platform_type == null ? ['text','image','video','file','order_card'].includes(message.kind) : [0,1,2,3,5,8,9].includes(message.platform_type)) && (!message.disposition || message.disposition.kind === 'confirmed')) actions.push({ id:'forward',label:t('mainTs.message.forward'),run:()=>forwardDialog.open(message,acc.context) });
   for (const action of featureRuntime.messageActions(message)) actions.push({ id: action.id, label: action.label(message), run: () => action.run(message, { account: acc.context, gid: conv.gid }) });
-  if (message.kind === 'text' && message.message_id) actions.push({ id: 'translate', label: '翻译', run: () => {
+  if (message.kind === 'text' && message.message_id) actions.push({ id: 'translate', label: t('mainTs.message.translate'), run: () => {
     store.patch({ hideInboundTr: false });
     if (!message.translation) return refreshMessageTranslation(message, conv, acc);
   } });
   if (message.kind === 'image' && message.message_id && safeMediaUrl(message.media_url)) {
-    actions.push({ id:'save',label:'保存图片',divider:true,run:async()=>{ const result=await ipc.invoke<{status:string}>(UiCommands.IM_SAVE_MESSAGE_IMAGE,{account:acc.context,gid:conv.gid,message_id:message.message_id}); if(stillActive(acc.context) && result.status==='saved') toast('图片已保存'); } });
-    actions.push({ id:'emoji',label:'添加表情',run:()=>savedEmojiPanel.add(message,acc.context) });
+    actions.push({ id:'save',label:t('mainTs.message.saveImage'),divider:true,run:async()=>{ const result=await ipc.invoke<{status:string}>(UiCommands.IM_SAVE_MESSAGE_IMAGE,{account:acc.context,gid:conv.gid,message_id:message.message_id}); if(stillActive(acc.context) && result.status==='saved') toast(t('mainTs.message.imageSaved')); } });
+    actions.push({ id:'emoji',label:t('mainTs.message.addEmoji'),run:()=>savedEmojiPanel.add(message,acc.context) });
   }
   if (!actions.length) return;
   event.preventDefault(); event.stopPropagation();
   store.patch({ ctxMenu: null, meMenu: false });
-  messageContextMenu.open(x ?? (event as MouseEvent).clientX, y ?? (event as MouseEvent).clientY, actions, valid, () => toast('消息操作失败，请重试'));
+  messageContextMenu.open(x ?? (event as MouseEvent).clientX, y ?? (event as MouseEvent).clientY, actions, valid, () => toast(t('mainTs.message.actionFailed')));
 }
 
 function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAccount | null): HTMLElement {
   const trView = m.kind === 'text' && !s.hideInboundTr ? inboundTranslation.view(m) : null;
-  const supplierTip = (row: UiMessage): string => { const supplier = inboundTranslation.supplier(row); return supplier ? `来自${supplier}翻译` : ''; };
+  const supplierTip = (row: UiMessage): string => { const supplier = inboundTranslation.supplier(row); return supplier ? t('mainTs.inbound.supplierTip', { supplier: String(supplier) }) : ''; };
   const alignment = messageAlignment(m);
   if (alignment.side === 'system') {
     const account = acc?.context ?? null;
@@ -2495,7 +2495,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
       { class: 'ocard' },
       h('div', { class: 'ocard-t' }, card.title),
       card.subtitle ? h('div', { class: 'ocard-s' }, card.subtitle) : null,
-      h('dl', { class: 'ocard-b' }, card.rows.map((row) => h('div', { class: 'ocard-r' }, h('dt', null, `${row.label}：`), h('dd', null, row.value)))),
+      h('dl', { class: 'ocard-b' }, card.rows.map((row) => h('div', { class: 'ocard-r' }, h('dt', null, t('mainTs.orderCard.rowLabel', { label: String(row.label) })), h('dd', null, row.value)))),
       h('button', { type: 'button', class: 'ocard-link', dataset: { orderAction: 'open' }, onclick: () => openMessageOrder(m, conv, acc) }, t('side.pcDetail'), icon(IC.external, 12)),
     );
   } else if (m.kind === 'voice' && voicePlayer) {
@@ -2505,9 +2505,9 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
     const thumbnail = safeMediaUrl(m.media_thumbnail);
     const name = m.media_filename || (m.kind === 'file' ? m.text : previewOf(m));
     if (url && m.kind === 'image') {
-      body = h('a', { class: 'media-image', href: url, onclick: (e: Event) => { e.preventDefault(); openMessageAttachment(m, conv, acc); }, title: '预览图片' }, h('img', { src: thumbnail ?? url, alt: name, loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e: Event) => (e.target as HTMLImageElement).replaceWith(h('span', { class: 'bubble' }, '图片加载失败，点击查看原图')) }));
+      body = h('a', { class: 'media-image', href: url, onclick: (e: Event) => { e.preventDefault(); openMessageAttachment(m, conv, acc); }, title: t('mainTs.media.previewTitle') }, h('img', { src: thumbnail ?? url, alt: name, loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e: Event) => (e.target as HTMLImageElement).replaceWith(h('span', { class: 'bubble' }, t('mainTs.media.imageFailed'))) }));
     } else if (url && m.kind === 'video') {
-      body = h('div', { class: 'media-video-wrap' }, h('video', { dataset: { mediaKey: mediaNodeKey(acc?.context ?? null, conv, m) }, class: 'media-video', src: url, poster: thumbnail, controls: true, preload: 'metadata', 'aria-label': name }), h('button', { type: 'button', class: 'media-preview-open', onclick: (e: Event) => { (e.currentTarget as HTMLElement).parentElement?.querySelector('video')?.pause(); openMessageAttachment(m, conv, acc); } }, '放大预览'));
+      body = h('div', { class: 'media-video-wrap' }, h('video', { dataset: { mediaKey: mediaNodeKey(acc?.context ?? null, conv, m) }, class: 'media-video', src: url, poster: thumbnail, controls: true, preload: 'metadata', 'aria-label': name }), h('button', { type: 'button', class: 'media-preview-open', onclick: (e: Event) => { (e.currentTarget as HTMLElement).parentElement?.querySelector('video')?.pause(); openMessageAttachment(m, conv, acc); } }, t('mainTs.media.zoomPreview')));
     } else if (url) {
       body = h('a', { class: 'bubble media-file', href: url, onclick: (e: Event) => { e.preventDefault(); openMessageAttachment(m, conv, acc); } }, icon(IC.file, 22), name);
     } else body = h('div', { class: 'bubble' }, name || previewOf(m));
@@ -2520,8 +2520,8 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
         ? h('div', { class: 'btr', title: supplierTip(m) }, h('span', null, m.translation))
         : null,
       trView ? h('div', { class: 'btr', dataset: { trState: trView.status } },
-        trView.status === 'pending' ? h('span', { class: 'inbound-translate-state' }, '正在翻译…') : h('span', { class: 'inbound-translate-state', title: trView.status === 'failed' ? trView.error : '' }, trView.status === 'failed' ? '翻译失败' : '未找到翻译结果'),
-        trView.status === 'pending' ? null : h('button', { type: 'button', class: 'inbound-translate', onclick: () => { if (acc) void refreshMessageTranslation(m, conv, acc); } }, '点击重试'),
+        trView.status === 'pending' ? h('span', { class: 'inbound-translate-state' }, t('mainTs.inbound.translating')) : h('span', { class: 'inbound-translate-state', title: trView.status === 'failed' ? trView.error : '' }, trView.status === 'failed' ? t('mainTs.inbound.translateFailed') : t('mainTs.inbound.translationMissing')),
+        trView.status === 'pending' ? null : h('button', { type: 'button', class: 'inbound-translate', onclick: () => { if (acc) void refreshMessageTranslation(m, conv, acc); } }, t('mainTs.inbound.retry')),
       ) : null,
     );
   }
@@ -2546,7 +2546,7 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
         receipt ? h('span', {
           class: cx('message-receipt', { 'receipt-read': receipt === 'read' }),
           dataset: { receipt, receiptSide: alignRight ? 'left' : 'right' },
-          role: 'img', title: receipt === 'read' ? '已读' : '已送达', 'aria-label': receipt === 'read' ? '已读' : '已送达',
+          role: 'img', title: receipt === 'read' ? t('mainTs.receipt.read') : t('mainTs.receipt.delivered'), 'aria-label': receipt === 'read' ? t('mainTs.receipt.read') : t('mainTs.receipt.delivered'),
         }, icon(IC.check, 13), receipt === 'read' ? icon(IC.check, 13) : null) : null,
         h(
           'div',
@@ -2694,7 +2694,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
     !trOn && s.quickReplies?.mode === 'suggestions' ? quickRepliesView(s.quickReplies, replyContext(), quickReplies) : null,
     h(
       'div',
-      { class: 'ctools', role: 'toolbar', 'aria-label': '消息工具' },
+      { class: 'ctools', role: 'toolbar', 'aria-label': t('mainTs.toolbar.label') },
       ctool('emoji', t('composer.emoji'), IC.smile, { disabled: locked, on: s.emoOpen, onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen, composerMore: false }); } }),
       ctool('screenshot', t('composer.screenshot'), IC.scissors, { disabled: finished || mediaLocked, onclick: () => void attach('screenshot') }),
       ctool('image', t('composer.image'), IC.image, { disabled: finished || mediaLocked, onclick: () => void attach('image') }),
@@ -2737,7 +2737,7 @@ function emojiPicker(s: MainState): HTMLElement | null {
     'div',
     { class: 'emo', onmousedown: (e: Event) => e.stopPropagation() },
     h('div', { class: 'emo-grid' }, EMOJI.map((ch) => h('button', { 'aria-label': t('composer.insertEmoji'), onclick: () => { setDraft(S().draft + ch); store.patch({ emoOpen: false }); } }, ch))),
-    h('button', { type: 'button', class: 'emo-library', onclick: () => { const account=activeAccount()?.context, gid=S().activeGid; store.patch({emoOpen:false}); if(account && gid) void savedEmojiPanel.open(account,gid); } }, icon(IC.image,16), '我的表情'),
+    h('button', { type: 'button', class: 'emo-library', onclick: () => { const account=activeAccount()?.context, gid=S().activeGid; store.patch({emoOpen:false}); if(account && gid) void savedEmojiPanel.open(account,gid); } }, icon(IC.image,16), t('mainTs.emoji.library')),
   );
 }
 
@@ -2811,11 +2811,11 @@ function messagePane(s: MainState, conv: UiConversation, acc: UiAccount | null, 
   const rows = new Map<string, MountedRow>();
   const spacer = (kind: 'top' | 'bottom', height: number): HTMLElement => h('div', { class: 'msgs-spacer', 'aria-hidden': 'true', dataset: { msgSpacer: kind }, style: { height: `${height}px`, flex: 'none' } });
   const node = h('div', { class: 'msgs', dataset: { keepScroll: 'msgs', scrollBottom: pinned ? '1' : '0', thread: conv.gid, historyScope: scope, readContextRevision: s.history[conv.gid]?.readContextRevision ?? '' } },
-      history?.firstPage === 'loading' ? h('div', { class: 'history-more', role: 'status' }, '正在读取聊天记录…') : null,
-      history?.firstPage === 'error' ? h('button', { class: 'history-more', dataset: { history: 'retry', fid: 'history:retry' }, onclick: () => void openConversation(conv.gid) }, '聊天记录读取失败或超时，点击重试') : null,
+      history?.firstPage === 'loading' ? h('div', { class: 'history-more', role: 'status' }, t('mainTs.history.loading')) : null,
+      history?.firstPage === 'error' ? h('button', { class: 'history-more', dataset: { history: 'retry', fid: 'history:retry' }, onclick: () => void openConversation(conv.gid) }, t('mainTs.history.firstPageFailed')) : null,
       spacer('top', win.topSpacer),
       // Sits directly above the first row, below the runway; away from the head there is nothing to show.
-      history?.hasMore && win.range.start === 0 ? h('button', { class: 'history-more', disabled: history.busy, dataset: { history: 'earlier', fid: 'history:earlier' }, onclick: () => void loadEarlier(conv) }, history.busy ? '加载中…' : history.pageError ? '历史记录读取失败或超时，点击重试' : '加载更早消息') : null,
+      history?.hasMore && win.range.start === 0 ? h('button', { class: 'history-more', disabled: history.busy, dataset: { history: 'earlier', fid: 'history:earlier' }, onclick: () => void loadEarlier(conv) }, history.busy ? t('mainTs.history.busy') : history.pageError ? t('mainTs.history.pageFailed') : t('mainTs.history.loadEarlier')) : null,
       msgs.slice(win.range.start, win.range.end).map((m) => {
         // 换窗或翻页：窗口内仍在且输入未变的行直接沿用上次的节点（增量渲染原地保留），只构建新进入窗口的行。
         const id = rowId(m);
@@ -2841,7 +2841,7 @@ function chatPane(s: MainState): HTMLElement {
   // A pane rebuilt for a scope with a stored reading anchor resumes there instead of jumping to the bottom.
   const pinned = previousScroll?.dataset['historyScope'] === scope ? previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < PIN_THRESHOLD : !(s.messageView?.scope === scope && s.messageView.anchor);
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
-  const sub = [isDone(conv) ? '会话已结束，无法管理成员' : waiting ? t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) }) : ''].filter(Boolean).join(' · ');
+  const sub = [isDone(conv) ? t('mainTs.peripheral.conversationEnded') : waiting ? t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) }) : ''].filter(Boolean).join(' · ');
   const pills = memberPillsFor(acc, conv);
   return h(
     'div',
@@ -2886,16 +2886,16 @@ function notificationsView(s: MainState): HTMLElement {
       'div',
       { class: 'ncat' },
       h('div', { class: 'ncat-title' }, t('notice.title')),
-      visible.map((c) => h('button', { class: cx('ncat-i', { on: c.id === s.noticeCat }), dataset: { cat: c.id }, title: '右键可设置横幅提醒或忽略此分类', onclick: () => void pickNoticeCat(c.id), oncontextmenu: (e: MouseEvent) => openNoticeCatMenu(e, c, false) }, icon(catIcons[c.id] ?? IC.bell, 16), h('span', { style: { flex: '1' } }, c.name), noticeBannerCats(s).includes(c.id) ? h('span', { class: 'ncat-banner', title: '已开启横幅提醒', dataset: { catBanner: c.id } }, icon(IC.bell, 12)) : null, accBadge(c.unread))),
+      visible.map((c) => h('button', { class: cx('ncat-i', { on: c.id === s.noticeCat }), dataset: { cat: c.id }, title: t('mainTs.noticeCat.contextHint'), onclick: () => void pickNoticeCat(c.id), oncontextmenu: (e: MouseEvent) => openNoticeCatMenu(e, c, false) }, icon(catIcons[c.id] ?? IC.bell, 16), h('span', { style: { flex: '1' } }, c.name), noticeBannerCats(s).includes(c.id) ? h('span', { class: 'ncat-banner', title: t('mainTs.noticeCat.bannerOnLabel'), dataset: { catBanner: c.id } }, icon(IC.bell, 12)) : null, accBadge(c.unread))),
       hidden.length ? h('div', { class: 'ncat-ignored', dataset: { ncatIgnored: String(hidden.length) } },
-        h('button', { type: 'button', class: 'ncat-ignored-head', 'aria-expanded': String(s.noticeIgnoredOpen), onclick: () => store.patch({ noticeIgnoredOpen: !S().noticeIgnoredOpen }) }, icon(s.noticeIgnoredOpen ? IC.chevDown : IC.chevRight, 12), `已忽略的分类（${hidden.length}）`),
+        h('button', { type: 'button', class: 'ncat-ignored-head', 'aria-expanded': String(s.noticeIgnoredOpen), onclick: () => store.patch({ noticeIgnoredOpen: !S().noticeIgnoredOpen }) }, icon(s.noticeIgnoredOpen ? IC.chevDown : IC.chevRight, 12), t('mainTs.noticeCat.ignoredHead', { count: String(hidden.length) })),
         s.noticeIgnoredOpen ? hidden.map((c) => h('div', { class: 'ncat-i ignored', dataset: { catIgnored: c.id }, oncontextmenu: (e: MouseEvent) => openNoticeCatMenu(e, c, true) },
-          icon(catIcons[c.id] ?? IC.bell, 16), h('span', { style: { flex: '1' } }, c.name), h('button', { type: 'button', class: 'link', dataset: { action: 'unignore-cat' }, onclick: () => setNoticeCatIgnored(c.id, false) }, '恢复'))) : null,
+          icon(catIcons[c.id] ?? IC.bell, 16), h('span', { style: { flex: '1' } }, c.name), h('button', { type: 'button', class: 'link', dataset: { action: 'unignore-cat' }, onclick: () => setNoticeCatIgnored(c.id, false) }, t('mainTs.noticeCat.restore')))) : null,
       ) : null,
-      s.noticeCatsStatus === 'loading' ? h('div', { class: 'empty', role: 'status' }, '正在加载通知分类…') : null,
-      s.noticeCatsStatus === 'error' || s.noticeCatsStatus === 'expired' ? h('div', { class: 'notice-box err', role: 'alert' }, s.noticeCatsStatus === 'expired' ? '登录已过期，请重新登录。' : '通知分类加载失败：', s.noticeCatsError, ' ', h('button', { class: 'link', onclick: () => { const account = activeAccount(); if (s.noticeCatsStatus === 'expired' && account) void startLogin(account.context); else void noticeQuery.categories(); } }, s.noticeCatsStatus === 'expired' ? '重新登录' : '重试')) : null,
-      s.noticeCatsStatus === 'loaded' && s.noticeCats.length === 0 ? h('div', { class: 'empty' }, '暂无通知分类') : null,
-      s.noticeCatsStatus === 'loaded' && s.noticeCats.length > 0 && visible.length === 0 ? h('div', { class: 'empty' }, '所有分类均已忽略') : null,
+      s.noticeCatsStatus === 'loading' ? h('div', { class: 'empty', role: 'status' }, t('mainTs.noticeCat.loading')) : null,
+      s.noticeCatsStatus === 'error' || s.noticeCatsStatus === 'expired' ? h('div', { class: 'notice-box err', role: 'alert' }, s.noticeCatsStatus === 'expired' ? t('mainTs.noticeCat.expired') : t('mainTs.noticeCat.loadFailed'), s.noticeCatsError, ' ', h('button', { class: 'link', onclick: () => { const account = activeAccount(); if (s.noticeCatsStatus === 'expired' && account) void startLogin(account.context); else void noticeQuery.categories(); } }, s.noticeCatsStatus === 'expired' ? t('mainTs.noticeCat.relogin') : t('mainTs.noticeCat.retry'))) : null,
+      s.noticeCatsStatus === 'loaded' && s.noticeCats.length === 0 ? h('div', { class: 'empty' }, t('mainTs.noticeCat.empty')) : null,
+      s.noticeCatsStatus === 'loaded' && s.noticeCats.length > 0 && visible.length === 0 ? h('div', { class: 'empty' }, t('mainTs.noticeCat.allIgnored')) : null,
     ),
     h(
       'div',
@@ -3184,19 +3184,19 @@ function peripheralDialog(s: MainState): HTMLElement | null {
       h('div', { class: 'invite-filters' },
         h('label', { class: 'invite-online-filter' },
           h('input', { type: 'checkbox', checked: d.onlineOnly, disabled: d.submitted, onchange: (e: Event) => peripheral.setOnlineOnly((e.target as HTMLInputElement).checked) }),
-          h('span', null, '仅看在线/挂起/离开')),
-        h('label', { class: 'invite-role-filter' }, h('span', null, '角色'),
-          h('select', { class: 'inp', 'aria-label': '筛选成员角色', value: d.roleFilter, disabled: d.submitted, onchange: (e: Event) => peripheral.setRoleFilter((e.target as HTMLSelectElement).value) },
-            [['all', '全部角色'], ['4', '客服'], ['1', '管理员'], ['3', '运营'], ['2', '财务'], ['unknown', '其他角色']].map(([value, label]) => h('option', { value, selected: d.roleFilter === value }, label)))),
-        h('span', { class: 'invite-department-scope' }, '全部部门')),
+          h('span', null, t('mainTs.invite.onlineOnlyLabel'))),
+        h('label', { class: 'invite-role-filter' }, h('span', null, t('mainTs.invite.roleLabel')),
+          h('select', { class: 'inp', 'aria-label': t('mainTs.invite.roleFilterAria'), value: d.roleFilter, disabled: d.submitted, onchange: (e: Event) => peripheral.setRoleFilter((e.target as HTMLSelectElement).value) },
+            [['all', t('mainTs.invite.roleAll')], ['4', t('mainTs.invite.roleAgent')], ['1', t('mainTs.invite.roleAdmin')], ['3', t('mainTs.invite.roleOps')], ['2', t('mainTs.invite.roleFinance')], ['unknown', t('mainTs.invite.roleOther')]].map(([value, label]) => h('option', { value, selected: d.roleFilter === value }, label)))),
+        h('span', { class: 'invite-department-scope' }, t('mainTs.invite.departmentAll'))),
       h('div', { class: 'invite-columns' },
         h('div', { class: 'peripheral-list invite-tree', role: 'group', 'aria-label': t("main.peripheralDialog.availableAgents") },
           h('div', { class: 'invite-tree-h' }, h('span', null, t("main.peripheralDialog.availableAgents")), h('span', null, t("main.peripheralDialog.personCount", { count: agents.length }))),
           agents.map((agent) => inviteAgentRow(d, agent, expired)),
-          !d.busy && (d.tree || d.candidates) && agents.length === 0 ? h('p', { class: 'peripheral-empty' }, d.onlineOnly ? '暂无符合条件的在线、挂起或离开成员' : '没有符合条件的成员') : null),
-        h('div', { class: 'peripheral-list invite-picked', 'aria-label': '已选成员' },
-          h('div', { class: 'invite-tree-h' }, h('span', null, '已选成员'), h('span', null, `${picked.length} 人`)),
-          picked.length === 0 ? h('p', { class: 'peripheral-empty' }, '请从左侧选择成员') : null,
+          !d.busy && (d.tree || d.candidates) && agents.length === 0 ? h('p', { class: 'peripheral-empty' }, d.onlineOnly ? t('mainTs.invite.noOnlineMatch') : t('mainTs.invite.noMatch')) : null),
+        h('div', { class: 'peripheral-list invite-picked', 'aria-label': t('mainTs.invite.picked') },
+          h('div', { class: 'invite-tree-h' }, h('span', null, t('mainTs.invite.picked')), h('span', null, t('mainTs.invite.pickedCount', { count: String(picked.length) }))),
+          picked.length === 0 ? h('p', { class: 'peripheral-empty' }, t('mainTs.invite.pickFromLeft')) : null,
           picked.map((agent) => h('div', { class: 'peripheral-member invite-picked-agent' },
             h('span', { class: 'ava sm', 'aria-hidden': 'true' }, renderMessageAvatar(document, personDisplayName(agent.nickname, agent.uid), agent.avatar)),
             h('span', { class: 'invite-agent-main' }, h('b', null, personDisplayName(agent.nickname, agent.uid)), invitePresence(agent)),
@@ -3629,7 +3629,7 @@ setInterval(() => {
   for (const el of headers) {
     const c = byGid.get(el.dataset['chatWaitingGid'] ?? '');
     if (!c) continue;
-    const text = [isDone(c) ? '会话已结束，无法管理成员' : c.waiting_since_ms !== null ? t('chat.waiting', { t: formatDuration(waitedSeconds(c, now)) }) : ''].filter(Boolean).join(' · ');
+    const text = [isDone(c) ? t('mainTs.peripheral.conversationEnded') : c.waiting_since_ms !== null ? t('chat.waiting', { t: formatDuration(waitedSeconds(c, now)) }) : ''].filter(Boolean).join(' · ');
     if (el.textContent !== text) el.textContent = text;
   }
 }, 500);

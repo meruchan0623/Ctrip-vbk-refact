@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 
 // Attachments open in the host-owned viewer window: the main window names the
 // message and never passes an address. The function under test is read from main.ts.
@@ -21,6 +22,7 @@ function harness(active = true) {
     mediaNodeKey: () => 'synthetic-media',
     toast: (text: string) => toasts.push(text),
     invokeSafe: (command: string, payload: unknown) => { calls.push({ command, payload }); return Promise.resolve(null); },
+    t: translateUi,
     UiCommands: { MEDIA_VIEWER_OPEN_MESSAGE: 'media_viewer_open_message' },
   };
   const open = new Function(...Object.keys(env), `${body}\nreturn openMessageAttachment;`)(...Object.values(env)) as (message: object, conversation: object, account: object | null) => void;

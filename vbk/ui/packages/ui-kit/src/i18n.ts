@@ -11,6 +11,10 @@ import { voiceStrings } from './voice/strings.ts';
 import { searchRecoveryStrings } from './search-recovery/strings.ts';
 import { mainStrings } from './main/strings.ts';
 import { companionStrings } from './companion/strings.ts';
+import { companionTabsStrings } from './companion-tabs/strings.ts';
+import { recommendPanelStrings } from './recommend-panel/strings.ts';
+import { mainTsStrings } from './main-ts/strings.ts';
+import { orderMiscStrings } from './order-misc/strings.ts';
 /**
  * zh-CN string table. Every piece of UI copy goes through `t()` so a second
  * locale can be added later without touching views. `{name}` placeholders
@@ -32,6 +36,19 @@ const zhCN = {
   ...searchRecoveryStrings,
   ...mainStrings,
   ...companionStrings,
+  ...companionTabsStrings,
+  ...recommendPanelStrings,
+  ...mainTsStrings,
+  ...orderMiscStrings,
+  // settings runtime (also exposed via SETTING_STRINGS)
+  'set.runtime.about': '关于与更新',
+  'set.runtime.assistant': '商家助手 · TSim 登录',
+  'set.runtime.checkUpdate': '检查更新',
+  'set.runtime.checkUpdateDesc': '在独立的更新窗口中检查',
+  'set.runtime.close': '关闭设置',
+  'set.runtime.titleWithAccount': '设置 · {nick}',
+  'set.runtime.version': '当前版本',
+  'set.runtime.versionUnknown': '未知',
   // app
   'app.name': 'VBK 商家工作台',
   'app.demoData': '示例数据',
@@ -503,8 +520,6 @@ const zhCN = {
   'attachment.upload': '正在上传附件…',
   'attachment.send': '正在提交附件消息…',
   'attachment.onlyMedia': '仅发送附件，文字/引用保留。',
-  'attachment.video': '视频',
-  'attachment.limits': '本客户端：单附件≤10MiB，视频≤3分钟。',
   'attachment.retryRead': '重新读取附件',
   'attachment.reloadTitle': '仅从持久附件恢复当前会话的新访问句柄，不会发送或改写草稿',
   'attachment.reload': '重新载入',
@@ -528,11 +543,7 @@ const zhCN = {
   'set.runtime.logoutUnconfirmed': '退出未获确认，请刷新登录状态后再操作。',
   'set.runtime.importUnconfirmed': '已有会话导入未获确认，请重新取得会话或使用账号密码登录。',
   'set.runtime.browserMissing': '没有找到 TSim 网页会话。请先在 Chrome 普通窗口登录客服系统，再重试；也可以在下方使用账号密码登录。',
-  'set.runtime.gpuManaged': '由系统管理',
-  'set.runtime.gpuUnsupported': '当前版本不支持手动切换硬件加速',
-  'set.runtime.unsupported': '暂未支持',
   'set.runtime.trayDndDescription': '可在托盘菜单中开启临时勿扰',
-  'set.runtime.dndFollowUnsupported': '应用内强提醒尚不跟随系统勿扰',
   'set.runtime.shortcutRequired': '请输入快捷键，例如 Ctrl+Shift+X。',
   'set.runtime.shortcutConfirm': '无法确认快捷键保存结果',
   'set.runtime.shortcutSaved': '快捷键已保存',
@@ -546,12 +557,6 @@ const zhCN = {
   'set.runtime.reading': '正在读取…',
   'set.runtime.fromChrome': '从 Chrome 登录',
   'set.runtime.browserDescription': '直接使用 Chrome 中已登录的 TSim 账号；多个浏览器配置时选择要连接的账号。断开不会退出浏览器。',
-  'set.runtime.proxyUnsupported': '暂未支持切换',
-  'set.runtime.proxyDescription': '当前版本无法统一控制网页和宿主请求的代理',
-  'set.runtime.cacheDescription': '当前版本不会按保存天数自动清理缓存',
-  'set.runtime.cacheClearDescription': '当前版本暂不支持统计或清理本地缓存',
-  'set.runtime.cacheClearTitle': '缓存清理暂未支持',
-  'set.runtime.cacheClearButton': '暂未支持清理',
   'set.runtime.diagnosticsExported': '诊断信息已导出',
   'set.runtime.recoveryTitle': '页面恢复状态',
   'set.runtime.recoveryDescription': '重新读取本机页面故障记录',
@@ -573,14 +578,6 @@ const zhCN = {
   'set.runtime.malformedResponse': '返回的登录状态无法识别，请刷新状态后再操作。',
   'set.runtime.credentialStoreUnavailable': '系统凭据存储不可用，请检查系统权限后重试。',
   'set.runtime.operationUnconfirmed': '操作未完成，登录状态尚待核对。请先刷新 TSim 登录状态后再操作。',
-  'set.runtime.titleWithAccount': '设置 · {nick}',
-  'set.runtime.assistant': '商家助手 · TSim 登录',
-  'set.runtime.close': '关闭设置',
-  'set.runtime.about': '关于与更新',
-  'set.runtime.version': '当前版本',
-  'set.runtime.versionUnknown': '未知',
-  'set.runtime.checkUpdate': '检查更新',
-  'set.runtime.checkUpdateDesc': '在独立的更新窗口中检查',
   'set.runtime.shortcutFailed': '快捷键未保存：{message}。请检查格式或更换未被占用的组合。',
   'set.runtime.shortcutCurrent': '当前生效：{shortcut}',
   'set.runtime.connectProfile': '连接 {label}',

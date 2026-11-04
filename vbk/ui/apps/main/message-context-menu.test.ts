@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { selectedQuoteReference } from './viewmodel.ts';
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { UiMessage } from '../../packages/ipc/src/client.ts';
 
 const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
@@ -16,7 +17,7 @@ function setup(selected = message) {
   const patches: any[] = [], copied: string[] = [], recalls: UiMessage[] = [], translations: UiMessage[] = [], forwards: UiMessage[] = [];
   const env = {
     forwardDialog: {open:(m:UiMessage)=>forwards.push(m)}, safeMediaUrl:()=>null,
-    S: () => state, stillActive: () => current, selectedQuoteReference,
+    S: () => state, stillActive: () => current, selectedQuoteReference, t,
     featureRuntime: { messageActions: () => [{ id: 'recall', label: () => '撤回', run: (m: UiMessage) => { recalls.push(m); } }] },
     store: { patch: (p: any) => patches.push(p) }, copyText: (text: string) => { copied.push(text); }, toast() {},
     refreshMessageTranslation: async (m: UiMessage) => { translations.push(m); },

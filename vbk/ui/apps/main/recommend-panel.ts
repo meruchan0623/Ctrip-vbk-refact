@@ -83,7 +83,7 @@ export function createRecommendPanel(deps: {
   const mergedWrites = (s: RecommendState, scope: ReplyScope, page: UiRecommendProducts) => ({ ...Object.fromEntries(Object.entries(s.writes).filter(([id]) => !page.items.some(item => item.id === id))), ...priorWrites(scope, page) });
   async function fetchPage(s: RecommendState, page: number): Promise<UiRecommendProducts> {
     const result = await deps.invoke(UiCommands.IM_RECOMMEND_PRODUCTS, { account: s.scope.account, gid: s.scope.gid, query: s.query.trim(), departure_city_id: s.departure?.id ?? -1, destination_city_id: s.destination?.id ?? -1, page_index: page }) as UiRecommendProducts;
-    if (!result || !Array.isArray(result.items) || !['ready', 'forbidden'].includes(result.kind)) throw new Error('产品返回格式无效');
+    if (!result || !Array.isArray(result.items) || !['ready', 'forbidden'].includes(result.kind)) throw new Error(t('recommendPanel.malformedProducts'));
     return result;
   }
   function close() { ticket++; cityTicket++; publish(null); }
@@ -128,7 +128,7 @@ export function createRecommendPanel(deps: {
   }
   async function search(page = 0) {
     if (!state || state.sending || !sameReplyScope(state.scope, deps.current())) return;
-    if ((!state.departure && state.departureText.trim()) || (!state.destination && state.destinationText.trim())) { publish({ ...state, error: '请从城市候选中选择，或清空城市条件。' }); return; }
+    if ((!state.departure && state.departureText.trim()) || (!state.destination && state.destinationText.trim())) { publish({ ...state, error: t('recommendPanel.cityRequired') }); return; }
     const scope = state.scope, id = ++ticket, request = fetchPage(state, page);
     publish({ ...state, ...noResults, busy: true, error: null });
     try {
@@ -180,7 +180,7 @@ export function createRecommendPanel(deps: {
       publish({ ...state, preparing: null });
       if (!refreshed) return;
       const fresh = pageHolding(state, productId), latest = fresh?.items.find(p => p.id === productId);
-      if (!fresh || fresh.kind !== 'ready' || !latest || !sameRecommendProduct(product, latest) || fresh.expires_at_ms <= deps.now()) { publish({ ...state, error: '产品信息已变化，请核对后再次选择。' }); return; }
+      if (!fresh || fresh.kind !== 'ready' || !latest || !sameRecommendProduct(product, latest) || fresh.expires_at_ms <= deps.now()) { publish({ ...state, error: t('recommendPanel.productChanged') }); return; }
       if (!deps.canSend()) return;
       page = fresh;
     }
@@ -200,8 +200,8 @@ export function createRecommendPanel(deps: {
   return { open, close, filter, reset, query, cityText, findCities, chooseCity, search, loadMore, autoFill, send };
 }
 export function recommendCountText(result: UiRecommendProducts, visible: number, filtering: boolean): string {
-  const loaded = `已加载 ${result.items.length}${result.total !== null ? ` / ${result.total}` : ''} 项`;
-  return filtering ? `匹配 ${visible} · ${loaded}` : loaded;
+  const loaded = result.total !== null ? t('recommendPanel.loadedOfTotal', { count: result.items.length, total: result.total }) : t('recommendPanel.loaded', { count: result.items.length });
+  return filtering ? t('recommendPanel.matching', { visible, loaded }) : loaded;
 }
 export function recommendView(state: RecommendState | null, scope: ReplyScope | null, canSend: boolean, controller: ReturnType<typeof createRecommendPanel>): HTMLElement | null {
   if (!state || !sameReplyScope(state.scope, scope)) return null;
@@ -210,39 +210,39 @@ export function recommendView(state: RecommendState | null, scope: ReplyScope | 
   const filtering = isFiltering(state.filters);
   const cityInput = (field: CityField, label: string) => h('div', { class: 'recommend-city' },
     h('input', { class: 'inp', 'aria-label': label, placeholder: label, value: state[`${field}Text`], disabled: !!state.sending, dataset: { fid: `recommend-${field}` }, oninput: (e: Event) => controller.cityText(field, (e.target as HTMLInputElement).value), onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); void controller.findCities(field); } } }),
-    state[`${field}Text`] ? h('button', { class: 'ibtn', type: 'button', 'aria-label': `清空${label}`, disabled: !!state.sending, onclick: () => controller.chooseCity(field, null) }, '×') : null,
-    h('button', { class: 'ibtn', type: 'button', 'aria-label': `查找${label}`, title: `查找${label}`, disabled: state.cityBusy || !!state.sending, onclick: () => void controller.findCities(field) }, icon(IC.search, 14)));
+    state[`${field}Text`] ? h('button', { class: 'ibtn', type: 'button', 'aria-label': t('recommendPanel.clearLabel', { label }), disabled: !!state.sending, onclick: () => controller.chooseCity(field, null) }, '×') : null,
+    h('button', { class: 'ibtn', type: 'button', 'aria-label': t('recommendPanel.findLabel', { label }), title: t('recommendPanel.findLabel', { label }), disabled: state.cityBusy || !!state.sending, onclick: () => void controller.findCities(field) }, icon(IC.search, 14)));
   const more = result?.kind === 'ready' && result.items.length ? h('div', { class: 'recommend-more' },
-    state.loadingMore ? h('span', { class: 'muted', role: 'status' }, '正在加载更多…')
-      : state.moreError ? [h('span', { class: 'hint-bad', role: 'alert' }, state.moreError), h('button', { class: 'btn sm', type: 'button', disabled: state.busy || !!state.sending, onclick: () => void controller.loadMore(true) }, '重试')]
-      : result.has_more ? h('button', { class: 'btn sm', type: 'button', disabled: state.busy || !!state.sending, onclick: () => void controller.loadMore() }, '加载更多')
-      : h('span', { class: 'muted' }, '已全部加载')) : null;
-  return h('div', { class: 'shade', onclick: controller.close }, h('div', { class: 'dlg recommend-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': '产品推荐', tabindex: '-1', dataset: { commerceDialog: 'recommend' }, onclick: (e: Event) => e.stopPropagation() },
-    h('div', { class: 'dlg-h' }, '产品推荐', h('button', { class: 'ibtn', 'aria-label': '关闭产品推荐', onclick: controller.close }, '×')),
+    state.loadingMore ? h('span', { class: 'muted', role: 'status' }, t('recommendPanel.loadingMore'))
+      : state.moreError ? [h('span', { class: 'hint-bad', role: 'alert' }, state.moreError), h('button', { class: 'btn sm', type: 'button', disabled: state.busy || !!state.sending, onclick: () => void controller.loadMore(true) }, t('recommendPanel.retry'))]
+      : result.has_more ? h('button', { class: 'btn sm', type: 'button', disabled: state.busy || !!state.sending, onclick: () => void controller.loadMore() }, t('recommendPanel.loadMore'))
+      : h('span', { class: 'muted' }, t('recommendPanel.allLoaded'))) : null;
+  return h('div', { class: 'shade', onclick: controller.close }, h('div', { class: 'dlg recommend-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('recommendPanel.heading'), tabindex: '-1', dataset: { commerceDialog: 'recommend' }, onclick: (e: Event) => e.stopPropagation() },
+    h('div', { class: 'dlg-h' }, t('recommendPanel.heading'), h('button', { class: 'ibtn', 'aria-label': t('recommendPanel.close'), onclick: controller.close }, '×')),
     h('div', { class: 'dlg-b' },
       h('div', { class: 'recommend-toolbar' },
         h('form', { class: 'recommend-search', onsubmit: (e: Event) => { e.preventDefault(); void controller.search(0); } },
-          h('input', { class: 'inp', type: 'search', 'aria-label': '产品名称或编号', placeholder: '产品名称或编号', value: state.query, disabled: !!state.sending, dataset: { fid: 'recommend-query' }, oninput: (e: Event) => controller.query((e.target as HTMLInputElement).value) }),
-          cityInput('departure', '出发城市'), cityInput('destination', '目的城市'),
-          h('button', { class: 'btn pri', type: 'submit', disabled: state.busy || !!state.sending }, '查询'), h('button', { class: 'btn', type: 'button', disabled: !!state.sending, onclick: () => void controller.reset() }, '重置')),
-        state.cityBusy ? h('p', { role: 'status' }, '正在查找城市…') : state.cityField ? h('div', { class: 'recommend-cities' }, state.cities.map(city => h('button', { class: 'btn sm', onclick: () => controller.chooseCity(state.cityField!, city) }, city.name))) : null,
+          h('input', { class: 'inp', type: 'search', 'aria-label': t('recommendPanel.queryLabel'), placeholder: t('recommendPanel.queryLabel'), value: state.query, disabled: !!state.sending, dataset: { fid: 'recommend-query' }, oninput: (e: Event) => controller.query((e.target as HTMLInputElement).value) }),
+          cityInput('departure', t('recommendPanel.departure')), cityInput('destination', t('recommendPanel.destination')),
+          h('button', { class: 'btn pri', type: 'submit', disabled: state.busy || !!state.sending }, t('recommendPanel.query')), h('button', { class: 'btn', type: 'button', disabled: !!state.sending, onclick: () => void controller.reset() }, t('recommendPanel.reset'))),
+        state.cityBusy ? h('p', { role: 'status' }, t('recommendPanel.findingCities')) : state.cityField ? h('div', { class: 'recommend-cities' }, state.cities.map(city => h('button', { class: 'btn sm', onclick: () => controller.chooseCity(state.cityField!, city) }, city.name))) : null,
         h('div', { class: 'recommend-refine' },
-          h('input', { class: 'inp', type: 'search', 'aria-label': '筛选已加载产品', placeholder: '筛选已加载：名称、编号、城市，空格组合', value: state.filters.text, disabled: !!state.sending, dataset: { fid: 'recommend-local' }, oninput: (e: Event) => controller.filter({ text: (e.target as HTMLInputElement).value }) }),
-          h('label', { class: 'recommend-check' }, h('input', { type: 'checkbox', checked: state.filters.sendableOnly, disabled: !!state.sending, onchange: (e: Event) => controller.filter({ sendableOnly: (e.target as HTMLInputElement).checked }) }), '仅可发送'),
-          h('select', { class: 'inp', 'aria-label': '已加载产品排序', disabled: !!state.sending, onchange: (e: Event) => controller.filter({ sort: (e.target as HTMLSelectElement).value === 'name' ? 'name' : 'default' }) },
-            h('option', { value: 'default', selected: state.filters.sort === 'default' }, '默认排序'), h('option', { value: 'name', selected: state.filters.sort === 'name' }, '名称排序')),
+          h('input', { class: 'inp', type: 'search', 'aria-label': t('recommendPanel.filterLabel'), placeholder: t('recommendPanel.filterPlaceholder'), value: state.filters.text, disabled: !!state.sending, dataset: { fid: 'recommend-local' }, oninput: (e: Event) => controller.filter({ text: (e.target as HTMLInputElement).value }) }),
+          h('label', { class: 'recommend-check' }, h('input', { type: 'checkbox', checked: state.filters.sendableOnly, disabled: !!state.sending, onchange: (e: Event) => controller.filter({ sendableOnly: (e.target as HTMLInputElement).checked }) }), t('recommendPanel.sendableOnly')),
+          h('select', { class: 'inp', 'aria-label': t('recommendPanel.sortLabel'), disabled: !!state.sending, onchange: (e: Event) => controller.filter({ sort: (e.target as HTMLSelectElement).value === 'name' ? 'name' : 'default' }) },
+            h('option', { value: 'default', selected: state.filters.sort === 'default' }, t('recommendPanel.sortDefault')), h('option', { value: 'name', selected: state.filters.sort === 'name' }, t('recommendPanel.sortName'))),
           h('span', { class: 'recommend-count muted', role: 'status' }, result?.kind === 'ready' ? recommendCountText(result, items.length, filtering) : '')),
         state.error ? h('p', { class: 'hint-bad', role: 'alert' }, state.error) : null),
       h('div', { class: 'recommend-list', dataset: { keepScroll: 'recommend-list' },
         onscroll: (e: Event) => { if (nearRecommendEnd(e.currentTarget as HTMLElement)) void controller.loadMore(); },
         ref: (el: Element) => { if (shouldAutoFill(state)) requestAnimationFrame(() => { if (el.isConnected && nearRecommendEnd(el)) void controller.autoFill(); }); } },
-        state.busy && !result ? h('p', { class: 'peripheral-empty', role: 'status' }, '正在查询产品…') : result?.kind === 'forbidden' ? h('p', { class: 'peripheral-empty', role: 'status' }, '当前会话没有产品推荐权限') : result?.kind === 'ready' && !items.length ? h('p', { class: 'peripheral-empty' }, result.items.length ? '已加载的产品里没有匹配项，可调整筛选或继续加载。' : '没有匹配的产品，请调整查询条件。') : null,
-        h('div', { class: 'recommend-grid' }, items.map(item => { const write = state.writes[item.id]; const label = state.sending === item.id || state.preparing === item.id ? '发送中…' : write?.kind === 'confirmed' ? '已发送' : write?.kind === 'unknown' || write?.kind === 'accepted' ? '结果待核对' : '发送'; const route = [item.departure_city, item.destination_city].filter(Boolean).join(' → '); const meta = [`编号 ${item.id}`, route].filter(Boolean).join(' · '); return h('article', { class: 'recommend-item', dataset: { productId: item.id, key: item.id } },
+        state.busy && !result ? h('p', { class: 'peripheral-empty', role: 'status' }, t('recommendPanel.queryingProducts')) : result?.kind === 'forbidden' ? h('p', { class: 'peripheral-empty', role: 'status' }, t('recommendPanel.forbidden')) : result?.kind === 'ready' && !items.length ? h('p', { class: 'peripheral-empty' }, result.items.length ? t('recommendPanel.noLoadedMatch') : t('recommendPanel.noMatch')) : null,
+        h('div', { class: 'recommend-grid' }, items.map(item => { const write = state.writes[item.id]; const label = state.sending === item.id || state.preparing === item.id ? t('recommendPanel.sending') : write?.kind === 'confirmed' ? t('recommendPanel.sent') : write?.kind === 'unknown' || write?.kind === 'accepted' ? t('recommendPanel.unverified') : t('recommendPanel.send'); const route = [item.departure_city, item.destination_city].filter(Boolean).join(' → '); const meta = [t('recommendPanel.idMeta', { id: item.id }), route].filter(Boolean).join(' · '); return h('article', { class: 'recommend-item', dataset: { productId: item.id, key: item.id } },
           item.image_url ? h('img', { src: item.image_url, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : null,
           h('div', { class: 'recommend-info' }, h('h3', { title: item.name }, item.name), h('p', { class: 'recommend-meta muted', title: meta }, meta),
             !item.sendable && item.unavailable_reason ? h('p', { class: 'muted' }, item.unavailable_reason) : null,
-            write?.kind === 'unknown' ? h('p', { role: 'status' }, '请在聊天记录中核对，勿重复发送。') : write?.kind === 'not_submitted' ? h('p', { role: 'status' }, write.reason || '尚未提交，请刷新产品后再试。') : null),
+            write?.kind === 'unknown' ? h('p', { role: 'status' }, t('recommendPanel.verifyHistory')) : write?.kind === 'not_submitted' ? h('p', { role: 'status' }, write.reason || t('recommendPanel.notSubmitted')) : null),
           h('div', { class: 'recommend-foot' }, h('span', { class: 'recommend-price' }, item.price_text),
-            h('button', { class: 'btn sm pri', 'aria-label': `发送产品卡片：${item.name}`, disabled: !canSend || !item.sendable || state.busy || !!state.sending || (!!write && write.kind !== 'not_submitted'), onclick: () => void controller.send(item.id) }, label))); })),
+            h('button', { class: 'btn sm pri', 'aria-label': t('recommendPanel.sendCardLabel', { name: item.name }), disabled: !canSend || !item.sendable || state.busy || !!state.sending || (!!write && write.kind !== 'not_submitted'), onclick: () => void controller.send(item.id) }, label))); })),
         more))));
 }

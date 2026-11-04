@@ -1,4 +1,5 @@
 import { h } from '../../packages/ui-kit/src/h.ts';
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 
 type Widths = { left: number; right: number };
 const DEFAULTS: Widths = { left: 280, right: 330 };
@@ -64,11 +65,11 @@ export function createWorkspaceColumns() {
   };
   const separator = (which: keyof Widths) => h('div', {
     class: 'column-resizer', role: 'separator', tabindex: '0',
-    'aria-label': which === 'left' ? '调整会话列表宽度' : '调整详情栏宽度',
+    'aria-label': which === 'left' ? t('orderMisc.columns.resizeLeft') : t('orderMisc.columns.resizeRight'),
     'aria-orientation': 'vertical', 'aria-valuemin': which === 'left' ? 220 : 260,
     'aria-valuenow': applied ? Math.round(applied.widths[which]) : undefined, 'aria-valuemax': applied ? applied.max[which] : undefined,
     dataset: { columnResize: which, fid: `column-resize:${which}` },
-    title: '拖动调整宽度，双击恢复默认；方向键微调',
+    title: t('orderMisc.columns.resizeHint'),
     onpointerdown: (event: PointerEvent) => {
       if (event.button !== 0 || !root) return;
       event.preventDefault();

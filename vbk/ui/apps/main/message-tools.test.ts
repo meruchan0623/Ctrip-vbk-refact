@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
+import { messageToolsText } from '../../packages/ui-kit/src/message-tools/strings.ts';
 
 // Exercise the real controllers against a minimal DOM; writes remain synthetic.
 class El {
@@ -20,7 +21,7 @@ class El {
 const h = (tag: string, props: Record<string, any> | null, ...children: unknown[]) => new El(tag, props ?? {}, children);
 const documentStub = { body: new El('body'), activeElement: null as El | null };
 const source = readFileSync(new URL('./message-tools.ts', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '').replace(/^export /gm, '');
-const controllers = new Function('h', 'document', stripTypeScriptTypes(source) + '\nreturn { createForwardDialog, createSavedEmojiPanel };')(h, documentStub);
+const controllers = new Function('h', 'document', 't', stripTypeScriptTypes(source) + '\nreturn { createForwardDialog, createSavedEmojiPanel };')(h, documentStub, messageToolsText);
 const account = { account_id: 'a', environment: 'test', session_generation: 1 };
 const conversation = (gid: string, revision = gid) => ({ gid, account, status: 'active', title: gid, assistant_context_revision: revision });
 const message = { gid: 'source', message_id: 'm1', kind: 'text', text: 'Hello' };

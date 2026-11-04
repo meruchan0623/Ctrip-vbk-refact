@@ -11,6 +11,7 @@ import { buildMemberRoles } from '../../packages/web-adapter/src/facts.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
 import { IC } from '../_shared/icons.ts';
 import type { UiMessage, UiOrderSummary } from '../../packages/ipc/src/client.ts';
+import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 
 const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
 const owner = { account_id: 'synthetic-account', environment: 'synthetic-env', session_generation: 1 };
@@ -26,7 +27,7 @@ function renderRow(message: UiMessage, conv = baseConv, hideInboundTr = false, s
   const env: Record<string, unknown> = {
     ...vm, messageAlignment, cx, h: (tag: string, props: unknown, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
     inboundTranslation: { view: () => trView, supplier: () => null }, refreshMessageTranslation() {},
-    mediaNodeKey: () => 'synthetic-media', openMessageAttachment() {}, document: {}, renderMessageAvatar: () => 'avatar', t: (k: string) => k, icon: (d: string, size: number) => ({ tag: 'svg', props: { d, size }, children: [] }), IC,
+    mediaNodeKey: () => 'synthetic-media', openMessageAttachment() {}, document: {}, renderMessageAvatar: () => 'avatar', t: (k: string, vars?: Readonly<Record<string, string | number>>) => (k.startsWith('mainTs.') ? translateUi(k as never, vars) : k), icon: (d: string, size: number) => ({ tag: 'svg', props: { d, size }, children: [] }), IC,
     richText: (s: string) => [s], formatDate: () => 'd', formatClock: () => 'c',
     store: { patch: (p: object) => calls.patches.push(p) }, copyText: (s: string) => calls.copied.push(s), toast: (s: string) => calls.toasts.push(s), openMessageOrder: () => { calls.opened++; }, resend() {},
   };

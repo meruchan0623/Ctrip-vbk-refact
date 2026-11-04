@@ -165,15 +165,15 @@ export function companionPackageCard(input: CompanionCardInput, h: typeof dom = 
     const list = root.reissues;
     if (!list?.length) return null;
     const chip = (variant: number, label: string, at: string, info: PackagePlanInfo | null): Child => {
-      const failed = !info, [text, tone] = info ? status(info) : ['失败', 'bad'] as [string, string];
-      const remain = info ? info.remain || (info.unlimited ? '不限量' : '') : '';
-      const title = [label, at && `时间 ${at}`, failed ? '详情获取失败' : info!.status.trim() && `状态 ${info!.status}`, remain && `剩余 ${remain}`].filter(Boolean).join(' · ');
+      const failed = !info, [text, tone] = info ? status(info) : [t('companion.status.failed'), 'bad'] as [string, string];
+      const remain = info ? info.remain || (info.unlimited ? t('companion.unlimited') : '') : '';
+      const title = [label, at && t('companionTabs.reissue.time', { at }), failed ? t('companionTabs.reissue.detailFailed') : info!.status.trim() && t('companionTabs.reissue.status', { status: info!.status }), remain && t('companionTabs.reissue.remain', { remain })].filter(Boolean).join(' · ');
       return h('button', { type: 'button', class: `rchip${variant === active ? ' on' : ''}`, title, disabled: failed, 'aria-pressed': String(variant === active), dataset: { reissue: String(variant), tone }, onclick: (event: Event) => pickVariant(event, index, variant) },
         h('b', { class: 'rtag' }, label), at ? h('time', null, at) : null, failed || info!.status.trim() ? h('span', { class: 'rst' }, h('i'), text) : null, remain ? h('span', { class: 'rrem' }, remain) : null);
     };
-    const chips: Child[] = [chip(0, '原套餐', formatOrderTime(root.order_time), root)];
-    list.forEach((item, position) => chips.push(h('span', { class: 'rarrow', 'aria-hidden': 'true' }, '→'), chip(position + 1, `补发 ${position + 1}`, formatReissueTime(item.create_time_ms), item.state === 'ready' ? item.info : null)));
-    return section('reissues', h('div', { class: 'rbar', role: 'group', 'aria-label': `补发套餐时间线，共 ${list.length} 个，按时间升序` }, h('div', { class: 'rtrack' }, chips)));
+    const chips: Child[] = [chip(0, t('companionTabs.timeline.origin'), formatOrderTime(root.order_time), root)];
+    list.forEach((item, position) => chips.push(h('span', { class: 'rarrow', 'aria-hidden': 'true' }, '→'), chip(position + 1, t('companionTabs.timeline.reissue', { n: position + 1 }), formatReissueTime(item.create_time_ms), item.state === 'ready' ? item.info : null)));
+    return section('reissues', h('div', { class: 'rbar', role: 'group', 'aria-label': t('companionTabs.timeline.label', { count: list.length }) }, h('div', { class: 'rtrack' }, chips)));
   };
   const buildPanel = (root: PackagePlanInfo, index: number) => {
     const variant = variantOf(root, index), plan = variant ? root.reissues![variant - 1]!.info! : root;
@@ -186,9 +186,9 @@ export function companionPackageCard(input: CompanionCardInput, h: typeof dom = 
       ids.push(h('dt', null, label), h('dd', { class: device ? 'txt' : '', title: value }, device ? value : value.replace(/(.{4})(?=.)/g, '$1 ')), h('span', null, !device ? button(t('companion.copy', { label }), 'copy', { onclick: () => cell.input.copy(value) }, glyph(IC.copy, 12)) : null));
     }
     const name = field(plan, '渠道套餐') || plan.plan, source = field(plan, '来源套餐');
-    return h('div', { role: 'tabpanel', hidden: index !== selected, dataset: { packagePlan: String(index) }, 'aria-label': `套餐 ${index + 1}` },
+    return h('div', { role: 'tabpanel', hidden: index !== selected, dataset: { packagePlan: String(index) }, 'aria-label': t('companion.planNumber', { number: index + 1 }) },
       timeline(root, index, variant),
-      section('hero', ring(plan), h('div', null, h('div', { class: 'lab' }, pill(plan), h('span', null, plan.remain ? plan.usage_scope === 'daily' ? '今日剩余' : '套餐剩余' : plan.unlimited ? '不限量套餐' : '用量待查询')), h('div', { class: 'num' }, h('b', { class: plan.remain || plan.unlimited ? '' : 'none' }, plan.remain || (plan.unlimited ? '不限量' : '未知')), plan.remain && plan.total ? h('span', null, `/ ${plan.total}`) : null), h('div', { class: 'sub' }, h('span', null, h('em', null, '总用量'), ` ${mb(field(plan, '原始累计用量（MB）') || field(plan, '累计用量（MB）'))}`), field(plan, '当日用量（MB）') ? h('span', null, h('em', null, '当日'), ` ${mb(field(plan, '当日用量（MB）'))}`) : null))),
+      section('hero', ring(plan), h('div', null, h('div', { class: 'lab' }, pill(plan), h('span', null, plan.remain ? plan.usage_scope === 'daily' ? t('companion.remainingToday') : t('companion.remainingPlan') : plan.unlimited ? t('companion.unlimitedPlan') : t('companion.usagePending'))), h('div', { class: 'num' }, h('b', { class: plan.remain || plan.unlimited ? '' : 'none' }, plan.remain || (plan.unlimited ? t('companion.unlimited') : t('companion.unknown'))), plan.remain && plan.total ? h('span', null, `/ ${plan.total}`) : null), h('div', { class: 'sub' }, h('span', null, h('em', null, t('companion.totalUsage')), ` ${mb(field(plan, '原始累计用量（MB）') || field(plan, '累计用量（MB）'))}`), field(plan, '当日用量（MB）') ? h('span', null, h('em', null, t('companion.dailyUsage')),` ${mb(field(plan, '当日用量（MB）'))}`) : null))),
       name || source || cells.length ? section('names', name || source ? h('div', { class: 'nm' }, name ? h('div', { class: 'ch' }, name) : null, source ? h('div', { class: 'src' }, source) : null) : null, cells.length ? h('div', { class: 'spec', style: { 'grid-template-columns': `repeat(${cells.length},minmax(0,auto))` } }, cells) : null) : null,
       ids.length ? section('identifiers', h('dl', { class: 'ids' }, ids)) : null,
       plan.cdrs ? section('records', ...records(plan, index)) : null);
@@ -213,10 +213,10 @@ export function companionPackageCard(input: CompanionCardInput, h: typeof dom = 
     h('div', { class: 'body', onscroll: (event: Event) => { if (selectedScope === input.scope) bodyScroll = (event.currentTarget as HTMLElement).scrollTop; }, ref: (node: HTMLElement) => { queueMicrotask(() => { if (node.isConnected && selectedScope === input.scope) node.scrollTop = bodyScroll; }); }, 'aria-busy': String(input.busy), 'aria-live': 'polite' },
       plans.length > 1 || input.total > plans.length ? h('div', { class: 'tabs', role: 'tablist', 'aria-label': t('companion.planList') }, tabs, input.total > plans.length ? h('span', { class: 'more', title: t('companion.morePlans', { total: input.total }) }, t('companion.moreCount', { count: input.total - plans.length })) : null) : null,
       input.open ? input.notice : null, panels),
-    h('div', { class: 'foot' }, h('span', { class: 'rel' }, plans[0] ? `${packageFreshness(plans[0].fetched_at_ms, input.now ?? Date.now())} · TSIM · ${PACKAGE_REUSE_SECONDS} 秒内复用` : input.identity)));
+    h('div', { class: 'foot' }, h('span', { class: 'rel' }, plans[0] ? t('companion.freshnessFooter', { freshness: packageFreshness(plans[0].fetched_at_ms, input.now ?? Date.now()), seconds: PACKAGE_REUSE_SECONDS }) : input.identity)));
   const style = h('style', null, COMPANION_CARD_STYLE + '\n.ring>span,.mini>span{position:absolute;inset:0;display:block}[data-tone=warn]>span>svg .fg{stroke:#e7a034}[data-tone=over]>span>svg .fg{stroke:#e0574c}[data-tone=muted]>span>svg .fg{stroke:#c3c9d5}.card{max-height:inherit;animation:none}:host(.fixed) .card{flex:1 1 0;min-height:0}.body{min-height:0}.actions{padding-top:6px}:host(.hot) .card{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}');
   const fixed = input.open && plans.some(plan => plan.reissues?.length);
-  const host = h('div', { class: `companion-card${input.hot ? ' hot' : ''}${fixed ? ' fixed' : ''}`, role: 'region', 'aria-label': '订单套餐信息', style: { margin: '8px 8px 10px', ...(fixed ? { height: COMPANION_FIXED_HEIGHT } : {}), 'max-height': COMPANION_MAX_HEIGHT, 'min-height': '0', display: 'flex', 'flex-direction': 'column', 'flex-shrink': '0' } }, style, card);
+  const host = h('div', { class: `companion-card${input.hot ? ' hot' : ''}${fixed ? ' fixed' : ''}`, role: 'region', 'aria-label': t('companion.regionLabel'), style: { margin: '8px 8px 10px', ...(fixed ? { height: COMPANION_FIXED_HEIGHT } : {}), 'max-height': COMPANION_MAX_HEIGHT, 'min-height': '0', display: 'flex', 'flex-direction': 'column', 'flex-shrink': '0' } }, style, card);
   // Test renderers return structural trees; native DOM uses the original isolation boundary.
   if (typeof host.attachShadow === 'function') {
     host.attachShadow({ mode: 'open' }).append(style, card);

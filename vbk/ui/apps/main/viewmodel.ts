@@ -225,7 +225,7 @@ export function previewOf(m: UiMessage): string {
     case 'video':
       return t('chat.video');
     case 'voice':
-      return '[语音]';
+      return t('orderMisc.preview.voice');
     case 'order_card':
       return `[${t('chat.orderCard')}]`;
     default:
