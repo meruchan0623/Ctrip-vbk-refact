@@ -32,7 +32,6 @@ pub fn sync(app: &AppHandle, os: OsAttention) {
         return;
     };
     app.state::<HostState>().apply_environment(
-        dnd.schedule_enabled,
         dnd.follow_system && os.quiet,
         os.fullscreen,
         os.presentation,

@@ -51,6 +51,12 @@ pub fn prepare(data_dir: &Path, version: &str) -> io::Result<Bundle> {
             std::env::consts::ARCH
         ).into_bytes(),
     }];
+    if let Ok(Some(metadata)) = crate::crash_recovery::diagnostic_metadata(data_dir) {
+        candidates.push(Candidate {
+            name: "crash-recovery.txt".into(),
+            bytes: metadata.into_bytes(),
+        });
+    }
     let logs = data_dir.join("logs");
     // Refuse symlink directories as well as symlink files. The salt next to
     // this directory and all other app data are outside the candidate set.
@@ -172,6 +178,71 @@ mod tests {
         let rendered = render(&bundle).unwrap();
         assert!(!rendered.contains("PRIVATE_SALT"));
         assert!(!rendered.contains("private body"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn crash_export_reconstructs_only_strict_fixed_metadata_even_without_logs() {
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("vbk-crash-export-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let dir = root.join("crash-recovery");
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&dir).unwrap();
+        let marker = dir.join("rust-panic.marker");
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        use std::io::Write;
+        options
+            .open(&marker)
+            .unwrap()
+            .write_all(b"VBK_RUST_PANIC_V1\ncurrent=0\nprevious=1\n")
+            .unwrap();
+        std::fs::write(
+            dir.join("panic-payload.txt"),
+            "cookie=SECRET_COOKIE 普通聊天正文",
+        )
+        .unwrap();
+        let bundle = prepare(&root, "0.1.0").unwrap();
+        assert_eq!(
+            bundle
+                .files
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            ["environment.txt", "crash-recovery.txt"]
+        );
+        let exported = render(&bundle).unwrap();
+        assert!(exported.contains("previous_run_rust_panic=observed"));
+        assert!(exported.contains("native_abort_and_process_kill=not_observed"));
+        assert!(!exported.contains("SECRET_COOKIE"));
+        assert!(!exported.contains("普通聊天正文"));
+        assert!(!exported.contains("panic-payload.txt"));
+        assert!(core_diag::scan::scan_bytes("diagnostics.txt", exported.as_bytes()).is_clean());
+        // A payload appended to a valid record invalidates the whole file;
+        // it is not exported after best-effort masking or normalization.
+        std::fs::write(
+            &marker,
+            b"VBK_RUST_PANIC_V1\ncurrent=0\nprevious=1\ncookie=SECRET_COOKIE",
+        )
+        .unwrap();
+        let bundle = prepare(&root, "0.1.0").unwrap();
+        assert!(!bundle
+            .files
+            .iter()
+            .any(|(name, _)| name == "crash-recovery.txt"));
+        assert!(!render(&bundle).unwrap().contains("SECRET_COOKIE"));
         std::fs::remove_dir_all(root).unwrap();
     }
 }

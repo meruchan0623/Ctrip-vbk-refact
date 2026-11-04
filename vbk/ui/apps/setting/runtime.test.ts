@@ -1,3 +1,4 @@
+import { t as translate, type I18nKey } from '../../packages/ui-kit/src/i18n.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -5,7 +6,8 @@ import { stripTypeScriptTypes } from 'node:module';
 import * as vm from './viewmodel.ts';
 import { SETTING_STRINGS, fmt } from './strings.ts';
 import { createStore } from '../../packages/ui-kit/src/store.ts';
-import { cx } from '../../packages/ui-kit/src/h.ts';
+import { cx, h as domH, rerender } from '../../packages/ui-kit/src/h.ts';
+import { installFakeDom, fakeDocument, readCounters, resetCounters } from '../../tests/fake-dom.ts';
 import { createMockIpc } from '../../packages/ipc/src/mock.ts';
 import { PrefsCommands, ShellCommands } from '../../packages/ipc/src/commands.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
@@ -19,13 +21,13 @@ async function fixture(overrides: Record<string, any> = {}) {
   const mock = createMockIpc('default', { tick: false, latency: 0 }); const prefs = await mock.invoke(PrefsCommands.SNAPSHOT); mock.dispose();
   const store = createStore<Record<string, any>>({ prefs, section: 'assistant', tsimForm: { user: 'SYNTHETIC_USER', password: 'SYNTHETIC_PASSWORD' }, tsimBusy: false, tsimError: null, tsimStatus: null, tsimImportExpanded: false, tsimImportToken: '', loading: false, loadError: null, settingsRequest: 0, tsimRequest: 0, net: null, nick: null, version: null, toast: null });
   const calls: { command: string }[] = []; const results = new Map<string, unknown>([[PrefsCommands.SNAPSHOT, prefs], [UiCommands.ASSIST_TSIM_STATUS, { logged_in: false, user: null }], [UiCommands.ASSIST_TSIM_LOGIN, { logged_in: true, user: 'SYNTHETIC_USER' }], [UiCommands.ASSIST_TSIM_LOGOUT, { logged_in: false, user: null }]]);
-  let importKeys: string[] = [];
-  const invoke = async (command: string, payload?: object) => { calls.push({ command, payload } as { command: string }); if (command === UiCommands.ASSIST_TSIM_IMPORT_SESSION) importKeys = Object.keys(payload ?? {}); const result = await results.get(command); if (result instanceof Error || (result && typeof result === 'object' && 'code' in result)) throw result; return result; };
-  const env: Record<string, any> = { ...vm, ALLOWED_T1_SECONDS, preferenceWrites: new Map(), S: SETTING_STRINGS, fmt, store, ipc: { invoke }, PrefsCommands, ShellCommands, UiCommands, isPrefsSnapshot, cx, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, msg: () => 'SYNTHETIC_UNTRUSTED_ERROR', toast: (value: string) => store.patch({ toast: value }), icon: () => null, IC: {}, sel: { mock: true }, platform: 'windows', closeWindow() {}, selectSection() {}, onBodyScroll() {}, setPref() {}, setReminder() {}, ...overrides };
+  let importKeys: string[] = []; const shortcutPayloads: object[] = [];
+  const invoke = async (command: string, payload?: object) => { calls.push({ command, payload } as { command: string }); if (command === UiCommands.PREFS_SET && payload && 'section' in payload && payload.section === 'keys') shortcutPayloads.push(payload); if (command === UiCommands.ASSIST_TSIM_IMPORT_SESSION) importKeys = Object.keys(payload ?? {}); const result = await results.get(command); if (result instanceof Error || (result && typeof result === 'object' && 'code' in result)) throw result; return result; };
+  const env: Record<string, any> = { recoveryView: () => null, recovery: { refresh() {} }, ...vm, settingsNavigationVersion: 0, ALLOWED_T1_SECONDS, preferenceWrites: new Map(), S: SETTING_STRINGS, fmt, store, ipc: { invoke }, PrefsCommands, ShellCommands, UiCommands, isPrefsSnapshot, cx, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, msg: () => 'SYNTHETIC_UNTRUSTED_ERROR', toast: (value: string) => store.patch({ toast: value }), icon: () => null, IC: {}, sel: { mock: true }, platform: 'windows', closeWindow() {}, selectSection() {}, onBodyScroll() {}, setPref() {}, setReminder() {}, ...overrides };
   function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '(?:<[^>]+>)?\\(')); assert.ok(a >= 0, name); const tail = source.slice(a); const next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z]|subscribeBatched\()/.exec(tail); assert.ok(next, name); return new Function(...Object.keys(env), stripTypeScriptTypes(tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
-  for (const name of ['head', 'row', 'toggle', 'segment', 'text', 'loadSettings', 'refreshTsimStatus', 'tsimLogin', 'tsimLogout', 'tsimImportSession', 'tsimBrowserConnect', 'generalSection', 'displaySection', 'notifySection', 'keysSection', 'assistantSection', 'networkSection', 'storageSection', 'privacySection', 'aboutSection', 'sectionContent', 'body', 'closeWindow', 'titleBar', 'render']) if (new RegExp('function ' + name + '(?:<[^>]+>)?\\(').test(source)) env[name] = actual(name);
+  for (const name of ['head', 'row', 'toggle', 'segment', 'text', 'editShortcut', 'saveShortcut', 'shortcutRow', 'loadSettings', 'refreshTsimStatus', 'tsimLogin', 'tsimLogout', 'tsimImportSession', 'tsimBrowserConnect', 'generalSection', 'displaySection', 'notifySection', 'keysSection', 'assistantSection', 'networkSection', 'storageSection', 'privacySection', 'aboutSection', 'sectionContent', 'body', 'closeWindow', 'titleBar', 'render']) if (new RegExp('function ' + name + '(?:<[^>]+>)?\\(').test(source)) env[name] = actual(name);
   function bootstrap() { if (env['loadSettings']) return env['loadSettings'](); const a = source.lastIndexOf('void (async () => {'), b = source.indexOf('\n})();', a) + '\n})();'.length; assert.ok(a >= 0 && b > a); return new Function(...Object.keys(env), 'return ' + stripTypeScriptTypes(source.slice(a, b).replace('void ', '')))(...Object.values(env)); }
-  return { store, calls, actual, bootstrap, importKeys: () => importKeys, setResult: (command: string, value: unknown) => results.set(command, value), tree: () => env['render'](store.get()) };
+  return { store, calls, shortcutPayloads, actual, bootstrap, importKeys: () => importKeys, setResult: (command: string, value: unknown) => results.set(command, value), tree: () => env['render'](store.get()) };
 }
 
 test('actual settings bootstrap failure exposes a retry control that loads a real preferences snapshot', async () => {
@@ -356,4 +358,88 @@ test('general settings open web personal settings under the active account', asy
   assert.equal(button().props.disabled, false);
   button().props.onclick();
   assert.deepEqual(f.calls.at(-1), { command: UiCommands.SHELL_OPEN_WEBVIEW, payload: { account, url: vm.PERSONAL_SETTINGS_URL } });
+});
+
+
+test('editable shortcuts submit exact prefs commands and keep confirmed values on registration failure', async () => {
+  for (const key of ['screenshot', 'toggle_main']) {
+    const f = await fixture(), pending = deferred(), before = f.store.get().prefs.keys[key];
+    f.store.patch({ section: 'keys' });
+    const input = nodes(f.tree()).find(n => n.props.dataset?.fid === `shortcut-${key}`); assert.ok(input);
+    input.props.oninput({ target: { value: 'Ctrl+Shift+Y' } });
+    assert.equal(nodes(f.tree()).find(n => n.props.dataset?.fid === `shortcut-${key}`)?.props.value, 'Ctrl+Shift+Y');
+    f.setResult(UiCommands.PREFS_SET, pending.promise);
+    const saving = f.actual('saveShortcut')(key);
+    assert.equal(f.store.get().prefs.keys[key], before, 'unconfirmed shortcut never replaces the effective value');
+    assert.deepEqual(f.shortcutPayloads, [{ section: 'keys', key, value: 'Ctrl+Shift+Y' }]);
+    pending.resolve(new Error('shortcut conflict')); await saving;
+    assert.equal(f.store.get().prefs.keys[key], before);
+    assert.equal(f.store.get().shortcutDrafts[key], 'Ctrl+Shift+Y');
+    assert.ok(nodes(f.tree()).some(n => n.props.role === 'alert' && JSON.stringify(n.children).includes('快捷键未保存')));
+    assert.equal(f.store.get().shortcutBusy[key], false);
+  }
+});
+
+test('shortcut success preserves another setting and a newer edit, with stable focus identities and isolated keys', async () => {
+  const f = await fixture(), pending = deferred(), before = f.store.get().prefs;
+  f.store.patch({ section: 'keys' }); f.actual('editShortcut')('screenshot', 'Ctrl+Shift+Y');
+  f.setResult(UiCommands.PREFS_SET, pending.promise); const saving = f.actual('saveShortcut')('screenshot');
+  f.actual('editShortcut')('screenshot', 'Ctrl+Shift+Z');
+  f.store.patch({ prefs: { ...before, keys: { ...before.keys, send_key: 'ctrl_enter' } } });
+  pending.resolve({ ...before, keys: { ...before.keys, screenshot: 'Ctrl+Shift+Y' } }); await saving;
+  assert.equal(f.store.get().prefs.keys.screenshot, 'Ctrl+Shift+Y'); assert.equal(f.store.get().prefs.keys.send_key, 'ctrl_enter');
+  const input = nodes(f.tree()).find(n => n.props.dataset?.fid === 'shortcut-screenshot'); assert.ok(input);
+  assert.equal(input.props.value, 'Ctrl+Shift+Z');
+  let stopped = 0; input.props.onkeydown({ key: 'Enter', stopPropagation() { stopped++; } }); input.props.onkeyup({ key: 'Enter', stopPropagation() { stopped++; } });
+  assert.equal(stopped, 2); assert.equal(f.shortcutPayloads.length, 1, 'keyup does not submit or send');
+  f.actual('editShortcut')('toggle_main', '   '); await f.actual('saveShortcut')('toggle_main');
+  assert.equal(f.shortcutPayloads.length, 1); assert.ok(f.store.get().shortcutErrors.toggle_main.includes('请输入快捷键'));
+});
+
+
+test('settings morph keeps shortcut editor DOM and focus connected across input while save uses the latest draft', async () => {
+  const { root } = installFakeDom(), f = await fixture({ h: domH }); f.store.patch({ section: 'keys' });
+  const draw = () => rerender(root as unknown as Element, () => f.tree() as unknown as Node, { morph: true });
+  draw(); const input = root.querySelector('[data-fid="shortcut-screenshot"]')!, form = root.querySelector('form')!;
+  input.focus(); input.value = 'Ctrl+Shift+Y'; input.dispatch('input'); resetCounters(); draw();
+  assert.equal(root.querySelector('[data-fid="shortcut-screenshot"]'), input); assert.equal(input.isConnected, true);
+  assert.equal(fakeDocument.activeElement, input); assert.equal(readCounters().detached, 0);
+  input.value = 'Ctrl+Shift+Z'; input.dispatch('input'); draw();
+  assert.equal(root.querySelector('form'), form);
+  const before = f.store.get().prefs; f.setResult(UiCommands.PREFS_SET, { ...before, keys: { ...before.keys, screenshot: 'Ctrl+Shift+Z' } });
+  for (const fn of form.listeners.get('submit') ?? []) fn.call(form, { type: 'submit', target: form, currentTarget: form, preventDefault() {}, stopPropagation() {} } as any);
+  for (let i = 0; i < 8; i++) await Promise.resolve(); draw();
+  assert.deepEqual(f.shortcutPayloads, [{ section: 'keys', key: 'screenshot', value: 'Ctrl+Shift+Z' }]);
+  assert.equal(root.querySelector('[data-fid="shortcut-screenshot"]'), input); assert.equal(fakeDocument.activeElement, input);
+  assert.match(source, /subscribeBatched\(store, \(s\) => rerender\(root, \(\) => render\(s\), \{ morph: true \}\)\)/);
+});
+
+test('settings morph clears a retained TSim password input before login IPC settles', async () => {
+  const { root } = installFakeDom(), f = await fixture({ h: domH }), pending = deferred();
+  f.setResult(UiCommands.ASSIST_TSIM_LOGIN, pending.promise);
+  const draw = () => rerender(root as unknown as Element, () => f.tree() as unknown as Node, { morph: true });
+  draw(); const password = root.querySelector('[data-fid="tsim-pass"]')!;
+  assert.ok(password.value.length > 0);
+  const login = f.actual('tsimLogin')(); draw();
+  assert.equal(root.querySelector('[data-fid="tsim-pass"]'), password); assert.equal(password.value, '');
+  assert.equal(password.getAttribute('value'), null);
+  pending.resolve({ logged_in: false, user: null, session_epoch: 1 }); await login; draw(); assert.equal(password.value, '');
+});
+
+
+test('actual scheduled DND control writes local preferences and renders saved state', async () => {
+  const calls: unknown[][] = [];
+  const f = await fixture({ ALLOWED_T1_SECONDS: [30, 60, 90, 120, 180], setPref: (...args: unknown[]) => calls.push(args) });
+  f.store.patch({ section: 'notify' });
+  const control = () => nodes(f.tree()).find(n => n.props.dataset?.setting === 'dnd.schedule_enabled');
+  assert.equal(control()?.props.role, 'switch');
+  assert.equal(control()?.props['aria-checked'], 'false');
+  control()!.props.onclick();
+  assert.deepEqual(calls, [['dnd', 'schedule_enabled', true]]);
+  const prefs = f.store.get().prefs;
+  f.store.patch({ prefs: { ...prefs, dnd: { ...prefs.dnd, schedule_enabled: true } } });
+  assert.equal(control()?.props['aria-checked'], 'true');
+  control()!.props.onclick();
+  assert.deepEqual(calls[1], ['dnd', 'schedule_enabled', false]);
+  assert.equal(f.store.get().prefs.reminder.alert_during_dnd, true);
 });

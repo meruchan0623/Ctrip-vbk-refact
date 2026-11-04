@@ -1,3 +1,4 @@
+import { LOGIN_STRINGS as S } from './strings.ts';
 import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 export interface BrowserChoice { id: string; label: string }
 export interface BrowserLoginState { choices: BrowserChoice[]; selected: string; busy: boolean; message: string }
@@ -20,13 +21,13 @@ export function createBrowserLogin(options: {
     if (state.busy || !attempt || !state.choices.some(p => p.id === id)) return;
     const ticket = ++generation;
     verifying = true;
-    publish({ selected: id, busy: true, message: '正在导入浏览器登录态…' });
+    publish({ selected: id, busy: true, message: S.browserImporting });
     try {
       await options.invoke(AccountCommands.BROWSER_CONNECT, { attempt_id: attempt, profile_id: id });
-      if (ticket === generation) publish({ busy: false, message: '正在核验携程账号…' });
+      if (ticket === generation) publish({ busy: false, message: S.browserVerifying });
     } catch {
       verifying = false;
-      if (ticket === generation) publish({ busy: false, message: '浏览器登录态不可用，可重试或使用下方官方登录页。' });
+      if (ticket === generation) publish({ busy: false, message: S.browserUnavailable });
     }
   }
   async function discover(background = false): Promise<void> {

@@ -1,3 +1,4 @@
+import { createRecovery, recoveryView, type RecoveryState } from '../_shared/recovery.ts';
 /**
  * Settings window (prototype 02-main `.fwin` 设置): 通用 / 显示 / 通知与提醒 /
  * 快捷键 / 商家助手 / 网络 / 存储 / 隐私 / 关于与更新.
@@ -22,6 +23,7 @@ import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import type { Child } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
+document.title = t('set.title');
 import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isPrefsSnapshot, isUiAccountSnapshot } from '../_shared/guards.ts';
@@ -29,7 +31,13 @@ import { EMPTY_TSIM_FORM, PERSONAL_SETTINGS_URL, SECTIONS, SPY_LOCK_MS, ZOOM_OPT
 import { SETTING_STRINGS as S, fmt } from './strings.ts';
 import type { SectionId, SpyLock, TsimForm } from './viewmodel.ts';
 
+type ShortcutKey = 'screenshot' | 'toggle_main';
+
 interface SettingState {
+  readonly recovery?: RecoveryState;
+  readonly shortcutDrafts?: Partial<Record<ShortcutKey, string>>;
+  readonly shortcutErrors?: Partial<Record<ShortcutKey, string | null>>;
+  readonly shortcutBusy?: Partial<Record<ShortcutKey, boolean>>;
   readonly prefs: PrefsSnapshot | null;
   /** 导航里高亮的分类（点击或 scroll-spy 更新）。 */
   readonly section: SectionId;
@@ -59,6 +67,21 @@ const sel = selectIpc();
 const ipc = sel.ipc;
 const root = document.getElementById('app');
 if (!root) throw new Error('#app missing');
+const recovery = createRecovery({
+  invoke: (command, payload) => ipc.invoke(command, payload),
+  listenReady: ipc.listenReady?.bind(ipc),
+  publish: (recovery) => store.patch({ recovery }),
+  diagnostics: async () => {
+    const saved = await ipc.invoke<unknown>(ShellCommands.EXPORT_DIAGNOSTICS);
+    if (typeof saved !== 'boolean') throw new Error('invalid diagnostics result');
+    return saved ? 'saved' : 'cancelled';
+  },
+});
+void recovery.connect();
+const refreshRecovery = () => void recovery.refresh();
+window.addEventListener('focus', refreshRecovery);
+window.addEventListener('pagehide', () => { recovery.dispose(); window.removeEventListener('focus', refreshRecovery); }, { once: true });
+
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function toast(text: string): void {
@@ -85,7 +108,7 @@ async function loadSettings(): Promise<void> {
     if (!isPrefsSnapshot(prefs)) throw new Error('invalid preferences snapshot');
     store.patch({ prefs, net, loading: false });
   } catch {
-    if (store.get().settingsRequest === ticket) store.patch({ loading: false, loadError: '无法读取设置，请重试；若仍失败，请重新打开设置。' });
+    if (store.get().settingsRequest === ticket) store.patch({ loading: false, loadError: t('set.runtime.loadFailed') });
   }
 }
 
@@ -176,7 +199,7 @@ async function tsimLogin(form?: HTMLFormElement): Promise<void> {
     if (!isTsimStatus(status)) throw { code: 'assistant.malformed_response' };
     const observed = store.get().tsimStatus;
     if (observed && observed.session_epoch > status.session_epoch) { store.patch({ tsimBusy: false }); return; }
-    store.patch({ tsimBusy: false, tsimStatus: status, tsimError: status.logged_in ? null : '登录未获确认，请检查用户名和密码后重新输入。' });
+    store.patch({ tsimBusy: false, tsimStatus: status, tsimError: status.logged_in ? null : t('set.runtime.loginUnconfirmed') });
   } catch (e) {
     if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimError: tsimErrorText(e) });
   }
@@ -193,7 +216,7 @@ async function tsimLogout(): Promise<void> {
     if (!isTsimStatus(status)) throw { code: 'assistant.malformed_response' };
     const observed = store.get().tsimStatus;
     if (observed && observed.session_epoch > status.session_epoch) { store.patch({ tsimBusy: false }); return; }
-    store.patch({ tsimBusy: false, tsimStatus: status, tsimError: status.logged_in ? '退出未获确认，请刷新登录状态后再操作。' : null });
+    store.patch({ tsimBusy: false, tsimStatus: status, tsimError: status.logged_in ? t('set.runtime.logoutUnconfirmed') : null });
   } catch (e) {
     if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimError: tsimErrorText(e) });
   }
@@ -233,7 +256,7 @@ async function tsimImportSession(): Promise<void> {
     if (!isTsimStatus(status) || !Number.isSafeInteger(status.session_epoch) || status.session_epoch < 0) throw { code: 'assistant.malformed_response' };
     const observed = store.get().tsimStatus;
     if (observed && observed.session_epoch > status.session_epoch) { store.patch({ tsimBusy: false }); return; }
-    store.patch({ tsimBusy: false, tsimStatus: status, tsimImportExpanded: !status.logged_in, tsimError: status.logged_in ? null : '已有会话导入未获确认，请重新取得会话或使用账号密码登录。' });
+    store.patch({ tsimBusy: false, tsimStatus: status, tsimImportExpanded: !status.logged_in, tsimError: status.logged_in ? null : t('set.runtime.importUnconfirmed') });
   } catch (error) {
     if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimStatus: null, tsimError: tsimImportErrorText(error) });
   }
@@ -252,7 +275,7 @@ async function tsimBrowserConnect(profileId?: string): Promise<void> {
       // A single source completes the explicit browser-login action directly.
       // With several sources, let the user choose the account's Chrome profile.
       if (profiles.length !== 1) {
-        store.patch({ tsimBusy: false, tsimBrowserProfiles: profiles, tsimError: profiles.length ? null : '没有找到 TSim 网页会话。请先在 Chrome 普通窗口登录客服系统，再重试；也可以在下方使用账号密码登录。' });
+        store.patch({ tsimBusy: false, tsimBrowserProfiles: profiles, tsimError: profiles.length ? null : t('set.runtime.browserMissing') });
         return;
       }
       profileId = profiles[0].id;
@@ -329,8 +352,8 @@ function notifySection(p: PrefsSnapshot): Child[] {
     toggle(t('set.notify.l4'), t('set.notify.l4Desc'), r.continuous_l4, (v) => void setReminder('continuous_l4', v), 'reminder.continuous_l4'),
     segment(t('set.notify.position'), null, [{ value: 'br', label: t('set.notify.posBR') }, { value: 'bl', label: t('set.notify.posBL') }], r.position_bottom_right ? 'br' : 'bl', (v) => void setReminder('position_bottom_right', v === 'br'), 'reminder.position'),
     head(t('set.notify.dnd')),
-    toggle(t('set.notify.dndSchedule'), null, p.dnd.schedule_enabled, (v) => void setPref('dnd', 'schedule_enabled', v), 'dnd.schedule_enabled'),
-    toggle(t('set.notify.dndFollow'), t(platform === 'macos' ? 'set.notify.dndFollowMac' : 'set.notify.dndFollowWin'), p.dnd.follow_system, (v) => void setPref('dnd', 'follow_system', v), 'dnd.follow_system'),
+    toggle(t('set.notify.dndSchedule'), t('set.notify.dndScheduleDesc'), p.dnd.schedule_enabled, (v) => void setPref('dnd', 'schedule_enabled', v), 'dnd.schedule_enabled'),
+    toggle(t('set.notify.dndFollow'), platform === 'macos' ? t('set.notify.dndFollowMac') : t('set.notify.dndFollowWin'), p.dnd.follow_system, (v) => void setPref('dnd', 'follow_system', v), 'dnd.follow_system'),
     toggle(t('set.notify.dndKeep'), t('set.notify.dndKeepDesc'), r.alert_during_dnd, (v) => void setReminder('alert_during_dnd', v), 'reminder.alert_during_dnd'),
     head(t('set.notify.fullscreen')),
     toggle(t('set.notify.fullKeep'), null, r.alert_during_fullscreen, (v) => void setReminder('alert_during_fullscreen', v), 'reminder.alert_during_fullscreen'),
@@ -340,10 +363,47 @@ function notifySection(p: PrefsSnapshot): Child[] {
   ];
 }
 
+function editShortcut(key: ShortcutKey, value: string): void {
+  const s = store.get();
+  store.patch({ shortcutDrafts: { ...s.shortcutDrafts, [key]: value }, shortcutErrors: { ...s.shortcutErrors, [key]: null } });
+}
+
+async function saveShortcut(key: ShortcutKey): Promise<void> {
+  const s = store.get();
+  if (!s.prefs || s.shortcutBusy?.[key]) return;
+  const value = (s.shortcutDrafts?.[key] ?? s.prefs.keys[key]).trim();
+  if (!value) { store.patch({ shortcutErrors: { ...s.shortcutErrors, [key]: t('set.runtime.shortcutRequired') } }); return; }
+  store.patch({ shortcutBusy: { ...s.shortcutBusy, [key]: true }, shortcutErrors: { ...s.shortcutErrors, [key]: null } });
+  try {
+    const next = await ipc.invoke<unknown>(UiCommands.PREFS_SET, { section: 'keys', key, value });
+    if (!isPrefsSnapshot(next)) throw new Error(t('set.runtime.shortcutConfirm'));
+    const current = store.get(), drafts = { ...current.shortcutDrafts };
+    if ((drafts[key] ?? '').trim() === value) delete drafts[key];
+    store.patch({ ...(current.prefs ? { prefs: { ...current.prefs, keys: { ...current.prefs.keys, [key]: next.keys[key] } } } : {}), shortcutDrafts: drafts });
+    toast(t('set.runtime.shortcutSaved'));
+  } catch (e) {
+    const current = store.get();
+    store.patch({ shortcutErrors: { ...current.shortcutErrors, [key]: t('set.runtime.shortcutFailed', { message: msg(e) }) } });
+  } finally {
+    const current = store.get();
+    store.patch({ shortcutBusy: { ...current.shortcutBusy, [key]: false } });
+  }
+}
+
+function shortcutRow(p: PrefsSnapshot, key: ShortcutKey, label: string): HTMLElement {
+  const s = store.get(), error = s.shortcutErrors?.[key], fid = `shortcut-${key}`;
+  const stopKey = (e: KeyboardEvent) => e.stopPropagation();
+  return row(label, t('set.runtime.shortcutCurrent', { shortcut: p.keys[key] }), h('form', { class: 'shortcut-form', onsubmit: (e: Event) => { e.preventDefault(); e.stopPropagation(); void saveShortcut(key); } },
+    h('input', { class: 'inp', type: 'text', value: s.shortcutDrafts?.[key] ?? p.keys[key], 'aria-label': label, 'aria-describedby': `${fid}-help`, 'aria-invalid': error ? 'true' : 'false', placeholder: t('set.runtime.shortcutPlaceholder'), autocomplete: 'off', spellcheck: false, dataset: { fid }, oninput: (e: Event) => editShortcut(key, (e.target as HTMLInputElement).value), onkeydown: stopKey, onkeyup: stopKey }),
+    h('button', { class: 'btn sm', type: 'submit', disabled: !!s.shortcutBusy?.[key], dataset: { fid: `${fid}-save` } }, s.shortcutBusy?.[key] ? t('set.runtime.saving') : t('set.runtime.save')),
+    h('span', { id: `${fid}-help`, class: error ? 'hint-bad' : 'muted', ...(error ? { role: 'alert' } : {}) }, error ?? t('set.runtime.shortcutHelp'))));
+}
+
 function keysSection(p: PrefsSnapshot): Child[] {
   return [
     segment(t('set.keys.send'), null, [{ value: 'enter', label: t('set.keys.enter') }, { value: 'ctrl_enter', label: t('set.keys.ctrlEnter') }], p.keys.send_key, (v) => void setPref('keys', 'send_key', v), 'keys.send_key'),
-    row(t('set.keys.toggleMain'), null, h('span', { class: 'kbd' }, p.keys.toggle_main)),
+    shortcutRow(p, 'screenshot', t('set.keys.screenshot')),
+    shortcutRow(p, 'toggle_main', t('set.keys.toggleMain')),
   ];
 }
 
@@ -356,11 +416,11 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
     h(
       'div',
       { class: 'set-row col', dataset: { tsim: '1' } },
-      h('div', { class: 'set-l' }, h('div', { class: 'set-label' }, t('set.asst.tsim'), ' ', h('span', { class: cx('chip', status?.logged_in ? 'chip-ok' : 'chip-muted'), dataset: { tsimStatus: status ? status.logged_in ? 'in' : 'out' : 'unknown' } }, status ? tsimStatusText({ ...a, tsim_logged_in: status.logged_in, tsim_user: status.user }) : '登录状态未知')), h('div', { class: 'set-desc' }, t('set.asst.tsimDesc'))),
-      h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-refresh' }, onclick: () => void refreshTsimStatus() }, s.tsimBusy ? '正在核对…' : '刷新 TSim 登录状态'),
-      h('button', { class: 'btn pri', disabled: s.tsimBusy, dataset: { action: 'tsim-browser-connect' }, onclick: () => void tsimBrowserConnect() }, s.tsimBusy ? '正在读取…' : '从 Chrome 登录'),
-      h('p', { class: 'set-desc' }, '直接使用 Chrome 中已登录的 TSim 账号；多个浏览器配置时选择要连接的账号。断开不会退出浏览器。'),
-      ...(s.tsimBrowserProfiles ?? []).map(p => h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { browserProfile: p.id }, onclick: () => void tsimBrowserConnect(p.id) }, `连接 ${p.label}`)),
+      h('div', { class: 'set-l' }, h('div', { class: 'set-label' }, t('set.asst.tsim'), ' ', h('span', { class: cx('chip', status?.logged_in ? 'chip-ok' : 'chip-muted'), dataset: { tsimStatus: status ? status.logged_in ? 'in' : 'out' : 'unknown' } }, status ? tsimStatusText({ ...a, tsim_logged_in: status.logged_in, tsim_user: status.user }) : t('set.runtime.statusUnknown'))), h('div', { class: 'set-desc' }, t('set.asst.tsimDesc'))),
+      h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-refresh' }, onclick: () => void refreshTsimStatus() }, s.tsimBusy ? t('set.runtime.checking') : t('set.runtime.refreshLogin')),
+      h('button', { class: 'btn pri', disabled: s.tsimBusy, dataset: { action: 'tsim-browser-connect' }, onclick: () => void tsimBrowserConnect() }, s.tsimBusy ? t('set.runtime.reading') : t('set.runtime.fromChrome')),
+      h('p', { class: 'set-desc' }, t('set.runtime.browserDescription')),
+      ...(s.tsimBrowserProfiles ?? []).map(p => h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { browserProfile: p.id }, onclick: () => void tsimBrowserConnect(p.id) }, t('set.runtime.connectProfile', { label: p.label }))),
       status?.logged_in
         ? h('div', null, h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-logout' }, onclick: () => void tsimLogout() }, t('set.asst.tsimLogout')))
         : h(
@@ -408,6 +468,7 @@ function privacySection(): Child[] {
 function aboutSection(s: SettingState): Child[] {
   return [
     text(S.version, s.version ?? S.versionUnknown, null),
+    row(t('set.runtime.recoveryTitle'), t('set.runtime.recoveryDescription'), h('button', { class: 'btn sm', type: 'button', onclick: () => void recovery.refresh() }, t('set.runtime.recoveryRefresh'))),
     row(S.checkUpdate, S.checkUpdateDesc, h('button', { class: 'btn sm pri', dataset: { action: 'check-update' }, onclick: () => void ipc.invoke(UiCommands.SHELL_OPEN_WINDOW, { label: 'update' }).catch((e: unknown) => toast(msg(e))) }, S.checkUpdate)),
   ];
 }
@@ -489,7 +550,8 @@ function scrollToSection(id: SectionId, instant: boolean): boolean {
 }
 
 /** 导航点击：先锁住高亮再滚动。仅换分类，不碰 TSim 表单/导入凭据（它们只在提交与关窗时清除）。 */
-function selectSection(id: SectionId): void {
+function selectSection(id: SectionId, fromUser = true): void {
+  if (fromUser) settingsNavigationVersion++; // a user choice supersedes a pending deep-link section
   spyLock = { id, until: performance.now() + SPY_LOCK_MS };
   if (store.get().section !== id) store.patch({ section: id });
   scrollToSection(id, false);
@@ -512,6 +574,7 @@ function render(s: SettingState): Node {
     'div',
     { class: 'setwin' },
     titleBar(s),
+    recoveryView(s.recovery, recovery),
     h(
       'div',
       { class: 'setbody-wrap' },
@@ -534,6 +597,28 @@ function paint(s: SettingState): void {
 }
 subscribeBatched(store, paint);
 paint(store.get());
+let settingsNavigationVersion = 0;
+let takingDeepLinkSection = false;
+let deepLinkSectionIntent = settingsNavigationVersion;
+let deepLinkSectionSerial = 0;
+async function takeDeepLinkSection(): Promise<void> {
+  if (takingDeepLinkSection) return;
+  takingDeepLinkSection = true;
+  const previous = deepLinkSectionIntent;
+  const serial = deepLinkSectionSerial;
+  try {
+    const section = await ipc.invoke<unknown>(UiCommands.DEEP_LINK_SETTING_TAKE);
+    if (serial === deepLinkSectionSerial && typeof section === 'string' && isSectionId(section) && settingsNavigationVersion === previous) selectSection(section, false);
+  } catch { /* The settings window can mount before the host contract is ready. */ }
+  finally { takingDeepLinkSection = false; if (serial !== deepLinkSectionSerial) void takeDeepLinkSection(); }
+}
+if (!sel.mock) {
+  void ipc.listen('deeplink://setting-pending', () => { deepLinkSectionSerial++; deepLinkSectionIntent = settingsNavigationVersion; void takeDeepLinkSection(); });
+  const deepLinkTimer = setInterval(() => void takeDeepLinkSection(), 2000);
+  window.addEventListener('pagehide', () => clearInterval(deepLinkTimer), { once: true });
+  void takeDeepLinkSection();
+}
+
 
 ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, applySettingsSnapshot));
 ipc.listen<unknown>(Events.ACCOUNT_CHANGED, guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, (snap) => store.patch(activeAccountPatch(snap))));

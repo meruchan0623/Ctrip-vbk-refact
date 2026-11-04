@@ -21,6 +21,7 @@ import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isUiAccountSnapshot } from '../_shared/guards.ts';
 import { LOGIN_STRINGS as S, fmt } from './strings.ts';
+document.title = S.documentTitle;
 import { resolveAttemptId } from './viewmodel.ts';
 import { createBrowserLogin, shouldDiscoverBrowsers, type BrowserLoginState } from './browser-login.ts';
 
@@ -81,11 +82,11 @@ function render(s: LoginState): Node {
       h('span', { class: 'embed' }, S.embedded),
     ),
     h('div', { class: 'browser-login' },
-      s.browser && s.browser.choices.length > 0 ? h('select', { 'aria-label': '浏览器账号', value: s.browser.selected, disabled: s.browser.busy, onchange: (e: Event) => browser.select((e.target as HTMLSelectElement).value) },
-        h('option', { value: '' }, '选择浏览器账号'), ...s.browser.choices.map(p => h('option', { value: p.id }, p.label))) : null,
-      h('button', { type: 'button', disabled: s.browser?.busy || !s.browser?.selected, onclick: () => void browser.connect() }, '连接账号'),
-      h('button', { type: 'button', disabled: s.browser?.busy, onclick: () => void browser.discover() }, '刷新'),
-      h('span', { role: 'status', title: s.browser?.message }, s.browser?.message ?? '连接 Chrome 或 Edge 中的携程账号'),
+      s.browser && s.browser.choices.length > 0 ? h('select', { 'aria-label': S.browserAccountLabel, value: s.browser.selected, disabled: s.browser.busy, onchange: (e: Event) => browser.select((e.target as HTMLSelectElement).value) },
+        h('option', { value: '' }, S.browserSelect), ...s.browser.choices.map(p => h('option', { value: p.id }, p.label))) : null,
+      h('button', { type: 'button', disabled: s.browser?.busy || !s.browser?.selected, onclick: () => void browser.connect() }, S.browserConnect),
+      h('button', { type: 'button', disabled: s.browser?.busy, onclick: () => void browser.discover() }, S.browserRefresh),
+      h('span', { role: 'status', title: s.browser?.message }, s.browser?.message ?? S.browserDefault),
     ),
   );
 }

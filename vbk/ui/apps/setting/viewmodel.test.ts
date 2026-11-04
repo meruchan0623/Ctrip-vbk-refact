@@ -100,3 +100,21 @@ test('scroll-spy: a click lock wins until it expires, then scrolling decides aga
   assert.equal(pickActiveSection({ ...base, now: 12_000, lock: null, scrollTop: 0 }), 'general');
   assert.ok(SPY_LOCK_MS > 0);
 });
+
+
+test('scheduled DND defaults off and toggles through persisted local preferences without changing timeout exception', async () => {
+  const ipc = createMockIpc('default', { tick: false, latency: 0 });
+  try {
+    const before = await ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT);
+    assert.equal(before.dnd.schedule_enabled, false);
+    assert.equal(before.reminder.alert_during_dnd, true);
+    for (const enabled of [true, true, false, true]) {
+      const { cmd, payload } = prefsCommand('dnd', 'schedule_enabled', enabled);
+      const saved = await ipc.invoke<PrefsSnapshot>(cmd, payload);
+      assert.equal(saved.dnd.schedule_enabled, enabled);
+      const read = await ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT);
+      assert.equal(read.dnd.schedule_enabled, enabled);
+      assert.equal(read.reminder.alert_during_dnd, true);
+    }
+  } finally { ipc.dispose(); }
+});

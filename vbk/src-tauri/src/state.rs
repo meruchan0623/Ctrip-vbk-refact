@@ -34,6 +34,9 @@ use core_store::{
 };
 use tauri::AppHandle;
 
+#[path = "schedule_dnd.rs"]
+mod schedule_dnd;
+
 use crate::dto::{AdapterFactDto, AdapterFactEnvelopeDto};
 use crate::views::{Role, ViewRegistry};
 
@@ -80,6 +83,7 @@ pub struct Cores {
     pub accounts: AccountRegistry,
     pub im: ImCores,
     pub notify: NotifyCore,
+    dnd: schedule_dnd::DndController,
     pub clock: ClockService,
     pub views: ViewRegistry,
     pub store: Option<Arc<FileStore>>,
@@ -152,6 +156,7 @@ impl HostState {
                 accounts: AccountRegistry::new(boot_epoch),
                 im: ImCores::new(),
                 notify: NotifyCore::with_account_gating(),
+                dnd: schedule_dnd::DndController::default(),
                 clock: ClockService::default(),
                 views: ViewRegistry::default(),
                 store,
@@ -161,6 +166,12 @@ impl HostState {
                 quit_requested: false,
             }),
         }
+    }
+
+    /// Setup must refuse production startup when either the store or its
+    /// persistence worker is unavailable. `new(None)` remains a pure test host.
+    pub(crate) fn persistence_available(&self) -> bool {
+        self.persist.is_some() && self.lock().store.is_some()
     }
 
     /// Locks the cores. A poisoned mutex is recovered rather than crashing
@@ -173,6 +184,11 @@ impl HostState {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn cores_available_for_test(&self) -> bool {
+        self.cores.try_lock().is_ok()
+    }
+
     /// Current clock reading as the cores should see it.
     pub fn reading(&self, cores: &mut Cores) -> ClockReading {
         cores
@@ -183,7 +199,20 @@ impl HostState {
     pub fn now(&self, cores: &mut Cores) -> Now {
         let reading = self.reading(cores);
         cores.notify.apply_clock(reading);
-        Now::from_reading(&reading)
+        let now = Now::from_reading(&reading);
+        self.sync_dnd(cores, &now);
+        now
+    }
+
+    fn sync_dnd(&self, cores: &mut Cores, now: &Now) {
+        // Schedules use OS wall time, never a stale server clock offset.
+        let wall_ms = self.clock.wall_ms();
+        let offset = crate::local_tz::local_utc_offset_minutes(wall_ms);
+        let mode = cores.dnd.effective(wall_ms, offset, now.server_now_ms);
+        if cores.notify.dnd() != mode {
+            let effects = cores.notify.set_dnd(mode, now);
+            cores.pending_effects.extend(effects);
+        }
     }
 
     // ------------------------------------------------------------ views
@@ -234,7 +263,9 @@ impl HostState {
             // First facts after (re-)login: rounds persisted under this
             // identity come back as "待核对" and stay silent until the
             // reconcile barrier lifts (strong-alert §5, review O03).
-            self.restore_rounds_for(&mut cores, &account);
+            if !matches!(fact, Fact::AuthInvalid) {
+                self.restore_rounds_for(&mut cores, &account);
+            }
         }
         let env = FactEnvelope {
             account: account.clone(),
@@ -402,6 +433,64 @@ impl HostState {
             payload: JobPayload::Unlock,
         };
         self.submit_persist(vec![job]);
+    }
+
+    pub(crate) fn lock_namespace_ready(&self, account: &AccountContext) -> Result<(), AppError> {
+        if let Some(queue) = self.persist.as_ref() {
+            self.submit_persist(vec![PersistJob {
+                ns: Namespace::from_context(account),
+                seq: queue.next_seq(),
+                payload: JobPayload::LogoutLock,
+            }]);
+        }
+        if self.flush_persist(Duration::from_secs(5)) {
+            Ok(())
+        } else {
+            Err(AppError::new(
+                "store.persist_failed",
+                "account revoked but storage lock could not be persisted",
+            ))
+        }
+    }
+
+    pub(crate) fn check_account_context(&self, account: &AccountContext) -> Result<(), AppError> {
+        Self::require_account_context(&self.lock(), account)
+    }
+
+    fn require_account_context(cores: &Cores, account: &AccountContext) -> Result<(), AppError> {
+        let matches = match cores.accounts.current_context(&account.account_id) {
+            Some(current) => current == *account,
+            None => cores
+                .accounts
+                .index()
+                .entry_for(&account.account_id)
+                .is_some_and(|entry| {
+                    entry.environment == account.environment
+                        && entry.last_generation == account.session_generation
+                }),
+        };
+        if matches {
+            Ok(())
+        } else {
+            Err(AppError::new(
+                contracts::codes::ACCOUNT_STALE_GENERATION,
+                "account changed before lifecycle transition",
+            ))
+        }
+    }
+
+    /// Reauthentication cannot announce ready while the queued main-store
+    /// Unlock is still pending. No Cores guard is held during the wait.
+    pub(crate) fn unlock_namespace_ready(&self, account: &AccountContext) -> Result<(), AppError> {
+        self.unlock_namespace(account);
+        if self.flush_persist(Duration::from_secs(5)) {
+            Ok(())
+        } else {
+            Err(AppError::new(
+                "store.persist_failed",
+                "account storage could not be reopened; sign in again",
+            ))
+        }
     }
 
     /// Exit barrier: resubmits parked jobs, then waits (at most `timeout`)
@@ -667,24 +756,15 @@ impl HostState {
         cores.pending_effects.extend(effects);
     }
 
-    /// Host-observed environment plus the settings-derived DND; a no-op while
-    /// nothing changed, so the scheduler can call it on every tick.
-    pub fn apply_environment(
-        &self,
-        schedule_enabled: bool,
-        os_quiet: bool,
-        fullscreen_app: bool,
-        presentation: bool,
-    ) {
+    /// Host-observed environment (OS focus state, fullscreen, presentation).
+    /// The scheduled quiet window is judged once, by the local-time
+    /// controller inside `now()`; `os_quiet` is only the OS-side signal.
+    /// A no-op while nothing changed, so the scheduler can call it on every tick.
+    pub fn apply_environment(&self, os_quiet: bool, fullscreen_app: bool, presentation: bool) {
         let mut cores = self.lock();
         let now = self.now(&mut cores);
-        let in_schedule = schedule_enabled
-            && core_notify::in_quiet_hours(
-                now.server_now_ms,
-                crate::local_tz::local_utc_offset_minutes(now.server_now_ms),
-            );
         let mut state = cores.notify.system_state().clone();
-        state.ambient_dnd = in_schedule || os_quiet;
+        state.ambient_dnd = os_quiet;
         state.fullscreen_app = fullscreen_app;
         state.presentation = presentation;
         if &state != cores.notify.system_state() {
@@ -693,32 +773,36 @@ impl HostState {
         }
     }
 
+    pub fn set_dnd_schedule_enabled(&self, enabled: bool) {
+        let mut cores = self.lock();
+        cores.dnd.set_enabled(enabled);
+        self.now(&mut cores);
+    }
+
     pub fn set_dnd_hours(&self, hours: u32) {
         let mut cores = self.lock();
         let now = self.now(&mut cores);
         let until_ms = now.server_now_ms + i64::from(hours) * 3_600_000;
-        let effects = cores.notify.set_dnd(DndMode::OneHour { until_ms }, &now);
-        cores.pending_effects.extend(effects);
+        cores.dnd.set_manual(DndMode::OneHour { until_ms });
+        self.sync_dnd(&mut cores, &now);
     }
 
     pub fn set_dnd_until_tomorrow(&self) {
         let mut cores = self.lock();
         let now = self.now(&mut cores);
-        // Next local 08:00 (pure day-boundary math in core-notify; the zone
-        // offset is read from the OS, falling back to UTC if unavailable).
         let offset_min = crate::local_tz::local_utc_offset_minutes(now.server_now_ms);
         let until_ms = core_notify::dnd_until_tomorrow_ms(now.server_now_ms, offset_min);
-        let effects = cores
-            .notify
-            .set_dnd(DndMode::UntilTomorrow { until_ms }, &now);
-        cores.pending_effects.extend(effects);
+        cores.dnd.set_manual(DndMode::UntilTomorrow { until_ms });
+        self.sync_dnd(&mut cores, &now);
     }
 
     pub fn clear_dnd(&self) {
         let mut cores = self.lock();
         let now = self.now(&mut cores);
-        let effects = cores.notify.set_dnd(DndMode::Off, &now);
-        cores.pending_effects.extend(effects);
+        let wall_ms = self.clock.wall_ms();
+        let offset = crate::local_tz::local_utc_offset_minutes(wall_ms);
+        cores.dnd.clear(wall_ms, offset);
+        self.sync_dnd(&mut cores, &now);
     }
 
     // ------------------------------------------------------------ accounts
@@ -728,7 +812,50 @@ impl HostState {
         account_id: &str,
         mode: LogoutMode,
     ) -> Result<core_account::RevokeList, AppError> {
+        self.logout_checked(account_id, mode, None)
+    }
+
+    /// A fault may suspend only the still-current account and source view.
+    /// Both checks and generation revocation occur under the same Cores lock.
+    pub(crate) fn suspend_current_view(
+        &self,
+        account: &AccountContext,
+        view: &contracts::ViewContext,
+    ) -> Result<core_account::RevokeList, AppError> {
+        self.logout_checked(
+            account.account_id.as_str(),
+            LogoutMode::ExitOnline,
+            Some((account, Some(view))),
+        )
+    }
+
+    pub(crate) fn logout_context(
+        &self,
+        account: &AccountContext,
+        mode: LogoutMode,
+    ) -> Result<core_account::RevokeList, AppError> {
+        self.logout_checked(account.account_id.as_str(), mode, Some((account, None)))
+    }
+
+    fn logout_checked(
+        &self,
+        account_id: &str,
+        mode: LogoutMode,
+        expected: Option<(&AccountContext, Option<&contracts::ViewContext>)>,
+    ) -> Result<core_account::RevokeList, AppError> {
         let mut cores = self.lock();
+        if let Some((account, view)) = expected {
+            Self::require_account_context(&cores, account)?;
+            if let Some(view) = view {
+                cores.accounts.validate(account)?;
+                if cores.views.current(&view.webview_label).as_ref() != Some(view) {
+                    return Err(AppError::new(
+                        contracts::codes::HOST_VIEW_UNAUTHORIZED,
+                        "source view is no longer current",
+                    ));
+                }
+            }
+        }
         let mut jobs: Vec<PersistJob> = Vec::new();
         let id = AccountId::new(account_id);
         let old_ctx = cores.accounts.current_context(&id);
@@ -811,11 +938,89 @@ fn convert_fact(dto: AdapterFactDto) -> Result<Fact, AppError> {
         AdapterFactDto::AuthInvalid => Fact::AuthInvalid,
         // Forwarded by `adapter::adapter_push_fact` before it reaches here;
         // the local `im_push_fact` path has no window to forward to.
-        AdapterFactDto::Feature { .. } => {
+        AdapterFactDto::Feature { .. } | AdapterFactDto::BridgeFault { .. } => {
             return Err(AppError::new(
                 "im.invalid_fact",
-                "feature facts never enter the IM core",
+                "host-only control and feature facts never enter the IM core",
             ))
         }
     })
+}
+
+#[cfg(test)]
+mod queue_fault_suspension_tests {
+    use super::*;
+
+    #[test]
+    fn bridge_fault_control_cannot_enter_the_im_fact_pipeline() {
+        let fault = AdapterFactDto::BridgeFault {
+            fault: crate::dto::BridgeFaultDto {
+                boot_epoch: 1,
+                reason: crate::dto::BridgeFaultReason::QueueOverflow,
+            },
+        };
+        assert_eq!(convert_fact(fault).unwrap_err().code, "im.invalid_fact");
+        let invalid =
+            serde_json::json!({"boot_epoch":1,"reason":"queue_overflow","message":"private text"});
+        assert!(serde_json::from_value::<crate::dto::BridgeFaultDto>(invalid).is_err());
+    }
+
+    fn online(host: &HostState, buid: &str) -> AccountContext {
+        let mut cores = host.lock();
+        let environment = Environment::named("production");
+        let attempt = cores.accounts.start_login(environment.clone());
+        cores
+            .accounts
+            .publish_identity(
+                &attempt.attempt_id,
+                core_account::UpstreamIdentity {
+                    buid: core_account::Buid::new(buid),
+                    uid: "synthetic".into(),
+                    agent_id: None,
+                    environment,
+                },
+            )
+            .unwrap()
+            .ctx
+    }
+
+    #[test]
+    fn suspension_is_atomic_with_account_and_view_generation_checks() {
+        let host = HostState::new(None, 1);
+        let account = online(&host, "fault-a");
+        let other = online(&host, "fault-b");
+        let original_view = host.lock().views.register("acct-fault-a");
+        let replacement_view = host.lock().views.register("acct-fault-a");
+        assert!(host.suspend_current_view(&account, &original_view).is_err());
+        assert!(host.lock().accounts.validate(&account).is_ok());
+        host.suspend_current_view(&account, &replacement_view)
+            .unwrap();
+        assert_eq!(
+            host.lock()
+                .accounts
+                .state(&account.account_id)
+                .unwrap()
+                .kind(),
+            // This fixture has no saved credential; ExitOnline intentionally
+            // becomes LoggedOut, while preserving other accounts.
+            core_account::AccountStateKind::LoggedOut
+        );
+        assert!(host.lock().accounts.validate(&other).is_ok());
+        assert!(host
+            .suspend_current_view(&account, &replacement_view)
+            .is_err());
+    }
+
+    #[test]
+    fn old_account_generation_cannot_suspend_a_relogged_session() {
+        let host = HostState::new(None, 1);
+        let old = online(&host, "fault-a");
+        let view = host.lock().views.register("acct-fault-a");
+        host.logout(old.account_id.as_str(), LogoutMode::ExitOnline)
+            .unwrap();
+        let new = online(&host, "fault-a");
+        assert_ne!(old.session_generation, new.session_generation);
+        assert!(host.suspend_current_view(&old, &view).is_err());
+        assert!(host.lock().accounts.validate(&new).is_ok());
+    }
 }

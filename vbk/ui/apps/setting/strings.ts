@@ -1,3 +1,4 @@
+import { t } from '../../packages/ui-kit/src/i18n.ts';
 /** Settings-window copy local to this window (shared copy stays in ui-kit/i18n.ts). */
 export const SETTING_STRINGS = {
   titleWithAccount: '设置 · {nick}',

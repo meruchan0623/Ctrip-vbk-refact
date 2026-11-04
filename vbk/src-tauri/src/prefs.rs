@@ -115,11 +115,10 @@ impl Default for DisplayPrefs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// Unknown keys are tolerated: prefs files written before the screenshot shortcut
-// was removed still carry `screenshot` and must keep loading.
 #[serde(default)]
 pub struct KeyPrefs {
     pub send_key: SendKey,
+    pub screenshot: String,
     pub toggle_main: String,
 }
 
@@ -127,6 +126,7 @@ impl Default for KeyPrefs {
     fn default() -> Self {
         Self {
             send_key: SendKey::Enter,
+            screenshot: "Ctrl+Shift+X".into(),
             toggle_main: "Ctrl+Alt+V".into(),
         }
     }
@@ -310,14 +310,23 @@ pub fn apply_local(
         })?;
     *slot = value;
     let next: LocalPrefs = serde_json::from_value(tree).map_err(|e| invalid(key, e))?;
-    if ![75, 100, 125, 150].contains(&next.display.zoom) {
-        return Err(invalid(key, "zoom must be 75/100/125/150"));
-    }
-    if ![30, 90, 180, 365].contains(&next.storage.cache_days) {
-        return Err(invalid(key, "cache_days must be 30/90/180/365"));
-    }
-    if next.keys.toggle_main.trim().is_empty() {
-        return Err(invalid(key, "shortcut must not be empty"));
+    // Historical files can deserialize values that this version no longer
+    // accepts. Validate the field being edited so each such value remains
+    // independently repairable and cannot block unrelated safe settings.
+    match (section, key) {
+        ("display", "zoom") if ![75, 100, 125, 150].contains(&next.display.zoom) => {
+            return Err(invalid(key, "zoom must be 75/100/125/150"));
+        }
+        ("storage", "cache_days") if ![30, 90, 180, 365].contains(&next.storage.cache_days) => {
+            return Err(invalid(key, "cache_days must be 30/90/180/365"));
+        }
+        ("keys", "screenshot") if next.keys.screenshot.trim().is_empty() => {
+            return Err(invalid(key, "shortcut must not be empty"));
+        }
+        ("keys", "toggle_main") if next.keys.toggle_main.trim().is_empty() => {
+            return Err(invalid(key, "shortcut must not be empty"));
+        }
+        _ => {}
     }
     validate_notice_banner(&next.notice_banner).map_err(|why| invalid(key, why))?;
     Ok(next)
@@ -368,6 +377,7 @@ struct Inner {
 struct PrefsModule {
     path: Option<PathBuf>,
     inner: Mutex<Inner>,
+    reminder_sync: Mutex<()>,
     /// Notify effects produced by settings changes made here; drained by
     /// the scheduler on its next tick.
     pending: Mutex<Vec<Effect>>,
@@ -387,17 +397,105 @@ impl PrefsModule {
             reminder: inner.reminder.clone(),
             local: inner.local.clone(),
         };
-        let result = (|| -> std::io::Result<()> {
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
-            }
-            let bytes = serde_json::to_vec_pretty(&file)?;
-            let tmp = path.with_extension("json.tmp");
-            std::fs::write(&tmp, bytes)?;
-            std::fs::rename(&tmp, path)
-        })();
-        result
+        let dir = path.parent().ok_or_else(|| {
+            AppError::new("prefs.persistence", "preference directory unavailable")
+        })?;
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| AppError::new("prefs.persistence", "preference filename unavailable"))?;
+        let bytes = serde_json::to_vec_pretty(&file).map_err(|e| {
+            AppError::new(
+                "prefs.persistence",
+                format!("preference encode failed: {e}"),
+            )
+        })?;
+        core_store::write_atomic(dir, name, &bytes)
             .map_err(|e| AppError::new("prefs.persistence", format!("preference save failed: {e}")))
+    }
+
+    /// Durable configuration and runtime application share one serial gate.
+    /// Never acquire Cores while holding prefs data or doing the disk write.
+    fn set_dnd_schedule(&self, state: &HostState, value: Value) -> Result<bool, AppError> {
+        let _serial = self.reminder_sync.lock().unwrap_or_else(|p| p.into_inner());
+        let enabled;
+        {
+            let mut inner = self.data();
+            let next = apply_local(&inner.local, "dnd", "schedule_enabled", value)?;
+            if next == inner.local {
+                return Ok(false);
+            }
+            let candidate = Inner { local: next, reminder: inner.reminder.clone() };
+            self.save(&candidate)?;
+            enabled = candidate.local.dnd.schedule_enabled;
+            inner.local = candidate.local;
+        }
+        state.set_dnd_schedule_enabled(enabled);
+        Ok(true)
+    }
+
+    /// Local reminder preferences promise durable save before runtime effects.
+    /// Dedicated notify commands retain their immediate/asynchronous-save contract.
+    fn set_reminder(&self, state: &HostState, key: &str, value: &Value) -> Result<(), AppError> {
+        let _serial = self.reminder_sync.lock().unwrap_or_else(|p| p.into_inner());
+        let next = apply_reminder(&state.settings(), key, value)?;
+        self.persist_reminder(ReminderSettingsDto::from(&next))?;
+        // notify_set_* can run during fsync. Patch only the requested field on
+        // the latest core settings, never replace their concurrent changes.
+        let effects = apply_core_reminder_patch(state, key, value)?;
+        self.pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .extend(effects);
+        Ok(())
+    }
+
+    /// The actual local preference transaction, shared with command-level tests.
+    fn set_local(
+        &self,
+        section: &str,
+        key: &str,
+        value: Value,
+        commit: impl FnOnce(&LocalPrefs, &Inner) -> Result<(), AppError>,
+    ) -> Result<Option<LocalPrefs>, AppError> {
+        ensure_runtime_support(section, key)?;
+        let mut inner = self.data();
+        let next = apply_local(&inner.local, section, key, value)?;
+        let system_setting = (section == "general" && key == "autostart")
+            || (section == "keys" && matches!(key, "screenshot" | "toggle_main"));
+        if next == inner.local && !system_setting {
+            return Ok(None);
+        }
+        let candidate = Inner {
+            local: next.clone(),
+            reminder: inner.reminder.clone(),
+        };
+        commit(&next, &candidate)?;
+        Ok(Some(std::mem::replace(&mut inner.local, next)))
+    }
+
+    fn sync_reminder_from(
+        &self,
+        read: impl FnOnce() -> ReminderSettingsDto,
+    ) -> Result<bool, AppError> {
+        let _serial = self.reminder_sync.lock().unwrap_or_else(|p| p.into_inner());
+        self.persist_reminder(read())
+    }
+
+    /// Only advance the persisted reminder snapshot after the durable write.
+    /// On failure the next scheduler tick can retry the same core settings.
+    fn persist_reminder(&self, current: ReminderSettingsDto) -> Result<bool, AppError> {
+        let mut inner = self.data();
+        if inner.reminder.as_ref() == Some(&current) {
+            return Ok(false);
+        }
+        let candidate = Inner {
+            local: inner.local.clone(),
+            reminder: Some(current),
+        };
+        self.save(&candidate)?;
+        inner.reminder = candidate.reminder;
+        Ok(true)
     }
 }
 
@@ -451,6 +549,37 @@ fn salvage(bytes: &[u8]) -> Option<PrefsFile> {
     Some(PrefsFile { reminder, local })
 }
 
+/// Unsupported legacy values remain readable and mergeable, but cannot be
+/// acknowledged as a working preference by the live command.
+pub(crate) fn ensure_runtime_support(section: &str, key: &str) -> Result<(), AppError> {
+    if matches!(
+        (section, key),
+        ("display", "gpu")
+            | ("storage", "cache_days")
+            | ("storage", "cache_mb")
+    ) {
+        return Err(AppError::new(
+            contracts::codes::HOST_UNSUPPORTED,
+            "unsupported preference runtime",
+        ));
+    }
+    Ok(())
+}
+
+fn apply_core_reminder_patch(
+    state: &HostState,
+    key: &str,
+    value: &Value,
+) -> Result<Vec<Effect>, AppError> {
+    let mut cores = state.lock();
+    let next = apply_reminder(cores.notify.settings(), key, value)?;
+    if &next == cores.notify.settings() {
+        return Ok(Vec::new());
+    }
+    let now = state.now(&mut cores);
+    cores.notify.set_settings(next, &now)
+}
+
 /// Replaces the notify core settings; returns the effects to execute.
 fn set_core_settings(
     state: &HostState,
@@ -476,6 +605,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             }
         }
     }
+    state.set_dnd_schedule_enabled(file.local.dnd.schedule_enabled);
     let reminder = Some(ReminderSettingsDto::from(&state.settings()));
     crate::net_policy::set_use_system_proxy(file.local.network.system_proxy);
     crate::ui_zoom::init(app, file.local.display.zoom);
@@ -485,6 +615,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             local: file.local,
             reminder,
         }),
+        reminder_sync: Mutex::new(()),
         pending: Mutex::new(pending),
     });
     Ok(())
@@ -517,17 +648,13 @@ fn announce(app: &AppHandle) -> PrefsSnapshotDto {
 /// (commands.rs), persists them and emits `prefs://changed`.
 pub fn sync_reminder(app: &AppHandle) {
     let Some(m) = module(app) else { return };
-    let current = ReminderSettingsDto::from(&app.state::<HostState>().settings());
-    let changed = {
-        let mut inner = m.data();
-        if inner.reminder.as_ref() == Some(&current) {
+    let changed = match m
+        .sync_reminder_from(|| ReminderSettingsDto::from(&app.state::<HostState>().settings()))
+    {
+        Ok(changed) => changed,
+        Err(e) => {
+            log::warn!("{e}");
             false
-        } else {
-            inner.reminder = Some(current);
-            if let Err(e) = m.save(&inner) {
-                log::warn!("{e}");
-            }
-            true
         }
     };
     if changed {
@@ -628,44 +755,43 @@ pub fn prefs_set(
     value: Value,
 ) -> CmdResult<PrefsSnapshotDto> {
     guard(&state, &window, "prefs_set")?;
+    ensure_runtime_support(&section, &key)?;
     let m = module(&app).ok_or_else(|| {
         AppError::new(contracts::codes::HOST_UNSUPPORTED, "prefs not initialised")
     })?;
     if section == "reminder" {
-        let next = apply_reminder(&state.settings(), &key, &value)?;
-        let effects = set_core_settings(&state, next)?;
-        m.pending
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .extend(effects);
+        m.set_reminder(&state, &key, &value)?;
         if key == "position_bottom_right" {
             crate::windows::refit_alarm(&app);
         }
-        sync_reminder(&app);
-        return Ok(snapshot(&app));
+        return Ok(announce(&app));
     }
-    let previous = {
-        let mut inner = m.data();
-        let next = apply_local(&inner.local, &section, &key, value)?;
-        let system_setting = (section == "general" && key == "autostart")
-            || (section == "keys" && key == "toggle_main");
-        if next == inner.local && !system_setting {
-            drop(inner);
-            return Ok(snapshot(&app));
-        }
-        let candidate = Inner {
-            local: next.clone(),
-            reminder: inner.reminder.clone(),
-        };
-        if system_setting {
-            crate::system_integration::apply(&app, &inner.local, &next, || m.save(&candidate))?;
+    if section == "dnd" && key == "schedule_enabled" {
+        return if m.set_dnd_schedule(&state, value)? {
+            crate::attention::sync(&app, crate::attention::read());
+            Ok(announce(&app))
         } else {
-            if next.dnd.follow_system && !inner.local.dnd.follow_system {
-                crate::attention::ensure_follow_system_available()?;
-            }
-            m.save(&candidate)?;
+            Ok(snapshot(&app))
+        };
+    }
+    let previous = m.set_local(&section, &key, value, |next, candidate| {
+        if section == "dnd" && key == "follow_system" && next.dnd.follow_system {
+            crate::attention::ensure_follow_system_available()?;
         }
-        std::mem::replace(&mut inner.local, next)
+        let domain = match (section.as_str(), key.as_str()) {
+            ("general", "autostart") => Some(crate::system_integration::Domain::Autostart),
+            ("keys", "screenshot") => Some(crate::system_integration::Domain::Screenshot),
+            ("keys", "toggle_main") => Some(crate::system_integration::Domain::ToggleMain),
+            _ => None,
+        };
+        if let Some(domain) = domain {
+            crate::system_integration::apply(&app, next, domain, || m.save(candidate))
+        } else {
+            m.save(candidate)
+        }
+    })?;
+    let Some(previous) = previous else {
+        return Ok(snapshot(&app));
     };
     let current = m.data().local.clone();
     apply_runtime(&app, &previous, &current);
@@ -676,6 +802,228 @@ pub fn prefs_set(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn local_reminder_save_failures_never_advance_runtime_or_effects_and_retry_once() {
+        use core_store::hooks::{inject, FailPoint, FaultAction};
+        for point in [
+            FailPoint::BeforeWrite,
+            FailPoint::BeforeSyncAll,
+            FailPoint::BeforeSyncDir,
+        ] {
+            let root = std::env::temp_dir()
+                .join(format!("vbk-reminder-transaction-{}", uuid::Uuid::new_v4()));
+            let host = HostState::new(None, 1);
+            let before = host.settings();
+            let module = PrefsModule {
+                path: Some(root.join("prefs.json")),
+                inner: Mutex::new(Inner {
+                    local: LocalPrefs::default(),
+                    reminder: Some(ReminderSettingsDto::from(&before)),
+                }),
+                reminder_sync: Mutex::new(()),
+                pending: Mutex::new(vec![Effect::UpdateAlarm]),
+            };
+            module.save(&module.data()).unwrap();
+            let fault = inject(
+                &root,
+                point,
+                FaultAction::Io(std::io::ErrorKind::PermissionDenied, "EACCES"),
+                0,
+                Some(1),
+            );
+            let error = module
+                .set_reminder(&host, "taskbar_badge", &json!(false))
+                .unwrap_err();
+            assert_eq!(error.code, "prefs.persistence");
+            assert_eq!(host.settings(), before, "{point:?}");
+            assert_eq!(*module.pending.lock().unwrap(), vec![Effect::UpdateAlarm]);
+            assert_eq!(
+                module.data().reminder,
+                Some(ReminderSettingsDto::from(&before))
+            );
+            drop(fault);
+            module
+                .set_reminder(&host, "taskbar_badge", &json!(false))
+                .unwrap();
+            assert!(!host.settings().taskbar_badge);
+            assert_eq!(
+                module
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|e| matches!(e, Effect::Unread { .. }))
+                    .count(),
+                1
+            );
+            let effects = module.pending.lock().unwrap().clone();
+            module
+                .set_reminder(&host, "taskbar_badge", &json!(false))
+                .unwrap();
+            assert_eq!(
+                *module.pending.lock().unwrap(),
+                effects,
+                "same-value retry produces no duplicate effects"
+            );
+            assert_eq!(
+                load(&root.join("prefs.json")).reminder,
+                Some(ReminderSettingsDto::from(&host.settings()))
+            );
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn durable_reminder_patch_preserves_concurrent_notify_commands_and_queued_sync() {
+        use std::sync::{mpsc, Arc};
+        let root =
+            std::env::temp_dir().join(format!("vbk-reminder-concurrent-{}", uuid::Uuid::new_v4()));
+        let host = Arc::new(HostState::new(None, 1));
+        let module = Arc::new(PrefsModule {
+            path: Some(root.join("prefs.json")),
+            inner: Mutex::new(Inner {
+                local: LocalPrefs::default(),
+                reminder: None,
+            }),
+            reminder_sync: Mutex::new(()),
+            pending: Mutex::new(Vec::new()),
+        });
+        // Execute the same transaction phases with notify commands interleaved
+        // precisely in the fsync-to-runtime gap; no sleeps or timing assumptions.
+        let serial = module.reminder_sync.lock().unwrap();
+        let next = apply_reminder(&host.settings(), "continuous_l4", &json!(true)).unwrap();
+        module
+            .persist_reminder(ReminderSettingsDto::from(&next))
+            .unwrap();
+        for command in [
+            contracts::AlarmCommand::SetEnabled(false),
+            contracts::AlarmCommand::SetThreshold { t1_seconds: 90 },
+            contracts::AlarmCommand::SetSoundEnabled(false),
+        ] {
+            host.alarm_command(command, core_notify::CommandSource::Setting)
+                .unwrap();
+        }
+        let (entered, waiting) = mpsc::channel();
+        let sync_module = module.clone();
+        let sync_host = host.clone();
+        let worker = std::thread::spawn(move || {
+            entered.send(()).unwrap();
+            sync_module.sync_reminder_from(|| ReminderSettingsDto::from(&sync_host.settings()))
+        });
+        waiting.recv().unwrap();
+        apply_core_reminder_patch(&host, "continuous_l4", &json!(true)).unwrap();
+        let merged = host.settings();
+        assert!(merged.continuous_l4);
+        assert!(!merged.enabled && !merged.timeout_sound);
+        assert_eq!(merged.t1_seconds, 90);
+        drop(serial);
+        assert!(worker.join().unwrap().unwrap());
+        assert_eq!(
+            load(&root.join("prefs.json")).reminder,
+            Some(ReminderSettingsDto::from(&merged))
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unsupported_runtime_preferences_reject_before_local_transaction_but_legacy_values_load() {
+        let root =
+            std::env::temp_dir().join(format!("vbk-unsupported-prefs-{}", uuid::Uuid::new_v4()));
+        let module = PrefsModule {
+            path: Some(root.join("prefs.json")),
+            inner: Mutex::new(Inner {
+                local: LocalPrefs::default(),
+                reminder: None,
+            }),
+            reminder_sync: Mutex::new(()),
+            pending: Mutex::new(Vec::new()),
+        };
+        module.save(&module.data()).unwrap();
+        let bytes = std::fs::read(root.join("prefs.json")).unwrap();
+        let before = module.data().local.clone();
+        for (section, key, value) in [
+            ("display", "gpu", json!(false)),
+            ("storage", "cache_days", json!(90)),
+            ("storage", "cache_mb", json!(500)),
+        ] {
+            let error = module
+                .set_local(section, key, value, |_, _| {
+                    panic!("unsupported preference reached commit")
+                })
+                .unwrap_err();
+            assert_eq!(error.code, contracts::codes::HOST_UNSUPPORTED);
+            assert_eq!(error.message, "unsupported preference runtime");
+            assert!(!error.retryable);
+            assert_eq!(module.data().local, before);
+            assert_eq!(std::fs::read(root.join("prefs.json")).unwrap(), bytes);
+        }
+        for (section, key) in [
+            ("dnd", "schedule_enabled"),
+            ("dnd", "follow_system"),
+            ("display", "zoom"),
+            ("keys", "screenshot"),
+            ("keys", "toggle_main"),
+            ("general", "autostart"),
+        ] {
+            ensure_runtime_support(section, key).unwrap();
+        }
+        assert!(module
+            .set_local("display", "zoom", json!(125), |_, candidate| module
+                .save(candidate))
+            .unwrap()
+            .is_some());
+        assert_eq!(load(&root.join("prefs.json")).local.display.zoom, 125);
+        // Retain old JSON shape and pure merger for migrations/salvage.
+        let legacy = apply_local(&before, "dnd", "follow_system", json!(false)).unwrap();
+        let legacy = apply_local(&legacy, "display", "gpu", json!(false)).unwrap();
+        let legacy = apply_local(&legacy, "storage", "cache_days", json!(180)).unwrap();
+        let legacy = apply_local(&legacy, "storage", "cache_mb", json!(500)).unwrap();
+        module
+            .save(&Inner {
+                local: legacy.clone(),
+                reminder: None,
+            })
+            .unwrap();
+        assert_eq!(load(&root.join("prefs.json")).local, legacy);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn dnd_schedule_save_failure_retry_and_restart_preserve_runtime_contract() {
+        let root = std::env::temp_dir().join(format!("vbk-dnd-prefs-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&root, b"blocked parent").unwrap();
+        let module = PrefsModule {
+            path: Some(root.join("prefs.json")),
+            inner: Mutex::new(Inner { local: LocalPrefs::default(), reminder: None }),
+            reminder_sync: Mutex::new(()),
+            pending: Mutex::new(Vec::new()),
+        };
+        let host = HostState::new(None, 1);
+        host.set_dnd_hours(1);
+        let manual = host.lock().notify.dnd();
+        assert!(!module.data().local.dnd.schedule_enabled);
+        assert!(module.set_dnd_schedule(&host, json!(true)).is_err());
+        assert!(!module.data().local.dnd.schedule_enabled);
+        assert_eq!(host.lock().notify.dnd(), manual, "failed save must not advance runtime");
+        std::fs::remove_file(&root).unwrap();
+        assert!(module.set_dnd_schedule(&host, json!(true)).unwrap());
+        let saved = load(&root.join("prefs.json"));
+        assert!(saved.local.dnd.schedule_enabled);
+        // A duplicate save must not undo the tray's boot-local pause.
+        host.clear_dnd();
+        assert!(!module.set_dnd_schedule(&host, json!(true)).unwrap());
+        assert_eq!(host.lock().notify.dnd(), core_notify::DndMode::Off);
+        assert!(module.set_dnd_schedule(&host, json!(false)).unwrap());
+        assert!(module.set_dnd_schedule(&host, json!(true)).unwrap());
+        let expected = host.lock().notify.dnd();
+        let restarted = HostState::new(None, 2);
+        restarted.set_dnd_schedule_enabled(load(&root.join("prefs.json")).local.dnd.schedule_enabled);
+        assert_eq!(restarted.lock().notify.dnd(), expected);
+        assert!(restarted.settings().alert_during_dnd);
+        assert!(module.set_dnd_schedule(&host, json!("true")).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn persistence_failure_is_returned_to_settings_transaction() {
@@ -691,6 +1039,7 @@ mod tests {
                 local: LocalPrefs::default(),
                 reminder: None,
             }),
+            reminder_sync: Mutex::new(()),
             pending: Mutex::new(Vec::new()),
         };
         assert!(module.save(&module.data()).is_err());
@@ -713,6 +1062,119 @@ mod tests {
             let e = apply_local(&p, "notice_banner", "accounts", bad).unwrap_err();
             assert_eq!(e.code, codes::INVALID_VALUE);
         }
+    }
+
+    #[test]
+    fn failed_reminder_save_stays_retryable_and_preserves_local_preferences() {
+        let root = std::env::temp_dir().join(format!("vbk-prefs-retry-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&root, b"blocked parent").unwrap();
+        let mut local = LocalPrefs::default();
+        local.display.zoom = 125;
+        let module = PrefsModule {
+            path: Some(root.join("prefs.json")),
+            inner: Mutex::new(Inner {
+                local,
+                reminder: None,
+            }),
+            reminder_sync: Mutex::new(()),
+            pending: Mutex::new(Vec::new()),
+        };
+        let reminder = ReminderSettingsDto::from(&ReminderSettings::default());
+        assert!(module.persist_reminder(reminder.clone()).is_err());
+        assert!(module.data().reminder.is_none());
+        assert_eq!(std::fs::read(&root).unwrap(), b"blocked parent");
+        std::fs::remove_file(&root).unwrap();
+        assert!(module.persist_reminder(reminder.clone()).unwrap());
+        let saved: PrefsFile =
+            serde_json::from_slice(&std::fs::read(root.join("prefs.json")).unwrap()).unwrap();
+        assert_eq!(saved.reminder.as_ref(), Some(&reminder));
+        assert_eq!(saved.local.display.zoom, 125);
+        assert!(!module.persist_reminder(reminder).unwrap());
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reminder_fsync_failures_preserve_retry_and_never_leave_partial_json() {
+        use core_store::hooks::{inject, FailPoint, FaultAction, FsyncKind, FsyncProbe};
+        for point in [
+            FailPoint::BeforeWrite,
+            FailPoint::BeforeSyncAll,
+            FailPoint::BeforeSyncDir,
+        ] {
+            let root =
+                std::env::temp_dir().join(format!("vbk-prefs-fsync-{}", uuid::Uuid::new_v4()));
+            let module = PrefsModule {
+                path: Some(root.join("prefs.json")),
+                inner: Mutex::new(Inner {
+                    local: LocalPrefs::default(),
+                    reminder: None,
+                }),
+                reminder_sync: Mutex::new(()),
+                pending: Mutex::new(Vec::new()),
+            };
+            module.save(&module.data()).unwrap();
+            let probe = FsyncProbe::start(&root);
+            let fault = inject(
+                &root,
+                point,
+                FaultAction::Io(std::io::ErrorKind::PermissionDenied, "EACCES"),
+                0,
+                Some(1),
+            );
+            let reminder = ReminderSettingsDto::from(&ReminderSettings::default());
+            assert!(
+                module.persist_reminder(reminder.clone()).is_err(),
+                "{point:?}"
+            );
+            assert!(module.data().reminder.is_none());
+            let _: PrefsFile =
+                serde_json::from_slice(&std::fs::read(root.join("prefs.json")).unwrap()).unwrap();
+            drop(fault);
+            assert!(module.persist_reminder(reminder.clone()).unwrap());
+            assert_eq!(load(&root.join("prefs.json")).reminder, Some(reminder));
+            let events = probe.events();
+            assert!(events.iter().any(|event| event.kind == FsyncKind::File));
+            assert_eq!(events.last().unwrap().kind, FsyncKind::Directory);
+            assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn queued_reminder_sync_samples_after_the_successful_newer_save() {
+        use std::sync::{mpsc, Arc};
+        let root = std::env::temp_dir().join(format!("vbk-prefs-serial-{}", uuid::Uuid::new_v4()));
+        let module = Arc::new(PrefsModule {
+            path: Some(root.join("prefs.json")),
+            inner: Mutex::new(Inner {
+                local: LocalPrefs::default(),
+                reminder: None,
+            }),
+            reminder_sync: Mutex::new(()),
+            pending: Mutex::new(Vec::new()),
+        });
+        let current = Arc::new(Mutex::new(ReminderSettings::default()));
+        let serial = module.reminder_sync.lock().unwrap();
+        let (entered, waiting) = mpsc::channel();
+        let worker_module = module.clone();
+        let worker_current = current.clone();
+        let worker = std::thread::spawn(move || {
+            entered.send(()).unwrap();
+            worker_module
+                .sync_reminder_from(|| ReminderSettingsDto::from(&*worker_current.lock().unwrap()))
+        });
+        waiting.recv().unwrap();
+        {
+            let mut settings = current.lock().unwrap();
+            settings.tray_flash = !settings.tray_flash;
+        }
+        let newest = ReminderSettingsDto::from(&*current.lock().unwrap());
+        module.persist_reminder(newest.clone()).unwrap();
+        drop(serial);
+        assert!(!worker.join().unwrap().unwrap());
+        assert_eq!(load(&root.join("prefs.json")).reminder, Some(newest));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -779,6 +1241,39 @@ mod tests {
                 .code,
             codes::READ_ONLY
         );
+    }
+
+    #[test]
+    fn invalid_legacy_shortcuts_do_not_block_unrelated_settings() {
+        let old: LocalPrefs = serde_json::from_value(json!({
+            "keys": { "screenshot": "", "toggle_main": "" }
+        }))
+        .unwrap();
+        let next = apply_local(&old, "general", "show_msg_time", json!(false)).unwrap();
+        assert!(!next.general.show_msg_time);
+        assert_eq!(next.keys, old.keys);
+        let repaired = apply_local(&old, "keys", "screenshot", json!("Ctrl+Shift+Y")).unwrap();
+        assert_eq!(repaired.keys.screenshot, "Ctrl+Shift+Y");
+        assert!(repaired.keys.toggle_main.is_empty());
+        assert!(apply_local(&old, "keys", "screenshot", json!(" ")).is_err());
+        assert!(apply_local(&old, "general", "show_msg_time", json!("false")).is_err());
+        assert!(apply_local(&old, "general", "unknown", json!(false)).is_err());
+    }
+
+    #[test]
+    fn invalid_legacy_zoom_and_cache_days_can_be_repaired_independently() {
+        let old: LocalPrefs = serde_json::from_value(json!({
+            "display": { "zoom": 110 }, "storage": { "cache_days": 60 }
+        }))
+        .unwrap();
+        let zoom = apply_local(&old, "display", "zoom", json!(125)).unwrap();
+        assert_eq!(zoom.display.zoom, 125);
+        assert_eq!(zoom.storage.cache_days, 60);
+        let cache = apply_local(&old, "storage", "cache_days", json!(90)).unwrap();
+        assert_eq!(cache.storage.cache_days, 90);
+        assert_eq!(cache.display.zoom, 110);
+        assert!(apply_local(&old, "display", "zoom", json!(110)).is_err());
+        assert!(apply_local(&old, "storage", "cache_days", json!(60)).is_err());
     }
 
     #[test]

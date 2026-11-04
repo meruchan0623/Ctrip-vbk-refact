@@ -144,8 +144,8 @@ export function tsimSessionInputValid(value: string): boolean { return value.tri
 
 export function tsimImportErrorText(error: unknown): string {
   const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
-  if (code === 'assistant.tsim_bad_credentials' || code === 'assistant.tsim_unauthenticated' || code === 'assistant.session_cleared') return '已有 TSim 会话无效或已过期，请重新取得会话或使用账号密码登录。';
-  if (code === 'assistant.invalid_input') return '已有会话的输入格式不正确，请重新取得有效会话。';
+  if (code === 'assistant.tsim_bad_credentials' || code === 'assistant.tsim_unauthenticated' || code === 'assistant.session_cleared') return t('set.runtime.importExpired');
+  if (code === 'assistant.invalid_input') return t('set.runtime.importInvalid');
   return tsimErrorText(error);
 }
 
@@ -159,20 +159,20 @@ export function isTsimStatus(value: unknown): value is UiTsimStatus {
 export function tsimErrorText(error: unknown): string {
   const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
   const descriptions: Readonly<Record<string, string>> = {
-    'assistant.browser_storage_unavailable': '无法读取浏览器会话，可能正在写入、格式不支持或没有访问权限。请稍后重试，或使用账号密码登录。',
-    'assistant.tsim_bad_credentials': '用户名或密码未通过验证，请检查后重新输入。',
-    'assistant.invalid_input': '登录信息格式不正确，请检查输入。',
-    'assistant.forbidden': 'TSim 拒绝了当前账号的权限，请联系管理员。',
-    'assistant.permission_denied': '当前窗口或账号没有操作权限，请重新打开设置或联系管理员。',
-    'assistant.tsim_unauthenticated': 'TSim 尚未登录，请重新登录。',
-    'assistant.session_cleared': 'TSim 会话已失效，请重新登录。',
-    'net.timeout': '请求超时，结果尚待核对。请先刷新登录状态。',
-    'net.offline': '无法连接 TSim，请检查网络后刷新登录状态。',
-    'assistant.service_unavailable': 'TSim 服务暂不可用，请稍后刷新登录状态。',
-    'assistant.malformed_response': '返回的登录状态无法识别，请刷新状态后再操作。',
-    'store.io': '系统凭据存储不可用，请检查系统权限后重试。',
+    'assistant.browser_storage_unavailable': t('set.runtime.browserUnavailable'),
+    'assistant.tsim_bad_credentials': t('set.runtime.badCredentials'),
+    'assistant.invalid_input': t('set.runtime.invalidLogin'),
+    'assistant.forbidden': t('set.runtime.forbidden'),
+    'assistant.permission_denied': t('set.runtime.permissionDenied'),
+    'assistant.tsim_unauthenticated': t('set.runtime.unauthenticated'),
+    'assistant.session_cleared': t('set.runtime.sessionCleared'),
+    'net.timeout': t('set.runtime.timeout'),
+    'net.offline': t('set.runtime.offline'),
+    'assistant.service_unavailable': t('set.runtime.serviceUnavailable'),
+    'assistant.malformed_response': t('set.runtime.malformedResponse'),
+    'store.io': t('set.runtime.credentialStoreUnavailable'),
   };
-  return typeof code === 'string' && Object.hasOwn(descriptions, code) ? `${descriptions[code]}（${code}）` : '操作未完成，登录状态尚待核对。请先刷新 TSim 登录状态后再操作。';
+  return typeof code === 'string' && Object.hasOwn(descriptions, code) ? t('set.runtime.errorCode', { message: descriptions[code]!, code }) : t('set.runtime.operationUnconfirmed');
 }
 
 export const ZOOM_OPTIONS: readonly PrefsSnapshot['display']['zoom'][] = [75, 100, 125, 150];

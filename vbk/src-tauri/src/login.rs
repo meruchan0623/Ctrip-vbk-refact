@@ -31,7 +31,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use contracts::{codes, AccountContext, AccountId, AppError, Environment};
+use contracts::{codes, AccountContext, AccountId, AppError, Environment, ViewContext};
 use core_account::{
     AccountRegistry, AccountStateKind, AttemptId, Buid, CredentialAction, LogoutMode, RevokeList,
     Secret, SecretStore, UpstreamIdentity,
@@ -44,7 +44,7 @@ use tauri::{
 };
 
 use crate::data_guard::IndexLoad;
-use crate::dto::{AccountContextDto, AppErrorDto};
+use crate::dto::{AccountContextDto, AppErrorDto, BridgeFaultReason};
 use crate::events;
 use crate::state::HostState;
 use crate::views;
@@ -113,14 +113,27 @@ struct AccountMeta {
     color: String,
     /// Web profile currently bound to the account (None after logout).
     profile_id: Option<String>,
-    /// "退出在线" chosen by the user: not resumed automatically at startup.
+    /// Explicit exit-online or overload pause: never resumed automatically at startup.
     #[serde(default)]
     suspended_by_user: bool,
+}
+
+/// The latest READY of one actual registered adapter resource. Stream epochs
+/// may advance independently; only this fixed boot epoch admits queue failure.
+#[derive(Debug, Clone)]
+struct AdapterReadyLease {
+    account: AccountContext,
+    view: ViewContext,
+    boot_epoch: u64,
 }
 
 #[derive(Debug, Default)]
 struct Inner {
     bindings: HashMap<String, Binding>,
+    /// Detached adapter instances may still be alive until native destruction
+    /// completes. Never reauthorize the same retiring instance on quick resume.
+    retiring_views: HashSet<String>,
+    adapter_ready: HashMap<String, AdapterReadyLease>,
     attempts: BTreeMap<String, AttemptRec>,
     meta: BTreeMap<String, AccountMeta>,
     /// Accounts whose page is loading with a kept profile and has not
@@ -136,7 +149,7 @@ pub struct LoginState {
     persist_lock: Mutex<()>,
     // Serializes the complete check/create/open sequence for new attempts.
     start_lock: Mutex<()>,
-    // start_lock (when needed) -> lifecycle_lock -> HostState -> inner.
+    // start_lock (when needed) -> lifecycle_lock -> outbound -> HostState -> inner.
     // Never hold lifecycle_lock while opening/destroying native windows.
     lifecycle_lock: Mutex<()>,
     restoring: AtomicBool,
@@ -230,8 +243,16 @@ fn color_for(id: &str) -> String {
 // ------------------------------------------------------------ persistence
 
 fn persist(app: &AppHandle) {
+    let result = persist_checked(app);
+    if let Err(e) = result {
+        log::warn!("account index not persisted: {e}");
+        events::toast(app, "账号信息保存失败，请检查磁盘空间或权限后重试");
+    }
+}
+
+fn persist_checked(app: &AppHandle) -> std::io::Result<()> {
     let ls = login_state(app);
-    let result = ls.persist_snapshot(|| {
+    ls.persist_snapshot(|| {
         let host = app.state::<HostState>();
         let cores = host.lock();
         let inner = ls.lock();
@@ -244,21 +265,19 @@ fn persist(app: &AppHandle) {
             accounts: inner.meta.clone(),
             registry,
         })
-    });
-    if let Err(e) = result {
-        log::warn!("account index not persisted: {e}");
-        events::toast(app, "账号信息保存失败，请检查磁盘空间或权限后重试");
-    }
+    })
 }
 
 fn write_atomic(path: &Path, doc: &PersistDoc) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
+    let dir = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("missing account directory"))?;
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| std::io::Error::other("invalid account filename"))?;
     let text = serde_json::to_vec_pretty(doc).map_err(std::io::Error::other)?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, text)?;
-    std::fs::rename(&tmp, path)
+    core_store::write_atomic(dir, name, &text).map_err(std::io::Error::other)
 }
 
 /// Highest `PersistDoc::version` this build writes and understands.
@@ -530,6 +549,7 @@ fn open_login_window(
         let Some(rec) = inner.attempts.get_mut(attempt_id) else {
             // Cancellation may have won while the native window was opening.
             // Destroy this runtime object, never whichever window now has its label.
+            drop(inner);
             let _ = window.destroy();
             return Err(tauri::Error::Io(std::io::Error::new(
                 std::io::ErrorKind::Interrupted,
@@ -694,13 +714,17 @@ fn begin_candidate(app: &AppHandle, attempt_id: &str) -> bool {
 /// boot script. Registered in the `ViewRegistry` under its label.
 fn open_account_webview(app: &AppHandle, profile_id: &str) -> tauri::Result<()> {
     let label = profiles::account_label(profile_id);
-    {
+    login_state(app).lock().adapter_ready.remove(&label);
+    let source_view = {
+        let ls = login_state(app);
+        let _lifecycle = ls.lifecycle();
         let host = app.state::<HostState>();
-        host.lock().views.register(&label);
-    }
+        let view = host.lock().views.register(&label);
+        view
+    };
     let url = Url::parse(profiles::ACCOUNT_IM_URL).map_err(tauri::Error::InvalidUrl)?;
     let nav_app = app.clone();
-    let nav_label = label.clone();
+
     profiles::open_profile_window(
         app,
         ProfileWindow {
@@ -714,59 +738,103 @@ fn open_account_webview(app: &AppHandle, profile_id: &str) -> tauri::Result<()> 
         move |url| {
             if profiles::is_login_page(url) {
                 let app = nav_app.clone();
-                let label = nav_label.clone();
-                tauri::async_runtime::spawn(async move { on_account_landed_login(&app, &label) });
+                let source_view = source_view.clone();
+                tauri::async_runtime::spawn(
+                    async move { on_account_landed_login(&app, &source_view) },
+                );
             }
         },
     )?;
     Ok(())
 }
 
-/// An `acct-*` page was redirected to the official login page.
-fn on_account_landed_login(app: &AppHandle, label: &str) {
-    let binding = login_state(app).lock().bindings.get(label).cloned();
+/// Resolve only the captured native resource's binding. A queued callback
+/// cannot borrow a new account context through a reused label.
+fn resolve_login_redirect(
+    cores: &crate::state::Cores,
+    inner: &Inner,
+    source: &ViewContext,
+) -> Option<(Binding, Option<AccountContext>)> {
+    if cores.views.current(&source.webview_label).as_ref() != Some(source)
+        || inner.retiring_views.contains(&source.webview_label)
+    {
+        return None;
+    }
+    let binding = inner.bindings.get(&source.webview_label)?.clone();
+    let account = match &binding {
+        Binding::Account(id) => cores.accounts.current_context(&AccountId::new(id.clone())),
+        Binding::Attempt(_) => None,
+    };
+    Some((binding, account))
+}
+
+/// An `acct-*` page was redirected to the official login page. Source nonce
+/// survives the async queue and is checked inside lifecycle before resolution.
+fn on_account_landed_login(app: &AppHandle, source: &ViewContext) {
+    let ls = login_state(app);
+    let lifecycle = ls.lifecycle();
+    let host = app.state::<HostState>();
+    let resolved = {
+        let cores = host.lock();
+        resolve_login_redirect(&cores, &ls.lock(), source)
+    };
+    let Some((binding, account)) = resolved else {
+        return;
+    };
+    let label = &source.webview_label;
     match binding {
-        Some(Binding::Attempt(attempt_id)) => {
-            // The login window's "success" was not a real session.
-            log::warn!("attempt {attempt_id}: candidate page fell back to login");
-            if login_state(app)
+        Binding::Attempt(attempt_id) => {
+            let imported = ls
                 .lock()
                 .attempts
                 .get(&attempt_id)
-                .is_some_and(|r| r.browser_imported)
-            {
-                cancel_attempt(app, &attempt_id);
-                let _ = start_login_with_browser(app, false);
-                events::toast(app, "Chrome 登录态已失效，请使用官方登录页");
-                return;
-            }
-            {
-                let ls = login_state(app);
+                .is_some_and(|rec| rec.browser_imported);
+            let (login_window, profile) = if imported {
+                let Some(rec) = take_attempt(&mut ls.lock(), &attempt_id) else {
+                    return;
+                };
+                crate::browser_bridge::cancel(&attempt_id);
+                let _ = host
+                    .lock()
+                    .accounts
+                    .cancel_login(&AttemptId::new(attempt_id.clone()));
+                (rec.login_window, Some(rec.profile_id))
+            } else {
                 let mut inner = ls.lock();
                 inner.bindings.remove(label);
-                if let Some(rec) = inner.attempts.get_mut(&attempt_id) {
+                let login_window = inner.attempts.get_mut(&attempt_id).and_then(|rec| {
                     rec.candidate = false;
-                }
-            }
-            profiles::destroy_window(app, label);
-            if let Some(w) = login_window(app) {
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-        }
-        Some(Binding::Account(id)) => {
-            log::warn!("account {id}: saved web session rejected, page fell back to login");
-            let ctx = {
-                let host = app.state::<HostState>();
-                let cores = host.lock();
-                cores.accounts.current_context(&AccountId::new(id.clone()))
+                    rec.login_window.clone()
+                });
+                (login_window, None)
             };
-            match ctx {
-                Some(ctx) => on_auth_invalid(app, &ctx),
-                None => teardown_account_views(app, &id),
+            ls.lock().retiring_views.insert(label.clone());
+            let windows = capture_account_views(app, vec![label.clone()]);
+            drop(lifecycle);
+            destroy_captured_views(app, windows);
+            if imported {
+                if let Some(window) = login_window {
+                    let _ = window.destroy();
+                }
+                if let Some(profile) = profile {
+                    profiles::remove_profile_data(app, &profile);
+                }
+                let _ = start_login_with_browser(app, false);
+                events::toast(app, "Chrome 登录态已失效，请使用官方登录页");
+            } else if let Some(window) = login_window {
+                let _ = window.show();
+                let _ = window.set_focus();
             }
         }
-        None => {}
+        Binding::Account(id) => {
+            // The downstream transition reacquires lifecycle and checks both
+            // this captured context and resource nonce before mutating cores.
+            drop(lifecycle);
+            match account {
+                Some(account) => on_auth_invalid(app, &account, source),
+                None => teardown_unpublished_account_views(app, &id, source),
+            }
+        }
     }
 }
 
@@ -810,28 +878,144 @@ fn cancel_attempt(app: &AppHandle, attempt_id: &str) {
 
 // ------------------------------------------------------- account teardown
 
-/// Closes every webview of an account (hidden adapter page and detail
-/// windows). Profile data is kept.
-fn teardown_account_views(app: &AppHandle, account_id: &str) {
-    crate::browser_tabs::close_account(app, account_id);
-    let labels = {
-        let ls = login_state(app);
-        let mut inner = ls.lock();
-        let labels: Vec<String> = inner
-            .bindings
-            .iter()
-            .filter(|(_, b)| **b == Binding::Account(account_id.to_string()))
-            .map(|(l, _)| l.clone())
-            .collect();
-        for l in &labels {
-            inner.bindings.remove(l);
-        }
-        inner.validating.remove(account_id);
-        labels
-    };
-    for l in &labels {
-        profiles::destroy_window(app, l);
+/// Detach metadata while lifecycle settlement is gated. The returned labels
+/// are used only to capture native instances before releasing that gate.
+fn detach_account_views(inner: &mut Inner, account_id: &str) -> Vec<String> {
+    let labels: Vec<String> = inner
+        .bindings
+        .iter()
+        .filter(|(_, binding)| **binding == Binding::Account(account_id.to_string()))
+        .map(|(label, _)| label.clone())
+        .collect();
+    for label in &labels {
+        inner.bindings.remove(label);
+        inner.adapter_ready.remove(label);
+        inner.retiring_views.insert(label.clone());
     }
+    inner.validating.remove(account_id);
+    labels
+}
+
+/// Called under lifecycle immediately before rebinding a retained profile.
+/// Manager absence is the completion evidence; no native wait occurs here.
+fn allow_retired_view_rebind(
+    inner: &mut Inner,
+    label: &str,
+    native_present: bool,
+) -> Result<(), AppError> {
+    if inner.retiring_views.contains(label) {
+        if native_present {
+            return Err(app_err(
+                codes::ADAPTER_NOT_READY,
+                "旧账号页面仍在退出，请稍后重试；若持续失败请重新登录",
+            )
+            .retryable());
+        }
+        inner.retiring_views.remove(label);
+    }
+    Ok(())
+}
+
+fn require_identity_not_retiring(inner: &Inner, label: &str) -> Result<(), AppError> {
+    if inner.retiring_views.contains(label) {
+        Err(app_err(codes::ACCOUNT_STALE_GENERATION, "account page is retiring").retryable())
+    } else {
+        Ok(())
+    }
+}
+
+/// A delayed cleanup owns instances, never a lookup by account or reusable
+/// label. Generic only so barrier tests exercise this exact production plan.
+struct CapturedViews<T>(Vec<T>);
+impl<T> CapturedViews<T> {
+    fn capture(labels: Vec<String>, mut lookup: impl FnMut(&str) -> Option<T>) -> Self {
+        Self(labels.iter().filter_map(|label| lookup(label)).collect())
+    }
+    fn destroy(self, mut destroy: impl FnMut(T)) {
+        for window in self.0 {
+            destroy(window);
+        }
+    }
+}
+fn capture_account_views(
+    app: &AppHandle,
+    labels: Vec<String>,
+) -> CapturedViews<tauri::WebviewWindow> {
+    CapturedViews::capture(labels, |label| app.get_webview_window(label))
+}
+fn destroy_captured_views(app: &AppHandle, windows: CapturedViews<tauri::WebviewWindow>) {
+    let mut failed = false;
+    windows.destroy(|window| {
+        if let Err(error) = window.destroy() {
+            failed = true;
+            log::warn!("retired account window destruction failed: {error}");
+        }
+    });
+    // A successful destroy request may complete asynchronously. Keep the gate
+    // until the manager actually no longer has that instance's label.
+    login_state(app)
+        .lock()
+        .retiring_views
+        .retain(|label| app.get_webview_window(label).is_some());
+    if failed {
+        events::toast(app, "旧账号页面未能关闭，请稍后重试或重新登录");
+    }
+}
+
+fn settle_account_exit(
+    inner: &mut Inner,
+    account_id: &str,
+    mode: LogoutMode,
+) -> (Vec<String>, Option<String>) {
+    let labels = detach_account_views(inner, account_id);
+    inner.unread.remove(account_id);
+    let profile = inner
+        .meta
+        .get(account_id)
+        .and_then(|meta| meta.profile_id.clone());
+    match mode {
+        LogoutMode::ExitOnline => {
+            if let Some(meta) = inner.meta.get_mut(account_id) {
+                meta.suspended_by_user = true;
+            }
+        }
+        LogoutMode::Logout => {
+            if let Some(meta) = inner.meta.get_mut(account_id) {
+                meta.profile_id = None;
+                meta.suspended_by_user = false;
+            }
+        }
+        LogoutMode::Forget => {
+            inner.meta.remove(account_id);
+            if inner.active.as_deref() == Some(account_id) {
+                inner.active = None;
+            }
+        }
+    }
+    (labels, profile)
+}
+
+/// A navigation callback which found no context must recheck under lifecycle:
+/// its earlier observation cannot authorize teardown of a newly published page.
+fn teardown_unpublished_account_views(app: &AppHandle, account_id: &str, source: &ViewContext) {
+    let ls = login_state(app);
+    let lifecycle = ls.lifecycle();
+    {
+        let host = app.state::<HostState>();
+        let cores = host.lock();
+        if cores.views.current(&source.webview_label).as_ref() != Some(source)
+            || cores
+                .accounts
+                .current_context(&AccountId::new(account_id))
+                .is_some()
+        {
+            return;
+        }
+    }
+    let labels = detach_account_views(&mut ls.lock(), account_id);
+    let windows = capture_account_views(app, labels);
+    drop(lifecycle);
+    destroy_captured_views(app, windows);
 }
 
 /// Executes the store side of a revoke list: secret deletion and staged
@@ -850,30 +1034,52 @@ fn apply_credential_revoke(revoke: &RevokeList) {
 
 /// Commits the non-secret profile marker through the ledger so that the
 /// account restarts as "suspended with credential" (quick login).
-fn commit_profile_marker(registry: &mut AccountRegistry, ctx: &AccountContext, profile_id: &str) {
-    let marker = json!({
-        "v": 1,
-        "kind": "webview_profile",
-        "profile_id": profile_id,
-    })
-    .to_string();
-    let mut store = KeychainStore::new();
-    let result = registry.begin_credential_commit(ctx).and_then(|op| {
-        match registry.stage_credential(&op.operation_id, &mut store, &Secret::new(marker)) {
-            Ok(_) => registry.commit_credential(&op.operation_id, &mut store),
-            Err(e) => {
-                let _ = registry.abort_credential(&op.operation_id, &mut store);
-                Err(e)
-            }
-        }
-    });
-    if let Err(e) = result {
-        log::warn!(
-            "account {}: quick-login marker not committed ({}): restart will need a new login",
-            ctx.account_id,
-            e.code
-        );
+fn commit_profile_marker(
+    host: &HostState,
+    ctx: &AccountContext,
+    profile_id: &str,
+    store: &mut dyn SecretStore,
+    persist_index: impl Fn() -> Result<(), AppError>,
+) -> Result<(), AppError> {
+    let marker = Secret::new(
+        json!({ "v": 1, "kind": "webview_profile", "profile_id": profile_id }).to_string(),
+    );
+    let (operation, target) = {
+        let mut cores = host.lock();
+        let operation = cores.accounts.begin_credential_commit(ctx)?;
+        let target = cores
+            .accounts
+            .credential_target(ctx, &operation.operation_id)?;
+        (operation.operation_id, target)
+    };
+    // Persist the revision reservation before touching Keychain. Failed IO
+    // never reports ready, and never deletes the previously committed key.
+    persist_index()?;
+    let staged = store.stage(&target, &marker)?;
+    let recorded = host
+        .lock()
+        .accounts
+        .record_credential_staged(ctx, &operation, &staged);
+    if let Err(error) = recorded {
+        let _ = store.discard(&staged);
+        return Err(error);
     }
+    persist_index()?;
+    store.commit(&staged)?;
+    let old = host
+        .lock()
+        .accounts
+        .record_credential_promoted(ctx, &operation, &staged)?;
+    // Old-key deletion is authorized only by the durable new index. A crash
+    // before/after deletion leaves IndexCommitted recovery metadata on disk.
+    persist_index()?;
+    if let Some(old) = &old {
+        store.delete(old)?;
+    }
+    host.lock()
+        .accounts
+        .record_credential_cleanup(&operation, old.as_ref())?;
+    persist_index()
 }
 
 // ---------------------------------------------------------------- init
@@ -1319,6 +1525,8 @@ pub async fn account_switch(
 ) -> CmdResult<serde_json::Value> {
     let app = window.app_handle().clone();
     guard_app(&app, &window, "account_switch")?;
+    let ls = login_state(&app);
+    let lifecycle = ls.lifecycle();
     let ctx = check_account(&app, &account)?;
     let id = ctx.account_id.as_str().to_string();
     let kind = {
@@ -1335,6 +1543,12 @@ pub async fn account_switch(
         let validating = inner.validating.contains(&id);
         match (kind, profile) {
             (Some(AccountStateKind::Suspended), Some(p)) if !validating => {
+                let label = profiles::account_label(&p);
+                allow_retired_view_rebind(
+                    &mut inner,
+                    &label,
+                    app.get_webview_window(&label).is_some(),
+                )?;
                 if let Some(m) = inner.meta.get_mut(&id) {
                     m.suspended_by_user = false;
                 }
@@ -1347,6 +1561,7 @@ pub async fn account_switch(
             _ => None,
         }
     };
+    drop(lifecycle);
     if let Some(p) = resume_profile {
         if app
             .get_webview_window(&profiles::account_label(&p))
@@ -1362,50 +1577,74 @@ pub async fn account_switch(
     Ok(snapshot(&app))
 }
 
+/// Caller holds lifecycle then the outbound mutex; no Cores guard crosses IO.
+fn lock_account_storage(
+    host: &HostState,
+    journal: Option<&crate::adapter::outbound_journal::OutboundJournal>,
+    account: &AccountContext,
+) -> Result<(), AppError> {
+    // Attempt both stores even when one fails. Registry revocation has already
+    // happened; a failed disk barrier cannot restore that authorization.
+    let outbound = journal
+        .ok_or_else(|| app_err("im.journal_unavailable", "account storage is unavailable"))
+        .and_then(|journal| journal.logout_lock(account));
+    let main = host.lock_namespace_ready(account);
+    outbound.and(main)
+}
+
+fn reopen_account_storage(
+    host: &HostState,
+    journal: Option<&crate::adapter::outbound_journal::OutboundJournal>,
+    account: &AccountContext,
+) -> Result<(), AppError> {
+    let result = host.unlock_namespace_ready(account).and_then(|()| {
+        journal
+            .ok_or_else(|| app_err("im.journal_unavailable", "account storage is unavailable"))?
+            .unlock_after_reauth(account)
+    });
+    if let Err(error) = result {
+        // Publication may have advanced the registry already. Revoke that
+        // authorization instead of exposing an online but unusable account.
+        let _ = host.logout_context(account, LogoutMode::ExitOnline);
+        let _ = lock_account_storage(host, journal, account);
+        return Err(app_err(&error.code, "账号存储恢复失败，已暂停；请重新登录"));
+    }
+    Ok(())
+}
+
 /// Shared part of the three exit modes.
 fn exit_account(app: &AppHandle, ctx: &AccountContext, mode: LogoutMode) -> Result<(), AppError> {
     let id = ctx.account_id.as_str().to_string();
     let host = app.state::<HostState>();
-    let kind = host
-        .lock()
-        .accounts
-        .state(&ctx.account_id)
-        .map(|s| s.kind());
-    let revoke = match (mode, kind) {
-        // Not online (still validating, expired…): nothing to revoke for
-        // exit-online beyond closing the page.
-        (LogoutMode::ExitOnline, Some(k)) if k != AccountStateKind::Online => None,
-        (LogoutMode::Logout, Some(AccountStateKind::LoggedOut)) => None,
-        _ => Some(host.logout(&id, mode)?),
-    };
-    teardown_account_views(app, &id);
+    let ls = login_state(app);
+    let lifecycle = ls.lifecycle();
+    let (revoke, storage) = crate::adapter::with_outbound_transition(app, |journal| {
+        host.check_account_context(ctx)?;
+        let kind = host
+            .lock()
+            .accounts
+            .state(&ctx.account_id)
+            .map(|s| s.kind());
+        let revoke = match (mode, kind) {
+            // Not online (still validating, expired…): nothing to revoke for
+            // exit-online beyond closing the page.
+            (LogoutMode::ExitOnline, Some(k)) if k != AccountStateKind::Online => None,
+            (LogoutMode::Logout, Some(AccountStateKind::LoggedOut)) => None,
+            _ => Some(host.logout_context(ctx, mode)?),
+        };
+        let storage = if revoke.is_some() {
+            lock_account_storage(&host, journal, ctx)
+        } else {
+            Ok(())
+        };
+        Ok::<_, AppError>((revoke, storage))
+    })?;
+    let (labels, profile) = settle_account_exit(&mut ls.lock(), &id, mode);
+    let windows = capture_account_views(app, labels);
+    drop(lifecycle);
+    crate::browser_tabs::close_account(app, &id);
+    destroy_captured_views(app, windows);
     crate::adapter::on_account_removed(app, ctx);
-    let profile = {
-        let ls = login_state(app);
-        let mut inner = ls.lock();
-        inner.unread.remove(&id);
-        let profile = inner.meta.get(&id).and_then(|m| m.profile_id.clone());
-        match mode {
-            LogoutMode::ExitOnline => {
-                if let Some(m) = inner.meta.get_mut(&id) {
-                    m.suspended_by_user = true;
-                }
-            }
-            LogoutMode::Logout => {
-                if let Some(m) = inner.meta.get_mut(&id) {
-                    m.profile_id = None;
-                    m.suspended_by_user = false;
-                }
-            }
-            LogoutMode::Forget => {
-                inner.meta.remove(&id);
-                if inner.active.as_deref() == Some(id.as_str()) {
-                    inner.active = None;
-                }
-            }
-        }
-        profile
-    };
     if let Some(revoke) = &revoke {
         apply_credential_revoke(revoke);
     }
@@ -1420,7 +1659,7 @@ fn exit_account(app: &AppHandle, ctx: &AccountContext, mode: LogoutMode) -> Resu
     }
     log::info!("account {id}: exit {mode:?}");
     persist_and_emit(app);
-    Ok(())
+    storage
 }
 
 /// Async: the keychain cleanup must not block the main thread.
@@ -1551,10 +1790,17 @@ pub struct UpstreamIdentityDto {
 
 /// The account bound to an `acct-*` webview, or None while identity is unknown.
 pub fn account_for_webview(app: &AppHandle, label: &str) -> Option<contracts::AccountContext> {
-    let binding = login_state(app).lock().bindings.get(label).cloned()?;
+    let ls = login_state(app);
+    let inner = ls.lock();
+    let binding = inner.bindings.get(label).cloned()?;
     let Binding::Account(id) = binding else {
         return None;
     };
+    // A recovered page must publish and verify its upstream identity again.
+    if inner.validating.contains(&id) {
+        return None;
+    }
+    drop(inner);
     let host = app.state::<HostState>();
     let cores = host.lock();
     let id = AccountId::new(id);
@@ -1562,6 +1808,203 @@ pub fn account_for_webview(app: &AppHandle, label: &str) -> Option<contracts::Ac
         AccountStateKind::Online => cores.accounts.current_context(&id),
         _ => None,
     }
+}
+
+fn current_adapter_account(
+    inner: &Inner,
+    registry: &AccountRegistry,
+    label: &str,
+) -> Option<AccountContext> {
+    let Binding::Account(id) = inner.bindings.get(label)? else {
+        return None;
+    };
+    if inner.validating.contains(id) || inner.retiring_views.contains(label) {
+        return None;
+    }
+    let account = registry.current_context(&AccountId::new(id.clone()))?;
+    registry.validate(&account).ok()?;
+    Some(account)
+}
+
+/// Called for each allowed page-load start, before the new page issues READY.
+/// Old queued failures cannot consume a successor document's boot lease.
+pub(crate) fn adapter_page_started(app: &AppHandle, label: &str) {
+    if !label.starts_with(views::ACCOUNT_WEBVIEW_PREFIX) {
+        return;
+    }
+    let Some(ls) = app.try_state::<LoginState>() else {
+        return;
+    };
+    let _lifecycle = ls.lifecycle();
+    ls.lock().adapter_ready.remove(label);
+}
+
+pub(crate) fn adapter_account_removed(app: &AppHandle, account: &AccountContext) {
+    if let Some(ls) = app.try_state::<LoginState>() {
+        ls.lock()
+            .adapter_ready
+            .retain(|_, lease| lease.account != *account);
+    }
+}
+
+/// Resolve binding and publish READY lease under the same lifecycle gate as
+/// queue suspension and identity publication. No claimed page account is used.
+pub(crate) fn issue_adapter_ready(
+    app: &AppHandle,
+    label: &str,
+    boot_epoch: u64,
+) -> Result<Option<AccountContext>, AppError> {
+    let ls = login_state(app);
+    let _lifecycle = ls.lifecycle();
+    let host = app.state::<HostState>();
+    let cores = host.lock();
+    let result = publish_adapter_ready(
+        &mut ls.lock(),
+        &cores.accounts,
+        &cores.views,
+        label,
+        boot_epoch,
+    );
+    result
+}
+
+fn publish_adapter_ready(
+    inner: &mut Inner,
+    registry: &AccountRegistry,
+    views: &crate::views::ViewRegistry,
+    label: &str,
+    boot_epoch: u64,
+) -> Result<Option<AccountContext>, AppError> {
+    let view = views.current(label).ok_or_else(|| {
+        app_err(
+            codes::HOST_VIEW_UNAUTHORIZED,
+            "adapter resource is no longer registered",
+        )
+    })?;
+    if boot_epoch == 0
+        || inner
+            .adapter_ready
+            .get(label)
+            .is_some_and(|lease| lease.boot_epoch >= boot_epoch)
+    {
+        return Err(app_err("adapter.not_ready", "stale adapter READY lease"));
+    }
+    let account = current_adapter_account(inner, registry, label);
+    inner.adapter_ready.remove(label);
+    let Some(account) = account else {
+        return Ok(None);
+    };
+    // At most one current boot per account; old profile/page leases cannot
+    // accumulate or act on the newly bound account.
+    inner.adapter_ready.retain(|_, lease| {
+        lease.account.persistent_key() != account.persistent_key()
+            && registry.validate(&lease.account).is_ok()
+            && views.current(&lease.view.webview_label).as_ref() == Some(&lease.view)
+    });
+    if inner.adapter_ready.len() >= MAX_ACCOUNTS || boot_epoch == 0 {
+        return Err(app_err(
+            "adapter.not_ready",
+            "adapter READY lease unavailable",
+        ));
+    }
+    inner.adapter_ready.insert(
+        label.into(),
+        AdapterReadyLease {
+            account: account.clone(),
+            view,
+            boot_epoch,
+        },
+    );
+    Ok(Some(account))
+}
+
+fn take_queue_fault_lease(
+    inner: &mut Inner,
+    registry: &AccountRegistry,
+    current_view: Option<&ViewContext>,
+    label: &str,
+    account: &AccountContext,
+    boot_epoch: u64,
+) -> Option<AdapterReadyLease> {
+    let lease = inner.adapter_ready.get(label)?;
+    if lease.account != *account
+        || lease.boot_epoch != boot_epoch
+        || boot_epoch == 0
+        || current_view != Some(&lease.view)
+        || current_adapter_account(inner, registry, label).as_ref() != Some(account)
+    {
+        return None;
+    }
+    inner.adapter_ready.remove(label)
+}
+
+fn detach_overloaded_account(inner: &mut Inner, id: &str) -> Vec<String> {
+    settle_account_exit(inner, id, LogoutMode::ExitOnline).0
+}
+
+fn bridge_fault_message(reason: &BridgeFaultReason) -> &'static str {
+    match reason {
+        BridgeFaultReason::QueueOverflow => "消息通道过载，已暂停，请重新登录",
+        BridgeFaultReason::DeliveryFailed => "消息同步失败，已暂停，请重新登录",
+    }
+}
+
+/// Called only after the command's adapter-only ACL check. The registry and
+/// view are checked atomically by HostState before generation revocation.
+pub(crate) fn suspend_faulted_adapter(
+    app: &AppHandle,
+    label: &str,
+    account: &AccountContext,
+    boot_epoch: u64,
+    reason: &BridgeFaultReason,
+) -> Result<bool, AppError> {
+    let ls = login_state(app);
+    let lifecycle = ls.lifecycle();
+    let host = app.state::<HostState>();
+    let lease = {
+        let cores = host.lock();
+        let view = cores.views.current(label);
+        take_queue_fault_lease(
+            &mut ls.lock(),
+            &cores.accounts,
+            view.as_ref(),
+            label,
+            account,
+            boot_epoch,
+        )
+    };
+    let Some(lease) = lease else {
+        return Ok(false);
+    };
+    // A concurrent fact may have invalidated the account after admission;
+    // this operation rechecks the complete generation and view in one lock.
+    let transition = crate::adapter::with_outbound_transition(app, |journal| {
+        host.suspend_current_view(&lease.account, &lease.view)
+            .map(|revoke| (revoke, lock_account_storage(&host, journal, &lease.account)))
+    });
+    let (revoke, storage) = match transition {
+        Ok(result) => result,
+        Err(_) => return Ok(false),
+    };
+    let id = account.account_id.as_str();
+    let labels = detach_overloaded_account(&mut ls.lock(), id);
+    // Capture concrete handles while settlement is gated. A late teardown
+    // must never look up a reused label and destroy the replacement window.
+    let windows: Vec<_> = labels
+        .iter()
+        .filter_map(|label| app.get_webview_window(label))
+        .collect();
+    drop(lifecycle);
+    crate::browser_tabs::close_account(app, account.account_id.as_str());
+    for window in windows {
+        let _ = window.destroy();
+    }
+    crate::adapter::on_account_removed(app, account);
+    apply_credential_revoke(&revoke); // ExitOnline keeps committed credentials.
+    persist_and_emit(app);
+    events::toast(app, bridge_fault_message(reason));
+    storage?;
+    Ok(true)
 }
 
 /// Label of the `acct-*` webview currently serving `account`.
@@ -1575,12 +2018,26 @@ pub fn account_webview_label(
     }
     let ls = login_state(app);
     let inner = ls.lock();
+    if inner.validating.contains(account.account_id.as_str()) {
+        return None;
+    }
     let wanted = Binding::Account(account.account_id.as_str().to_string());
     inner
         .bindings
         .iter()
         .find(|(_, b)| **b == wanted)
         .map(|(l, _)| l.clone())
+}
+
+fn require_identity_binding(inner: &Inner, label: &str, id: &str) -> Result<(), AppError> {
+    require_identity_not_retiring(inner, label)?;
+    if inner.bindings.get(label) != Some(&Binding::Account(id.into())) {
+        return Err(app_err(
+            codes::ACCOUNT_STALE_GENERATION,
+            "adapter binding was revoked",
+        ));
+    }
+    Ok(())
 }
 
 /// Called by `adapter_identity`: publishes the identity for the attempt bound
@@ -1619,6 +2076,7 @@ pub fn on_identity(
             // credential commit and host metadata update. A stale binding
             // captured above is rechecked via the attempt under this guard.
             let lifecycle = ls.lifecycle();
+            require_identity_not_retiring(&ls.lock(), label)?;
             let profile_id = login_state(app)
                 .lock()
                 .attempts
@@ -1630,50 +2088,94 @@ pub fn on_identity(
                         "attempt is gone",
                     )
                 })?;
-            let outcome = {
-                let mut cores = host.lock();
-                let outcome = cores
-                    .accounts
-                    .publish_identity(&AttemptId::new(attempt_id.clone()), upstream)?;
-                if outcome.revoke.is_some() {
-                    let _ = cores.im.invalidate_generation(outcome.ctx.clone());
-                }
-                commit_profile_marker(&mut cores.accounts, &outcome.ctx, &profile_id);
-                outcome
-            };
+            let (outcome, old_profile, completed_window, storage) =
+                crate::adapter::with_outbound_transition(app, |journal| {
+                    let outcome = {
+                        let mut cores = host.lock();
+                        let outcome = cores
+                            .accounts
+                            .publish_identity(&AttemptId::new(attempt_id.clone()), upstream)?;
+                        if outcome.revoke.is_some() {
+                            let _ = cores.im.invalidate_generation(outcome.ctx.clone());
+                        }
+                        outcome
+                    };
+                    let id = outcome.ctx.account_id.as_str().to_string();
+                    let (old_profile, completed_window) = {
+                        let ls = login_state(app);
+                        let mut inner = ls.lock();
+                        let completed_window = inner
+                            .attempts
+                            .remove(&attempt_id)
+                            .and_then(|rec| rec.login_window);
+                        crate::browser_bridge::cancel(&attempt_id);
+                        inner
+                            .bindings
+                            .insert(label.to_string(), Binding::Account(id.clone()));
+                        inner.validating.remove(&id);
+                        inner.active = Some(id.clone());
+                        let meta = inner.meta.entry(id.clone()).or_insert_with(|| AccountMeta {
+                            color: color_for(&id),
+                            ..AccountMeta::default()
+                        });
+                        meta.update_identity(&identity);
+                        meta.suspended_by_user = false;
+                        (
+                            meta.profile_id.replace(profile_id.clone()),
+                            completed_window,
+                        )
+                    };
+                    let storage = commit_profile_marker(
+                        &host,
+                        &outcome.ctx,
+                        &profile_id,
+                        &mut KeychainStore::new(),
+                        || {
+                            persist_checked(app).map_err(|_| {
+                                app_err(
+                                    "store.persist_failed",
+                                    "credential index persistence failed",
+                                )
+                            })
+                        },
+                    )
+                    .and_then(|()| reopen_account_storage(&host, journal, &outcome.ctx));
+                    if storage.is_err() {
+                        let _ = host.logout_context(&outcome.ctx, LogoutMode::ExitOnline);
+                        let _ = lock_account_storage(&host, journal, &outcome.ctx);
+                    }
+                    Ok::<_, AppError>((outcome, old_profile, completed_window, storage))
+                })?;
             let id = outcome.ctx.account_id.as_str().to_string();
-            let (old_profile, completed_window) = {
-                let ls = login_state(app);
-                let mut inner = ls.lock();
-                let completed_window = inner
-                    .attempts
-                    .remove(&attempt_id)
-                    .and_then(|rec| rec.login_window);
-                crate::browser_bridge::cancel(&attempt_id);
-                inner
-                    .bindings
-                    .insert(label.to_string(), Binding::Account(id.clone()));
-                inner.validating.remove(&id);
-                inner.active = Some(id.clone());
-                let meta = inner.meta.entry(id.clone()).or_insert_with(|| AccountMeta {
-                    color: color_for(&id),
-                    ..AccountMeta::default()
-                });
-                meta.update_identity(&identity);
-                meta.suspended_by_user = false;
-                (
-                    meta.profile_id.replace(profile_id.clone()),
-                    completed_window,
-                )
+            // Retire the previous binding and capture its exact native
+            // instance before a successor can publish under the same label.
+            let stale_profile = outcome.revoke.as_ref().and_then(|revoke| {
+                revoke
+                    .profile
+                    .as_ref()
+                    .map(|p| p.as_str().to_string())
+                    .or(old_profile)
+                    .filter(|p| p != &profile_id)
+            });
+            let stale_windows = if let Some(profile) = &stale_profile {
+                let label = profiles::account_label(profile);
+                {
+                    let mut inner = ls.lock();
+                    inner.bindings.remove(&label);
+                    inner.adapter_ready.remove(&label);
+                    inner.retiring_views.insert(label.clone());
+                }
+                capture_account_views(app, vec![label])
+            } else {
+                CapturedViews(Vec::new())
             };
-            // No window call, namespace teardown, or event emission is made
-            // while settlement is locked.
+            // Native destruction and events happen only after settlement.
             drop(lifecycle);
-            // The identity is online again: lift the logout lock of its
-            // namespace (I-13; `Namespace` is per identity, so a re-login of
-            // the same account reopens what `HostState::logout` locked).
-            // Outside the `Cores` lock: it only enqueues.
-            host.unlock_namespace(&outcome.ctx);
+            destroy_captured_views(app, stale_windows);
+            if let Some(profile) = stale_profile {
+                profiles::remove_profile_data(app, &profile);
+            }
+            // Both stores were reopened before releasing the outbound gate.
             if let Some(revoke) = &outcome.revoke {
                 // Same upstream identity logged in again: the previous
                 // generation's page and profile go away, tabs in that profile included.
@@ -1683,18 +2185,6 @@ pub fn on_identity(
                     revoke.environment.clone(),
                     revoke.revoked_generation,
                 );
-                let stale_profile = revoke
-                    .profile
-                    .as_ref()
-                    .map(|p| p.as_str().to_string())
-                    .or(old_profile)
-                    .filter(|p| p != &profile_id);
-                if let Some(p) = stale_profile {
-                    let old_label = profiles::account_label(&p);
-                    login_state(app).lock().bindings.remove(&old_label);
-                    profiles::destroy_window(app, &old_label);
-                    profiles::remove_profile_data(app, &p);
-                }
                 crate::adapter::on_account_removed(app, &old_ctx);
             }
             if let Some(window) = completed_window {
@@ -1706,13 +2196,23 @@ pub fn on_identity(
                 outcome.is_new_account
             );
             persist_and_emit(app);
+            if let Err(error) = storage {
+                events::toast(
+                    app,
+                    "账号存储恢复失败，已暂停；请检查磁盘或钥匙串后重新登录",
+                );
+                return Err(error);
+            }
             Ok(outcome.ctx)
         }
         Binding::Account(id) => {
+            let ls = login_state(app);
+            let lifecycle = ls.lifecycle();
+            require_identity_binding(&ls.lock(), label, &id)?;
             let account_id = AccountId::new(id.clone());
-            let mut resumed = false;
-            let ctx =
-                {
+            let (ctx, old, storage) = crate::adapter::with_outbound_transition(app, |journal| {
+                let mut old = None;
+                let ctx = {
                     let mut cores = host.lock();
                     if cores.accounts.account_for(&environment, &upstream.buid)
                         != Some(account_id.clone())
@@ -1728,14 +2228,9 @@ pub fn on_identity(
                             .current_context(&account_id)
                             .ok_or_else(|| app_err(codes::ACCOUNT_UNKNOWN, "unknown account"))?,
                         Some(AccountStateKind::Suspended | AccountStateKind::Invalid) => {
-                            let old = cores.accounts.current_context(&account_id);
+                            old = cores.accounts.current_context(&account_id);
                             let ctx = cores.accounts.resume_quick_login(&account_id)?;
                             let _ = cores.im.invalidate_generation(ctx.clone());
-                            drop(cores);
-                            if let Some(old) = old {
-                                crate::adapter::on_account_removed(app, &old);
-                            }
-                            resumed = true;
                             ctx
                         }
                         _ => {
@@ -1746,12 +2241,11 @@ pub fn on_identity(
                         }
                     }
                 };
-            if resumed {
-                log::info!("account {id}: saved web session accepted");
-                // Quick login of a suspended/invalid account: its namespace
-                // was locked by the earlier `exit_account`; reopen it.
-                host.unlock_namespace(&ctx);
-            }
+                // Also reopens a successfully identity-verified recovery page:
+                // replace_identity kept it Online but its namespace was locked.
+                let storage = reopen_account_storage(&host, journal, &ctx);
+                Ok::<_, AppError>((ctx, old, storage))
+            })?;
             {
                 let ls = login_state(app);
                 let mut inner = ls.lock();
@@ -1760,59 +2254,126 @@ pub fn on_identity(
                     m.update_identity(&identity);
                 }
             }
+            drop(lifecycle);
+            if let Some(old) = old {
+                crate::adapter::on_account_removed(app, &old);
+            }
             persist_and_emit(app);
+            if let Err(error) = storage {
+                events::toast(app, "账号存储恢复失败，已暂停；请检查磁盘后重新登录");
+                return Err(error);
+            }
             Ok(ctx)
         }
     }
 }
 
-/// Called when the page reports `auth_invalid` or lands on the login page.
-pub fn on_auth_invalid(app: &AppHandle, account: &contracts::AccountContext) {
-    let host = app.state::<HostState>();
-    let invalidated = {
-        let mut cores = host.lock();
-        let current = cores.accounts.current_context(&account.account_id);
-        let kind = cores.accounts.state(&account.account_id).map(|s| s.kind());
-        match (current, kind) {
-            (Some(cur), Some(AccountStateKind::Online | AccountStateKind::Suspended))
-                if cur.session_generation == account.session_generation =>
-            {
-                match cores
-                    .accounts
-                    .invalidate(&account.account_id, "web session reported auth invalid")
-                {
-                    Ok(_) => {
-                        if let Some(new_ctx) = cores.accounts.current_context(&account.account_id) {
-                            let _ = cores.im.invalidate_generation(new_ctx);
-                        }
-                        true
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "account {}: not invalidated: {}",
-                            account.account_id,
-                            e.code
-                        );
-                        false
-                    }
-                }
-            }
-            // Already invalidated by the fact pipeline: only the host-side
-            // teardown below is still due. Anything else is a stale callback.
-            (_, Some(AccountStateKind::Invalid)) => true,
-            _ => {
-                log::info!("account {}: stale auth_invalid ignored", account.account_id);
-                false
-            }
-        }
-    };
-    if !invalidated {
-        return;
+/// Both account and source resource are checked in the same Cores critical
+/// section as generation revocation. Caller already owns lifecycle + journal.
+fn invalidate_redirect_account(
+    cores: &mut crate::state::Cores,
+    account: &AccountContext,
+    source: &ViewContext,
+) -> bool {
+    if cores.views.current(&source.webview_label).as_ref() != Some(source) {
+        return false;
     }
-    teardown_account_views(app, account.account_id.as_str());
+    let current = cores.accounts.current_context(&account.account_id);
+    let kind = cores
+        .accounts
+        .state(&account.account_id)
+        .map(|state| state.kind());
+    if current.as_ref() != Some(account)
+        || !matches!(
+            kind,
+            Some(AccountStateKind::Online | AccountStateKind::Suspended)
+        )
+    {
+        return false;
+    }
+    if cores
+        .accounts
+        .invalidate(&account.account_id, "web session reported auth invalid")
+        .is_err()
+    {
+        return false;
+    }
+    if let Some(new_ctx) = cores.accounts.current_context(&account.account_id) {
+        let _ = cores.im.invalidate_generation(new_ctx);
+    }
+    true
+}
+
+/// Called only with the callback's captured account and native resource.
+fn on_auth_invalid(app: &AppHandle, account: &AccountContext, source: &ViewContext) {
+    let ls = login_state(app);
+    let lifecycle = ls.lifecycle();
+    let host = app.state::<HostState>();
+    let transition = crate::adapter::with_outbound_transition(app, |journal| {
+        let changed = invalidate_redirect_account(&mut host.lock(), account, source);
+        changed.then(|| lock_account_storage(&host, journal, account))
+    });
+    let Some(storage) = transition else { return };
+    let labels = detach_account_views(&mut ls.lock(), account.account_id.as_str());
+    let windows = capture_account_views(app, labels);
+    drop(lifecycle);
+    finish_auth_invalid(app, account, windows, storage);
+}
+
+fn finish_auth_invalid(
+    app: &AppHandle,
+    account: &AccountContext,
+    windows: CapturedViews<tauri::WebviewWindow>,
+    storage: Result<(), AppError>,
+) {
+    destroy_captured_views(app, windows);
     crate::adapter::on_account_removed(app, account);
-    events::toast(app, "账号登录已失效，请重新登录");
+    events::toast(
+        app,
+        "账号登录已失效或可能已在其他位置登录，请重新登录；同一账号不支持与官方网页同时在线。",
+    );
+    if let Err(error) = storage {
+        log::error!(
+            "account {}: outbound logout lock failed: {}",
+            account.account_id,
+            error.code
+        );
+        events::toast(app, "账号已停用，但存储锁写入失败；请检查磁盘后重新登录");
+    }
     persist_and_emit(app);
+}
+
+/// AuthInvalid's actual registry transition occurs in push_fact, not in the
+/// later UI cleanup. Gate that transition and its marker as one operation.
+pub(crate) fn push_auth_invalid(
+    app: &AppHandle,
+    envelope: crate::dto::AdapterFactEnvelopeDto,
+) -> Result<core_im::IngestReport, AppError> {
+    let account: AccountContext = envelope.account.clone().into();
+    let ls = login_state(app);
+    let lifecycle = ls.lifecycle();
+    let host = app.state::<HostState>();
+    let (report, storage) = crate::adapter::with_outbound_transition(app, |journal| {
+        let report = host.push_fact(envelope)?;
+        let storage = if report.auth_invalid {
+            lock_account_storage(&host, journal, &account)
+        } else {
+            Ok(())
+        };
+        Ok::<_, AppError>((report, storage))
+    })?;
+    let windows = if report.auth_invalid {
+        let labels = detach_account_views(&mut ls.lock(), account.account_id.as_str());
+        capture_account_views(app, labels)
+    } else {
+        CapturedViews(Vec::new())
+    };
+    drop(lifecycle);
+    if report.auth_invalid {
+        finish_auth_invalid(app, &account, windows, storage.clone());
+    }
+    storage?;
+    Ok(report)
 }
 
 /// Per-account unread total for the title-bar tab badge (emits account://changed when it changes).
@@ -1902,3 +2463,1273 @@ mod tests {
 #[cfg(test)]
 #[path = "login_concurrency_tests.rs"]
 mod concurrency_tests;
+
+/// Crash recovery revokes the dead page's generation before any delayed reload.
+/// It never retries an operation or changes the retained browser profile.
+pub(crate) fn prepare_webview_recovery(app: &AppHandle, label: &str) -> Option<AccountContext> {
+    let ls = login_state(app);
+    let _lifecycle = ls.lifecycle();
+    let id = match ls.lock().bindings.get(label).cloned()? {
+        Binding::Account(id) => id,
+        Binding::Attempt(_) => return None,
+    };
+    let host = app.state::<HostState>();
+    let (old, new, storage) = crate::adapter::with_outbound_transition(app, |journal| {
+        let (old, new) = {
+            let mut cores = host.lock();
+            let old = cores
+                .accounts
+                .current_context(&AccountId::new(id.clone()))?;
+            cores.accounts.validate(&old).ok()?;
+            let (new, _) = cores
+                .accounts
+                .replace_identity(&old.account_id, None)
+                .ok()?;
+            let _ = cores.im.invalidate_generation(new.clone());
+            (old, new)
+        };
+        let storage = lock_account_storage(&host, journal, &old);
+        if storage.is_err() {
+            let _ = host.logout_context(&new, LogoutMode::ExitOnline);
+        }
+        Some((old, new, storage))
+    })?;
+    ls.lock().validating.insert(id);
+    drop(_lifecycle);
+    crate::adapter::on_account_removed(app, &old);
+    persist_and_emit(app);
+    if let Err(error) = storage {
+        log::error!("recovery storage lock failed: {}", error.code);
+        events::toast(app, "账号存储锁写入失败，已暂停；请重新登录");
+        return None;
+    }
+    Some(new)
+}
+
+pub(crate) fn recovery_binding_is_current(
+    app: &AppHandle,
+    label: &str,
+    expected: Option<&AccountContext>,
+) -> bool {
+    let ls = login_state(app);
+    let binding = ls.lock().bindings.get(label).cloned();
+    match (binding, expected) {
+        (Some(Binding::Account(id)), Some(ctx)) if id == ctx.account_id.as_str() => {
+            let host = app.state::<HostState>();
+            let valid = host.lock().accounts.validate(ctx).is_ok();
+            valid
+        }
+        (Some(Binding::Account(_)), _) | (_, Some(_)) => false,
+        _ => true,
+    }
+}
+
+#[cfg(test)]
+mod adapter_queue_fault_tests {
+    use super::*;
+    use crate::adapter::outbound_journal::{self, OutboundJournal, SendPayload};
+    use crate::dto::SendDispositionDto;
+    use core_account::{AccountState, MemorySecretStore, ProfileAction};
+    use core_store::{DraftBook, FileStore, Namespace};
+
+    pub(super) fn online(host: &HostState, buid: &str) -> AccountContext {
+        let mut cores = host.lock();
+        let attempt = cores.accounts.start_login(Environment::production());
+        let account = cores
+            .accounts
+            .publish_identity(
+                &attempt.attempt_id,
+                UpstreamIdentity {
+                    buid: Buid::new(buid),
+                    uid: format!("self-{buid}"),
+                    agent_id: None,
+                    environment: Environment::production(),
+                },
+            )
+            .unwrap()
+            .ctx;
+        let mut secret_store = MemorySecretStore::new();
+        let operation = cores.accounts.begin_credential_commit(&account).unwrap();
+        cores
+            .accounts
+            .stage_credential(
+                &operation.operation_id,
+                &mut secret_store,
+                &Secret::new(b"synthetic-retained-marker".to_vec()),
+            )
+            .unwrap();
+        cores
+            .accounts
+            .commit_credential(&operation.operation_id, &mut secret_store)
+            .unwrap();
+        account
+    }
+    fn bind(
+        host: &HostState,
+        inner: &mut Inner,
+        account: &AccountContext,
+        label: &str,
+        epoch: u64,
+    ) -> ViewContext {
+        let mut cores = host.lock();
+        let view = cores.views.register(label);
+        inner.bindings.insert(
+            label.into(),
+            Binding::Account(account.account_id.as_str().into()),
+        );
+        inner.meta.insert(
+            account.account_id.as_str().into(),
+            AccountMeta {
+                profile_id: Some(format!("profile-{}", account.account_id)),
+                ..AccountMeta::default()
+            },
+        );
+        assert_eq!(
+            publish_adapter_ready(inner, &cores.accounts, &cores.views, label, epoch).unwrap(),
+            Some(account.clone())
+        );
+        view
+    }
+    fn claim(
+        host: &HostState,
+        inner: &mut Inner,
+        label: &str,
+        account: &AccountContext,
+        epoch: u64,
+    ) -> Option<AdapterReadyLease> {
+        let cores = host.lock();
+        take_queue_fault_lease(
+            inner,
+            &cores.accounts,
+            cores.views.current(label).as_ref(),
+            label,
+            account,
+            epoch,
+        )
+    }
+
+    #[test]
+    fn bridge_fault_notifications_distinguish_capacity_from_delivery_failure() {
+        assert_eq!(
+            bridge_fault_message(&BridgeFaultReason::QueueOverflow),
+            "消息通道过载，已暂停，请重新登录"
+        );
+        let delivery = bridge_fault_message(&BridgeFaultReason::DeliveryFailed);
+        assert_eq!(delivery, "消息同步失败，已暂停，请重新登录");
+        assert!(!delivery.contains("过载"));
+        assert!(!delivery.contains("登录失效"));
+    }
+
+    #[test]
+    fn latest_ready_full_account_and_boot_are_required_without_consuming_a_valid_successor() {
+        let host = HostState::new(None, 1);
+        let a = online(&host, "a");
+        let b = online(&host, "b");
+        let mut inner = Inner::default();
+        bind(&host, &mut inner, &a, "acct-a", 10);
+        bind(&host, &mut inner, &b, "acct-b", 20);
+        {
+            let cores = host.lock();
+            publish_adapter_ready(&mut inner, &cores.accounts, &cores.views, "acct-a", 11).unwrap();
+        }
+        {
+            let cores = host.lock();
+            // Epoch allocation can precede lifecycle-lock acquisition. A
+            // delayed older READY must not overwrite the newer accepted lease.
+            assert!(
+                publish_adapter_ready(&mut inner, &cores.accounts, &cores.views, "acct-a", 10)
+                    .is_err()
+            );
+            assert_eq!(inner.adapter_ready["acct-a"].boot_epoch, 11);
+        }
+        let mut foreign_environment = a.clone();
+        foreign_environment.environment = Environment::named("other");
+        let mut old = a.clone();
+        old.session_generation -= 1;
+        for (label, ctx, epoch) in [
+            ("acct-a", b.clone(), 11),
+            ("acct-b", a.clone(), 20),
+            ("acct-a", foreign_environment, 11),
+            ("acct-a", old, 11),
+            ("acct-a", a.clone(), 10),
+            ("acct-a", a.clone(), 0),
+        ] {
+            assert!(claim(&host, &mut inner, label, &ctx, epoch).is_none());
+            assert!(host.lock().accounts.validate(&a).is_ok());
+            assert!(host.lock().accounts.validate(&b).is_ok());
+        }
+        assert!(claim(&host, &mut inner, "acct-a", &a, 11).is_some());
+        assert!(claim(&host, &mut inner, "acct-b", &b, 20).is_some());
+    }
+
+    #[test]
+    fn replaced_native_resource_page_start_and_account_generation_invalidate_old_leases() {
+        let host = HostState::new(None, 1);
+        let old = online(&host, "a");
+        let mut inner = Inner::default();
+        let old_view = bind(&host, &mut inner, &old, "acct-a", 10);
+        let replacement_view = host.lock().views.register("acct-a");
+        assert_ne!(old_view, replacement_view);
+        assert!(claim(&host, &mut inner, "acct-a", &old, 10).is_none());
+        assert!(host.suspend_current_view(&old, &old_view).is_err());
+        {
+            let cores = host.lock();
+            publish_adapter_ready(&mut inner, &cores.accounts, &cores.views, "acct-a", 11).unwrap();
+        }
+        // Same resource, new document: the page-start callback drops its lease.
+        inner.adapter_ready.remove("acct-a");
+        assert!(claim(&host, &mut inner, "acct-a", &old, 11).is_none());
+        let new = online(&host, "a");
+        assert_ne!(new.session_generation, old.session_generation);
+        {
+            let cores = host.lock();
+            publish_adapter_ready(&mut inner, &cores.accounts, &cores.views, "acct-a", 12).unwrap();
+        }
+        assert!(claim(&host, &mut inner, "acct-a", &old, 11).is_none());
+        assert!(host.lock().accounts.validate(&new).is_ok());
+        assert!(claim(&host, &mut inner, "acct-a", &new, 12).is_some());
+    }
+
+    #[test]
+    fn queue_fault_revokes_once_only_and_keeps_profile_credentials_and_other_accounts() {
+        let host = HostState::new(None, 1);
+        let a = online(&host, "a");
+        let b = online(&host, "b");
+        let mut inner = Inner::default();
+        bind(&host, &mut inner, &a, "acct-a", 10);
+        bind(&host, &mut inner, &b, "acct-b", 20);
+        let profile = inner.meta[a.account_id.as_str()].profile_id.clone();
+        let revision = host.lock().accounts.credential_revision(&a.account_id);
+        let lease = claim(&host, &mut inner, "acct-a", &a, 10).unwrap();
+        let revoke = host
+            .suspend_current_view(&lease.account, &lease.view)
+            .unwrap();
+        let labels = detach_overloaded_account(&mut inner, a.account_id.as_str());
+        assert_eq!(labels, ["acct-a"]);
+        assert_eq!(revoke.credential, CredentialAction::Keep);
+        assert_eq!(revoke.profile_action, ProfileAction::Isolate);
+        assert!(matches!(
+            host.lock().accounts.state(&a.account_id),
+            Some(AccountState::Suspended(_))
+        ));
+        let paused = host.lock().accounts.current_context(&a.account_id).unwrap();
+        assert!(paused.session_generation > a.session_generation);
+        assert_eq!(
+            host.lock().accounts.credential_revision(&a.account_id),
+            revision
+        );
+        assert_eq!(inner.meta[a.account_id.as_str()].profile_id, profile);
+        assert!(inner.meta[a.account_id.as_str()].suspended_by_user);
+        assert!(current_adapter_account(&inner, &host.lock().accounts, "acct-a").is_none());
+        assert!(claim(&host, &mut inner, "acct-a", &a, 10).is_none());
+        assert_eq!(
+            host.lock().accounts.current_context(&a.account_id),
+            Some(paused)
+        );
+        assert!(host.lock().accounts.validate(&b).is_ok());
+        assert!(inner.bindings.contains_key("acct-b"));
+        assert!(require_identity_binding(&inner, "acct-a", a.account_id.as_str()).is_err());
+        assert!(require_identity_binding(&inner, "acct-b", b.account_id.as_str()).is_ok());
+        assert!(claim(&host, &mut inner, "acct-b", &b, 20).is_some());
+    }
+
+    #[test]
+    fn queue_pause_preserves_real_draft_and_unknown_outbound_ledger_without_redispatch() {
+        let root = std::env::temp_dir().join(format!("vbk-queue-pause-{}", uuid::Uuid::new_v4()));
+        let host = HostState::new(Some(FileStore::open(root.join("state")).unwrap()), 1);
+        let a = online(&host, "a");
+        let mut inner = Inner::default();
+        bind(&host, &mut inner, &a, "acct-a", 10);
+        let store = host.lock().store.clone().unwrap();
+        let ns = Namespace::from_context(&a);
+        DraftBook::save(store.as_ref(), &ns, "room", "retained draft", 0).unwrap();
+        let journal = Mutex::new(OutboundJournal::open(root.join("outbound")).unwrap());
+        let payload = SendPayload {
+            gid: "room".into(),
+            text: "synthetic text".into(),
+            original: None,
+            quote_id: None,
+        };
+        let outcome = tauri::async_runtime::block_on(outbound_journal::send_once(
+            &journal,
+            &a,
+            "local-unknown",
+            &payload,
+            || async { Ok(SendDispositionDto::Unknown) },
+        ))
+        .unwrap();
+        assert_eq!(outcome, SendDispositionDto::Unknown);
+        let before = journal.lock().unwrap().unknown_metadata(&a).unwrap();
+        assert_eq!(before.len(), 1);
+        let lease = claim(&host, &mut inner, "acct-a", &a, 10).unwrap();
+        host.suspend_current_view(&lease.account, &lease.view)
+            .unwrap();
+        detach_overloaded_account(&mut inner, a.account_id.as_str());
+        assert!(host.flush_persist(Duration::from_secs(5)));
+        let paused = host.lock().accounts.current_context(&a.account_id).unwrap();
+        assert_eq!(
+            DraftBook::load(store.as_ref(), &ns).unwrap()[0].text,
+            "retained draft"
+        );
+        assert!(journal.lock().unwrap().unknown_metadata(&paused).unwrap() == before);
+        let replay = tauri::async_runtime::block_on(outbound_journal::send_once(
+            &journal,
+            &paused,
+            "local-unknown",
+            &payload,
+            || async { panic!("queue pause cannot authorize redispatch") },
+        ))
+        .unwrap();
+        assert_eq!(replay, SendDispositionDto::Unknown);
+        drop(journal);
+        drop(store);
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn attempt_or_unverified_identity_has_no_ready_lease_to_fault() {
+        let host = HostState::new(None, 1);
+        let a = online(&host, "a");
+        let mut inner = Inner::default();
+        bind(&host, &mut inner, &a, "acct-a", 10);
+        inner.validating.insert(a.account_id.as_str().into());
+        {
+            let cores = host.lock();
+            assert!(
+                publish_adapter_ready(&mut inner, &cores.accounts, &cores.views, "acct-a", 11)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        assert!(claim(&host, &mut inner, "acct-a", &a, 10).is_none());
+        inner.validating.clear();
+        inner
+            .bindings
+            .insert("acct-a".into(), Binding::Attempt("unpublished".into()));
+        {
+            let cores = host.lock();
+            assert!(
+                publish_adapter_ready(&mut inner, &cores.accounts, &cores.views, "acct-a", 12)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        assert!(inner.adapter_ready.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod outbound_lifecycle_tests {
+    use super::adapter_queue_fault_tests::online;
+    use super::*;
+    use crate::adapter::outbound_journal::{self, OutboundJournal, SendPayload};
+    use crate::dto::SendDispositionDto;
+    use core_account::{CredentialRef, MemorySecretStore, StagedRef};
+    use core_store::{FileStore, Namespace, Store};
+    use std::future::Future;
+    use std::sync::{Arc, Barrier};
+
+    struct Fixture {
+        root: std::path::PathBuf,
+        host: Arc<HostState>,
+        journal: Arc<Mutex<OutboundJournal>>,
+    }
+    impl Fixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!("vbk-lifecycle-{}", uuid::Uuid::new_v4()));
+            let host = Arc::new(HostState::new(
+                Some(FileStore::open(root.join("main")).unwrap()),
+                10,
+            ));
+            let journal = Arc::new(Mutex::new(
+                OutboundJournal::open(root.join("outbound")).unwrap(),
+            ));
+            Self {
+                root,
+                host,
+                journal,
+            }
+        }
+        fn main(&self) -> FileStore {
+            FileStore::open(self.root.join("main")).unwrap()
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.host.flush_persist(Duration::from_secs(5));
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+    fn run<T>(f: impl Future<Output = T>) -> T {
+        struct Wake;
+        impl std::task::Wake for Wake {
+            fn wake(self: Arc<Self>) {}
+        }
+        let w = std::task::Waker::from(Arc::new(Wake));
+        let mut cx = std::task::Context::from_waker(&w);
+        let mut f = std::pin::pin!(f);
+        loop {
+            if let std::task::Poll::Ready(v) = f.as_mut().poll(&mut cx) {
+                return v;
+            }
+        }
+    }
+    fn payload() -> SendPayload {
+        SendPayload {
+            gid: "room".into(),
+            text: "private".into(),
+            original: None,
+            quote_id: None,
+        }
+    }
+    fn confirmed() -> SendDispositionDto {
+        SendDispositionDto::Confirmed {
+            server_message_id: "server-1".into(),
+            server_time_ms: 1,
+        }
+    }
+    fn send(f: &Fixture, ctx: &AccountContext, id: &str) -> Result<SendDispositionDto, AppError> {
+        run(outbound_journal::send_once_authorized(
+            &f.journal,
+            ctx,
+            id,
+            &payload(),
+            || f.host.lock().accounts.validate(ctx),
+            || async { Ok(confirmed()) },
+        ))
+    }
+
+    #[test]
+    fn old_command_waiting_for_gate_cannot_write_after_reauthentication() {
+        let f = Fixture::new();
+        let old = online(&f.host, "race");
+        let barrier = Arc::new(Barrier::new(2));
+        let held = f.journal.lock().unwrap();
+        let host = f.host.clone();
+        let journal = f.journal.clone();
+        let ready = barrier.clone();
+        let stale = old.clone();
+        let queued = std::thread::spawn(move || {
+            // The initial command ACL check passed before waiting for storage.
+            host.lock().accounts.validate(&stale).unwrap();
+            ready.wait();
+            run(outbound_journal::send_once_authorized(
+                &journal,
+                &stale,
+                "old",
+                &payload(),
+                || host.lock().accounts.validate(&stale),
+                || async { panic!("old dispatch") },
+            ))
+        });
+        barrier.wait();
+        f.host.logout_context(&old, LogoutMode::ExitOnline).unwrap();
+        held.logout_lock(&old).unwrap();
+        let new = online(&f.host, "race");
+        reopen_account_storage(&f.host, Some(&held), &new).unwrap();
+        drop(held);
+        assert!(queued.join().unwrap().is_err());
+        assert_eq!(send(&f, &new, "new").unwrap(), confirmed());
+        assert!(f
+            .journal
+            .lock()
+            .unwrap()
+            .unknown_metadata(&new)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn logout_wins_late_confirmation_and_relogin_never_replays_it() {
+        let f = Fixture::new();
+        let old = online(&f.host, "late");
+        let observed = run(outbound_journal::send_once_authorized(
+            &f.journal,
+            &old,
+            "intent",
+            &payload(),
+            || f.host.lock().accounts.validate(&old),
+            || async {
+                outbound_journal::with_transition(Some(&f.journal), |journal| {
+                    f.host.logout_context(&old, LogoutMode::ExitOnline).unwrap();
+                    journal.unwrap().logout_lock(&old).unwrap();
+                    let new = online(&f.host, "late");
+                    reopen_account_storage(&f.host, journal, &new).unwrap();
+                });
+                Ok(confirmed())
+            },
+        ))
+        .unwrap();
+        assert_eq!(observed, SendDispositionDto::Unknown);
+        let new = f
+            .host
+            .lock()
+            .accounts
+            .current_context(&old.account_id)
+            .unwrap();
+        assert_eq!(
+            send(&f, &new, "intent").unwrap(),
+            SendDispositionDto::Unknown
+        );
+        let reopened = OutboundJournal::open(f.root.join("outbound")).unwrap();
+        let unknown = reopened.unknown_metadata(&new).unwrap();
+        assert_eq!(unknown.len(), 1);
+        assert_eq!(unknown[0].creation_generation, old.session_generation);
+    }
+
+    #[test]
+    fn completed_before_logout_stays_confirmed_and_failed_transition_never_relocks_new_session() {
+        let f = Fixture::new();
+        let old = online(&f.host, "finished");
+        assert_eq!(send(&f, &old, "complete").unwrap(), confirmed());
+        let new = outbound_journal::with_transition(Some(&f.journal), |journal| {
+            f.host.logout_context(&old, LogoutMode::ExitOnline).unwrap();
+            journal.unwrap().logout_lock(&old).unwrap();
+            let new = online(&f.host, "finished");
+            reopen_account_storage(&f.host, journal, &new).unwrap();
+            new
+        });
+        let stale_transition = outbound_journal::with_transition(Some(&f.journal), |journal| {
+            f.host.logout_context(&old, LogoutMode::ExitOnline)?;
+            journal.unwrap().logout_lock(&old)
+        });
+        assert!(stale_transition.is_err());
+        assert!(!f
+            .journal
+            .lock()
+            .unwrap()
+            .store
+            .is_locked(&Namespace::from_context(&new))
+            .unwrap());
+        assert_eq!(send(&f, &new, "complete").unwrap(), confirmed());
+        assert_eq!(send(&f, &new, "fresh").unwrap(), confirmed());
+    }
+
+    #[test]
+    fn namespace_lock_failure_revokes_authority_and_never_erases_unknown() {
+        use core_store::hooks::{inject, FailPoint, FaultAction};
+        let f = Fixture::new();
+        let old = online(&f.host, "disk-failure");
+        let value = run(outbound_journal::send_once_authorized(
+            &f.journal,
+            &old,
+            "unknown",
+            &payload(),
+            || f.host.lock().accounts.validate(&old),
+            || async { Ok(SendDispositionDto::Unknown) },
+        ))
+        .unwrap();
+        assert_eq!(value, SendDispositionDto::Unknown);
+        let fault = inject(
+            &f.root.join("outbound"),
+            FailPoint::BeforeSyncAll,
+            FaultAction::Io(std::io::ErrorKind::StorageFull, "ENOSPC"),
+            0,
+            Some(1),
+        );
+        let result = outbound_journal::with_transition(Some(&f.journal), |journal| {
+            f.host.logout_context(&old, LogoutMode::ExitOnline).unwrap();
+            lock_account_storage(&f.host, journal, &old)
+        });
+        assert!(result.is_err());
+        drop(fault);
+        assert!(send(&f, &old, "no-send").is_err());
+        assert_eq!(
+            f.journal
+                .lock()
+                .unwrap()
+                .unknown_metadata(&old)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn outbound_unlock_failure_does_not_publish_online_authority() {
+        let f = Fixture::new();
+        let ctx = online(&f.host, "unlock-failure");
+        let result = outbound_journal::with_transition(Some(&f.journal), |journal| {
+            let journal = journal.unwrap();
+            journal.logout_lock(&ctx).unwrap();
+            let marker = journal
+                .store
+                .namespace_dir(&Namespace::from_context(&ctx))
+                .join("logout.lock");
+            // A directory cannot be unlinked as the marker. This is an actual
+            // filesystem failure at the unlock operation, not a mocked status.
+            std::fs::remove_file(&marker).unwrap();
+            std::fs::create_dir(&marker).unwrap();
+            reopen_account_storage(&f.host, Some(journal), &ctx)
+        });
+        assert!(result.is_err());
+        assert!(f.host.lock().accounts.validate(&ctx).is_err());
+        assert!(send(&f, &ctx, "blocked").is_err());
+    }
+
+    #[test]
+    fn late_media_confirm_after_reauth_keeps_unknown_pin_and_new_draft_reference() {
+        use crate::media_outbound::{FrozenAttachment, MediaTarget};
+        let f = Fixture::new();
+        let old = online(&f.host, "media-late");
+        let source = f.root.join("source.bin");
+        std::fs::write(&source, b"old attachment").unwrap();
+        let target = || MediaTarget {
+            target_token: "current-page-only".into(),
+            identity_sha256: "a".repeat(64),
+            sender_id: "self".into(),
+        };
+        let mut frozen = FrozenAttachment::read(&source, "file", &old, "room", target()).unwrap();
+        let lease = outbound_journal::with_authorized(
+            &f.journal,
+            || f.host.lock().accounts.validate(&old),
+            |journal| {
+                let id = journal.persist_attachment(&frozen)?;
+                frozen.dto.lease_id = Some(id.clone());
+                journal.set_draft_attachment(&old, "room", Some(&id), 0, &f.main())?;
+                let captured = journal.capture_media_draft_version(&old, &frozen)?;
+                assert!(journal.reserve_media_attachment_captured(
+                    &old,
+                    "media-intent",
+                    &frozen,
+                    captured
+                )?);
+                Ok(id)
+            },
+        )
+        .unwrap();
+        let new = outbound_journal::with_transition(Some(&f.journal), |journal| {
+            f.host.logout_context(&old, LogoutMode::ExitOnline).unwrap();
+            lock_account_storage(&f.host, journal, &old).unwrap();
+            let new = online(&f.host, "media-late");
+            reopen_account_storage(&f.host, journal, &new).unwrap();
+            new
+        });
+        std::fs::write(&source, b"new attachment").unwrap();
+        let newer = FrozenAttachment::read(&source, "file", &new, "room", target()).unwrap();
+        let new_id = outbound_journal::with_authorized(
+            &f.journal,
+            || f.host.lock().accounts.validate(&new),
+            |journal| {
+                let pending = journal.load_draft(&new, "room", &f.main())?.unwrap();
+                assert_eq!(
+                    pending.attachments[0].state,
+                    crate::attachment_leases::LeaseState::Pending
+                );
+                assert!(journal
+                    .restore_attachment(&new, "room", &lease, target())
+                    .is_err());
+                let id = journal.persist_attachment(&newer)?;
+                journal.set_draft_attachment(
+                    &new,
+                    "room",
+                    Some(&id),
+                    pending.attachment_version,
+                    &f.main(),
+                )?;
+                Ok(id)
+            },
+        )
+        .unwrap();
+        assert!(outbound_journal::with_authorized(
+            &f.journal,
+            || f.host.lock().accounts.validate(&old),
+            |journal| journal.finish_media(&old, "media-intent", &frozen.payload(), confirmed())
+        )
+        .is_err());
+        let reopened = OutboundJournal::open(f.root.join("outbound")).unwrap();
+        reopened.release_attachment(&new, "room", &lease).unwrap();
+        let unknown_lease = reopened
+            .store
+            .get(&Namespace::from_context(&new), "attachment_leases", &lease)
+            .unwrap()
+            .unwrap();
+        assert!(
+            unknown_lease.to_json().contains("media-intent"),
+            "unknown owns its durable outbox reference"
+        );
+        let draft = reopened
+            .load_draft(&new, "room", &f.main())
+            .unwrap()
+            .unwrap();
+        assert_eq!(draft.attachments[0].lease_id, new_id);
+        assert_eq!(draft.attachment_version, 2);
+        assert_eq!(reopened.unknown_metadata(&new).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn delayed_exit_and_auth_cleanup_destroy_only_captured_instances_and_preserve_new_metadata() {
+        for mode in [
+            Some(LogoutMode::ExitOnline),
+            Some(LogoutMode::Logout),
+            Some(LogoutMode::Forget),
+            None,
+        ] {
+            let f = Fixture::new();
+            let old = online(&f.host, "cleanup-race");
+            let ls = Arc::new(LoginState {
+            active_visit_epoch: AtomicU64::new(0),
+                inner: Mutex::new(Inner::default()),
+                persist_lock: Mutex::new(()),
+                start_lock: Mutex::new(()),
+                lifecycle_lock: Mutex::new(()),
+                restoring: AtomicBool::new(false),
+                data_dir: f.root.clone(),
+            });
+            let old_instance = Arc::new(AtomicBool::new(false));
+            let new_instance = Arc::new(AtomicBool::new(false));
+            let instances = Arc::new(Mutex::new(HashMap::from([(
+                "reused-label".to_string(),
+                old_instance.clone(),
+            )])));
+            {
+                let mut inner = ls.lock();
+                inner.bindings.insert(
+                    "reused-label".into(),
+                    Binding::Account(old.account_id.as_str().into()),
+                );
+                inner.meta.insert(
+                    old.account_id.as_str().into(),
+                    AccountMeta {
+                        profile_id: Some("old-profile".into()),
+                        ..AccountMeta::default()
+                    },
+                );
+                inner.unread.insert(old.account_id.as_str().into(), 7);
+            }
+            let captured = Arc::new(Barrier::new(2));
+            let resume = Arc::new(Barrier::new(2));
+            let (
+                thread_host,
+                thread_journal,
+                thread_login,
+                thread_instances,
+                entered,
+                release,
+                old_ctx,
+            ) = (
+                f.host.clone(),
+                f.journal.clone(),
+                ls.clone(),
+                instances.clone(),
+                captured.clone(),
+                resume.clone(),
+                old.clone(),
+            );
+            let cleanup = std::thread::spawn(move || {
+                let lifecycle = thread_login.lifecycle();
+                outbound_journal::with_transition(Some(&thread_journal), |journal| {
+                    if let Some(mode) = mode {
+                        thread_host.logout_context(&old_ctx, mode).unwrap();
+                    } else {
+                        thread_host
+                            .lock()
+                            .accounts
+                            .invalidate(&old_ctx.account_id, "auth invalid")
+                            .unwrap();
+                    }
+                    lock_account_storage(&thread_host, journal, &old_ctx).unwrap();
+                });
+                // These are the same settlement/capture functions used by
+                // exit_account and both AuthInvalid production entry points.
+                let labels = if let Some(mode) = mode {
+                    let (labels, profile) = settle_account_exit(
+                        &mut thread_login.lock(),
+                        old_ctx.account_id.as_str(),
+                        mode,
+                    );
+                    assert_eq!(profile.as_deref(), Some("old-profile"));
+                    labels
+                } else {
+                    detach_account_views(&mut thread_login.lock(), old_ctx.account_id.as_str())
+                };
+                let plan = CapturedViews::capture(labels, |label| {
+                    thread_instances.lock().unwrap().get(label).cloned()
+                });
+                drop(lifecycle);
+                entered.wait();
+                release.wait();
+                plan.destroy(|instance| instance.store(true, Ordering::SeqCst));
+            });
+            captured.wait();
+            let new = {
+                let _lifecycle = ls.lifecycle();
+                outbound_journal::with_transition(Some(&f.journal), |journal| {
+                    let new = online(&f.host, "cleanup-race");
+                    reopen_account_storage(&f.host, journal, &new).unwrap();
+                    let mut inner = ls.lock();
+                    assert!(
+                        allow_retired_view_rebind(&mut inner, "reused-label", true)
+                            .unwrap_err()
+                            .retryable
+                    );
+                    assert!(require_identity_not_retiring(&inner, "reused-label").is_err());
+                    // Native manager no longer owns the old instance; only
+                    // then may a distinct successor reuse the label.
+                    allow_retired_view_rebind(&mut inner, "reused-label", false).unwrap();
+                    inner.bindings.insert(
+                        "reused-label".into(),
+                        Binding::Account(new.account_id.as_str().into()),
+                    );
+                    inner.meta.insert(
+                        new.account_id.as_str().into(),
+                        AccountMeta {
+                            profile_id: Some("new-profile".into()),
+                            suspended_by_user: false,
+                            ..AccountMeta::default()
+                        },
+                    );
+                    inner.unread.insert(new.account_id.as_str().into(), 99);
+                    inner.active = Some(new.account_id.as_str().into());
+                    instances
+                        .lock()
+                        .unwrap()
+                        .insert("reused-label".into(), new_instance.clone());
+                    new
+                })
+            };
+            resume.wait();
+            cleanup.join().unwrap();
+            assert!(old_instance.load(Ordering::SeqCst));
+            assert!(
+                !new_instance.load(Ordering::SeqCst),
+                "old cleanup must never resolve the reused label again"
+            );
+            let inner = ls.lock();
+            assert_eq!(
+                inner.bindings.get("reused-label"),
+                Some(&Binding::Account(new.account_id.as_str().into()))
+            );
+            let meta = &inner.meta[new.account_id.as_str()];
+            assert_eq!(meta.profile_id.as_deref(), Some("new-profile"));
+            assert!(!meta.suspended_by_user);
+            assert_eq!(inner.unread[new.account_id.as_str()], 99);
+            drop(inner);
+            assert!(f.host.lock().accounts.validate(&new).is_ok());
+            assert!(!f
+                .journal
+                .lock()
+                .unwrap()
+                .store
+                .is_locked(&Namespace::from_context(&new))
+                .unwrap());
+        }
+    }
+
+    #[test]
+    fn queued_old_login_redirect_cannot_borrow_new_context_from_reused_label() {
+        let f = Fixture::new();
+        let old = online(&f.host, "redirect-race");
+        let ls = Arc::new(LoginState {
+            active_visit_epoch: AtomicU64::new(0),
+            inner: Mutex::new(Inner::default()),
+            persist_lock: Mutex::new(()),
+            start_lock: Mutex::new(()),
+            lifecycle_lock: Mutex::new(()),
+            restoring: AtomicBool::new(false),
+            data_dir: f.root.clone(),
+        });
+        let source = f.host.lock().views.register("acct-reused");
+        ls.lock().bindings.insert(
+            source.webview_label.clone(),
+            Binding::Account(old.account_id.as_str().into()),
+        );
+        let queued = Arc::new(Barrier::new(2));
+        let resume = Arc::new(Barrier::new(2));
+        let (host, journal, login, entered, release, callback_source) = (
+            f.host.clone(),
+            f.journal.clone(),
+            ls.clone(),
+            queued.clone(),
+            resume.clone(),
+            source.clone(),
+        );
+        let callback = std::thread::spawn(move || {
+            // This closure carries the original ViewContext through the same
+            // async-queue gap as open_account_webview's navigation callback.
+            entered.wait();
+            release.wait();
+            let _lifecycle = login.lifecycle();
+            outbound_journal::with_transition(Some(&journal), |journal| {
+                let account = {
+                    let cores = host.lock();
+                    resolve_login_redirect(&cores, &login.lock(), &callback_source)
+                        .and_then(|(_, account)| account)
+                };
+                let Some(account) = account else { return false };
+                let changed =
+                    invalidate_redirect_account(&mut host.lock(), &account, &callback_source);
+                if changed {
+                    lock_account_storage(&host, journal, &account).unwrap();
+                }
+                changed
+            })
+        });
+        queued.wait();
+        let (fresh, new_view) = {
+            let _lifecycle = ls.lifecycle();
+            outbound_journal::with_transition(Some(&f.journal), |journal| {
+                f.host.logout_context(&old, LogoutMode::ExitOnline).unwrap();
+                lock_account_storage(&f.host, journal, &old).unwrap();
+                f.host.lock().views.unregister_if_current(&source);
+                let new_view = f.host.lock().views.register(&source.webview_label);
+                let fresh = online(&f.host, "redirect-race");
+                ls.lock().bindings.insert(
+                    source.webview_label.clone(),
+                    Binding::Account(fresh.account_id.as_str().into()),
+                );
+                reopen_account_storage(&f.host, journal, &fresh).unwrap();
+                (fresh, new_view)
+            })
+        };
+        assert_ne!(source, new_view);
+        resume.wait();
+        assert!(!callback.join().unwrap());
+        assert!(f.host.lock().accounts.validate(&fresh).is_ok());
+        assert!(!f
+            .journal
+            .lock()
+            .unwrap()
+            .store
+            .is_locked(&Namespace::from_context(&fresh))
+            .unwrap());
+        assert!(!f
+            .main()
+            .is_locked(&Namespace::from_context(&fresh))
+            .unwrap());
+        // A genuinely current source still revokes and durably locks normally.
+        let _lifecycle = ls.lifecycle();
+        outbound_journal::with_transition(Some(&f.journal), |journal| {
+            let resolved = {
+                let cores = f.host.lock();
+                resolve_login_redirect(&cores, &ls.lock(), &new_view)
+                    .unwrap()
+                    .1
+                    .unwrap()
+            };
+            assert!(invalidate_redirect_account(
+                &mut f.host.lock(),
+                &resolved,
+                &new_view
+            ));
+            lock_account_storage(&f.host, journal, &resolved).unwrap();
+        });
+        assert!(f.host.lock().accounts.validate(&fresh).is_err());
+        assert!(f
+            .main()
+            .is_locked(&Namespace::from_context(&fresh))
+            .unwrap());
+    }
+
+    #[test]
+    fn redirected_resource_is_rechecked_at_mutation_even_when_account_generation_is_unchanged() {
+        let f = Fixture::new();
+        let account = online(&f.host, "redirect-view-only");
+        let source = f.host.lock().views.register("acct-recreated");
+        let mut inner = Inner::default();
+        inner.bindings.insert(
+            source.webview_label.clone(),
+            Binding::Account(account.account_id.as_str().into()),
+        );
+        let captured = resolve_login_redirect(&f.host.lock(), &inner, &source)
+            .unwrap()
+            .1
+            .unwrap();
+        let replacement = f.host.lock().views.register(&source.webview_label);
+        assert_ne!(source, replacement);
+        assert!(!invalidate_redirect_account(
+            &mut f.host.lock(),
+            &captured,
+            &source
+        ));
+        assert!(f.host.lock().accounts.validate(&account).is_ok());
+        assert!(invalidate_redirect_account(
+            &mut f.host.lock(),
+            &captured,
+            &replacement
+        ));
+    }
+
+    #[derive(Debug)]
+    struct UnlockGate {
+        entered: Barrier,
+        release: Barrier,
+        armed: AtomicBool,
+        fail: bool,
+    }
+    #[derive(Debug)]
+    struct GatedIo {
+        inner: crate::attachment_leases::SafeNamespaceIo,
+        gate: Arc<UnlockGate>,
+    }
+    struct GatedDirectory {
+        inner: Box<dyn core_store::file::NamespaceDirectory>,
+        gate: Arc<UnlockGate>,
+    }
+    impl core_store::file::NamespaceIo for GatedIo {
+        fn directory(
+            &self,
+            path: &Path,
+            create: bool,
+        ) -> std::io::Result<Box<dyn core_store::file::NamespaceDirectory>> {
+            Ok(Box::new(GatedDirectory {
+                inner: self.inner.directory(path, create)?,
+                gate: self.gate.clone(),
+            }))
+        }
+        fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+            self.inner.rename(from, to)
+        }
+    }
+    impl core_store::file::NamespaceDirectory for GatedDirectory {
+        fn open_file(&self, name: &str, write: bool) -> std::io::Result<std::fs::File> {
+            self.inner.open_file(name, write)
+        }
+        fn create_new(&self, name: &str) -> std::io::Result<std::fs::File> {
+            self.inner.create_new(name)
+        }
+        fn rename(&self, from: &str, to: &str) -> std::io::Result<()> {
+            self.inner.rename(from, to)
+        }
+        fn remove(&self, name: &str) -> std::io::Result<()> {
+            if name == "logout.lock" && self.gate.armed.swap(false, Ordering::SeqCst) {
+                self.gate.entered.wait();
+                self.gate.release.wait();
+                if self.gate.fail {
+                    return Err(std::io::Error::other("injected unlink failure"));
+                }
+            }
+            self.inner.remove(name)
+        }
+        fn names(&self) -> std::io::Result<Vec<String>> {
+            self.inner.names()
+        }
+        fn sync(&self) -> std::io::Result<()> {
+            self.inner.sync()
+        }
+    }
+
+    #[test]
+    fn ready_waits_for_actual_main_unlock_receipt_without_holding_cores() {
+        for fail in [false, true] {
+            let f = Fixture::new();
+            let root = f.root.join("gated-main");
+            let gate = Arc::new(UnlockGate {
+                entered: Barrier::new(2),
+                release: Barrier::new(2),
+                armed: AtomicBool::new(false),
+                fail,
+            });
+            let store = FileStore::open(&root)
+                .unwrap()
+                .with_namespace_io(Arc::new(GatedIo {
+                    inner: crate::attachment_leases::SafeNamespaceIo::new(&root).unwrap(),
+                    gate: gate.clone(),
+                }));
+            let host = Arc::new(HostState::new(Some(store), 1));
+            let ctx = online(&host, "gated");
+            let main = FileStore::open(&root).unwrap();
+            main.logout_lock(&Namespace::from_context(&ctx)).unwrap();
+            f.journal.lock().unwrap().logout_lock(&ctx).unwrap();
+            gate.armed.store(true, Ordering::SeqCst);
+            let h = host.clone();
+            let journal = f.journal.clone();
+            let account = ctx.clone();
+            let ready = Arc::new(AtomicBool::new(false));
+            let published = ready.clone();
+            let worker = std::thread::spawn(move || {
+                let result = outbound_journal::with_transition(Some(&journal), |journal| {
+                    reopen_account_storage(&h, journal, &account)
+                });
+                published.store(result.is_ok(), Ordering::SeqCst);
+                result
+            });
+            gate.entered.wait();
+            assert!(
+                host.cores_available_for_test(),
+                "disk worker must not retain Cores"
+            );
+            assert!(
+                host.persist_barrier().is_ok(),
+                "old barrier alone cannot imply Unlock completed"
+            );
+            assert!(
+                f.journal.try_lock().is_err(),
+                "outbound remains gated until main receipt"
+            );
+            assert!(!ready.load(Ordering::SeqCst));
+            gate.release.wait();
+            assert_eq!(worker.join().unwrap().is_err(), fail);
+            assert_eq!(ready.load(Ordering::SeqCst), !fail);
+            assert_eq!(host.lock().accounts.validate(&ctx).is_ok(), !fail);
+            assert_eq!(
+                main.is_locked(&Namespace::from_context(&ctx)).unwrap(),
+                fail
+            );
+        }
+    }
+
+    #[test]
+    fn main_logout_disk_failure_is_reported_even_if_outbound_lock_succeeds() {
+        use core_store::hooks::{inject, FailPoint, FaultAction};
+        let f = Fixture::new();
+        let ctx = online(&f.host, "main-lock-fail");
+        let fault = inject(
+            &f.root.join("main"),
+            FailPoint::BeforeSyncAll,
+            FaultAction::Io(std::io::ErrorKind::StorageFull, "ENOSPC"),
+            0,
+            None,
+        );
+        let result = outbound_journal::with_transition(Some(&f.journal), |journal| {
+            f.host.logout_context(&ctx, LogoutMode::ExitOnline).unwrap();
+            lock_account_storage(&f.host, journal, &ctx)
+        });
+        assert!(result.is_err());
+        assert!(f.host.lock().accounts.validate(&ctx).is_err());
+        assert!(f
+            .journal
+            .lock()
+            .unwrap()
+            .store
+            .is_locked(&Namespace::from_context(&ctx))
+            .unwrap());
+        drop(fault);
+        let fresh = outbound_journal::with_transition(Some(&f.journal), |journal| {
+            let fresh = online(&f.host, "main-lock-fail");
+            reopen_account_storage(&f.host, journal, &fresh).unwrap();
+            fresh
+        });
+        assert!(
+            !f.main()
+                .is_locked(&Namespace::from_context(&fresh))
+                .unwrap(),
+            "older failed LogoutLock must not land after fresh Unlock"
+        );
+        assert_eq!(send(&f, &fresh, "fresh").unwrap(), confirmed());
+    }
+
+    struct CheckedSecrets<'a> {
+        host: &'a HostState,
+        store: MemorySecretStore,
+        fail: Option<&'static str>,
+        calls: Vec<&'static str>,
+    }
+    impl CheckedSecrets<'_> {
+        fn before(&mut self, step: &'static str) -> Result<(), AppError> {
+            assert!(
+                self.host.cores_available_for_test(),
+                "Cores held during {step}"
+            );
+            self.calls.push(step);
+            if self.fail == Some(step) {
+                Err(app_err("credential.test_io", step))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    impl SecretStore for CheckedSecrets<'_> {
+        fn stage(
+            &mut self,
+            target: &CredentialRef,
+            secret: &Secret,
+        ) -> Result<StagedRef, AppError> {
+            self.before("stage")?;
+            self.store.stage(target, secret)
+        }
+        fn commit(&mut self, staged: &StagedRef) -> Result<(), AppError> {
+            self.before("commit")?;
+            self.store.commit(staged)
+        }
+        fn discard(&mut self, staged: &StagedRef) -> Result<(), AppError> {
+            self.before("discard")?;
+            self.store.discard(staged)
+        }
+        fn delete(&mut self, target: &CredentialRef) -> Result<(), AppError> {
+            self.before("delete")?;
+            self.store.delete(target)
+        }
+        fn contains(&self, target: &CredentialRef) -> bool {
+            self.store.contains(target)
+        }
+    }
+
+    #[test]
+    fn profile_marker_external_io_never_holds_cores_and_each_failure_preserves_recovery_record() {
+        for failing in [None, Some("stage"), Some("commit"), Some("delete")] {
+            let f = Fixture::new();
+            let ctx = online(&f.host, "credential");
+            let before = f.host.lock().accounts.credential_revision(&ctx.account_id);
+            let mut secrets = CheckedSecrets {
+                host: &f.host,
+                store: MemorySecretStore::new(),
+                fail: failing,
+                calls: vec![],
+            };
+            let persisted = std::cell::Cell::new(0);
+            let result = commit_profile_marker(&f.host, &ctx, "profile", &mut secrets, || {
+                let doc = f.host.lock().accounts.to_json().to_json();
+                assert!(f.host.cores_available_for_test());
+                core_store::write_atomic(&f.root, "registry.json", doc.as_bytes())?;
+                persisted.set(persisted.get() + 1);
+                Ok(())
+            });
+            assert_eq!(result.is_ok(), failing.is_none());
+            let after = f.host.lock().accounts.credential_revision(&ctx.account_id);
+            if failing == Some("stage") || failing == Some("commit") {
+                assert_eq!(before, after, "index must not switch on failed secret IO");
+            } else {
+                assert!(after > before);
+            }
+            if failing.is_none() {
+                assert_eq!(persisted.get(), 4);
+            }
+            if failing == Some("delete") {
+                assert_eq!(persisted.get(), 3);
+            }
+            let disk = std::fs::read_to_string(f.root.join("registry.json")).unwrap();
+            assert!(disk.contains("ledger"));
+            if failing == Some("delete") {
+                assert!(disk.contains("index_committed"));
+            }
+        }
+    }
+
+    #[test]
+    fn failed_new_index_persistence_keeps_old_secret_and_pending_cleanup() {
+        let f = Fixture::new();
+        let ctx = online(&f.host, "credential-persist");
+        let mut secrets = CheckedSecrets {
+            host: &f.host,
+            store: MemorySecretStore::new(),
+            fail: None,
+            calls: vec![],
+        };
+        let writes = std::cell::Cell::new(0);
+        let result = commit_profile_marker(&f.host, &ctx, "profile", &mut secrets, || {
+            writes.set(writes.get() + 1);
+            if writes.get() == 3 {
+                return Err(app_err(
+                    "store.persist_failed",
+                    "injected index disk failure",
+                ));
+            }
+            let doc = f.host.lock().accounts.to_json().to_json();
+            core_store::write_atomic(&f.root, "registry.json", doc.as_bytes())
+        });
+        assert!(result.is_err());
+        assert!(!secrets.calls.contains(&"delete"));
+        assert!(f
+            .host
+            .lock()
+            .accounts
+            .to_json()
+            .to_json()
+            .contains("index_committed"));
+        assert!(std::fs::read_to_string(f.root.join("registry.json"))
+            .unwrap()
+            .contains("secret_staged"));
+    }
+}
