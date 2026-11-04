@@ -50,7 +50,7 @@
 | `draft_request_id` | 服务端可选 `StrictStr`；当前客户端总传，校验 1–100 位 `[-a-z0-9]` |
 | `composer_content_version` | 服务端可选 `StrictStr`；当前客户端总传且限制不超过 25,000 字符；必须与当前编辑版本绑定 |
 | `protocol` | 可选 `"agent-translation-items-v1" / null`；当前客户端省略，不能擅自切换响应协议 |
-| `client_source` | 可选 `respondio_translate / travel_merchant_companion / external_plugin / null`；当前客户端省略，不能凭项目名编造已发送来源标记 |
+| `client_source` | 可选 `respondio_translate / travel_merchant_companion / external_plugin / null`；当前客户端固定传 `travel_merchant_companion`（`main` 后端已接受；更旧的后端会以 422 拒绝） |
 
 拥有方模型 `TranslateRequest(BaseModel)` 使用 `extra:"forbid"`，未列字段会被拒绝。[完整模型](/Users/tashima_meru/Develop/TSim_CS/central-backend/api/routers/agent.py:952)、[客户端唯一 body 映射](/Users/tashima_meru/Develop/trip_vendor_im_companion/src/shared/translation-request.ts:7)、[服务文本上限](/Users/tashima_meru/Develop/TSim_CS/central-backend/services/translation_service.py:54)。
 

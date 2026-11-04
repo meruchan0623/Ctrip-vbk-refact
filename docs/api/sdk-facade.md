@@ -27,7 +27,9 @@
 | `bizType` / `threadId` | 当前会话实际 serviceType / threadId；空 threadId 保留空字符串 |
 | `citemsgid?` | 显式引用 ID；deserialize 修改并返回同一 model，随后 Socket/HTTP payload 均显式复制此属性 |
 
-原先 glue 传 `msgType/messageBody/完整 room JID`，这些是较低层的字段；直接交给公共 facade 会缺少 messageType，并可能让 SDK 再次追加域。新实现使用公共文本模型。本行为仅实现文本 facade。非 0 的 msgtype 在调用官方 facade 前明确抛出 unsupported；此时调用次数为 0。submitIntent 对所有同步抛错仍保守返回 unknown，此行为不声称媒体发送完成；UI 附件选择入口保留、附件发送继续阻断。图片/视频/文件需要下一独立行为按已取得的 validateMessage/deserialize 证据映射公共字段。
+glue 使用公共模型，不能把底层 `msgType/messageBody/完整 room JID` 直接交给 `sendMessageInSocket`。当前按已安装 SDK 的 `validateMessage/deserialize` 实现映射文本（0）、图片（1）、卡片（2）、视频（3）、文件（5）、表情（8）与 At（9）。图片使用 imageUrl/url/thumbUrl 和尺寸，视频与文件解出各自公共字段，卡片保留正文结构；在调用 facade 前拒绝缺少必需字段的消息。目标会话的 bizType、threadId、toJid、localId 重新建立，不继承被转发消息的引用、已读和发送状态。
+
+2026-11-04 对照本机官方 SDK 发布文件，并通过 `createRpc → MessageActions → createPageSdk → sendMessageInSocket` 的合成回调测试覆盖以上类型。此为本地契约验收，不等同于生产客户消息发送验收。
 
 成功回调收到 SDK 原始响应，以非空、精度完整的 `msgId` 确认；`msgCreateTime` 为服务端时间。若响应含 localId，必须匹配本次调用。失败回调中的非零安全整数 `error` 才转换为明确 rejected，`errmsg` 转为 reason。缺 ID、unsafe number、矛盾的关联 ID、畸形回执或没有回调均保留 unknown，不能制造确认或重发。
 

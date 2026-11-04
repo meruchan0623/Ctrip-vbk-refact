@@ -4,12 +4,16 @@
 
 | UI / RPC | 官方接口与字段 | 结果边界 |
 |---|---|---|
-|话术 / im.customer_scripts|getCustomerScripts，content/customerScripts|只验证过空数组；非空条目格式未知，明确 unsupported，不生成话术或发送|
-|成员 / im.members|checkMemberStatus，members.uid/nick/avatar/status/roles/rolesv2|仅展示时排除公司 rolesv2=[0,3,5]、非本人 status<=0；本人保留，转交资格仍按原始 status/roles|
-|邀请候选 / im.invite_candidates|getInviteMemberListBySkillGroup，worksheetId/groupId/parentSkillGroupIds|按实际 agentUid 关联 nickname/avatar；排本人及当前成员；无头像使用同UID资料或文字占位|
+|话术 / im.customer_scripts|getCustomerScripts，content/customerScripts|2026-11-03 非空字段核对通过，200ms 联想，选中只替换草稿；未知条目仍 unsupported|
+|话术分类 / im.quick_reply_categories|getCategories，VAGENT/VSKILLGROUP|个人/团队分类及筛选，选中纯文本追加草稿，不自动发送|
+|产品推荐 / im.recommend_products、im.recommend_cities|queryRecommendProductList、queryIMSuggestCityList|会话内关键词、城市、0 起分页查询；权限与客户版卡片字段校验|
+|产品卡片 / im.send_product_card|sendCardMessageForOffline，inSession:true|缓存选择令牌、发送前会话核对、宿主持久防重；当前版本未做真实发送验收，见[本轮记录](../research/2026-11-03-chat-commerce.md)|
+|成员 / im.members|checkMemberStatus，members.uid/nick/avatar/status/roles/rolesv2|仅展示时排除公司 rolesv2=[0,3,5]、非本人 status<=0；本人保留；按主客服→客服→客人→机器人排序并给出 role/present/is_self；`self_is_master` 与 can_transfer/can_remove 只决定按钮，写入前仍重读|
+|邀请候选 / im.invite_candidates|getInviteMemberListBySkillGroup（worksheetId/groupId/parentSkillGroupIds）；keywords 时走 searchInviteMemberListBySkillGroup|按实际 agentUid 关联 nickname/avatar；排本人；当前成员保留为 in_group 禁用项；带 status/duty_status/job_position；extend_token 让逐级展开的候选并入同一选择凭据|
 |邀请 / im.invite|inviteVenAgent，venAgentUidList/serviceType/workSheetId|提交前重读成员；独立读回全部目标存在才能 confirmed|
 |转交 / im.transfer|transferVenMaster，sessionId/groupId/targetVenAgentUid|只接受明确选中、仍有资格的当前成员；独立读回主客服 roles=[3,4,4]|
 |结束 / im.finish|finishConversation，conversationKey/conversationType/sessionId/workSheetId|conversationKey必须真实接口字段，不能由gid/客户别名拼装；独立读回同session status=4且inGroup=-1|
+|移除成员 / im.remove|finishConversation + 非空 venAgentUids（证据 30）|独立命令与独立屏障（Action::Remove），空列表在宿主、RPC、适配器三层拒绝，绝不退化为结束；仅当前主客服可提交，目标须为在群商家坐席且非本人；读回全部目标不在群才 confirmed|
 
 请求体与脱敏证据见同目录 endpoints 中对应接口。成员显示与写权限分别判定，不能把头像或公司过滤当作授权。所有人员ID保留字符串；skillGroupId/worksheetId仅在安全整数范围接受。
 
@@ -28,3 +32,14 @@ FileStore CAS + OS文件锁，先持久write_started并同步文件及目录再�
 离线回归保留旧会话误结束、明确未提交无法恢复、重建后unknown重发、并发被挡token后来重新执行的红→绿输出；没有在线结束/邀请/转交验收证据，不以静态注册、按钮出现或测试通过宣称功能已完成。
 
 Windows接续已将本账本与文本账本统一使用FileStore严格文件/目录同步，解决只读句柄OS5，保留所有失败关闭准入的规则及13项原周边回归。创建链、原子替换与平台适用边界见[宿主发送屏障](outbound-journal.md)。未执行真实邀请、转交或结束。
+
+
+## 2026-11-03 官方桌面版对照与修正
+
+依据官方 Mac 1.2.13 `app.asar.unpacked/dist/js/imWindow-*.js`（静态阅读，未执行）还原群聊人员面板 `KEGe`、成员列表 `UEe/GEe`、邀请弹窗 `xyt` 与 `BaseController.deleteChatMember/transferVenMaster/refreshGroupMember`：
+
+- **在群判定**：官方邀请去重以 `status == 1 || status == 4` 视为已在群；实测主客服、受邀成员常为 `"4"`，`"2"` 为已不在群样本。此前适配器只认 `"1"`，导致转交候选为空、已在群成员仍可被邀请、读回无法确认。现改为 1/4。
+- **角色**：主客服 `roles[1]==4`（q0e）；商家坐席 `roles[2]==4`（勾选框与 W0e），另排除 rolesv2[2] 为客人(1)/携程侧(2/3/5)。展示顺序与官方一致，主客服头像加标记。
+- **群聊人员面板**：标题「群聊人员（N）」「已选 N 人」，按钮「转移主客服」（恰好一人）、「邀请成员」、「移除成员」（确认「确定要移除会话成员？」）。官方另有旅游群主 `getGroupOwner/updateGroupOwner`、改群名、欢迎语、复制新建群，本轮未实现（X20 范围决策）。
+- **邀请成员**：官方为「供应商客服（多选）」懒加载技能组树 + 穿梭框 + 关键词搜索 + 筛选（聊天状态 0在线/1挂起/2离开/3下班、上班状态、职位）。本轮实现树、搜索、状态圆点/上下班/职位与已选栏；**未实现**筛选参数（字段 `status/dutyStatus/jobPositions` 合入请求体，未实测）与「携程客服（单选）」`getInviteCtripData/inviteCtrip`（当前账号未返回技能组）。
+- 以上均为离线测试验证（TS 1011、Rust 216、门禁、UI 冒烟），**尚无新客户端的在线邀请/移除/转交受控样本**，不能据此宣称线上验收通过。
