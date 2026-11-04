@@ -1,0 +1,33 @@
+diff --git a/agent-frontend/src/pages/operatorEmbedSession.test.ts b/agent-frontend/src/pages/operatorEmbedSession.test.ts
+index 3bb213f8a..419a88603 100644
+--- a/agent-frontend/src/pages/operatorEmbedSession.test.ts
++++ b/agent-frontend/src/pages/operatorEmbedSession.test.ts
+@@ -43,6 +43,14 @@ describe('operator embed companion session handoff', () => {
+     const data = { type: 'TSIM_OPERATOR_SESSION', version: 2, identifier: request.identifier, requestId, accessToken: 'header.payload.signature', sessionRef: 'ref-1' };
+     expect(parseCompanionSessionMessage({ data, origin: 'null', source: parent as MessageEventSource }, request, parent)).toEqual({ accessToken: data.accessToken, sessionRef: 'ref-1' });
+     expect(parseCompanionSessionMessage({ data, origin: 'file://', source: parent as MessageEventSource }, request, parent)).not.toBeNull();
++    for (const origin of ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost']) {
++      expect(parseCompanionSessionMessage({ data, origin, source: parent as MessageEventSource }, request, parent)).toEqual({ accessToken: data.accessToken, sessionRef: 'ref-1' });
++      expect(parseCompanionSessionMessage({ data, origin, source: {} as MessageEventSource }, request, parent)).toBeNull();
++      expect(parseCompanionSessionMessage({ data: { ...data, requestId: 'stale' }, origin, source: parent as MessageEventSource }, request, parent)).toBeNull();
++    }
++    for (const origin of ['http://localhost:3000', 'https://tauri.localhost.evil.example', 'http://tauri.localhost:8080']) {
++      expect(parseCompanionSessionMessage({ data, origin, source: parent as MessageEventSource }, request, parent)).toBeNull();
++    }
+     expect(parseCompanionSessionMessage({ data, origin: 'https://evil.example', source: parent as MessageEventSource }, request, parent)).toBeNull();
+     expect(parseCompanionSessionMessage({ data, origin: 'null', source: {} as MessageEventSource }, request, parent)).toBeNull();
+     expect(parseCompanionSessionMessage({ data: { ...data, requestId: '00000000-0000-4000-8000-000000000000' }, origin: 'null', source: parent as MessageEventSource }, request, parent)).toBeNull();
+diff --git a/agent-frontend/src/pages/operatorEmbedSession.ts b/agent-frontend/src/pages/operatorEmbedSession.ts
+index 8f9c42641..73deda421 100644
+--- a/agent-frontend/src/pages/operatorEmbedSession.ts
++++ b/agent-frontend/src/pages/operatorEmbedSession.ts
+@@ -12,7 +12,8 @@ export const COMPANION_SESSION_TIMEOUT_MS = 3000;
+ const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const TOKEN_RE = /^[A-Za-z0-9._~+/=-]{16,16000}$/;
+ // A file:// parent is reported as an opaque origin; Chromium serializes it as either form.
+-const COMPANION_PARENT_ORIGINS = new Set(['null', 'file://']);
++// Packaged Tauri windows use these exact local origins (no arbitrary localhost ports).
++const COMPANION_PARENT_ORIGINS = new Set(['null', 'file://', 'tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost']);
+ const IDENTIFIER_RE = /^[A-Za-z0-9_-]{1,100}$/;
+ 
+ /** 'standby': a prewarmed host page waiting for its first request; the session is handed over per request. */
