@@ -70,6 +70,8 @@ export interface PageSession {
   stop(): void;
 }
 
+interface CompensationTicket { readonly generation: number; readonly contexts: ReadonlyMap<string, number | null> }
+
 const TRANSPORT_STATES: ReadonlySet<string> = new Set<TransportState>(['connecting', 'connected', 'disconnected', 'reconnecting']);
 
 /** Display values are bounded DTOs. Ignore snapshot metadata when comparing rows. */
@@ -259,6 +261,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   let running = false;
   let runGeneration = 0;
   const unreadContexts = new Map<string, number | null>();
+  // A moved read frontier is evidence of a newer customer message: the consumed watermark is dropped.
+  const syncFrontier = (gid: string): void => unread.noteTarget(gid, store.readTarget(gid)?.msgId ?? null);
   store.watch(gids => {
     for (const gid of gids) {
       const current = store.messageContext(gid);
@@ -269,6 +273,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
         roles.invalidate(gid);
       }
       unreadContexts.set(gid, current);
+      syncFrontier(gid);
     }
   });
   const runUnreadBatch = async (): Promise<void> => {
@@ -285,7 +290,10 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (!current(gid)) return;
       const row = store.row(gid), old = store.view(gid)?.lastMessage;
       const time = normalizeTimeMs(msg.createTime);
-      if (row && time !== null && time >= (normalizeTimeMs(old?.createTime) ?? 0)) {
+      // A lagging detail must not move the row to another room: the row's room is the
+      // address every read receipt for this gid is sent to.
+      const canonical = roomJidFromMessage(gid, old ?? null), incoming = roomJidFromMessage(gid, msg);
+      if (row && time !== null && time >= (normalizeTimeMs(old?.createTime) ?? 0) && (!canonical || !!incoming && incoming.toLowerCase() === canonical.toLowerCase())) {
         store.update([{ ...row, lastMessageJsonString: JSON.stringify(msg), lastMessageTime: time }]);
         messageChanged.add(gid);
       }
@@ -582,7 +590,11 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     const raw = { msgId: evt.id, localId: evt.localid, createTime: ui.create_time_ms, fromJid: evt.from, toJid: evt.to, msgtype: evt.msgtype, messageBody: evt.body, threadId: evt.threadid };
     const canonicalRoom = roomJidFromMessage(ui.gid, store.view(ui.gid)?.lastMessage ?? null);
     const incomingRoom = roomJidFromMessage(ui.gid, raw);
-    if (ui.sender_role === 'customer' && ui.sender_id?.toLowerCase() === store.view(ui.gid)?.customerUid?.toLowerCase() && canonicalRoom && incomingRoom?.toLowerCase() === canonicalRoom.toLowerCase()) store.noteReadHistory(ui.gid, [raw]);
+    // A room-verified frame is live evidence: the customer's newest message is the
+    // read frontier even before the list poll observes it; own/colleague replies
+    // only extend the consumed watermark.
+    if (canonicalRoom && incomingRoom?.toLowerCase() === canonicalRoom.toLowerCase()) store.noteLiveMessage(ui.gid, raw);
+    syncFrontier(ui.gid);
     pushMessages([ui], previewOf(raw, roles.selfUid));
     if (store.readTarget(ui.gid)?.msgId !== previousTarget) {
       const display = displays.get(ui.gid);
@@ -600,13 +612,21 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     }).catch(() => undefined);
   };
 
-  const onCompensation = (outcome: SoaOutcome<RecentMessagesResponse>): void => {
+  /** Per-gid service revision when a compensation request was issued; a late response cannot bind frames to a newer context. */
+  const compensationTicket = (): CompensationTicket => ({ generation: runGeneration, contexts: new Map(store.gids().map(gid => [gid, store.messageContext(gid)])) });
+  // A gid unknown when the request went out has no binding at all: its frontier waits for
+  // the row itself, history, or the next request (no "first context" exception).
+  const boundToCurrentContext = (ticket: CompensationTicket | undefined, gid: string): boolean =>
+    !ticket || (ticket.generation === runGeneration && ticket.contexts.has(gid) && ticket.contexts.get(gid) === store.messageContext(gid));
+  const onCompensation = (outcome: SoaOutcome<RecentMessagesResponse>, ticket?: unknown): void => {
+    const bound = ticket as CompensationTicket | undefined;
     if (outcome.kind === 'auth_invalid') presence.invalidate();
     diagnostics.compensation.last_outcome_ms = deps.now();
     diagnostics.compensation.outcomes[outcome.kind] = receiveCount(diagnostics.compensation.outcomes[outcome.kind]);
     if (outcome.kind !== 'success' || !Array.isArray(outcome.body.messages)) return;
     diagnostics.compensation.rows = receiveCount(diagnostics.compensation.rows, outcome.body.messages.length);
     const items: UiMessage[] = [];
+    const frontierMoved = new Set<string>();
     for (const m of outcome.body.messages as HttpMessageObject[]) {
       if (typeof m !== 'object' || m === null) { diagnostics.compensation.dropped = receiveCount(diagnostics.compensation.dropped); continue; }
       const from = typeof m.fromJid === 'string' ? m.fromJid : '';
@@ -619,10 +639,23 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       const order = orderSummaryFromMessage(m);
       if (order) store.noteOrder(ui.gid, order, ui.create_time_ms);
       const jid = roomJidFromMessage(ui.gid, m);
-      if (jid && roomJidFromMessage(ui.gid, store.view(ui.gid)?.lastMessage ?? null) === jid) opts.sdk.rememberPartnerJid(ui.gid, jid);
+      const canonical = roomJidFromMessage(ui.gid, store.view(ui.gid)?.lastMessage ?? null);
+      if (jid && canonical === jid) opts.sdk.rememberPartnerJid(ui.gid, jid);
+      // Same admission as the realtime path (room-verified) plus request binding:
+      // a response issued in an earlier service context of this gid is display only.
+      if (jid && canonical && jid.toLowerCase() === canonical.toLowerCase() && boundToCurrentContext(bound, ui.gid)) {
+        const previousTarget = store.readTarget(ui.gid)?.msgId;
+        store.noteLiveMessage(ui.gid, m);
+        syncFrontier(ui.gid);
+        if (store.readTarget(ui.gid)?.msgId !== previousTarget) frontierMoved.add(ui.gid);
+      }
       items.push(ui);
     }
     if (items.length > 0) pushMessages(items);
+    for (const gid of frontierMoved) {
+      const display = displays.get(gid);
+      if (display) void pushDisplay({ kind: 'conversations', full: false, items: [display], removed_gids: [] });
+    }
     for (const value of outcome.body.messages) {
       const m = recordOrNull(value) as HttpMessageObject | null;
       if (!m) continue;
@@ -660,6 +693,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     unread,
     onConversationListOutcome: onListOutcome,
     onConversationListRequest: () => presence.captureRead(),
+    onCompensationRequest: compensationTicket,
     onCompensationOutcome: onCompensation,
   });
 
@@ -708,12 +742,16 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     agent: agentBox,
     ensureOrderConversation,
     captureReadAcknowledgment: readAdmission,
+    onReadReceiptConfirmed: gid => { if (running) scheduleUnread([gid]); },
     onReadAcknowledged: async (gid, id, through) => {
       const noNewMessages = readAdmission(gid);
       const generation = runGeneration, context = store.messageContext(gid);
       await readStatuses!.acknowledged(gid, id);
-      if (!noNewMessages() || !running || generation !== runGeneration || context !== store.messageContext(gid) || store.readTarget(gid)?.msgId !== id || !through) return;
-      unread.acknowledge(gid, through);
+      if (!running || generation !== runGeneration) return;
+      // The server count is the authority after any confirmed receipt, admitted locally or not.
+      const target = store.readTarget(gid);
+      if (!noNewMessages() || context !== store.messageContext(gid) || target?.msgId !== id || !through) { scheduleUnread([gid]); return; }
+      unread.acknowledge(gid, target, store.view(gid)?.customerUid ?? null, deps.now());
       const row = store.row(gid), display = displays.get(gid);
       if (row) {
         const fact = toConversationFact(row, false, unread);

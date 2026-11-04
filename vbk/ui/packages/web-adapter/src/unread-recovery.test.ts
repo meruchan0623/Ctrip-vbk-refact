@@ -20,18 +20,18 @@ test('acknowledged consumption suppresses lagging counts but a new message resto
   let current = message('own', 1700000000500, 'me@im.x');
   const deps = makeDeps(() => jsonResponse({ResponseStatus:OK_STATUS,bizResponseStatus:{resultCode:'SUCCESS'},conversationInfoList:[{gid,unreadCount:3,message:current}]}));
   const book = new UnreadBook();book.set(gid,3);
-  assert.equal(book.acknowledge(gid,{msgId:current.msgId,createTime:current.createTime}),true);
+  assert.equal(book.acknowledge(gid,{msgId:current.msgId,createTime:current.createTime},null,deps.now()),true);
   assert.equal(book.unreadOf(gid),0);
   await book.refresh(deps,new SoaClient(deps),[gid]); assert.equal(book.unreadOf(gid),0);
   current=message('new-peer',1700000000600);
   await book.refresh(deps,new SoaClient(deps),[gid]); assert.equal(book.unreadOf(gid),3);
-  book.acknowledge(gid,{msgId:current.msgId,createTime:current.createTime});book.invalidate(gid);
+  book.acknowledge(gid,{msgId:current.msgId,createTime:current.createTime},null,deps.now());book.invalidate(gid);
   await book.refresh(deps,new SoaClient(deps),[gid]);assert.equal(book.unreadOf(gid),3);
 });
 
 test('different messages at the same timestamp are not swallowed by a read watermark', async () => {
   const deps=makeDeps(()=>jsonResponse({ResponseStatus:OK_STATUS,bizResponseStatus:{resultCode:'SUCCESS'},conversationInfoList:[{gid,unreadCount:1,message:message('new',1700000000500)}]}));
-  const book=new UnreadBook();book.acknowledge(gid,{msgId:'old',createTime:1700000000500});
+  const book=new UnreadBook();book.acknowledge(gid,{msgId:'old',createTime:1700000000500},null,deps.now());
   await book.refresh(deps,new SoaClient(deps),[gid]);assert.equal(book.unreadOf(gid),1);
 });
 

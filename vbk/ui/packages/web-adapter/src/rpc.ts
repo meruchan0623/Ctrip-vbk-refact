@@ -115,6 +115,8 @@ export interface RpcContext {
   readonly agent: AgentStatusBox;
   readonly captureReadAcknowledgment?: (gid: string) => (() => boolean);
   readonly onReadAcknowledged?: (gid: string, id: string, through: { readonly msgId: string; readonly createTime: number }) => Promise<void>;
+  /** A confirmed receipt whose local consumption was not admitted (frontier moved / newer evidence); the server count stays the authority. */
+  readonly onReadReceiptConfirmed?: (gid: string) => void;
   readonly sendAckTimeoutMs?: number;
   readonly orderGidWaitMs?: number;
   /** Read back and publish the exact order conversation before returning it to the UI. */
@@ -505,6 +507,7 @@ const imMarkRead: Handler<'im.mark_read'> = async (ctx, args) => {
   if (ctx.store.assistantContextRevision(gid, ctx.roles.selfUid, partnerJidOf(ctx, gid)) !== revision) fail(ErrorCodes.ADAPTER_FAILED, 'conversation changed while read receipt was in flight');
   if (r.kind === 'acked') {
     if (readAcknowledgmentCurrent() && ctx.store.readTarget(gid)?.msgId === expectedMessageId) await ctx.onReadAcknowledged?.(gid, expectedMessageId, readThrough);
+    else ctx.onReadReceiptConfirmed?.(gid);
     return null;
   }
   if (r.kind === 'unknown') fail(ErrorCodes.ADAPTER_TIMEOUT, 'read receipt outcome unknown (not retried)', false, 'unknown');

@@ -38,6 +38,21 @@ function idStr(x: unknown): string | null {
   return null;
 }
 
+/**
+ * Total order on message ids: decimal ids (the server's, increasing with time)
+ * compare numerically and sort before any non-decimal id; the rest compare as
+ * strings. Class first, then value, so mixed inputs never form a cycle.
+ */
+export function compareMessageId(a: string, b: string): number {
+  const na = /^\d+$/.test(a), nb = /^\d+$/.test(b);
+  if (na !== nb) return na ? -1 : 1;
+  if (na) {
+    const x = a.replace(/^0+(?=\d)/, ''), y = b.replace(/^0+(?=\d)/, '');
+    return x.length !== y.length ? x.length - y.length : x < y ? -1 : x > y ? 1 : 0;
+  }
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function orderContext(view: ConversationRowView): string {
   return JSON.stringify([view.gid, view.orderId, view.sessionId, view.customerUid, view.conversationType, view.serviceType, view.threadId, view.conversationKey ?? null, view.worksheetId]);
 }
@@ -138,8 +153,10 @@ export class ConversationStore {
     return this.#orderScopes.get(gid)?.revision ?? null;
   }
 
-  // Only authoritative conversation rows may advance the read frontier. History,
-  // unread and SDK/compensation frames are gid-only even in the first observed epoch.
+  // Only authoritative conversation rows may advance the row snapshot (`latestMessage`).
+  // History, unread and SDK/compensation frames are gid-only even in the first observed
+  // epoch; the read frontier accepts them only after room/customer/thread/fence checks
+  // (`#notePeerRow`), and a live frame may run ahead of the snapshot.
   #rememberMessage(gid: string, msgId: unknown, createTime: unknown): void {
     const id = idStr(msgId);
     const t = typeof createTime === 'number' ? createTime : typeof createTime === 'string' && /^\d+$/.test(createTime) ? Number(createTime) : 0;
@@ -163,30 +180,47 @@ export class ConversationStore {
     const id = idStr(lm.msgId), t = normalizeTimeMs(lm.createTime);
     if (id === null || t === null) return;
     const cur = this.#readTargets.get(gid);
-    const target = selectReadTarget([
-      ...(cur ? [{ msgId: cur.msgId, createTimeMs: cur.createTime, fromSelf: false }] : []),
-      { msgId: id, createTimeMs: t, fromSelf: false },
-    ]);
-    if (target === id) this.#readTargets.set(gid, { msgId: id, createTime: t });
+    // Order-independent: newer time wins; at the same timestamp the larger server
+    // message id wins, so duplicates / reordered frames cannot flip the frontier
+    // and every source (row, history, live) converges on the same target.
+    if (cur && (t < cur.createTime || t === cur.createTime && compareMessageId(id, cur.msgId) <= 0)) return;
+    if (selectReadTarget([{ msgId: id, createTimeMs: t, fromSelf: false }]) === id) this.#readTargets.set(gid, { msgId: id, createTime: t });
   }
 
   /** Scope-checked history can recover a peer frontier hidden by a later self/system row.
    * Never advance beyond the authoritative conversation snapshot or accept another room. */
   noteReadHistory(gid: string, rows: readonly HttpMessageObject[]): void {
-    const view = this.view(gid), latest = this.latestMessage(gid);
-    if (!view || !latest || !Number.isFinite(latest.createTime) || latest.createTime <= 0) return;
+    const latest = this.latestMessage(gid);
+    if (!latest || !Number.isFinite(latest.createTime) || latest.createTime <= 0) return;
+    for (const row of rows) this.#notePeerRow(gid, row, latest.createTime);
+  }
+
+  /**
+   * A realtime / compensation frame whose room the caller already matched
+   * against the authoritative row and whose request/arrival the caller bound
+   * to the current context. Unlike history it may run ahead of the row
+   * snapshot: the customer's newest message is the read frontier even when the
+   * agent replies before the next list poll observes it (otherwise the receipt
+   * can never target it and the unread badge never clears). It is still fenced
+   * by the observed service switch, and a context change drops it.
+   */
+  noteLiveMessage(gid: string, row: HttpMessageObject): void {
+    this.#notePeerRow(gid, row, null);
+  }
+
+  #notePeerRow(gid: string, row: HttpMessageObject, maxTime: number | null): void {
+    const view = this.view(gid);
+    if (!view) return;
     const scope = this.#orderScopes.get(gid);
     if (!scope || scope.fence === null) return;
     const room = roomJidFromMessage(gid, view.lastMessage);
     if (!room) return;
-    for (const row of rows) {
-      const time = normalizeTimeMs(row.createTime), type = Number(row.msgtype);
-      if (time === null || time > latest.createTime || !Number.isFinite(type) || type >= 1000) continue;
-      if (scope.fence !== undefined && time <= scope.fence) continue;
-      if (view.threadId && typeof row.threadId === 'string' && row.threadId && row.threadId !== view.threadId) continue;
-      if (roomJidFromMessage(gid, row) !== room) continue;
-      this.#rememberPeerMessage(gid, view.customerUid, row);
-    }
+    const time = normalizeTimeMs(row.createTime), type = Number(row.msgtype);
+    if (time === null || (maxTime !== null && time > maxTime) || !Number.isFinite(type) || type >= 1000) return;
+    if (scope.fence !== undefined && time <= scope.fence) return;
+    if (view.threadId && typeof row.threadId === 'string' && row.threadId && row.threadId !== view.threadId) return;
+    if (roomJidFromMessage(gid, row) !== room) return;
+    this.#rememberPeerMessage(gid, view.customerUid, row);
   }
 
   /** Newest peer-sent message id known from authoritative rows of the current context, or `null`. */
@@ -397,20 +431,35 @@ export class RoleBook implements MemberRoles {
 
 export const UNREAD_BATCH = 20;
 
+/** How long a confirmed receipt may suppress a lagging server count that shows no newer customer message. */
+export const READ_GRACE_MS = 30_000;
+
 export class UnreadBook implements UnreadLookup {
   readonly #counts = new Map<string, number>();
-  readonly #readThrough = new Map<string, LatestMessage>();
+  /**
+   * Consumed watermark per gid: the acknowledged customer message, who the
+   * customer is, and when the receipt was confirmed. It only bridges the gap
+   * until the server reflects the receipt; it never outlives `READ_GRACE_MS`
+   * and never survives evidence of a newer customer message.
+   */
+  readonly #acked = new Map<string, { target: LatestMessage; peer: string | null; at: number }>();
 
   unreadOf(gid: string): number | null {
     return this.#counts.get(gid) ?? null;
   }
 
-  invalidate(gid: string): void { this.#counts.delete(gid); this.#readThrough.delete(gid); }
+  invalidate(gid: string): void { this.#counts.delete(gid); this.#acked.delete(gid); }
 
-  /** Confirmed visible consumption, bounded by the snapshot that owned the receipt. */
-  acknowledge(gid: string, through: LatestMessage): boolean {
-    this.#readThrough.set(gid, through);
+  /** Confirmed visible consumption of `target` (the newest customer message the agent saw) at clock time `at`. */
+  acknowledge(gid: string, target: LatestMessage, peer: string | null, at: number): boolean {
+    this.#acked.set(gid, { target, peer: peer ? norm(peer) : null, at });
     return this.set(gid, 0);
+  }
+
+  /** The read frontier moved: a watermark for another target is evidence-stale and dropped. */
+  noteTarget(gid: string, target: string | null): void {
+    const entry = this.#acked.get(gid);
+    if (entry && entry.target.msgId !== target) this.#acked.delete(gid);
   }
 
   set(gid: string, n: number): boolean {
@@ -439,16 +488,39 @@ export class UnreadBook implements UnreadLookup {
         const n = r?.['unreadCount'];
         if (typeof gid !== 'string' || !batch.includes(gid) || !current(gid)) continue;
         const msg = recordOrNull(r?.['message']);
-        const through = this.#readThrough.get(gid);
-        const time = normalizeTimeMs(msg?.['createTime']), id = idStr(msg?.['msgId']);
-        // A lagging detail response must not resurrect already consumed messages.
-        // Different IDs at the same timestamp are conservatively treated as new.
-        const consumed = through && time !== null && (time < through.createTime || time === through.createTime && id === through.msgId);
-        if (through && !consumed && typeof n === 'number' && n > 0) this.#readThrough.delete(gid);
-        if (typeof n === 'number' && Number.isInteger(n) && n >= 0 && this.set(gid, consumed ? 0 : n)) changed.push(gid);
+        const suppressed = typeof n === 'number' && n > 0 && this.#suppressed(gid, msg as HttpMessageObject | null, deps.now());
+        if (typeof n === 'number' && Number.isInteger(n) && n >= 0) {
+          if (n === 0 || !suppressed) this.#acked.delete(gid);
+          if (this.set(gid, suppressed ? 0 : n)) changed.push(gid);
+        }
         if (msg && onMessage) onMessage(gid, msg as HttpMessageObject);
       }
     }
     return changed;
+  }
+
+  /**
+   * A lagging count after a confirmed receipt stays suppressed while the
+   * embedded last message is not a customer message newer than the acked
+   * target (own / colleague replies, the target itself, an older message) and
+   * the grace window has not elapsed. A newer customer message, an unknown
+   * sender's newer message, or the end of the window hands the count back to
+   * the server: the badge may show a message the client never observed, but
+   * it can never hide one.
+   */
+  #suppressed(gid: string, msg: HttpMessageObject | null, now: number): boolean {
+    const entry = this.#acked.get(gid);
+    if (!entry) return false;
+    if (now - entry.at > READ_GRACE_MS) return false;
+    if (!msg) return true;
+    const time = normalizeTimeMs(msg.createTime), id = idStr(msg.msgId), type = Number(msg.msgtype);
+    if (time === null) return false;
+    const newer = time > entry.target.createTime || time === entry.target.createTime && id !== entry.target.msgId;
+    if (!newer) return true;
+    const sender = typeof msg.fromJid === 'string' ? norm(effectiveMessageSender(jidSender(msg.fromJid), msg.messageBody, msg.msgtype)) : '';
+    const system = Number.isFinite(type) && type >= 1000;
+    // Unknown sender or unknown peer: treat the newer message as the customer's.
+    const fromPeer = !system && (sender === '' || entry.peer === null || sender === entry.peer);
+    return !fromPeer;
   }
 }

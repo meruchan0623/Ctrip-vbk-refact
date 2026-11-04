@@ -95,7 +95,8 @@ export interface AdapterOptions {
   readonly onConversationListRequest?: () => unknown;
   readonly onConversationListOutcome?: (outcome: SoaOutcome<ConversationListResponse>, variant: ConversationListVariant, ticket?: unknown) => void;
   /** Every classified `getRecentMessages` outcome (display bodies of compensated messages). */
-  readonly onCompensationOutcome?: (outcome: SoaOutcome<RecentMessagesResponse>) => void;
+  readonly onCompensationRequest?: () => unknown;
+  readonly onCompensationOutcome?: (outcome: SoaOutcome<RecentMessagesResponse>, ticket?: unknown) => void;
 }
 
 export interface Adapter {
@@ -163,6 +164,7 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
     ...(opts.stopNormalLoopAfterLimit !== undefined ? { stopNormalLoopAfterLimit: opts.stopNormalLoopAfterLimit } : {}),
     ...(opts.normalLoopStopAfterMs !== undefined ? { normalLoopStopAfterMs: opts.normalLoopStopAfterMs } : {}),
     ...(opts.msgTypeOverrides ? { msgTypeOverrides: opts.msgTypeOverrides } : {}),
+    ...(opts.onCompensationRequest ? { onRequest: opts.onCompensationRequest } : {}),
     ...(opts.onCompensationOutcome ? { onOutcome: opts.onCompensationOutcome } : {}),
   });
   const conversationPollers = (opts.conversationListVariants ?? ['plain']).map((variant) =>

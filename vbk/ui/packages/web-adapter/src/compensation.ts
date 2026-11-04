@@ -71,7 +71,9 @@ export interface CompensationOptions {
   readonly stopNormalLoopAfterLimit?: boolean;
   readonly pageSize?: number;
   readonly msgTypeOverrides?: MsgTypeOverrides;
-  readonly onOutcome?: (outcome: SoaOutcome<RecentMessagesResponse>) => void;
+  /** Captured right before each request; handed back to `onOutcome` so a late response can be bound to the state it was issued in. */
+  readonly onRequest?: () => unknown;
+  readonly onOutcome?: (outcome: SoaOutcome<RecentMessagesResponse>, ticket?: unknown) => void;
 }
 
 export interface CompensationLoop {
@@ -144,6 +146,7 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
     const myRun = run;
     inFlightRun = myRun;
     lastAttemptAt = deps.now();
+    const ticket = opts.onRequest?.();
     let outcome: SoaOutcome<RecentMessagesResponse>;
     try {
       outcome = await soa.post<RecentMessagesResponse>(Endpoints.RECENT_MESSAGES, recentMessagesBody(deps, cursor, pageSize));
@@ -154,7 +157,7 @@ export function createCompensationLoop(deps: AdapterDeps, soa: SoaClient, opts: 
     // A response that straddled a restart is dropped (the next round re-reads
     // from the unchanged cursor), but the current generation still needs its round.
     if (gen !== generation) { if (timer === null) schedule(generation); return; }
-    opts.onOutcome?.(outcome);
+    opts.onOutcome?.(outcome, ticket);
     if (outcome.kind === 'auth_invalid') {
       running = false;
       mode = 'stopped';
