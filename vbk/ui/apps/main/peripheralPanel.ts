@@ -324,7 +324,7 @@ export function createPeripheralPanel(deps: Dependencies) {
       // A confirmed member change is re-read like the official refreshGroupMember.
       if (kind === 'members' && result.kind === 'confirmed' && valid(ticket, scope)) {
         const members = readMembers(await deps.invoke(UiCommands.IM_MEMBERS, base));
-        if (valid(ticket, scope)) patch({ members, selected: [], submitted: false });
+        if (valid(ticket, scope)) { deps.rememberMembers?.(scope, members); patch({ members, selected: [], submitted: false }); }
       }
     } catch (error) {
       if (valid(ticket, scope)) patch({ write: state?.write ?? uncertain, error: errorMessage(error) });

@@ -77,6 +77,8 @@ html:not([data-platform="macos"]) .mac-only { display: none !important; }
 .chip-info { background: var(--c-primary-soft); color: var(--c-info-text); }
 .chip-warn { background: var(--c-warn-soft); color: var(--c-warn-text); }
 .chip-danger { background: var(--c-alert-soft); color: var(--c-alert-text); }
+.chip-members { background: var(--c-ok-soft); color: var(--c-ok-text); border-radius: 999px; }
+.chip-master { background: var(--c-warn-soft); color: var(--c-warn-text); border-radius: 999px; }
 .badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--c-badge); color: #fff; font-size: var(--fs-xs); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .ava { width: 36px; height: 36px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 14px; }

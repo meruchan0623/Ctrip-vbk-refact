@@ -98,6 +98,7 @@ import {
 import type { SoundName } from '../_shared/guards.ts';
 import { playSound, stopSound } from './sound.ts';
 import { createMemberPreload } from './member-preload.ts';
+import { memberPills, memberScanGids } from './member-pills.ts';
 import { createPeripheralPanel, filteredInviteAgents, type PeripheralKind, type PeripheralPanelState } from './peripheralPanel.ts';
 import { settleAccountSend } from './sendScope.ts';
 import { messageAlignment } from './message-alignment.ts';
@@ -248,6 +249,8 @@ interface MainState {
   readonly hideInboundTr: boolean;
   /** Bumped when a row's platform translation state changes (the state itself lives in the controller). */
   readonly inboundTrRevision: number;
+  /** Bumped when the member cache changes: makes a render frame non-scroll so pills re-read the cache. */
+  readonly memberCacheRevision: number;
   readonly trBarOff: boolean;
   readonly composerMore: boolean;
   readonly webTabs: readonly UiBrowserTab[];
@@ -331,6 +334,7 @@ const initial: MainState = {
   translation: TRANSLATION_IDLE,
   hideInboundTr: false,
   inboundTrRevision: 0,
+  memberCacheRevision: 0,
   trBarOff: false,
   composerMore: false,
   webTabs: [],
@@ -420,14 +424,17 @@ const memberPreload = createMemberPreload({
   invoke: (command, payload) => ipc.invoke(command, payload),
   now: Date.now,
   isVisible: () => document.visibilityState === 'visible',
+  // Rendering is frame-batched and only peeks, and this field is not a sync trigger below, so there is no loop.
+  publish: () => store.patch({ memberCacheRevision: S().memberCacheRevision + 1 }),
 });
 function syncMemberPreload() {
   const s = S(), acc = activeAccount(s);
-  memberPreload.sync(acc?.state === 'online' && s.view === 'messages' && s.activeGid ? {
+  // Other views only pause: no requests go out, and a null context would wipe the cache and its pills.
+  memberPreload.sync(acc?.state === 'online' ? {
     account: acc.context,
-    gids: [s.activeGid],
+    gids: memberScanGids(s.conversations, s.activeGid),
     activeGid: s.activeGid,
-    paused: !!s.peripheral,
+    paused: !!s.peripheral || s.view !== 'messages',
   } : null);
 }
 store.subscribe((s, previous) => {
@@ -1766,6 +1773,15 @@ function syncWaitPill(el: HTMLElement, c: UiConversation, waited: number): void 
   if (el.title !== title) el.title = title;
 }
 
+/** Peek only: safe per rendered row, and scoped to this account so a switch cannot show another account's pills. */
+function memberPillsFor(acc: UiAccount | null, conv: UiConversation) {
+  return memberPills(isDone(conv), acc ? memberPreload.peekMembers({ account: acc.context, gid: conv.gid }) : null);
+}
+
+function masterPill(): HTMLElement {
+  return h('span', { class: 'chip chip-master', title: t('chat.masterPillLabel'), 'aria-label': t('chat.masterPillLabel') }, t('chat.masterPill'));
+}
+
 function conversationList(s: MainState): HTMLElement {
   const counts = tabCounts(s.conversations, 'customer');
   const list = filterConversations(s.conversations, s.tab, s.query, 'customer');
@@ -1786,9 +1802,10 @@ function conversationList(s: MainState): HTMLElement {
     const draft = s.drafts[c.gid] ?? c.draft;
     const hasDraft = !!draft && !on;
     const preview = c.preview || latestPreview(msgs);
+    const master = memberPillsFor(acc, c).isMaster;
     // 行只依赖这些输入：未变就交回上次的节点，增量渲染原地保留，不再逐帧重建/比对整行（滚动与计时刷新时的主要脚本开销）。
     // 等待秒数不进依赖：命中缓存时只就地改写计时文本，不因每秒变化重建整行。
-    const deps = [c, language, preview, on, hasDraft ? draft : null, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '', waiting ? waitTier(waited) : null, s.prefs];
+    const deps = [c, language, preview, on, hasDraft ? draft : null, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '', waiting ? waitTier(waited) : null, s.prefs, master];
     const cached = conversationRows.get(c.gid);
     if (cached && cached.deps.length === deps.length && cached.deps.every((value, i) => value === deps[i])) {
       nextRows.set(c.gid, cached);
@@ -1824,7 +1841,7 @@ function conversationList(s: MainState): HTMLElement {
       h(
         'div',
         { class: 'conv-main' },
-        h('div', { class: 'crow' }, h('span', { class: 'cname' }, c.title), language !== 'zh' ? h('span', { class: 'chip chip-lang' }, langName(language)) : null, h('span', { class: 'ctime', dataset: { relativeTime: String(c.last_message_time_ms ?? 0) } }, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '')),
+        h('div', { class: 'crow' }, h('span', { class: 'cname' }, c.title), master ? masterPill() : null, language !== 'zh' ? h('span', { class: 'chip chip-lang' }, langName(language)) : null, h('span', { class: 'ctime', dataset: { relativeTime: String(c.last_message_time_ms ?? 0) } }, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '')),
         h('div', { class: 'crow' }, hasDraft ? h('span', { class: 'cdraft' }, t('list.draft')) : null, h('span', { class: 'cprev' }, hasDraft ? draft : preview), accBadge(c.unread_count)),
         h(
           'div',
@@ -2511,6 +2528,7 @@ function chatPane(s: MainState): HTMLElement {
   const pinned = previousScroll?.dataset['historyScope'] === scope ? previousScroll.scrollHeight - previousScroll.clientHeight - previousScroll.scrollTop < PIN_THRESHOLD : !(s.messageView?.scope === scope && s.messageView.anchor);
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
   const sub = [isDone(conv) ? '会话已结束，无法管理成员' : waiting ? t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) }) : ''].filter(Boolean).join(' · ');
+  const pills = memberPillsFor(acc, conv);
   return h(
     'div',
     { class: 'chat' },
@@ -2518,7 +2536,7 @@ function chatPane(s: MainState): HTMLElement {
       'div',
       { class: 'chat-h' },
       h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)),
-      h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, h('span', { class: 'chat-name-text', title: conv.title }, conv.title), customerLanguage(conv, s.messages[conv.gid] ?? EMPTY_MESSAGES) !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(customerLanguage(conv, s.messages[conv.gid] ?? EMPTY_MESSAGES)) })) : null), sub ? h('div', { class: 'chat-sub', dataset: { chatWaitingGid: conv.gid } }, sub) : null),
+      h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, h('span', { class: 'chat-name-text', title: conv.title }, conv.title), pills.count !== null ? h('span', { class: 'chip chip-members', title: t('chat.memberCountLabel', { n: pills.count }), 'aria-label': t('chat.memberCountLabel', { n: pills.count }) }, t('chat.memberCount', { n: pills.count })) : null, pills.isMaster ? masterPill() : null, customerLanguage(conv, s.messages[conv.gid] ?? EMPTY_MESSAGES) !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(customerLanguage(conv, s.messages[conv.gid] ?? EMPTY_MESSAGES)) })) : null), sub ? h('div', { class: 'chat-sub', dataset: { chatWaitingGid: conv.gid } }, sub) : null),
       h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end', fid: 'chat-act:end' } , onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),
       h('button', { class: 'btn sm', 'aria-label': '成员管理', disabled: isDone(conv), title: isDone(conv) ? '会话已结束，无法管理成员' : '成员管理', dataset: { chatAct: 'members', fid: 'chat-act:members' } , onclick: () => openPeripheral('members') }, icon(IC.users, 17), '成员管理'),
       h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side', fid: 'chat-act:side' } , onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),

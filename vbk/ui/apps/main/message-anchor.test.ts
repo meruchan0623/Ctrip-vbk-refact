@@ -72,6 +72,7 @@ function fixture(initial: UiMessage[], options: { rowHeight?: (id: string) => nu
   let account: { context: typeof OWNER } = { context: owner };
   let conv: Record<string, unknown> = { gid: '', account: null };
   const env: Record<string, unknown> = {
+    memberPillsFor: () => ({ count: null, isMaster: false }),
     visibleReads: { afterRender() {}, retry() {} }, ...viewmodel, HISTORY_RUNWAY, historyDiagnostics, part: (_name: string, build: () => unknown) => build(), featureRuntime: { renderSlot: () => [] }, messageAlignment, cx, store, S: () => store.get(), PIN_THRESHOLD, sameWindow,
     messagePaneModel: createMessagePane(), createHistoryLayoutFrames,
     subscribeFrame: subscribeBatched, fillHistoryViewport() {}, syncConversationViewport() {},

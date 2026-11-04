@@ -31,7 +31,7 @@ function render(name: 'conversationList' | 'chatPane' | 'peripheralDialog', next
     createTextNode: (text: string) => ({ tag: '#text', text }),
     querySelector: () => null,
   };
-  const env = { filteredInviteAgents, customerLanguage, INVITE_ROOT: 'root', personDisplayName, virtualConversationRange, latestPreview, EMPTY_MESSAGES, PIN_THRESHOLD: 48, messagePane: () => null, part: (_name: string, build: () => unknown) => build(), featureRuntime: { renderSlot: () => [] },
+  const env = { memberPillsFor: () => ({ count: null, isMaster: false }), filteredInviteAgents, customerLanguage, INVITE_ROOT: 'root', personDisplayName, virtualConversationRange, latestPreview, EMPTY_MESSAGES, PIN_THRESHOLD: 48, messagePane: () => null, part: (_name: string, build: () => unknown) => build(), featureRuntime: { renderSlot: () => [] },
     document: doc, renderMessageAvatar, initialOf, cx, historyScopeKey,
     h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }),
     icon: () => ({ tag: 'icon' }), IC: {}, t: (key: string) => key,

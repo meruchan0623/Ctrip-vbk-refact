@@ -1,11 +1,18 @@
-/** Bounded, read-only display preloading. Selection tokens never enter this cache. */
+/**
+ * Bounded, read-only display preloading. Selection tokens never enter this cache.
+ * The entered conversation gets membership and directory reads; every other
+ * candidate gets a slow membership-only scan. All of it shares one in-flight
+ * slot, one per-minute budget and per-target failure backoff.
+ */
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
 import { UiCommands, type UiInviteAgent, type UiInviteCandidates, type UiMembers } from '../../packages/ipc/src/client.ts';
 
 export interface MemberPreloadScope { readonly account: AccountContext; readonly gid: string }
 export interface MemberPreloadContext {
   readonly account: AccountContext;
+  /** Scan candidates in display order. activeGid is only preloaded when listed here. */
   readonly gids: readonly string[];
+  /** Null scans candidates only and never touches the directory. */
   readonly activeGid: string | null;
   readonly paused?: boolean;
 }
@@ -43,6 +50,14 @@ export const MEMBER_PRELOAD_POLICY = {
 const accountKey = (account: AccountContext) => JSON.stringify([account.environment, account.account_id, account.session_generation]);
 const object = (value: unknown): Record<string, unknown> | null => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const nonempty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
+/** Over the cache bound, keep the head plus active so a scan cannot evict its own candidates and refetch them forever. */
+function boundedCandidates(next: MemberPreloadContext): readonly string[] {
+  const unique = [...new Set(next.gids)];
+  if (unique.length <= MEMBER_PRELOAD_POLICY.cacheLimit) return unique;
+  const kept = unique.slice(0, MEMBER_PRELOAD_POLICY.cacheLimit - 1);
+  if (next.activeGid && unique.includes(next.activeGid) && !kept.includes(next.activeGid)) kept.push(next.activeGid);
+  return kept;
+}
 function membersSnapshot(value: unknown): PreloadedMembers {
   const row = object(value);
   if (!row || !Number.isFinite(row['fetched_at_ms']) || !Array.isArray(row['members']) || !row['members'].every(raw => {
@@ -125,6 +140,10 @@ export function createMemberPreload(deps: Dependencies) {
     members.delete(scope.gid); members.set(scope.gid, cached);
     return cached.value;
   }
+  /** Render-path read: unlike getMembers it leaves the LRU order untouched. */
+  function peekMembers(scope: MemberPreloadScope): PreloadedMembers | null {
+    return valid(scope) ? members.get(scope.gid)?.value ?? null : null;
+  }
   function getDirectory(scope: MemberPreloadScope): PreloadedDirectory | null {
     if (!valid(scope) || !directory) return null;
     if (directory.gid === scope.gid) return directory.value;
@@ -139,15 +158,33 @@ export function createMemberPreload(deps: Dependencies) {
     while (failures.size > MEMBER_PRELOAD_POLICY.cacheLimit + 1) failures.delete(failures.keys().next().value!);
   }
   function due(gid: string, interval: number, now: number) { return ready(`member:${gid}`, now) && (!members.has(gid) || now - members.get(gid)!.updatedAt >= interval); }
+  function nextOtherGid(gids: readonly string[], activeGid: string | null, now: number, foreground: boolean): string | null {
+    const others = gids.filter(gid => gid !== activeGid);
+    const uncached = others.find(gid => !members.has(gid) && ready(`member:${gid}`, now));
+    if (uncached) return uncached;
+    const interval = foreground ? MEMBER_PRELOAD_POLICY.otherMembersMs : MEMBER_PRELOAD_POLICY.hiddenOtherMembersMs;
+    for (let offset = 0; offset < others.length; offset++) {
+      const index = (rotation + offset) % others.length;
+      if (due(others[index]!, interval, now)) { rotation = index + 1; return others[index]!; }
+    }
+    return null;
+  }
   function nextTask(now: number, foreground: boolean): { kind: 'member' | 'directory'; gid: string } | null {
     if (!context) return null;
     const active = context.activeGid && context.gids.includes(context.activeGid) ? context.activeGid : null;
-    if (!active) return null;
-    // Alternate only the entered conversation's membership and candidates.
-    for (let checked = 0; checked < 2; checked++) {
-      const which = category++ % 2;
-      if (which === 0 && due(active, foreground ? MEMBER_PRELOAD_POLICY.activeMembersMs : MEMBER_PRELOAD_POLICY.hiddenActiveMembersMs, now)) return { kind: 'member', gid: active };
-      if (which === 1 && ready('directory', now) && (scan || !directory || directory.gid !== active || now - directory.completedAt >= (foreground ? MEMBER_PRELOAD_POLICY.directoryMs : MEMBER_PRELOAD_POLICY.hiddenDirectoryMs))) return { kind: 'directory', gid: active };
+    const memberDue = active !== null && due(active, foreground ? MEMBER_PRELOAD_POLICY.activeMembersMs : MEMBER_PRELOAD_POLICY.hiddenActiveMembersMs, now);
+    const directoryDue = active !== null && ready('directory', now) && (scan !== null || !directory || directory.gid !== active || now - directory.completedAt >= (foreground ? MEMBER_PRELOAD_POLICY.directoryMs : MEMBER_PRELOAD_POLICY.hiddenDirectoryMs));
+    // The entered conversation alternates membership and directory reads. Other
+    // candidates only run when neither is due, except that a multi-batch
+    // directory scan takes turns with them so it cannot starve the scan.
+    for (let checked = 0; checked < 3; checked++) {
+      const which = category++ % 3;
+      if (which === 0 && active !== null && memberDue) return { kind: 'member', gid: active };
+      if (which === 1 && active !== null && directoryDue) return { kind: 'directory', gid: active };
+      if (which === 2 && !memberDue && (!directoryDue || scan !== null)) {
+        const gid = nextOtherGid(context.gids, context.activeGid, now, foreground);
+        if (gid !== null) return { kind: 'member', gid };
+      }
     }
     return null;
   }
@@ -187,7 +224,8 @@ export function createMemberPreload(deps: Dependencies) {
       }
       failures.delete(failureKey);
     } catch {
-      if (ticket === epoch) fail(failureKey);
+      // A reply we would have discarded says nothing about the target's health.
+      if (ticket === epoch && context?.gids.includes(task.gid)) fail(failureKey);
     } finally {
       running = false;
       schedule();
@@ -197,10 +235,10 @@ export function createMemberPreload(deps: Dependencies) {
     if (context?.activeGid !== next?.activeGid) { epoch++; scan = null; directory = null; category = 0; }
     const changed = (context ? accountKey(context.account) : null) !== (next ? accountKey(next.account) : null);
     if (changed) { epoch++; members.clear(); memberRevisions.clear(); directory = null; directoryRevision++; scan = null; failures.clear(); rotation = 0; category = 0; }
-    context = next ? { ...next, account: { ...next.account }, gids: next.activeGid && next.gids.includes(next.activeGid) ? [next.activeGid] : [] } : null;
+    context = next ? { ...next, account: { ...next.account }, gids: boundedCandidates(next) } : null;
     if (!context || context.paused || !context.gids.length) cancel();
     else if (!cancelTimer && !running) schedule(0);
   }
   function stop() { sync(null); cancel(); }
-  return { sync, getMembers, getDirectory, observeMembers, observeDirectory, stop };
+  return { sync, getMembers, peekMembers, getDirectory, observeMembers, observeDirectory, stop };
 }
