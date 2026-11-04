@@ -105,8 +105,9 @@ test('review/hostile: translation, settings, worksheet star, search, mark-read t
   const sync = await syncVenAgentInfo(deps, soa);
   assert.equal(sync.kind, 'synced');
   assert.equal(deps.fakeFetch.calls.length, 10, 'sync wrote once and read back once');
-  for (const g of ['', 'abc', '1'.repeat(16), '-1', '1.5', ' 1']) assert.equal(numericGid(g), null, g);
+  for (const g of ['', 'abc', '9'.repeat(400), '-1', '1.5', ' 1']) assert.equal(numericGid(g), null, g);
   assert.equal(numericGid('123'), 123);
+  assert.equal(numericGid('1111111111111111'), 1111111111111111, 'safe 16-digit gid is valid');
 
   deps.fakeSdk.putAdviceOfReadByMsgId = () => Promise.reject(new Error('sdk'));
   assert.deepEqual(await markRead(deps.fakeSdk, { partnerJid: 'p', msgId: 'm' }), { kind: 'unknown' });

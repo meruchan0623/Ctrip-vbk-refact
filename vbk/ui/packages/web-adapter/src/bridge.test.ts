@@ -110,3 +110,27 @@ test('createAdapter forwards explicit self identity through role replacement for
   assert.equal(outgoing.fact.sender_role, 'merchant_self');
   adapter.stop();
 });
+
+test('createAdapter: resends an unresolved realtime message once the conversation list names its customer', async () => {
+  const deps = makeDeps((call) => {
+    if (call.url.includes('getConversationList')) return jsonResponse({ ResponseStatus: OK_STATUS, conversationList: [{ gid: 'g1', uid: 'cust', serviceType: '1513', status: 2, inGroup: true, isOwner: true }], lastUpdateTime: 1700000000500 });
+    return jsonResponse({ ResponseStatus: OK_STATUS, lastMessageTimestamp: 1700000000600 });
+  });
+  const adapter = createAdapter(deps, { account, initialBeginMsgTime: 1700000000000, roles: buildMemberRoles({ selfUid: 'me', customerUid: null, members: [] }) });
+  adapter.start();
+  deps.fakeSdk.emit('message', { id: 'first', type: 'groupchat', msgtype: '0', create_time: '1700000000700', from: 'g1@conf/cust', to: 'me@x' });
+  deps.fakeSdk.emit('message', { id: 'stranger', type: 'groupchat', msgtype: '0', create_time: '1700000000800', from: 'g1@conf/other', to: 'me@x' });
+  await adapter.bridge.flush();
+  adapter.setRoles(buildMemberRoles({ selfUid: 'me', customerUid: 'cust', members: [] }));
+  await deps.clock.advance(5000);
+  await adapter.bridge.flush();
+  const copies = (id: string) => deps.invoked
+    .map((i) => (i.payload as AdapterFactEnvelope).fact)
+    .flatMap((fact) => (fact.kind === 'message' && fact.fact.message_id === id ? [fact.fact] : []));
+  assert.deepEqual(copies('first').map((fact) => [fact.sender_role, fact.source]), [['unknown', 'realtime'], ['customer', 'realtime']]);
+  assert.deepEqual(copies('stranger').map((fact) => fact.sender_role), ['unknown']);
+  await deps.clock.advance(5000);
+  await adapter.bridge.flush();
+  assert.equal(copies('first').length, 2, 'resent only once');
+  adapter.stop();
+});

@@ -7,17 +7,69 @@ import { FakePageSdk, OK_STATUS, flush, jsonResponse, makeDeps, sampleRow } from
 const gid = '123456', orderId = '1234567890';
 function card(product: string, order = orderId) { return JSON.stringify({ action: 'CTL01', ext: { title: 'synthetic title', desc: 'synthetic description', dataInfoList: [{ Id: 'orderid', text: order }, { Id: 'productName', text: product }, { Id: 'platformName', text: 'synthetic platform' }, { Id: 'orderamout', text: '18.52' }] } }); }
 function frame(product: string, time = 1700000000900, order = orderId, room = gid) { return { type: 'groupchat', id: `synthetic-${time}`, from: `${room}@muc.synthetic/customer`, to: 'me@synthetic', create_time: time, msgtype: 7, body: card(product, order) }; }
-function fixture(options: { holdHistory?: boolean; historyRows?: unknown[] } = {}) {
-  let row: Record<string, unknown> = {}, recent: unknown[] = [];
+function fixture(options: { holdHistory?: boolean; historyRows?: unknown[]; holdSource?: boolean; source?: unknown } = {}) {
+  let row: Record<string, unknown> = {}, recent: unknown[] = [], source = options.source;
   let releaseHistory: ((value: ReturnType<typeof jsonResponse>) => void) | null = null;
-  const base = makeDeps(call => call.url.includes('getMessageList') ? options.holdHistory ? new Promise(resolve => { releaseHistory = resolve; }) : jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: { isDone: true, messages: options.historyRows ?? [] } }) : jsonResponse(call.url.includes('getConversationList') ? { ResponseStatus: OK_STATUS, conversationList: [sampleRow(gid, row)], haveRest: false }
+  let releaseSource: ((value: ReturnType<typeof jsonResponse>) => void) | null = null;
+  const base = makeDeps(call => call.url.includes('getVbkImUserinfo') ? options.holdSource ? new Promise(resolve => { releaseSource = resolve; }) : jsonResponse(source ?? {}) : call.url.includes('getMessageList') ? options.holdHistory ? new Promise(resolve => { releaseHistory = resolve; }) : jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: { isDone: true, messages: options.historyRows ?? [] } }) : jsonResponse(call.url.includes('getConversationList') ? { ResponseStatus: OK_STATUS, conversationList: [sampleRow(gid, row)], haveRest: false }
     : call.url.includes('getRecentMessages') ? { ResponseStatus: OK_STATUS, messages: recent, lastMessageTimestamp: 1700000000000 }
     : { ResponseStatus: OK_STATUS, members: [] }));
   const sdk = new FakePageSdk(), displays: AdapterDisplayPayload[] = [];
   const session = createPageSession({ ...base, sdk }, { sdk, account: { account_id: 'synthetic', environment: 'production', session_generation: 1 }, selfUid: 'me', initialEpoch: 1, beginMsgTime: 1700000000000, pushDisplay: async payload => { displays.push(payload); } });
   const last = () => displays.flatMap(payload => payload.kind === 'conversations' ? payload.items.filter(item => item.gid === gid) : []).at(-1);
-  return { base, sdk, session, displays, last, changeRow: (value: Record<string, unknown>) => { row = value; session.store.update([sampleRow(gid, row)]); }, recent: (value: unknown[]) => { recent = value; }, releaseHistory: (messages: unknown[]) => { assert.ok(releaseHistory); releaseHistory(jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: { isDone: true, messages } })); } };
+  return { base, sdk, session, displays, last, changeSource: (value: unknown) => { source = value; }, changeRow: (value: Record<string, unknown>) => { row = value; session.store.update([sampleRow(gid, row)]); }, recent: (value: unknown[]) => { recent = value; }, releaseSource: (body: unknown) => { assert.ok(releaseSource); releaseSource(jsonResponse(body)); }, releaseHistory: (messages: unknown[]) => { assert.ok(releaseHistory); releaseHistory(jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: { isDone: true, messages } })); } };
 }
+
+const sourceResponse = () => ({ ResponseStatus: OK_STATUS, data: { sourceTraceInfo: { hasSourceTracePrivilege: true, lastSourceTrace: { msg: card('official sidebar product') } } } });
+
+test('a source-only order appears completely and assistant.scope binds the same identity without breaking the opening history read', async () => {
+  const f = fixture({ source: sourceResponse() }); f.session.start();
+  try {
+    await f.base.clock.advance(50); f.changeRow({ relationOrderId: null, ext: {} });
+    const revision = f.session.store.assistantContextRevision(gid, 'me', `${gid}@conf.x`)!;
+    const scope = await f.session.rpc.handle({ req_id: 'empty-order-scope', op: 'assistant.scope', args: { gid, context_revision: revision } });
+    assert.ok(scope?.ok); if (!scope?.ok) return;
+    assert.equal((scope.data as any).order_id, null);
+    const history = await f.session.rpc.handle({ req_id: 'source-only-history', op: 'im.messages', args: { gid, expected_context_revision: revision } });
+    assert.ok(history?.ok);
+    for (let i = 0; i < 8; i++) await flush();
+    assert.equal(f.last()?.order?.order_id, orderId);
+    assert.equal(f.last()?.order?.product, 'official sidebar product');
+    assert.equal(f.last()?.order?.total_amount, '18.52');
+    const nextRevision = f.session.store.assistantContextRevision(gid, 'me', `${gid}@conf.x`)!;
+    const after = await f.session.rpc.handle({ req_id: 'populated-order-scope', op: 'assistant.scope', args: { gid, context_revision: nextRevision } });
+    assert.ok(after?.ok); if (!after?.ok) return;
+    assert.equal((after.data as any).order_id, orderId);
+    assert.notEqual((after.data as any).context_revision, revision);
+    const stale = await f.session.rpc.handle({ req_id: 'stale-order-scope', op: 'assistant.scope', args: { gid, context_revision: revision } });
+    assert.equal(stale?.ok, false);
+  } finally { f.session.stop(); }
+});
+
+test('opening history independently hydrates the official sidebar even when the order card is outside the loaded page', async () => {
+  const f = fixture({ source: sourceResponse(), holdHistory: true }); f.session.start();
+  try {
+    await f.base.clock.advance(50);
+    const pending = f.session.rpc.handle({ req_id: 'source-order', op: 'im.messages', args: { gid } });
+    for (let i = 0; i < 8; i++) await flush();
+    assert.equal(f.last()?.order?.product, 'official sidebar product');
+    assert.equal(f.last()?.order?.total_amount, '18.52');
+    f.releaseHistory([]); assert.ok((await pending)?.ok);
+    assert.equal(f.last()?.order?.total_amount, '18.52');
+  } finally { f.session.stop(); }
+});
+
+for (const change of ['service', 'stop']) test(`held official sidebar source is discarded after ${change}`, async () => {
+  const f = fixture({ holdSource: true }); f.session.start();
+  try {
+    await f.base.clock.advance(50);
+    assert.ok((await f.session.rpc.handle({ req_id: 'source-race', op: 'im.messages', args: { gid } }))?.ok);
+    if (change === 'stop') f.session.stop(); else f.changeRow({ sessionId: 'successor' });
+    const before = f.displays.length; f.releaseSource(sourceResponse());
+    for (let i = 0; i < 8; i++) await flush();
+    assert.equal(f.session.store.order(gid), null); assert.equal(f.displays.length, before);
+  } finally { f.session.stop(); }
+});
 
 test('session order: actual realtime CTL01 card enriches the current conversation without history loading', async () => {
   const f = fixture(); f.session.start();
@@ -25,7 +77,7 @@ test('session order: actual realtime CTL01 card enriches the current conversatio
     await f.base.clock.advance(50); f.sdk.emit('message', frame('new product')); await flush();
     assert.equal(f.session.store.order(gid)?.product, 'new product');
     assert.equal(f.last()?.order?.product, 'new product'); assert.equal(f.last()?.order?.source_channel, 'synthetic platform'); assert.equal(f.last()?.order?.total_amount, '18.52');
-    assert.equal(f.base.fakeFetch.calls.some(call => call.url.includes('getMessageList')), false);
+    assert.equal(f.base.fakeFetch.calls.some(call => call.url.includes('getMessageList') && (call.bodyJson as any)?.pageSize !== 20), false);
     await f.base.clock.advance(5000); assert.equal(f.last()?.order?.product, 'new product', 'incremental list refresh must preserve card enrichment');
   } finally { f.session.stop(); }
 });
@@ -141,5 +193,22 @@ test('session order history: malformed source time is never converted to a zero-
   try {
     await f.base.clock.advance(50); const reply = await f.session.rpc.handle({ req_id: 'invalid-source-time', op: 'im.messages', args: { gid } });
     assert.ok(reply?.ok); assert.equal(f.session.store.order(gid), null);
+  } finally { f.session.stop(); }
+});
+
+for (const hasRowId of [true, false]) for (const revoke of ['denied', 'null', 'empty-object']) test(`successful source then explicit ${revoke} publishes cleared fields and revokes old scope (row identity ${hasRowId})`, async () => {
+  const f = fixture({ source: sourceResponse() }); f.session.start();
+  try {
+    await f.base.clock.advance(50); if (!hasRowId) f.changeRow({ relationOrderId: null, ext: {} });
+    const read = async (id: string) => { const result = await f.session.rpc.handle({ req_id: id, op: 'im.messages', args: { gid } }); assert.ok(result?.ok); for (let i = 0; i < 8; i++) await flush(); };
+    await read('source-success'); assert.equal(f.last()?.order?.total_amount, '18.52');
+    const oldRevision = f.session.store.assistantContextRevision(gid, 'me', `${gid}@conf.x`)!;
+    f.changeSource({ ResponseStatus: OK_STATUS }); await read('source-unavailable');
+    assert.equal(f.last()?.order?.total_amount, '18.52', 'malformed/transient result preserves existing source');
+    f.changeSource({ ResponseStatus: OK_STATUS, data: { sourceTraceInfo: { hasSourceTracePrivilege: revoke !== 'denied', lastSourceTrace: revoke === 'denied' ? { msg: card('must not leak') } : revoke === 'null' ? null : {} } } });
+    await read('source-denied'); assert.equal(f.last()?.order?.total_amount, undefined); assert.equal(f.session.store.order(gid), null);
+    assert.equal(f.last()?.order?.order_id ?? null, hasRowId ? orderId : null);
+    const stale = await f.session.rpc.handle({ req_id: 'denied-old-scope', op: 'assistant.scope', args: { gid, context_revision: oldRevision } });
+    assert.equal(stale?.ok, false);
   } finally { f.session.stop(); }
 });

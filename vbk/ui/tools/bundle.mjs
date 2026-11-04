@@ -126,3 +126,11 @@ console.log(`[bundle] ${htmlFiles.length} html entries, ${walk(out).length} file
 // 4. Single-file page adapter for the per-account webviews' initialization_script.
 const adapter = bundleAdapter({ distRoot: join(uiRoot, 'dist'), outFile: join(out, 'adapter', 'boot.js') });
 console.log(`[bundle] adapter: ${adapter.modules} modules, ${adapter.bytes} bytes → ${relative(vbkRoot, adapter.outFile)}`);
+
+// 5. Tone silencer for the built-in browser tabs, which get no adapter.
+const silencer = bundleAdapter({
+  distRoot: join(uiRoot, 'dist'),
+  entry: join(uiRoot, 'dist', 'packages', 'web-adapter', 'src', 'silence-tones-entry.js'),
+  outFile: join(out, 'adapter', 'silence-tones.js'),
+});
+console.log(`[bundle] silencer: ${silencer.modules} modules, ${silencer.bytes} bytes → ${relative(vbkRoot, silencer.outFile)}`);

@@ -112,3 +112,20 @@ test('cursor allocator: per-stream monotonic seq, epoch bump restarts', () => {
   assert.deepEqual(after, { epoch: 4, seq: 1 });
   assert.deepEqual(classifyCursor({ epoch: 3, seq: 3 }, after), { kind: 'epoch_changed' });
 });
+
+test('system notices cannot become customer utterances or merchant replies through any input path', () => {
+  const roles = buildMemberRoles({ selfUid: 'me-1', customerUid: 'cust-1', members });
+  for (const sender of ['cust-1', 'me-1', 'other-1']) {
+    for (const msgtype of [1007, 1012]) {
+      for (const source of ['history', 'compensation', 'init'] as const) {
+        const fact = normalizeHttpMessage({ msgId: 'notice', fromJid: `${sender}@x`, toJid: 'g@x', createTime: 1700000000123, msgtype }, { roles, source });
+        assert.equal(fact?.kind, 'control', `${source}/${sender}/${msgtype}`);
+      }
+      const fact = normalizeSdkMessage({ id: 'notice', type: 'groupchat', from: `g@conf.x/${sender}`, create_time: '1700000000123', msgtype: String(msgtype) }, { roles });
+      assert.equal(fact?.kind, 'control', `realtime/${sender}/${msgtype}`);
+    }
+    for (const msgtype of [0, 1, 2, 3, 5, 7]) {
+      assert.equal(normalizeHttpMessage({ msgId: 'utterance', fromJid: `${sender}@x`, toJid: 'g@x', createTime: 1700000000123, msgtype }, { roles, source: 'compensation' })?.kind, 'business');
+    }
+  }
+});

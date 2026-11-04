@@ -18,7 +18,7 @@ test('peripheral reads preserve content and exact candidate request types', asyn
   assert.deepEqual(await getCustomerScripts(deps, soa, { content: 'draft fragment' }), { kind: 'success', value: { items: [] } });
   assert.equal((deps.fakeFetch.calls[0]!.bodyJson as Record<string, unknown>)['content'], 'draft fragment');
   const result = await getInviteMemberListBySkillGroup(deps, soa, view);
-  assert.deepEqual(result, { kind: 'success', value: { skillGroups: [{ skillGroupId: 9, skillGroupName: 'Group' }], agents: [{ agentUid: 'chosen-agent', nickname: 'Agent' }] } });
+  assert.deepEqual(result, { kind: 'success', value: { skillGroups: [{ skillGroupId: 9, skillGroupName: 'Group' }], agents: [{ agentUid: 'chosen-agent', nickname: 'Agent', status: null, dutyStatus: null, jobPosition: null, jobPositionType: null, skillGroupFullName: null }] } });
   const body = deps.fakeFetch.calls[1]!.bodyJson as Record<string, unknown>;
   assert.equal(body['groupId'], '123'); assert.equal(body['worksheetId'], 456);
   assert.equal('parentSkillGroupIds' in body, false);

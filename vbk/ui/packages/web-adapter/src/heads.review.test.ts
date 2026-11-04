@@ -14,6 +14,7 @@ import { businessHead, platformHead, sdkHead } from './heads.ts';
 import { createImChat, searchOrderExact } from './order.ts';
 import { sendProductCard } from './send.ts';
 import { listNoticeReceiveConfig } from './settings.ts';
+import { noticeMessageHead } from './notice.ts';
 import { FAKE_CONTEXT, OK_STATUS, jsonResponse, makeDeps } from './testing.ts';
 
 const ctx = { ...FAKE_CONTEXT, cid: 'ctx-cid-1', sid: 'ctx-sid-1', locale: 'en-US' };
@@ -93,14 +94,30 @@ test('review/heads: business/SDK extension order is exactly the documented order
   assert.equal(JSON.stringify(headers).includes('ctx-sid-1'), false);
 });
 
+test('review/heads: IQ getVBKHead uses the official fixed sid and the current page GUID', () => {
+  // Official desktop P() in parseTranslateResponse-u6ZbR6b9.js, recorded in
+  // docs/research/2026-11-03-notification-query-desktop.md: getVBKHead is not platformHead.
+  assert.deepEqual(noticeMessageHead(makeDeps(() => jsonResponse({}), ctx)), {
+    cid: ctx.cid, ctok: '', cver: '1.0', lang: '01', sid: '8888', syscode: '09', auth: '', extension: [],
+  });
+});
+
 test('review/heads: no hardcoded cid/sid/biztype literals in non-test sources', () => {
   const dir = dirname(fileURLToPath(import.meta.url));
   const files = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'testing.ts');
   assert.ok(files.length >= 15);
   for (const f of files) {
-    const src = readFileSync(join(dir, f), 'utf8')
+    let src = readFileSync(join(dir, f), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
+    if (f === 'notice.ts') {
+      // Allow only this verified wrapper's sid literal. All other literals,
+      // including cid and any additional sid in notice.ts, remain prohibited.
+      const builder = /export function noticeMessageHead\(deps: AdapterDeps\) \{[\s\S]*?\n\}/.exec(src)?.[0];
+      assert.ok(builder, 'the IQ exception must stay scoped to noticeMessageHead');
+      assert.equal((builder.match(/sid:\s*['"]8888['"]/g) ?? []).length, 1);
+      src = src.replace(builder, builder.replace(/sid:\s*['"]8888['"]/, 'sid: verifiedIqSid'));
+    }
     assert.doesNotMatch(src, /['"]8888['"]/, f);
     assert.doesNotMatch(src, /\bcid:\s*['"][^'"]+['"]/, f);
     assert.doesNotMatch(src, /\bsid:\s*['"][^'"]+['"]/, f);

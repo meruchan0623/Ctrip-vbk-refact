@@ -1,3 +1,4 @@
+import { createProductNameCache, type ProductNameStorage } from './product-name-cache.ts';
 /**
  * Page-side entry injected by the host as `initialization_script` into the
  * per-account `acct-*` webviews (bundled to `ui/bundle/adapter/boot.js`).
@@ -49,6 +50,7 @@ import { createPageSdk, type PageSdk } from './sdkGlue.ts';
 import { createPageSession, type PageSession } from './session.ts';
 import { notReadyReply } from './rpc.ts';
 import { browserMediaProbe, browserSha256 } from './browserMedia.ts';
+import { installToneSilencer, type ToneSilencerWindow } from './silence-tones.ts';
 
 export const OFFICIAL_IM_ORIGIN = 'https://vbooking.ctrip.com';
 export const OFFICIAL_IM_PATH = '/vbk/im/main';
@@ -83,7 +85,7 @@ type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
 
 interface TauriGlobals {
   readonly __TAURI__?: { readonly core?: { readonly invoke?: unknown }; readonly event?: { readonly listen?: unknown } };
-  readonly __TAURI_INTERNALS__?: { readonly invoke?: unknown; readonly transformCallback?: unknown };
+  readonly __TAURI_INTERNALS__?: { readonly invoke?: unknown; readonly transformCallback?: unknown; readonly metadata?: { readonly currentWebview?: { readonly label?: unknown } } };
   readonly __TAURI_EVENT_PLUGIN_INTERNALS__?: { readonly unregisterListener?: unknown };
 }
 
@@ -101,7 +103,7 @@ export function resolveHostBridge(win: unknown): HostBridge | null {
   const invoke: InvokeFn | null =
     typeof api?.core?.invoke === 'function' ? (api.core.invoke as InvokeFn) : typeof internals?.invoke === 'function' ? (internals.invoke as InvokeFn).bind(internals) : null;
   if (!invoke) return null;
-  const apiListen = typeof api?.event?.listen === 'function' ? (api.event.listen as (e: string, h: (ev: { payload: unknown }) => void) => Promise<() => void>) : null;
+  const apiListen = typeof api?.event?.listen === 'function' ? (api.event.listen as (e: string, h: (ev: { payload: unknown }) => void, options: { target: { kind: 'Webview'; label: string } }) => Promise<() => void>) : null;
   const transform = typeof internals?.transformCallback === 'function' ? (internals.transformCallback as (cb: (ev: unknown) => void, once?: boolean) => number) : null;
   if (!apiListen && !transform) return null;
   return {
@@ -113,11 +115,16 @@ export function resolveHostBridge(win: unknown): HostBridge | null {
       }
     },
     async listen(event, cb) {
-      if (apiListen) return apiListen(event, (ev) => cb(ev?.payload));
+      // `Any` listeners receive even events emitted to another account's label.
+      // Never fall back to a global subscription when the page scope is absent.
+      const label = internals?.metadata?.currentWebview?.label;
+      if (typeof label !== 'string' || label.length === 0) throw new Error('current webview label unavailable');
+      const target = { kind: 'Webview' as const, label };
+      if (apiListen) return apiListen(event, (ev) => cb(ev?.payload), { target });
       const handler = (transform as (cb: (ev: unknown) => void, once?: boolean) => number)((ev: unknown) => {
         cb(typeof ev === 'object' && ev !== null ? (ev as { payload?: unknown }).payload : undefined);
       });
-      const eventId = await invoke('plugin:event|listen', { event, target: { kind: 'Any' }, handler });
+      const eventId = await invoke('plugin:event|listen', { event, target, handler });
       return () => {
         try {
           const unreg = w.__TAURI_EVENT_PLUGIN_INTERNALS__?.unregisterListener;
@@ -273,6 +280,7 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
   if (win.top !== undefined && win.self !== undefined && win.top !== win.self) return { kind: 'skipped', reason: 'not_top_frame' };
   if (win[BOOT_FLAG] === true) return { kind: 'skipped', reason: 'already_booted' };
   win[BOOT_FLAG] = true;
+  installToneSilencer(win as unknown as ToneSilencerWindow);
 
   const logger = opts.logger ?? consoleLogger();
   const now = opts.now ?? (() => Date.now());
@@ -398,8 +406,11 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
   if (!sdk.canSend) logger.info('SDK send entry not found; im.send_text will answer host.unsupported');
 
   // ---- 6. session
+  let productStorage: ProductNameStorage | undefined;
+  try { productStorage = (win as BootWindow & { localStorage?: ProductNameStorage }).localStorage; } catch {}
   const session = createPageSession(deps, {
     account,
+    productNameCache: createProductNameCache(productStorage, `vbk.product-names.v1:${JSON.stringify([account.environment, account.account_id])}`),
     selfUid: identity.identity.uid,
     selfProfile: identity.selfProfile,
     beginMsgTime: ack.begin_msg_time,

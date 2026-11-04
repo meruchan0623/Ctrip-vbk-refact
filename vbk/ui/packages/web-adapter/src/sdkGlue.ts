@@ -25,6 +25,61 @@ import type { ImSdkHandle, SdkCallOutcome, SdkEventMap, SdkMessageEvent, SdkRead
 import { jidLocal } from './facts.ts';
 import { recordOrNull } from './soa.ts';
 
+/** Public models consumed by official validateMessage/deserialize, inspected in the
+ * installed 1.2.13 app's @ctrip/s-node-imclient-core/main.js (SHA256 8cfdce30…9c9b),
+ * buildImage/Card/Video/File/Emotion/AtBody. Wire messageBody alone is insufficient. */
+export function facadeMessage(req: SdkSendRequest): Record<string, unknown> {
+  const b = req.body;
+  const model: Record<string, unknown> = {
+    localId: b.localid, bizType: /^\d+$/.test(b.biztype) ? Number(b.biztype) : b.biztype,
+    toJid: req.gid, messageType: Number(b.msgtype), conversationType: b.chattype, threadId: b.threadid,
+  };
+  if (b.msgtype === '0') model['content'] = b.msg;
+  else {
+    let body: Record<string, unknown> | null = null;
+    try { body = recordOrNull(JSON.parse(b.msg)); } catch { /* Invalid media never reaches the facade. */ }
+    if (!body) throw new Error('invalid SDK message body (nothing sent)');
+    const copy = (target: string, value: unknown) => { if (value !== undefined) model[target] = value; };
+    copy('title', body['title']); copy('extPropertys', body['ext']);
+    switch (b.msgtype) {
+      case '1':
+        copy('imageUrl', body['url']); copy('thumbUrl', body['thumbUrl'] ?? body['url']);
+        for (const key of ['height', 'width', 'originImageSize', 'originImageUrl']) copy(key, body[key]);
+        break;
+      case '2':
+        for (const key of ['avatar', 'title', 'desc', 'type']) copy(key, body[key]);
+        copy('linkUrl', body['url']);
+        break;
+      case '3': {
+        const video = recordOrNull(body['video']);
+        if (!video) throw new Error('invalid SDK video body (nothing sent)');
+        for (const key of ['filename', 'cover', 'url', 'duration', 'size', 'secret', 'width', 'height']) copy(key, video[key]);
+        break;
+      }
+      case '5': {
+        const file = recordOrNull(body['file']);
+        if (!file) throw new Error('invalid SDK file body (nothing sent)');
+        for (const key of ['filename', 'url', 'size', 'secret']) copy(key, file[key]);
+        break;
+      }
+      case '8': {
+        const emoji = recordOrNull(body['emoticon']);
+        if (!emoji) throw new Error('invalid SDK emoticon body (nothing sent)');
+        copy('code', emoji['code']); copy('label', emoji['label']);
+        break;
+      }
+      case '9':
+        copy('body', body['body']); copy('atUid', body['uid']); copy('atNames', body['names']); copy('atFromNickname', body['from']);
+        break;
+      default: throw new Error('unsupported SDK message type (nothing sent)');
+    }
+    const required: Record<string, readonly string[]> = { '1': ['imageUrl', 'thumbUrl'], '2': ['avatar', 'title', 'desc', 'linkUrl'], '3': ['filename', 'cover', 'url', 'duration', 'size'], '5': ['filename', 'url', 'size'], '8': ['code'], '9': ['body', 'atUid', 'atFromNickname'] };
+    if (required[b.msgtype]?.some(key => model[key] === undefined || model[key] === null)) throw new Error('incomplete SDK public message model (nothing sent)');
+  }
+  if (req.citemsgid !== undefined) model['citemsgid'] = req.citemsgid;
+  return model;
+}
+
 // ------------------------------------------------------------- element reading
 
 export interface ElementView {
@@ -462,21 +517,8 @@ export function createPageSdk(win: Record<string, unknown>, opts: PageSdkOptions
       const partnerJid = partnerJids.get(req.gid);
       if (!partnerJid) throw new Error('partner jid unknown');
       const b = req.body;
-      if (b.msgtype !== '0') throw new Error('sdk media facade unsupported (nothing sent)');
-      // The verified facade accepts a public message model, not the HTTP/XMPP
-      // payload it later builds. The SDK itself expands this bare gid into a JID.
-      const message: Record<string, unknown> = {
-        localId: b.localid,
-        bizType: /^\d+$/.test(b.biztype) ? Number(b.biztype) : b.biztype,
-        toJid: req.gid,
-        messageType: Number(b.msgtype),
-        content: b.msg,
-        conversationType: b.chattype,
-        threadId: b.threadid,
-      };
-      // deserialize mutates and returns the same model; the SDK copies citemsgid
-      // into both socket and HTTP fallback payloads (captured source, offset 129983).
-      if (req.citemsgid !== undefined) message['citemsgid'] = req.citemsgid;
+      // The facade consumes typed public fields and serializes its own wire messageBody.
+      const message = facadeMessage(req);
       if (pendingFacadeSends.has(b.localid) || pendingFacadeSends.size >= 1000) throw new Error('sdk send tracking unavailable (nothing sent)');
       let settled = false;
       let ackTimer: unknown = null;

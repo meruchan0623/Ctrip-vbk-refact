@@ -1,3 +1,8 @@
+import { createProductNameCache, type ProductNameCache } from './product-name-cache.ts';
+import { fetchOrderSource } from './order-source.ts';
+import { createReadStatusSync } from './read-status.ts';
+import { messageListBody } from './history.ts';
+import { Endpoints } from './endpoints.ts';
 /**
  * Page session: composes `createAdapter` (facts) with the display channel,
  * caches, role/unread enrichment (M3-4) and the RPC dispatcher (M3-5).
@@ -16,22 +21,26 @@ import type { UiMessage } from '../../ipc/src/client.ts';
 import type { AdapterDisplayPayload, DisplayConversation } from '../../ipc/src/adapterProtocol.ts';
 import type { AdapterDeps, SdkMessageEvent, SdkSocketStatus } from './deps.ts';
 import { createAdapter, type Adapter } from './index.ts';
-import { SoaClient, recordOrNull, type SoaOutcome } from './soa.ts';
+import { SoaClient, isBizSuccess, recordOrNull, type SoaOutcome } from './soa.ts';
 import { toConversationFact, type ConversationListItem, type ConversationListResponse, type ConversationListVariant, type VisibilityGate } from './conversationList.ts';
 import type { OfficialConversationFeed } from './pageContext.ts';
 import type { RecentMessagesResponse } from './compensation.ts';
-import { normalizeTimeMs, type HttpMessageObject } from './facts.ts';
-import { agentStatusOf, byCreateTime, httpMessageToUi, orderSummaryFromMessage, previewOfUi, sdkMessageToUi, toDisplayConversation } from './display.ts';
+import { effectiveMessageSender } from './message-body.ts';
+import { resolveSdkAddress, jidLocal, jidSender, normalizeTimeMs, type HttpMessageObject } from './facts.ts';
+import { agentStatusOf, rowView, byCreateTime, httpMessageToUi, orderSummaryFromMessage, previewOf, previewOfUi, sdkMessageToUi, toDisplayConversation } from './display.ts';
 import { ConversationStore, RoleBook, UnreadBook, roomJidFromMessage } from './stores.ts';
 import { createRpc, type AgentStatusBox, type Rpc } from './rpc.ts';
 import type { IdentityProfile } from './identity.ts';
 import type { PageSdk } from './sdkGlue.ts';
 import { createReceiveCounters, receiveCount } from './diagnostics.ts';
 import { createPresence, type StatusRead } from './presence.ts';
+import { LATEST_CONVERSATION } from './peripheral.ts';
+import { businessHead } from './heads.ts';
 
 export interface PageSessionOptions {
   readonly account: AccountContext;
   readonly selfUid: string;
+  readonly productNameCache?: ProductNameCache;
   readonly selfProfile?: IdentityProfile;
   readonly beginMsgTime: number;
   readonly initialEpoch: number;
@@ -63,6 +72,16 @@ export interface PageSession {
 
 const TRANSPORT_STATES: ReadonlySet<string> = new Set<TransportState>(['connecting', 'connected', 'disconnected', 'reconnecting']);
 
+/** Display values are bounded DTOs. Ignore snapshot metadata when comparing rows. */
+function sameDisplayValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+  const left = a as Record<string, unknown>, right = b as Record<string, unknown>;
+  const keys = Object.keys(left).filter(key => key !== 'is_full_snapshot');
+  return keys.length === Object.keys(right).filter(key => key !== 'is_full_snapshot').length
+    && keys.every(key => Object.hasOwn(right, key) && sameDisplayValue(left[key], right[key]));
+}
+
 export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): PageSession {
   const soa = new SoaClient(deps);
   const store = new ConversationStore();
@@ -71,6 +90,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   const unread = new UnreadBook();
   const displays = new Map<string, DisplayConversation>();
   const displayContexts = new Map<string, string>();
+  const sentDisplays = new Map<string, DisplayConversation>();
+  let recoverDisplaySnapshot = false;
   // Only display-sized evidence is retained while the first row is in flight.
   // Never replay a gid-only preview into a newly claimed customer/service.
   const pendingPreviews = new Map<string, { preview: string; time: number; sender: string; room: string; thread: string | null; order: string | null; expires: number }>();
@@ -109,8 +130,70 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   const log = opts.log ?? (() => undefined);
   const diagnostics = createReceiveCounters();
 
-  const pushDisplay = (payload: AdapterDisplayPayload): void => {
-    if (payload.kind === 'conversations' && !running) return;
+  // One conversation delivery in flight and one coalesced successor. Other
+  // kinds bypass this channel, including messages and status lease renewals.
+  type Conversations = Extract<AdapterDisplayPayload, { kind: 'conversations' }>;
+  type Delivery = { payload: Conversations; generation: number; force: boolean; done: (ok: boolean) => void; promise: Promise<boolean> };
+  let conversationFlight = false;
+  let conversationPending: Delivery | null = null;
+  const deliverConversations = async (delivery: Delivery): Promise<void> => {
+    conversationFlight = true;
+    let ok = false;
+    try {
+      if (!running || delivery.generation !== runGeneration) return;
+      const source = delivery.payload;
+      const full = source.full || recoverDisplaySnapshot;
+      const items = full ? [...displays.values()] : source.items;
+      const sameSnapshot = full && items.length === sentDisplays.size && items.every(item => sameDisplayValue(sentDisplays.get(item.gid), item));
+      const changed = full ? items : items.filter(item => !sameDisplayValue(sentDisplays.get(item.gid), item));
+      if (!delivery.force && !recoverDisplaySnapshot && (sameSnapshot || (!full && changed.length === 0 && source.removed_gids.length === 0))) { ok = true; return; }
+      const payload: Conversations = { ...source, full, items: changed };
+      await opts.pushDisplay(payload);
+      if (running && delivery.generation === runGeneration) {
+        if (full) sentDisplays.clear();
+        for (const gid of source.removed_gids) sentDisplays.delete(gid);
+        for (const item of changed) sentDisplays.set(item.gid, item);
+        recoverDisplaySnapshot = false;
+        ok = true;
+      }
+    } catch {
+      if (running && delivery.generation === runGeneration) {
+        sentDisplays.clear(); recoverDisplaySnapshot = true;
+      }
+      log('display push failed (conversations)');
+    } finally {
+      delivery.done(ok);
+      conversationFlight = false;
+      const next = conversationPending;
+      conversationPending = null;
+      if (next) void deliverConversations(next);
+    }
+  };
+  const enqueueConversations = (payload: Conversations): Promise<boolean> => {
+    if (conversationFlight && conversationPending) {
+      conversationPending.payload = { kind: 'conversations', full: true, items: [...displays.values()], removed_gids: [] };
+      conversationPending.force ||= payload.full;
+      return conversationPending.promise;
+    }
+    let done!: (ok: boolean) => void;
+    const promise = new Promise<boolean>(resolve => { done = resolve; });
+    const delivery: Delivery = { payload: conversationFlight ? { kind: 'conversations', full: true, items: [...displays.values()], removed_gids: [] } : payload, generation: runGeneration, force: payload.full, done, promise };
+    if (conversationFlight) conversationPending = delivery;
+    else void deliverConversations(delivery);
+    return promise;
+  };
+
+  let readStatuses: ReturnType<typeof createReadStatusSync> | undefined;
+  const pushDisplay = (payload: AdapterDisplayPayload): Promise<boolean> => {
+    if (payload.kind === 'conversations' && !running) return Promise.resolve(false);
+    if (payload.kind === 'conversations') {
+      if (payload.full) {
+        const keep = new Set(payload.items.map(item => item.gid));
+        for (const gid of displays.keys()) if (!keep.has(gid)) { displays.delete(gid); displayContexts.delete(gid); }
+      }
+      for (const gid of payload.removed_gids) { displays.delete(gid); displayContexts.delete(gid); }
+    }
+    readStatuses?.observe(payload);
     const messages = payload.kind === 'messages';
     if (messages) {
       diagnostics.session.display_batches = receiveCount(diagnostics.session.display_batches);
@@ -118,8 +201,10 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     }
     // Every conversation projection (including history enrichment) shares the
     // authoritative unread book. Reading history cannot acknowledge messages.
-    const current = payload.kind === 'conversations'
-      ? { ...payload, items: payload.items.map((item) => {
+    let current: AdapterDisplayPayload = payload.kind === 'conversations'
+      ? { ...payload, items: payload.items.flatMap((item) => {
+          // Match host admission: preserve existing rows and ignore new gids at capacity.
+          if (!displays.has(item.gid) && displays.size >= 2000) return [];
           const signature = contextOf(item.gid);
           const previous = signature && displayContexts.get(item.gid) === signature ? displays.get(item.gid) : undefined;
           const uid = store.view(item.gid)?.customerUid;
@@ -130,26 +215,30 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
             customer_avatar: uid ? roles.profileOf(uid).avatar : null,
             read_target_message_id: store.readTarget(item.gid)?.msgId ?? null,
             assistant_context_revision: store.assistantContextRevision(item.gid, roles.selfUid, opts.sdk.partnerJidOf(item.gid) ?? roomJidFromMessage(item.gid, store.view(item.gid)?.lastMessage ?? null)) ?? '',
-            ...(previous && (previous.last_message_time_ms ?? 0) > (item.last_message_time_ms ?? 0)
+            ...(previous && ((previous.last_message_time_ms ?? 0) > (item.last_message_time_ms ?? 0) || (!item.preview && !!previous.preview && previous.last_message_time_ms === item.last_message_time_ms))
               ? { preview: previous.preview, last_message_time_ms: previous.last_message_time_ms }
               : {}),
             unread_count: unread.unreadOf(item.gid) ?? item.unread_count,
           };
           displays.set(item.gid, next);
           if (signature) displayContexts.set(item.gid, signature); else displayContexts.delete(item.gid);
-          return next;
+          return [next];
         }) }
       : payload;
+    if (current.kind === 'conversations') return enqueueConversations(current);
     try {
-      opts.pushDisplay(current).then(() => {
+      return opts.pushDisplay(current).then(() => {
         if (messages) diagnostics.session.display_resolved = receiveCount(diagnostics.session.display_resolved);
+        return true;
       }, () => {
         if (messages) diagnostics.session.display_rejected = receiveCount(diagnostics.session.display_rejected);
         log(`display push failed (${payload.kind})`);
+        return false;
       });
     } catch {
       if (messages) diagnostics.session.display_rejected = receiveCount(diagnostics.session.display_rejected);
       log(`display push failed (${payload.kind})`);
+      return Promise.resolve(false);
     }
   };
 
@@ -166,6 +255,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
   // ---- unread refresh (debounced, batched)
   const pendingUnread = new Set<string>();
   let unreadTimer: unknown = null;
+  let unreadInFlight: object | null = null;
   let running = false;
   let runGeneration = 0;
   const unreadContexts = new Map<string, number | null>();
@@ -174,11 +264,14 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       const current = store.messageContext(gid);
       const room = roomJidFromMessage(gid, store.view(gid)?.lastMessage ?? null);
       if (room) opts.sdk.rememberPartnerJid(gid, room);
-      if (unreadContexts.has(gid) && unreadContexts.get(gid) !== current) unread.invalidate(gid);
+      if (unreadContexts.has(gid) && unreadContexts.get(gid) !== current) {
+        unread.invalidate(gid);
+        roles.invalidate(gid);
+      }
       unreadContexts.set(gid, current);
     }
   });
-  const flushUnread = async (): Promise<void> => {
+  const runUnreadBatch = async (): Promise<void> => {
     const generation = runGeneration;
     unreadTimer = null;
     const gids = [...pendingUnread];
@@ -186,19 +279,27 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     if (gids.length === 0 || !running) return;
     const contexts = new Map(gids.map(gid => [gid, store.messageContext(gid)]));
     const current = (gid: string): boolean => running && generation === runGeneration && contexts.get(gid) === store.messageContext(gid);
+    const messageChanged = new Set<string>();
     const changed = await unread.refresh(deps, soa, gids, (gid, msg) => {
       if (!running || generation !== runGeneration) return;
+      if (!current(gid)) return;
+      const row = store.row(gid), old = store.view(gid)?.lastMessage;
+      const time = normalizeTimeMs(msg.createTime);
+      if (row && time !== null && time >= (normalizeTimeMs(old?.createTime) ?? 0)) {
+        store.update([{ ...row, lastMessageJsonString: JSON.stringify(msg), lastMessageTime: time }]);
+        messageChanged.add(gid);
+      }
       const jid = roomJidFromMessage(gid, msg);
       if (jid && roomJidFromMessage(gid, store.view(gid)?.lastMessage ?? null) === jid) opts.sdk.rememberPartnerJid(gid, jid);
     }, current);
     if (!running || generation !== runGeneration) return;
     const items: DisplayConversation[] = [];
-    for (const gid of changed) {
+    for (const gid of new Set([...changed, ...messageChanged])) {
       const row = store.row(gid);
       if (!row) continue;
       const fact = toConversationFact(row, false, unread);
       if (fact) adapter.bridge.push({ kind: 'conversation', fact });
-      const base = toDisplayConversation(row, false, unread);
+      const base = toDisplayConversation(row, false, unread, roles.selfUid);
       const uid = store.view(gid)?.customerUid;
       const d = base ? { ...base, title: uid ? roles.profileOf(uid).name ?? base.title : base.title, order: store.order(gid) ?? base.order } : null;
       if (d) {
@@ -207,9 +308,18 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     }
     if (items.length > 0) pushDisplay({ kind: 'conversations', full: false, items, removed_gids: [] });
   };
+  const flushUnread = async (): Promise<void> => {
+    unreadTimer = null;
+    if (unreadInFlight) return;
+    const drain = {};
+    unreadInFlight = drain;
+    try {
+      while (running && unreadInFlight === drain && pendingUnread.size > 0) await runUnreadBatch();
+    } finally { if (unreadInFlight === drain) unreadInFlight = null; }
+  };
   const scheduleUnread = (gids: readonly string[]): void => {
     for (const g of gids) pendingUnread.add(g);
-    if (unreadTimer === null) unreadTimer = deps.setTimeout(() => void flushUnread(), opts.unreadDebounceMs ?? 300);
+    if (unreadTimer === null && !unreadInFlight) unreadTimer = deps.setTimeout(() => void flushUnread(), opts.unreadDebounceMs ?? 300);
   };
 
   // ---- conversation list → display
@@ -234,11 +344,12 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     const projected = new Set<string>();
     const items: DisplayConversation[] = [];
     for (const raw of rows) {
-      const base = toDisplayConversation(raw as ConversationListItem, full, unread);
+      const base = toDisplayConversation(raw as ConversationListItem, full, unread, roles.selfUid);
       // Store identity is the final row of this batch. Never give an earlier
       // raw customer's display fields the final row's identity signature.
       if (!base || store.row(base.gid) !== raw || projected.has(base.gid)) continue;
       projected.add(base.gid);
+      restoreProductName(base.gid);
       const uid = store.view(base.gid)?.customerUid;
       const d = { ...initialPreview(base, raw as ConversationListItem), title: uid ? roles.profileOf(uid).name ?? base.title : base.title, order: store.order(base.gid) ?? base.order };
       const signature = contextOf(d.gid);
@@ -255,15 +366,20 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       for (const g of [...displays.keys()]) {
         if (!keep.has(g)) {
           displays.delete(g);
+          displayContexts.delete(g);
+          productQueue.delete(g);
+          productAttempts.delete(g);
           removed.push(g);
         }
       }
     }
-    if (items.length > 0 || complete) pushDisplay({ kind: 'conversations', full: complete, items, removed_gids: removed });
+    if (items.length > 0 || complete || recoverDisplaySnapshot) pushDisplay({ kind: 'conversations', full: complete, items, removed_gids: removed });
+    preloadPreviews(gids);
+    preloadProductNames(gids);
     // List groupTitle is the product title. The customer's display nick comes from the member API.
     for (const gid of gids) {
       const expectedUid = store.view(gid)?.customerUid;
-      void roles.ensure(deps, soa, gid).then(() => {
+      void roles.ensure(deps, soa, gid, 'background').then(() => {
         if (!running || generation !== runGeneration || store.view(gid)?.customerUid !== expectedUid) return;
         const display = displays.get(gid);
         const uid = store.view(gid)?.customerUid;
@@ -276,10 +392,116 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     if (gids.length > 0) scheduleUnread(gids);
   };
 
+  const productCache = opts.productNameCache ?? createProductNameCache();
+  const productQueue = new Map<string, string>();
+  const productAttempts = new Map<string, { key: string; at: number; delay: number }>();
+  let productLoading = false;
+  const productKey = (gid: string): string | null => {
+    const v = store.view(gid);
+    if (!v?.customerUid || !v.conversationType || !v.serviceType) return null;
+    return JSON.stringify([opts.account.environment, opts.account.account_id, gid, v.sessionId, v.customerUid, v.conversationType, v.serviceType, v.threadId, v.conversationKey, recordOrNull(store.row(gid))?.['id'], v.orderId]);
+  };
+  const restoreProductName = (gid: string): void => {
+    const key = productKey(gid), view = store.view(gid);
+    if (!key || !view || store.order(gid)?.product) return;
+    const cached = productCache.get(key);
+    if (!cached || view.orderId && view.orderId !== cached.orderId) return;
+    store.noteSourceOrder(gid, { order_id: cached.orderId, product: cached.product, use_date: '', quantity: '', status: '', contact: '' }, store.messageContext(gid), cached.savedAt, store.beginSourceRead(gid));
+  };
+  const drainProductNames = (): void => {
+    if (!running || productLoading || !productQueue.size) return;
+    const [gid, key] = productQueue.entries().next().value!;
+    productQueue.delete(gid);
+    const view = store.view(gid);
+    if (!view || !displays.has(gid) || productKey(gid) !== key) { drainProductNames(); return; }
+    productLoading = true;
+    const generation = runGeneration, revision = store.messageContext(gid), started = deps.now(), read = store.beginSourceRead(gid);
+    productAttempts.set(gid, { key, at: started, delay: 60_000 });
+    void fetchOrderSource(deps, soa, gid, view.orderId).then(result => {
+      if (!running || generation !== runGeneration || revision !== store.messageContext(gid) || !displays.has(gid) || key !== productKey(gid) || result.kind === 'unavailable') return;
+      if (result.kind === 'order') {
+        store.noteSourceOrder(gid, result.order, revision, started, read);
+        // A foreground read can supersede this request while it is in flight.
+        if (store.order(gid)?.order_id !== result.order.order_id || store.order(gid)?.product !== result.order.product) return;
+        if (result.order.product.trim()) productCache.set(key, { orderId: result.order.order_id, product: result.order.product, savedAt: deps.now() });
+      } else {
+        if (!store.denySourceOrder(gid, revision, read)) return;
+        productCache.delete(key);
+      }
+      productAttempts.set(gid, { key, at: deps.now(), delay: 15 * 60_000 });
+      const display = displays.get(gid);
+      if (display) void pushDisplay({ kind: 'conversations', full: false, items: [{ ...display, order: store.order(gid) ?? null }], removed_gids: [] });
+    }).catch(() => undefined).finally(() => { productLoading = false; drainProductNames(); });
+  };
+  const preloadProductNames = (gids: readonly string[]): void => {
+    const ordered = [...gids].sort((a, b) => {
+      const left = displays.get(a), right = displays.get(b);
+      return (right?.last_message_time_ms ?? right?.last_update_time_ms ?? 0) - (left?.last_message_time_ms ?? left?.last_update_time_ms ?? 0);
+    });
+    for (const gid of ordered) {
+      const key = productKey(gid);
+      if (!key) continue;
+      const previous = productAttempts.get(gid), cached = productCache.get(key);
+      if (previous?.key === key && deps.now() - previous.at < previous.delay || !previous && cached && deps.now() - cached.savedAt < 15 * 60_000) continue;
+      if (productQueue.size < 2000) productQueue.set(gid, key);
+    }
+    drainProductNames();
+  };
+
+  // Preview reads never dispatch message facts, hydrate a thread, or mark it read.
+  const previewQueue = new Map<string, string>();
+  const previewAttempts = new Map<string, { key: string; at: number }>();
+  let previewReads = 0;
+  const previewVersions = new Map<string, number>();
+  const previewKey = (gid: string): string => JSON.stringify([contextOf(gid), store.messageContext(gid), store.view(gid), recordOrNull(store.row(gid))?.['lastMessageTime']]);
+  const drainPreviewQueue = (): void => {
+    while (running && previewReads < 2 && previewQueue.size) {
+      const [gid, key] = previewQueue.entries().next().value!;
+      previewQueue.delete(gid);
+      const view = store.view(gid), generation = runGeneration;
+      if (!view?.conversationType || key !== previewKey(gid)) continue;
+      const body = messageListBody(deps, { gid, conversationType: view.conversationType, pageSize: 20 });
+      if (!body) continue;
+      const arrivalVersion = previewVersions.get(gid) ?? 0;
+      previewReads++;
+      previewAttempts.set(gid, { key, at: deps.now() });
+      void soa.post<{ rangeMessage?: { messages?: unknown } }>(Endpoints.MESSAGE_LIST, body, { timeoutMs: 5000 }).then(result => {
+        if (!running || generation !== runGeneration || key !== previewKey(gid) || arrivalVersion !== (previewVersions.get(gid) ?? 0) || result.kind !== 'success') return;
+        const rows = result.body.rangeMessage?.messages;
+        if (!Array.isArray(rows)) return;
+        const candidates = rows.flatMap(value => {
+          const message = recordOrNull(value) as HttpMessageObject | null;
+          const time = normalizeTimeMs(message?.createTime);
+          const thread = recordOrNull(message)?.['threadId'];
+          if (view.threadId && typeof thread === 'string' && thread && thread !== view.threadId) return [];
+          if (store.messageContext(gid) !== 1 && time !== null && time > (store.latestMessage(gid)?.createTime ?? 0)) return [];
+          const preview = previewOf(message, roles.selfUid);
+          return message && time !== null && preview ? [{ time, preview }] : [];
+        }).sort((a, b) => b.time - a.time);
+        const latest = candidates[0], display = displays.get(gid);
+        if (!latest || !display || (display.preview && latest.time < (display.last_message_time_ms ?? 0))) return;
+        void pushDisplay({ kind: 'conversations', full: false, removed_gids: [], items: [{ ...display, preview: latest.preview, last_message_time_ms: Math.max(display.last_message_time_ms ?? 0, latest.time) }] });
+      }).catch(() => undefined).finally(() => { previewReads--; drainPreviewQueue(); });
+    }
+  };
+  const preloadPreviews = (gids: readonly string[]): void => {
+    for (const gid of gids) {
+      const status = store.row(gid)?.status;
+      if (!store.view(gid)?.conversationType || (displays.get(gid)?.preview && status !== 1 && status !== 2)) continue;
+      const key = previewKey(gid), previous = previewAttempts.get(gid);
+      // Active rows refresh with the list loop; finished empty rows are a bounded recovery extension.
+      if (previous?.key === key && deps.now() - previous.at < (status === 1 || status === 2 ? 5000 : 60_000)) continue;
+      if (previewQueue.size < 2000) previewQueue.set(gid, key);
+    }
+    for (const gid of previewAttempts.keys()) if (!store.has(gid)) previewAttempts.delete(gid);
+    drainPreviewQueue();
+  };
+
   // ---- realtime / compensation messages → display
-  const pushMessages = (items: readonly UiMessage[]): void => {
+  const pushMessages = (items: readonly UiMessage[], summary?: string): void => {
     const byGid = new Map<string, UiMessage[]>();
     for (const m of items) {
+      previewVersions.set(m.gid, (previewVersions.get(m.gid) ?? 0) + 1);
       const list = byGid.get(m.gid) ?? [];
       list.push(m);
       byGid.set(m.gid, list);
@@ -288,32 +510,86 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     for (const [gid, list] of byGid) {
       list.sort(byCreateTime);
       pushDisplay({ kind: 'messages', gid, replace: false, items: list });
+      if (store.view(gid) && contextOf(gid)) void roles.ensure(deps, soa, gid, 'background').catch(() => undefined);
       const last = list[list.length - 1];
       const d = displays.get(gid);
       const row = store.row(gid);
-      const order = store.order(gid) ?? (row ? toDisplayConversation(row, false, unread)?.order : null) ?? null;
+      const order = store.order(gid) ?? (row ? toDisplayConversation(row, false, unread, roles.selfUid)?.order : null) ?? null;
       const verifiedTarget = store.messageContext(gid) === 1 || last?.message_id === store.latestMessage(gid)?.msgId;
       const newerPreview = last && verifiedTarget && (d?.last_message_time_ms ?? 0) <= last.create_time_ms;
       if (last && d && (newerPreview || JSON.stringify(d.order) !== JSON.stringify(order))) {
-        const next = { ...d, order, ...(newerPreview ? { preview: previewOfUi(last), last_message_time_ms: last.create_time_ms } : {}), is_full_snapshot: false };
+        const next = { ...d, order, ...(newerPreview ? { preview: summary || previewOfUi(last), last_message_time_ms: last.create_time_ms } : {}), is_full_snapshot: false };
         convs.push(next);
       }
     }
     if (convs.length > 0) pushDisplay({ kind: 'conversations', full: false, items: convs, removed_gids: [] });
   };
 
+  const pushRawPreview = (gid: string, message: HttpMessageObject): void => {
+    const display = displays.get(gid), canonical = roomJidFromMessage(gid, store.view(gid)?.lastMessage ?? null);
+    const room = roomJidFromMessage(gid, message), time = normalizeTimeMs(message.createTime);
+    const preview = previewOf(message, roles.selfUid);
+    const latest = store.latestMessage(gid);
+    const verified = store.messageContext(gid) === 1 || !!latest && typeof message.msgId === 'string' && message.msgId.trim().length > 0 && message.msgId === latest.msgId;
+    if (!verified || !display || !canonical || room?.toLowerCase() !== canonical.toLowerCase() || time === null || time < (display.last_message_time_ms ?? 0) || !preview) return;
+    previewVersions.set(gid, (previewVersions.get(gid) ?? 0) + 1);
+    void pushDisplay({ kind: 'conversations', full: false, items: [{ ...display, preview, last_message_time_ms: time }], removed_gids: [] });
+  };
+
+  readStatuses = createReadStatusSync({ deps, soa, store, roles, publish: pushDisplay,
+    context: gid => { const context = contextOf(gid); return context ? JSON.stringify([context, store.messageContext(gid)]) : null; },
+    captureCurrent: () => { const generation = runGeneration; return () => running && generation === runGeneration; },
+  });
+
+  const incomingVersions = new Map<string, number>();
+  const incomingEvidence = new Map<string, { context: number | null; time: number; ids: Set<string> }>();
+  const readAdmission = (gid: string) => {
+    const version = incomingVersions.get(gid) ?? 0;
+    const context = store.messageContext(gid), generation = runGeneration;
+    return () => {
+      const evidence = incomingEvidence.get(gid), target = store.readTarget(gid);
+      const covered = !evidence || evidence.context !== context || !!target && (evidence.time < target.createTime || evidence.time === target.createTime && [...evidence.ids].every(id => id === target.msgId));
+      return covered && running && generation === runGeneration && context === store.messageContext(gid) && version === (incomingVersions.get(gid) ?? 0);
+    };
+  };
+  const noteIncoming = (gid: string, sender: string, type: unknown, id: unknown, timeValue: unknown): void => {
+    const n = Number(type), customer = store.view(gid)?.customerUid;
+    if (customer && sender.toLowerCase() === customer.toLowerCase() && Number.isInteger(n) && n >= 0 && n < 1000) {
+      incomingVersions.set(gid, (incomingVersions.get(gid) ?? 0) + 1);
+      const context = store.messageContext(gid), time = normalizeTimeMs(timeValue) ?? Infinity, previous = incomingEvidence.get(gid);
+      const token = typeof id === 'string' ? id : '';
+      if (!previous || previous.context !== context || time > previous.time) incomingEvidence.set(gid, { context, time, ids: new Set([token]) });
+      else if (time === previous.time) previous.ids.add(token);
+      scheduleUnread([gid]);
+    }
+  };
   const onSdkMessage = (evt: SdkMessageEvent): void => {
+    if (readStatuses!.receive(evt)) return;
     diagnostics.session.received = receiveCount(diagnostics.session.received);
     const generation = runGeneration;
+    const address = resolveSdkAddress(evt, roles);
+    if (address) noteIncoming(address.gid, effectiveMessageSender(address.senderId, evt.body, evt.msgtype), evt.msgtype, evt.id, evt.create_time ?? evt.ts);
     const ui = sdkMessageToUi(evt, roles);
-    if (!ui) { diagnostics.session.ui_dropped = receiveCount(diagnostics.session.ui_dropped); return; }
+    if (!ui) {
+      if (address) pushRawPreview(address.gid, { msgId: evt.id, fromJid: evt.from, toJid: evt.to, createTime: evt.create_time ?? evt.ts, msgtype: evt.msgtype, messageBody: evt.body });
+      diagnostics.session.ui_dropped = receiveCount(diagnostics.session.ui_dropped); return;
+    }
     diagnostics.session.ui_mapped = receiveCount(diagnostics.session.ui_mapped);
     rememberPending(ui, roomJidFromMessage(ui.gid, { fromJid: evt.from, toJid: evt.to }), evt.threadid);
     const order = orderSummaryFromMessage({ msgtype: evt.msgtype, messageBody: evt.body });
     if (order) store.noteOrder(ui.gid, order, ui.create_time_ms);
-    pushMessages([ui]);
+    const previousTarget = store.readTarget(ui.gid)?.msgId;
+    const raw = { msgId: evt.id, localId: evt.localid, createTime: ui.create_time_ms, fromJid: evt.from, toJid: evt.to, msgtype: evt.msgtype, messageBody: evt.body, threadId: evt.threadid };
+    const canonicalRoom = roomJidFromMessage(ui.gid, store.view(ui.gid)?.lastMessage ?? null);
+    const incomingRoom = roomJidFromMessage(ui.gid, raw);
+    if (ui.sender_role === 'customer' && ui.sender_id?.toLowerCase() === store.view(ui.gid)?.customerUid?.toLowerCase() && canonicalRoom && incomingRoom?.toLowerCase() === canonicalRoom.toLowerCase()) store.noteReadHistory(ui.gid, [raw]);
+    pushMessages([ui], previewOf(raw, roles.selfUid));
+    if (store.readTarget(ui.gid)?.msgId !== previousTarget) {
+      const display = displays.get(ui.gid);
+      if (display) void pushDisplay({ kind: 'conversations', full: false, items: [display], removed_gids: [] });
+    }
     const messageContext = store.messageContext(ui.gid);
-    if (store.has(ui.gid)) void roles.ensure(deps, soa, ui.gid).then(() => {
+    if (store.has(ui.gid)) void roles.ensure(deps, soa, ui.gid, 'background').then(() => {
       if (!running || generation !== runGeneration || store.messageContext(ui.gid) !== messageContext) return;
       const enriched = sdkMessageToUi(evt, roles);
       if (enriched?.sender_id) pushDisplay({ kind: 'message_profiles', gid: enriched.gid, items: [{
@@ -333,6 +609,9 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     const items: UiMessage[] = [];
     for (const m of outcome.body.messages as HttpMessageObject[]) {
       if (typeof m !== 'object' || m === null) { diagnostics.compensation.dropped = receiveCount(diagnostics.compensation.dropped); continue; }
+      const from = typeof m.fromJid === 'string' ? m.fromJid : '';
+      const target = typeof m.partner === 'string' ? m.partner : typeof m.toJid === 'string' ? m.toJid : '';
+      noteIncoming(jidLocal(from.includes('/') ? from : target), effectiveMessageSender(jidSender(from), m.messageBody, m.msgtype), m.msgtype, m.msgId, m.createTime);
       const ui = httpMessageToUi(m, roles);
       if (!ui) { diagnostics.compensation.dropped = receiveCount(diagnostics.compensation.dropped); continue; }
       diagnostics.compensation.mapped = receiveCount(diagnostics.compensation.mapped);
@@ -344,6 +623,13 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       items.push(ui);
     }
     if (items.length > 0) pushMessages(items);
+    for (const value of outcome.body.messages) {
+      const m = recordOrNull(value) as HttpMessageObject | null;
+      if (!m) continue;
+      const from = typeof m.fromJid === 'string' ? m.fromJid : '';
+      const target = typeof m.partner === 'string' ? m.partner : typeof m.toJid === 'string' ? m.toJid : '';
+      pushRawPreview(jidLocal(from.includes('/') ? from : target), m);
+    }
   };
 
   const onSocket = (status: SdkSocketStatus): void => {
@@ -363,6 +649,12 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     normalLoopStopAfterMs: opts.normalLoopStopAfterMs ?? null,
     ...(opts.officialConversationFeed ? { officialConversationFeed: opts.officialConversationFeed } : {}),
     ...(opts.conversationVisibility ? { conversationVisibility: opts.conversationVisibility } : {}),
+    // The adapter WebView can be hidden while the desktop is in use. Its
+    // currentStatus also renews the 15 s notification/status lease: the generic
+    // 30 s hidden cadence would repeatedly expire an otherwise healthy status.
+    // Keep one 5 s loop; the poller still reuses the official feed and backs off
+    // on failures rather than starting a second status-only request loop.
+    conversationHiddenIntervalMultiplier: 1,
     ...(opts.onConversationBootstrap ? { onConversationBootstrap: opts.onConversationBootstrap } : {}),
     roles,
     unread,
@@ -375,6 +667,36 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     adapter.bridge.push(fact);
   };
 
+  /** Read back the gid returned by the order flow; never invent a conversation from URL/start-chat args. */
+  const ensureOrderConversation = async (gid: string, orderId: string, current: () => boolean): Promise<boolean> => {
+    if (typeof gid !== 'string' || !/^\d{1,32}$/.test(gid) || /^0+$/.test(gid) || !/^(?:\d{10}|\d{16})$/.test(orderId)) return false;
+    const generation = runGeneration, previousRow = store.row(gid);
+    const applies = () => running && generation === runGeneration && current();
+    if (!applies()) return false;
+    const outcome = await soa.post<unknown>(LATEST_CONVERSATION, { head: businessHead(deps.context), gid });
+    if (!applies() || store.row(gid) !== previousRow || outcome.kind !== 'success' || !isBizSuccess(outcome.body)) return false;
+    const row = recordOrNull(recordOrNull(outcome.body)?.['conversation']);
+    if (!row || row['gid'] !== gid) return false;
+    const ext = recordOrNull(row['ext']);
+    const candidates = [row['relationOrderId'], ext?.['relationOrderId'], ext?.['orderId'], ext?.['relationorderid'], ext?.['orderid']].filter(value => value !== undefined && value !== null && value !== '');
+    // Never round a numeric order id or accept conflicting order evidence.
+    if (!candidates.length || candidates.some(value => typeof value === 'string' ? value !== orderId : typeof value !== 'number' || !Number.isSafeInteger(value) || String(value) !== orderId)) return false;
+    const view = rowView(row);
+    if (!view || view.orderId !== orderId || !view.sessionId || !view.customerUid || !view.serviceType || !view.conversationType || ![1, 2, 4].includes(row['status'] as number)) return false;
+    if (typeof row['id'] === 'number' && !Number.isSafeInteger(row['id'])) return false;
+    const display = toDisplayConversation(row, false, unread, roles.selfUid), fact = toConversationFact(row, false, unread);
+    if (!display || !fact || !applies()) return false;
+    store.update([row]);
+    roles.addCustomer(view.customerUid);
+    pushFact({ kind: 'conversation', fact });
+    await adapter.bridge.flush();
+    if (!applies() || store.row(gid) !== row) return false;
+    const published = await pushDisplay({ kind: 'conversations', full: false, items: [display], removed_gids: [] });
+    if (!published || !applies() || store.row(gid) !== row) return false;
+    scheduleUnread([gid]);
+    return true;
+  };
+
   const rpc = createRpc({
     deps,
     soa,
@@ -384,6 +706,22 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     pushFact,
     pushDisplay,
     agent: agentBox,
+    ensureOrderConversation,
+    captureReadAcknowledgment: readAdmission,
+    onReadAcknowledged: async (gid, id, through) => {
+      const noNewMessages = readAdmission(gid);
+      const generation = runGeneration, context = store.messageContext(gid);
+      await readStatuses!.acknowledged(gid, id);
+      if (!noNewMessages() || !running || generation !== runGeneration || context !== store.messageContext(gid) || store.readTarget(gid)?.msgId !== id || !through) return;
+      unread.acknowledge(gid, through);
+      const row = store.row(gid), display = displays.get(gid);
+      if (row) {
+        const fact = toConversationFact(row, false, unread);
+        if (fact) adapter.bridge.push({ kind: 'conversation', fact });
+      }
+      if (display) await pushDisplay({ kind: 'conversations', full: false, items: [{ ...display, unread_count: 0 }], removed_gids: [] });
+      scheduleUnread([gid]);
+    },
     receiveDiagnostics: () => ({ version: 1, captured_at_ms: deps.now(), running, run_generation: runGeneration, sdk: opts.sdk.receiveDiagnostics ?? null,
       session: { ...diagnostics.session }, compensation: { ...diagnostics.compensation, outcomes: { ...diagnostics.compensation.outcomes }, running: adapter.compensation.running, mode: adapter.compensation.mode, cursor_ms: adapter.compensation.cursor } }),
     captureWriteGuard: () => {
@@ -406,6 +744,8 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       if (running) return;
       runGeneration++;
       running = true;
+      sentDisplays.clear();
+      recoverDisplaySnapshot = false;
       presence.start();
       const generation = runGeneration;
       unsubs = [opts.sdk.on('message', evt => { if (running && generation === runGeneration) onSdkMessage(evt); }), opts.sdk.on('socket_status', status => { if (running && generation === runGeneration) onSocket(status); })];
@@ -422,8 +762,19 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       unsubs = [];
       if (unreadTimer !== null) deps.clearTimeout(unreadTimer);
       unreadTimer = null;
+      unreadInFlight = null;
+      conversationPending?.done(false);
+      conversationPending = null;
       pendingUnread.clear();
+      readStatuses?.reset();
       pendingPreviews.clear();
+      previewVersions.clear();
+      incomingEvidence.clear();
+      incomingVersions.clear();
+      productQueue.clear();
+      productAttempts.clear();
+      previewQueue.clear();
+      previewAttempts.clear();
       adapter.stop();
     },
   };

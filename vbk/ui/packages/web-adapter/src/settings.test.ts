@@ -59,7 +59,7 @@ test('translateMessages keeps originals for ids missing from the response', asyn
   assert.deepEqual(r.missing, ['m2']);
   assert.equal(r.byMsgId.get('m1')?.messageBody, '{{translated}}');
   const body = deps.fakeFetch.calls[0]?.bodyJson as Record<string, unknown>;
-  assert.deepEqual(Object.keys(body), ['head', 'source', 'target', 'sessionId', 'groupId', 'bizType', 'messageIdList']);
+  assert.deepEqual(Object.keys(body), ['head', 'source', 'target', 'sessionId', 'groupId', 'bizType', 'appId', 'messageIdList']);
   assert.equal(body['source'], 'AUTO');
   assert.equal(body['bizType'], 1513);
   const empty = await translateMessages(deps, new SoaClient(deps), { sessionId: 's', groupId: 'g', bizType: 1513, messageIdList: [], target: 'zh-CN' });

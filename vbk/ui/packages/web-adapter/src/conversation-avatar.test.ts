@@ -18,6 +18,7 @@ function fixture(options: { holdMembers?: boolean; holdHistory?: boolean } = {})
       return jsonResponse({ ResponseStatus: OK_STATUS, members: [{ uid: customer, nick: 'Customer', avatar, roles: [0, 1, 1] }] });
     }
     if (call.url.includes('getMessageList')) {
+      if ((call.bodyJson as any)?.pageSize === 20) return jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: { isDone: true, messages: [] } });
       if (options.holdHistory) return new Promise(resolve => { releaseHistory = resolve; });
       return jsonResponse({ ResponseStatus: OK_STATUS, rangeMessage: { isDone: true, messages: [] } });
     }

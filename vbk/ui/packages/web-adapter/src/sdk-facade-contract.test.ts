@@ -143,7 +143,7 @@ test('missing send callback remains unknown after timeout and never adds a retry
 });
 
 
-test('media intents are explicitly unsupported before any facade invocation until public models are implemented', async () => {
+test('media intents map public fields and confirm through the real page glue callback path', async () => {
   const media: MediaRef[] = [
     { kind: 'image', url: 'https://example.com/image', thumbUrl: 'https://example.com/thumb', width: 10, height: 20, scene: 'test', channel: 'im_business' },
     { kind: 'video', filename: 'video.mp4', cover: 'https://example.com/cover', url: 'https://example.com/video', duration: 1, size: 100, width: 10, height: 20 },
@@ -151,13 +151,19 @@ test('media intents are explicitly unsupported before any facade invocation unti
   ];
   for (const item of media) {
     const deps = makeDeps(); let calls = 0;
-    const sdk = createPageSdk({ IMClient: { sendMessageInSocket: () => { calls++; } } }, deps);
+    const sdk = createPageSdk({ IMClient: { sendMessageInSocket: (message: Record<string, unknown>, success: Callback) => {
+      calls++;
+      assert.equal(message['messageType'], item.kind === 'image' ? 1 : item.kind === 'video' ? 3 : 5);
+      assert.equal(message['toJid'], 'g1');
+      assert.equal(message[item.kind === 'image' ? 'imageUrl' : 'url'], item.url);
+      assert.equal(message['messageBody'], undefined, 'facade builds the wire payload from public fields');
+      success({ msgId: 'confirmed-media', localId: message['localId'], msgCreateTime: 1700000000123 });
+    } } }, deps);
     sdk.rememberPartnerJid('g1', 'g1@muc.example');
     const intent = createMediaSendIntent(deps, 'g1', item, { serviceType: '1513', threadId: '' });
-    assert.throws(() => sdk.sendMessage({ gid: 'g1', body: intent.body }), /media facade unsupported.*nothing sent/);
     const result = await submitIntent(deps, sdk, intent, 100);
-    assert.deepEqual(result.disposition, { kind: 'unknown' });
-    assert.equal(calls, 0); assert.equal(deps.fakeFetch.calls.length, 0);
+    assert.equal(result.disposition.kind, 'confirmed');
+    assert.equal(calls, 1); assert.equal(deps.fakeFetch.calls.length, 0);
     sdk.dispose(); assert.equal(deps.clock.pendingCount(), 0);
   }
 });

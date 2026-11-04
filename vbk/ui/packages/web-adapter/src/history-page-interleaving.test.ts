@@ -6,7 +6,7 @@ import { FakePageSdk, OK_STATUS, flush, jsonResponse, makeDeps, sampleRow } from
 
 function fixture() {
   let release!: (value: ReturnType<typeof jsonResponse>) => void;
-  const base = makeDeps(call => call.url.includes('getMessageList') ? new Promise(resolve => { release = resolve; }) : jsonResponse(call.url.includes('getConversationList')
+  const base = makeDeps(call => call.url.includes('getMessageList') && (call.bodyJson as any)?.pageSize !== 20 ? new Promise(resolve => { release = resolve; }) : jsonResponse(call.url.includes('getConversationList')
     ? { ResponseStatus: OK_STATUS, conversationList: [sampleRow('123456')], haveRest: false }
     : call.url.includes('getRecentMessages') ? { ResponseStatus: OK_STATUS, messages: [], lastMessageTimestamp: 1700000000000 }
     : { ResponseStatus: OK_STATUS, members: [] }));

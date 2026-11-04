@@ -3,6 +3,58 @@ import assert from 'node:assert/strict';
 import { boot, hostArgs, isOfficialImPage, resolveHostBridge, type BootWindow } from './boot.ts';
 import { OK_STATUS, sampleRow } from './testing.ts';
 
+for (const useApi of [false, true]) {
+  test(`host bridge: status commands only reach their account (global API=${useApi})`, async () => {
+    type Target = { kind: string; label?: string };
+    const listeners: { target: Target; callback: (ev: { payload: unknown }) => void }[] = [];
+    const received: unknown[][] = [[], []];
+    for (const [i, label] of ['account-a', 'account-b'].entries()) {
+      let callback: (ev: { payload: unknown }) => void = () => {};
+      const bridge = resolveHostBridge({
+        __TAURI_INTERNALS__: {
+          metadata: { currentWebview: { label } },
+          transformCallback: (cb: typeof callback) => { callback = cb; return 1; },
+          invoke: async (cmd: string, args: { target: Target }) => {
+            if (cmd === 'plugin:event|listen') listeners.push({ target: args.target, callback });
+            return 1;
+          },
+        },
+        ...(useApi ? { __TAURI__: { event: { listen: async (_event: string, cb: typeof callback, options?: { target: Target }) => {
+          listeners.push({ target: options?.target ?? { kind: 'Any' }, callback: cb });
+          return () => {};
+        } } } } : {}),
+      });
+      assert.ok(bridge);
+      await bridge.listen('adapter://request', payload => received[i]!.push(payload));
+    }
+    // Tauri's match_any_or_filter delivers targeted emits to Any listeners too.
+    const emitTo = (label: string, payload: unknown) => {
+      for (const listener of listeners) {
+        if (listener.target.kind === 'Any' || listener.target.label === label) listener.callback({ payload });
+      }
+    };
+    const a = { req_id: 'a', op: 'agent.set_status', args: { status: 'hangup' } };
+    const b = { req_id: 'b', op: 'agent.set_status', args: { status: 'getoff' } };
+    emitTo('account-a', a);
+    assert.deepEqual(received, [[a], []]);
+    emitTo('account-b', b);
+    assert.deepEqual(received, [[a], [b]]);
+  });
+}
+
+test('host bridge: missing webview identity refuses global listening', async () => {
+  for (const label of [undefined, '', 7]) {
+    let calls = 0;
+    const bridge = resolveHostBridge({ __TAURI_INTERNALS__: {
+      metadata: { currentWebview: { label } },
+      invoke: async () => { calls++; }, transformCallback: () => { calls++; return 1; },
+    } });
+    assert.ok(bridge);
+    await assert.rejects(bridge.listen('adapter://request', () => {}), /current webview label unavailable/);
+    assert.equal(calls, 0);
+  }
+});
+
 const IM = { protocol: 'https:', hostname: 'vbooking.ctrip.com', port: '', pathname: '/vbk/im/main' };
 
 test('boot guard: only the official vbooking IM page (exact origin/path)', () => {
@@ -47,6 +99,7 @@ test('host bridge: __TAURI__ api, internals-only fallback, none', async () => {
   let handler: ((ev: unknown) => void) | null = null;
   const b = resolveHostBridge({
     __TAURI_INTERNALS__: {
+      metadata: { currentWebview: { label: 'account-a' } },
       invoke: (cmd: string, args: unknown) => (seen.push([cmd, args]), Promise.resolve(42)),
       transformCallback: (cb: (ev: unknown) => void) => ((handler = cb), 7),
     },
@@ -54,12 +107,12 @@ test('host bridge: __TAURI__ api, internals-only fallback, none', async () => {
   assert.ok(b);
   const got: unknown[] = [];
   const unlisten = await b.listen('adapter://request', (p) => got.push(p));
-  assert.deepEqual(seen[0], ['plugin:event|listen', { event: 'adapter://request', target: { kind: 'Any' }, handler: 7 }]);
+  assert.deepEqual(seen[0], ['plugin:event|listen', { event: 'adapter://request', target: { kind: 'Webview', label: 'account-a' }, handler: 7 }]);
   (handler as unknown as (ev: unknown) => void)({ event: 'adapter://request', id: 1, payload: { req_id: 'x' } });
   assert.deepEqual(got, [{ req_id: 'x' }]);
   unlisten();
   assert.deepEqual(seen[1], ['plugin:event|unlisten', { event: 'adapter://request', eventId: 42 }]);
-  const api = resolveHostBridge({ __TAURI__: { core: { invoke: () => Promise.resolve('ok') }, event: { listen: (_e: string, h: (ev: { payload: unknown }) => void) => (h({ payload: 'p' }), Promise.resolve(() => undefined)) } } });
+  const api = resolveHostBridge({ __TAURI_INTERNALS__: { metadata: { currentWebview: { label: 'account-a' } } }, __TAURI__: { core: { invoke: () => Promise.resolve('ok') }, event: { listen: (_e: string, h: (ev: { payload: unknown }) => void) => (h({ payload: 'p' }), Promise.resolve(() => undefined)) } } });
   assert.ok(api);
   const got2: unknown[] = [];
   await api.listen('e', (p) => got2.push(p));
@@ -126,6 +179,7 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
     },
     xmppClient: xmpp,
     __TAURI_INTERNALS__: {
+      metadata: { currentWebview: { label: 'account-a' } },
       transformCallback: (cb: (ev: unknown) => void) => ((requestCb = cb), 1),
       invoke: (cmd: string, args: unknown) => {
         invoked.push({ cmd, args });

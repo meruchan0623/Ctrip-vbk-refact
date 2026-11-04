@@ -10,6 +10,7 @@ import { endpoint, isBizSuccess, bizResultCode, recordOrNull, type EndpointSpec,
 
 export const PeripheralEndpoints = {
   INVITE_MEMBERS: endpoint('getInviteMemberListBySkillGroup', M, '16037/getInviteMemberListBySkillGroup', 'read'),
+  SEARCH_INVITE_MEMBERS: endpoint('searchInviteMemberListBySkillGroup', M, '16037/searchInviteMemberListBySkillGroup', 'read'),
   INVITE_AGENT: endpoint('inviteVenAgent', M, '16037/inviteVenAgent', 'write'),
   TRANSFER_MASTER: endpoint('transferVenMaster', M, '16037/transferVenMaster', 'write'),
 } as const;
@@ -32,7 +33,14 @@ export interface CustomerScriptsRequest { readonly content: string }
 export interface CustomerScriptsResult { readonly items: readonly unknown[] }
 export interface InviteMembersRequest { readonly parentSkillGroupIds?: readonly number[] }
 export interface InviteSkillGroup { readonly skillGroupId: number; readonly skillGroupName: string }
-export interface InviteAgent { readonly agentUid: string; readonly nickname: string | null; readonly avatar?: string }
+/** Official desktop (imWindow Gve/Iyt): `status` is the chat status
+ * 0 在线 / 1 挂起 / 2 离开 / 3 下班 (icon ico_free/busy/leave/exit), `dutyStatus`
+ * 1 上班 else 下班. 「上班」 is not「在线」. Unknown values are kept as null. */
+export interface InviteAgent {
+  readonly agentUid: string; readonly nickname: string | null; readonly avatar?: string;
+  readonly status?: number | null; readonly dutyStatus?: number | null;
+  readonly jobPosition?: string | null; readonly jobPositionType?: number | null; readonly skillGroupFullName?: string | null;
+}
 export interface InviteMembersResult { readonly skillGroups: readonly InviteSkillGroup[]; readonly agents: readonly InviteAgent[] }
 export interface InviteVenAgentRequest { readonly venAgentUidList: readonly string[] }
 export interface TransferVenMasterRequest { readonly targetVenAgentUid: string }
@@ -60,6 +68,26 @@ export async function getCustomerScripts(deps: AdapterDeps, soa: SoaClient, req:
   return Array.isArray(scripts) ? { kind: 'success', value: { items: scripts } } : malformed('missing customerScripts array');
 }
 
+const smallInt = (v: unknown): number | null => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v < 1000 ? v : null;
+function inviteLists(r: Record<string, unknown>, skillGroups: InviteSkillGroup[], agents: InviteAgent[]): PeripheralFailure | null {
+  for (const field of ['skillGroupList', 'agentInfoList']) if (r[field] !== undefined && r[field] !== null && !Array.isArray(r[field])) return malformed(`invalid ${field}`);
+  for (const entry of (r['skillGroupList'] ?? []) as unknown[]) {
+    const row = recordOrNull(entry);
+    if (!row || !worksheet(row['skillGroupId']) || !nonempty(row['skillGroupName'])) return malformed('invalid skill group');
+    skillGroups.push({ skillGroupId: row['skillGroupId'], skillGroupName: row['skillGroupName'] });
+  }
+  for (const entry of (r['agentInfoList'] ?? []) as unknown[]) {
+    const row = recordOrNull(entry);
+    if (!row || !nonempty(row['agentUid'])) return malformed('invalid agent uid');
+    agents.push({
+      agentUid: row['agentUid'], nickname: nonempty(row['nickname']) ? row['nickname'] : null, ...(nonempty(row['avatar']) ? { avatar: row['avatar'] } : {}),
+      status: smallInt(row['status']), dutyStatus: smallInt(row['dutyStatus']), jobPositionType: smallInt(row['jobPositionType']),
+      jobPosition: nonempty(row['jobPosition']) ? row['jobPosition'] : null, skillGroupFullName: nonempty(row['skillGroupFullName']) ? row['skillGroupFullName'] : null,
+    });
+  }
+  return null;
+}
+
 export async function getInviteMemberListBySkillGroup(deps: AdapterDeps, soa: SoaClient, view: PeripheralConversation | null, req: InviteMembersRequest = {}): Promise<PeripheralReadResult<InviteMembersResult>> {
   const unsupported = absent(view, ['gid', 'worksheetId']);
   if (unsupported || !view) return unsupported!;
@@ -78,19 +106,30 @@ export async function getInviteMemberListBySkillGroup(deps: AdapterDeps, soa: So
     const r = recordOrNull(item);
     if (!r) return malformed('invalid invite result');
     if (!('skillGroupList' in r) && !('agentInfoList' in r)) return malformed('missing invite candidate lists');
-    for (const field of ['skillGroupList', 'agentInfoList']) if (r[field] !== undefined && !Array.isArray(r[field])) return malformed(`invalid ${field}`);
-    for (const entry of (r['skillGroupList'] ?? []) as unknown[]) {
-      const row = recordOrNull(entry);
-      if (!row || !worksheet(row['skillGroupId']) || !nonempty(row['skillGroupName'])) return malformed('invalid skill group');
-      skillGroups.push({ skillGroupId: row['skillGroupId'], skillGroupName: row['skillGroupName'] });
-    }
-    for (const entry of (r['agentInfoList'] ?? []) as unknown[]) {
-      const row = recordOrNull(entry);
-      if (!row || !nonempty(row['agentUid'])) return malformed('invalid agent uid');
-      agents.push({ agentUid: row['agentUid'], nickname: nonempty(row['nickname']) ? row['nickname'] : null, ...(nonempty(row['avatar']) ? { avatar: row['avatar'] } : {}) });
-    }
+    const bad = inviteLists(r, skillGroups, agents);
+    if (bad) return bad;
   }
   return { kind: 'success', value: { skillGroups, agents } };
+}
+
+export const INVITE_KEYWORDS_MAX_CHARS = 50;
+/** Official search box (Fyt): `{groupId, worksheetId, keywords}`; `results` is a
+ * single object here, not the array of the tree read. Groups are entry points
+ * to expand, agents are selectable directly. */
+export async function searchInviteMemberListBySkillGroup(deps: AdapterDeps, soa: SoaClient, view: PeripheralConversation | null, keywords: string): Promise<PeripheralReadResult<InviteMembersResult>> {
+  const unsupported = absent(view, ['gid', 'worksheetId']);
+  if (unsupported || !view) return unsupported!;
+  if (typeof keywords !== 'string' || keywords.trim() === '' || keywords.length > INVITE_KEYWORDS_MAX_CHARS) return { kind: 'invalid', field: 'keywords' };
+  const outcome = await soa.post<unknown>(PeripheralEndpoints.SEARCH_INVITE_MEMBERS, { head: businessHead(deps.context), groupId: view.gid, worksheetId: view.worksheetId, keywords: keywords.trim() });
+  if (outcome.kind !== 'success') return failed(outcome);
+  if (!isBizSuccess(outcome.body)) return { kind: 'biz_failure', outcome };
+  const raw = recordOrNull(outcome.body)?.['results'];
+  const results = Array.isArray(raw) ? raw[0] ?? {} : raw ?? {};
+  const r = recordOrNull(results);
+  if (!r) return malformed('invalid search results');
+  const skillGroups: InviteSkillGroup[] = [], agents: InviteAgent[] = [];
+  const bad = inviteLists(r, skillGroups, agents);
+  return bad ?? { kind: 'success', value: { skillGroups, agents } };
 }
 
 async function submit(deps: AdapterDeps, soa: SoaClient, spec: EndpointSpec, body: Record<string, unknown>, accepted: (body: unknown) => boolean = isBizSuccess): Promise<PeripheralWriteResult> {
@@ -113,6 +152,19 @@ export async function finishConversation(deps: AdapterDeps, soa: SoaClient, view
   return submit(deps, soa, Endpoints.FINISH_CONVERSATION, {
     conversationKey: view.conversationKey, conversationType: view.conversationType,
     sessionId: view.sessionId, workSheetId: view.worksheetId,
+  });
+}
+
+/** Official「移除成员」(deleteChatMember): the same finishConversation body plus a
+ * NON-EMPTY `venAgentUids`. An empty list would end the whole conversation, so
+ * it is rejected here and never reaches the wire. */
+export async function removeVenAgents(deps: AdapterDeps, soa: SoaClient, view: PeripheralConversation | null, venAgentUids: readonly string[]): Promise<PeripheralWriteResult> {
+  const unsupported = absent(view, ['conversationKey', 'conversationType', 'sessionId', 'worksheetId']);
+  if (unsupported || !view) return unsupported!;
+  if (!Array.isArray(venAgentUids) || venAgentUids.length === 0 || !venAgentUids.every(nonempty) || new Set(venAgentUids).size !== venAgentUids.length) return { kind: 'invalid', field: 'venAgentUids' };
+  return submit(deps, soa, Endpoints.FINISH_CONVERSATION, {
+    conversationKey: view.conversationKey, conversationType: view.conversationType,
+    sessionId: view.sessionId, workSheetId: view.worksheetId, venAgentUids: [...venAgentUids],
   });
 }
 

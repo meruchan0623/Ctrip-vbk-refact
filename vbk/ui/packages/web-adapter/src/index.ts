@@ -48,7 +48,7 @@ export { translateDraft, createDraftTranslator, outboundTranslateBody, GET_MESSA
 /** Adapter feature registration (plan I-30 access rule 2) lives in `adapterFeatures.ts`; see there. */
 export { createAdapterFeatures } from './adapterFeatures.ts';
 
-import type { AccountContext, AdapterFact, TransportState } from '../../ipc/src/contracts.ts';
+import type { AccountContext, AdapterFact, MessageFact, TransportState } from '../../ipc/src/contracts.ts';
 import type { AdapterDeps, SdkSocketStatus } from './deps.ts';
 import { AdapterBridge } from './bridge.ts';
 import { SoaClient, type ServerTimeSample } from './soa.ts';
@@ -83,6 +83,8 @@ export interface AdapterOptions {
   readonly officialConversationFeed?: OfficialConversationFeed;
   /** `visibilityState` gate for self-run conversation-list requests. */
   readonly conversationVisibility?: VisibilityGate;
+  /** Presence-bearing sessions must refresh before their status lease expires, even while hidden. */
+  readonly conversationHiddenIntervalMultiplier?: number;
   /** Fired when a poller had to pull one full snapshot itself while the official loop was active. */
   readonly onConversationBootstrap?: () => void;
   readonly onServerTime?: (sample: ServerTimeSample) => void;
@@ -115,12 +117,29 @@ function toTransport(status: SdkSocketStatus): TransportState {
   return typeof status === 'string' && TRANSPORT_STATES.has(status) ? status : 'disconnected';
 }
 
+const UNRESOLVED_RESEND_MS = 30_000;
+const MAX_UNRESOLVED = 64;
+
 export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter {
   const cursors = new CursorAllocator(opts.initialEpoch ?? 1);
   const bridge = new AdapterBridge({ account: opts.account, invoke: deps.invoke, cursors });
   const soa = new SoaClient(deps, opts.onServerTime ? { onServerTime: opts.onServerTime } : {});
   let roles: MemberRoles = opts.roles ?? UNKNOWN_ROLES;
   const rolesProxy: MemberRoles = { get selfUid() { return roles.selfUid ?? ''; }, roleOf: (uid) => roles.roleOf(uid) };
+
+  // A first message can outrun the conversation list that names its customer.
+  // Resend it once roles settle so the host can resolve and notify it.
+  let unresolved: { readonly fact: MessageFact; readonly at: number }[] = [];
+  const resendResolved = (): void => {
+    const now = deps.now();
+    const pending = unresolved;
+    unresolved = [];
+    for (const entry of pending) {
+      const sender_role = rolesProxy.roleOf(entry.fact.sender_id);
+      if (sender_role !== 'unknown') bridge.push({ kind: 'message', fact: { ...entry.fact, sender_role } });
+      else if (now - entry.at < UNRESOLVED_RESEND_MS) unresolved.push(entry);
+    }
+  };
 
   let authInvalidSeen = false;
   const stopLoops = (): void => {
@@ -153,9 +172,13 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
       includeLocale: opts.includeLocaleInConversationList ?? false,
       ...(opts.officialConversationFeed ? { official: opts.officialConversationFeed } : {}),
       ...(opts.conversationVisibility ? { visibility: opts.conversationVisibility } : {}),
+      ...(opts.conversationHiddenIntervalMultiplier !== undefined ? { hiddenIntervalMultiplier: opts.conversationHiddenIntervalMultiplier } : {}),
       ...(opts.onConversationBootstrap ? { onBootstrap: opts.onConversationBootstrap } : {}),
       ...(opts.unread ? { unread: opts.unread } : {}),
-      ...(opts.onConversationRows ? { onRows: (rows: readonly ConversationListItem[], full: boolean) => opts.onConversationRows?.(rows, full, variant) } : {}),
+      onRows: (rows: readonly ConversationListItem[], full: boolean) => {
+        opts.onConversationRows?.(rows, full, variant);
+        resendResolved();
+      },
       ...(opts.onConversationListRequest ? { onRequest: opts.onConversationListRequest } : {}),
       ...(opts.onConversationListOutcome ? { onOutcome: (o: SoaOutcome<ConversationListResponse>, ticket?: unknown) => opts.onConversationListOutcome?.(o, variant, ticket) } : {}),
     }),
@@ -186,7 +209,12 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
       unsubscribes = [
         deps.sdk.on('message', (evt) => {
           const fact = normalizeSdkMessage(evt, { roles: rolesProxy, ...(opts.msgTypeOverrides ? { msgTypeOverrides: opts.msgTypeOverrides } : {}) });
-          if (fact) bridge.push({ kind: 'message', fact });
+          if (!fact) return;
+          bridge.push({ kind: 'message', fact });
+          if (fact.sender_role === 'unknown' && fact.kind === 'business' && fact.message_id) {
+            if (unresolved.length >= MAX_UNRESOLVED) unresolved.shift();
+            unresolved.push({ fact, at: deps.now() });
+          }
         }),
         deps.sdk.on('socket_status', (status) => {
           const state = toTransport(status);
@@ -202,6 +230,7 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
     stop() {
       if (!running) return;
       running = false;
+      unresolved = [];
       for (const u of unsubscribes) u();
       unsubscribes = [];
       compensation.stop();

@@ -4,17 +4,34 @@ import type { AdapterDisplayPayload } from '../../ipc/src/adapterProtocol.ts';
 import { createPageSession } from './session.ts';
 import { FakePageSdk, OK_STATUS, flush, jsonResponse, makeDeps, type FetchScript } from './testing.ts';
 
-function setup(script: FetchScript) {
+function setup(script: FetchScript, hidden = false) {
   const base = makeDeps(script), sdk = new FakePageSdk();
   const displays: AdapterDisplayPayload[] = [];
   const session = createPageSession({ ...base, sdk }, {
     account: { account_id: 'presence', environment: 'production', session_generation: 1 },
     selfUid: 'me', beginMsgTime: 1700000000000, initialEpoch: 1, sdk,
     pushDisplay: p => { displays.push(p); return Promise.resolve(); },
+    conversationVisibility: { isVisible: () => !hidden, subscribe: () => () => {} },
   });
   return { base, sdk, session, rawStatuses: () => displays.filter(p => p.kind === 'agent_status'), statuses: () => displays.filter(p => p.kind === 'agent_status').map(({ kind, status, confirmed }) => ({ kind, status, confirmed })) };
 }
 const statusResponse = (currentStatus: unknown) => jsonResponse({ ResponseStatus: OK_STATUS, conversationList: [], currentStatus, haveRest: false });
+
+test('session presence: hidden adapter renews status without unknown flicker and sees cross-device changes', async () => {
+  let status = 0;
+  const f = setup(call => call.url.includes('getConversationList') ? statusResponse(status) : jsonResponse({ ResponseStatus: OK_STATUS }), true);
+  f.session.start();
+  await f.base.clock.advance(50);
+  await f.base.clock.advance(35_000);
+  assert.ok(f.statuses().slice(1).every(s => s.confirmed && s.status === 'online'));
+  const reads = f.base.fakeFetch.calls.filter(c => c.url.includes('getConversationList')).length;
+  assert.ok(reads >= 7 && reads <= 8, `expected one 5 s loop, got ${reads} reads`);
+  status = 1;
+  await f.base.clock.advance(5_000);
+  assert.deepEqual(f.statuses().at(-1), { kind: 'agent_status', status: 'hangup', confirmed: true });
+  assert.equal(f.base.fakeFetch.calls.some(c => c.url.includes('setVenAgentStatus')), false);
+  f.session.stop();
+});
 
 test('session presence: host-issued epoch and IPC sequence survive stop/start', async () => {
   const f = setup(call => call.url.includes('getConversationList') ? statusResponse(0) : jsonResponse({ ResponseStatus: OK_STATUS }));

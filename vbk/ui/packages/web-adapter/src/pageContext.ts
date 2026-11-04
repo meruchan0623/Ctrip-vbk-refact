@@ -46,6 +46,7 @@ const SOA_NAME_TO_CATEGORY: Readonly<Record<string, TrafficCategory>> = {
   batchTranslateByMsgIds: 'open_session',
   queryToken: 'open_session',
   getOrderDetailsForVbk: 'open_session',
+  getVbkImUserinfo: 'open_session',
   PutAdviceOfReadByMsgId: 'read_receipt',
 };
 

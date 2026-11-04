@@ -1,6 +1,9 @@
 /**
  * Conversation colour mark: `POST 16037/setWorkSheetStar`
- * `{head, sessionId, groupId:number, worksheetId:number, action}` (evidence 72/74).
+ * `{head, sessionId?, groupId:number, worksheetId?, action}`.
+ * Official desktop setConversationStar passes sessionId/id through unchanged;
+ * absent properties are omitted by JSON serialization. Do not require a numeric
+ * worksheet ID from the stricter send/member projection (2026-11-03 evidence).
  *
  * action 0 = clear, 1 orange, 2 green, 3 blue, 4 purple, 5 pink (the
  * official five colours; no sixth colour, no separate "star" feature).
@@ -9,6 +12,7 @@
  * Cross-device propagation is unverified.
  */
 
+import type { ConversationListItem } from './conversationList.ts';
 import type { AdapterDeps } from './deps.ts';
 import { Endpoints } from './endpoints.ts';
 import { businessHead } from './heads.ts';
@@ -26,10 +30,10 @@ export const STAR_COLOURS: Readonly<Record<StarAction, 'none' | 'orange' | 'gree
 };
 
 export interface WorkSheetStarRequest {
-  readonly sessionId: string;
+  readonly sessionId?: string | number | null;
   /** This endpoint sends `groupId` as a number (other 16037 calls use the string gid). */
   readonly groupId: number;
-  readonly worksheetId: number;
+  readonly worksheetId?: string | number | null;
   readonly action: StarAction;
 }
 
@@ -37,10 +41,26 @@ export type WorkSheetStarResult =
   | { readonly applied: true; readonly action: StarAction }
   | { readonly applied: false; readonly reason: 'biz_failure' | 'unknown' | 'failed'; readonly outcome: SoaOutcome<unknown> };
 
-/** Digits-only gid → number for this endpoint; `null` otherwise (never guess). */
+/**
+ * Match official setConversationStar's `groupId: +gid`, including its Number
+ * precision for long IDs. This is this endpoint's wire representation only:
+ * retain the original string gid for cache keys, UI updates and identity guards.
+ * Do not reuse this conversion for other endpoints or conversation lookup.
+ */
 export function numericGid(gid: string): number | null {
-  if (!/^\d{1,15}$/.test(gid)) return null;
-  return Number(gid);
+  if (!/^\d+$/.test(gid)) return null;
+  const value = Number(gid);
+  return Number.isFinite(value) && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+/** Match the shipped desktop call site, not the send/member identity requirements. */
+export function workSheetStarRequest(row: ConversationListItem, action: StarAction): WorkSheetStarRequest | null {
+  const groupId = typeof row.gid === 'string' ? numericGid(row.gid) : null;
+  if (groupId === null) return null;
+  const id = (row as ConversationListItem & { id?: unknown }).id;
+  const wireId = (value: unknown): value is string | number | null | undefined => value == null || typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value));
+  if (!wireId(row.sessionId) || !wireId(id)) return null;
+  return { ...(row.sessionId !== undefined ? { sessionId: row.sessionId } : {}), groupId, ...(id !== undefined ? { worksheetId: id } : {}), action };
 }
 
 export async function setWorkSheetStar(deps: AdapterDeps, soa: SoaClient, req: WorkSheetStarRequest): Promise<WorkSheetStarResult> {

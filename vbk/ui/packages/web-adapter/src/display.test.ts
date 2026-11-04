@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { agentStatusOf, colorOf, httpMessageToUi, langOf, messageText, orderSummaryFromMessage, previewOf, rowView, sdkMessageToUi, toDisplayConversation, uiKindOf } from './display.ts';
 import { stanzaToEvent, mapXmppStatus, readElement } from './sdkGlue.ts';
 import { buildPageContext, createContextSniffer, localeFromSearch, readCookie } from './pageContext.ts';
-import { UNKNOWN_ROLES } from './facts.ts';
+import { UNKNOWN_ROLES, buildMemberRoles } from './facts.ts';
 import { ConversationStore, RoleBook, roomJidFromMessage } from './stores.ts';
 import { normalizeHttpMessage } from './facts.ts';
 import { sampleRow } from './testing.ts';
@@ -58,7 +58,7 @@ test('display: language, kinds, previews and media text', () => {
   assert.equal(uiKindOf('0'), 'text');
   assert.equal(uiKindOf(1009), 'system');
   assert.equal(previewOf({ msgtype: 1, messageBody: '{"url":"https://x/a.png"}' }), '[图片]');
-  assert.equal(previewOf({ msgtype: 5, messageBody: JSON.stringify({ btype: 5, file: { filename: 'a.pdf', url: 'u', size: 1 } }) }), '[文件] a.pdf');
+  assert.equal(previewOf({ msgtype: 5, messageBody: JSON.stringify({ btype: 5, file: { filename: 'a.pdf', url: 'u', size: 1 } }) }), '[文件]');
   assert.equal(messageText(1, '{"url":"https://x/a.png","thumbUrl":"t"}'), 'https://x/a.png');
   assert.equal(messageText(1009, JSON.stringify({ title: '撤回了一条消息', code: 2 })), '撤回了一条消息');
   assert.equal(messageText(1, 'not json'), '');
@@ -192,4 +192,37 @@ test('page context: sniffed head cid/sid + _fxpcqlniredt; cookie fallback for ci
   assert.deepEqual(noSid, { ok: false, missing: ['sid'] });
   assert.equal(readCookie('a=1; vbk_login_cid=V', 'vbk_login_cid'), 'V');
   assert.equal(localeFromSearch('?lang=<script>'), 'zh-CN');
+});
+
+test('list language uses only the customer original, including unopened Chinese conversations', () => {
+ const row = { gid: '123', uid: 'customer', languageInfo: { lang: 'en_US' }, lastMessageJsonString: JSON.stringify({ fromJid: 'customer@x', msgtype: 0, messageBody: '你好' }) };
+ assert.equal(langOf(row), 'zh');
+ const agentRow = {...row, lastMessageJsonString: JSON.stringify({ fromJid: 'agent@x', msgtype: 0, messageBody: '您好请问有什么可以帮您' })};
+ assert.equal(langOf(agentRow), 'en');
+});
+
+test('list previews accept official normalized self and system messages', () => {
+  for (const [message, expected] of [
+    [{ messageType: 0, content: '不客气', fromJid: 'me@x' }, '不客气'],
+    [{ messageType: 1007, title: '会话已结束', actionCode: 'NBZ37', isPresent: true }, '会话已结束'],
+    [{ messageType: 7, title: '好的，已处理', actionCode: 'CBZ06' }, '好的，已处理'],
+    [{ messageType: 1007, title: 'private protocol', isPresent: false }, ''],
+  ] as const) {
+    const display = toDisplayConversation({ ...sampleRow('123'), lastMessageJsonString: undefined, lastMessage: { ...message, createTime: 1700000000100, messageId: 'last' } } as never, false);
+    assert.equal(display?.preview, expected);
+  }
+});
+
+
+test('merchant colleague history preserves the customer-read flag without assigning it to customer messages', () => {
+  const roles = buildMemberRoles({ selfUid: 'me', customerUid: 'customer', members: [{ uid: 'colleague', roles: [0, 4, 4] }] });
+  const base = { msgId: 'synthetic-read', toJid: 'me@x', createTime: 1700000000400, msgtype: 0, messageBody: 'SYNTHETIC', isTargetRead: true };
+  assert.equal(httpMessageToUi({ ...base, fromJid: 'g@conf/colleague' }, roles)?.read_status, 'read');
+  assert.equal(httpMessageToUi({ ...base, fromJid: 'g@conf/customer' }, roles)?.read_status, 'unknown');
+  assert.equal(httpMessageToUi({ ...base, fromJid: 'g@conf/customer', isread: true }, roles)?.read_status, 'read');
+});
+
+test('structured consultation card retains its title and fields in message text', () => {
+  const body = JSON.stringify({ action: 'CTL01', title: '[通知訊息]', ext: { title: '產品查詢通知', desc: '資料填寫頁面查詢', dataInfoList: [{ title: '產品名稱', text: '示例 eSIM' }, { title: '產品價格', text: 'CNY2' }] } });
+  assert.equal(messageText(7, body), '產品查詢通知\n資料填寫頁面查詢\n產品名稱：示例 eSIM\n產品價格：CNY2');
 });

@@ -1,3 +1,4 @@
+import { effectiveMessageSender } from './message-body.ts';
 /**
  * In-page caches the page session needs (M3-4/M3-5). All in memory, per
  * page load, never logged or persisted.
@@ -25,7 +26,7 @@ import { isBizSuccess, recordOrNull, type SoaClient } from './soa.ts';
 import type { HttpMessageObject, MemberRoles } from './facts.ts';
 import { jidLocal, jidSender, normalizeTimeMs } from './facts.ts';
 import { selectReadTarget } from './markRead.ts';
-import { rowView, type ConversationRowView } from './display.ts';
+import { httpMessageToUi, rowView, type ConversationRowView } from './display.ts';
 
 function norm(uid: string): string {
   return uid.trim().toLowerCase();
@@ -61,6 +62,9 @@ export class ConversationStore {
   readonly #readTargets = new Map<string, LatestMessage>();
   readonly #assistantRevisions = new Map<string, { signature: string; token: string }>();
   readonly #orders = new Map<string, { context: string; revision: number; time: number; order: UiOrderSummary }>();
+  readonly #sourceOrders = new Map<string, { revision: number; time: number; order: UiOrderSummary }>();
+  readonly #sourceReads = new Map<string, number>();
+  readonly #sourceDenied = new Map<string, number>();
   // Independent of order evidence: a service may change before any card arrives.
   // undefined is the initial matching-order history scope; null is an observed
   // transition with no usable server snapshot boundary and cannot bind a card.
@@ -111,7 +115,7 @@ export class ConversationStore {
   assistantContextRevision(gid: string, selfUid: string, partnerJid: string | null): string | null {
     const view = this.view(gid);
     if (!view?.sessionId || !view.customerUid || !view.conversationType || !view.serviceType || !selfUid || !partnerJid) { this.#assistantRevisions.delete(gid); return null; }
-    const signature = JSON.stringify([orderContext(view), this.#orderScopes.get(gid)?.revision, selfUid, partnerJid]);
+    const signature = JSON.stringify([orderContext(view), this.#orderScopes.get(gid)?.revision, this.#sourceDenied.get(gid) === this.messageContext(gid), this.orderId(gid), selfUid, partnerJid]);
     let current = this.#assistantRevisions.get(gid);
     if (!current || current.signature !== signature) {
       current = { signature, token: globalThis.crypto.randomUUID() };
@@ -152,8 +156,10 @@ export class ConversationStore {
   // agent's own or another merchant's row last message never moves it.
   #rememberPeerMessage(gid: string, customerUid: string | null, lm: HttpMessageObject): void {
     const customer = customerUid ? norm(customerUid) : '';
-    const sender = typeof lm.fromJid === 'string' ? norm(jidSender(lm.fromJid)) : '';
+    const sender = typeof lm.fromJid === 'string' ? norm(effectiveMessageSender(jidSender(lm.fromJid), lm.messageBody, lm.msgtype)) : '';
     if (customer === '' || sender !== customer) return;
+    const presented = httpMessageToUi(lm, { roleOf: () => 'customer' }, gid);
+    if (!presented || presented.kind === 'system') return;
     const id = idStr(lm.msgId), t = normalizeTimeMs(lm.createTime);
     if (id === null || t === null) return;
     const cur = this.#readTargets.get(gid);
@@ -164,6 +170,25 @@ export class ConversationStore {
     if (target === id) this.#readTargets.set(gid, { msgId: id, createTime: t });
   }
 
+  /** Scope-checked history can recover a peer frontier hidden by a later self/system row.
+   * Never advance beyond the authoritative conversation snapshot or accept another room. */
+  noteReadHistory(gid: string, rows: readonly HttpMessageObject[]): void {
+    const view = this.view(gid), latest = this.latestMessage(gid);
+    if (!view || !latest || !Number.isFinite(latest.createTime) || latest.createTime <= 0) return;
+    const scope = this.#orderScopes.get(gid);
+    if (!scope || scope.fence === null) return;
+    const room = roomJidFromMessage(gid, view.lastMessage);
+    if (!room) return;
+    for (const row of rows) {
+      const time = normalizeTimeMs(row.createTime), type = Number(row.msgtype);
+      if (time === null || time > latest.createTime || !Number.isFinite(type) || type >= 1000) continue;
+      if (scope.fence !== undefined && time <= scope.fence) continue;
+      if (view.threadId && typeof row.threadId === 'string' && row.threadId && row.threadId !== view.threadId) continue;
+      if (roomJidFromMessage(gid, row) !== room) continue;
+      this.#rememberPeerMessage(gid, view.customerUid, row);
+    }
+  }
+
   /** Newest peer-sent message id known from authoritative rows of the current context, or `null`. */
   readTarget(gid: string): LatestMessage | null {
     return this.#readTargets.get(gid) ?? null;
@@ -171,7 +196,7 @@ export class ConversationStore {
 
   noteOrder(gid: string, order: UiOrderSummary, time: number): void {
     const view = this.view(gid);
-    if (!view || view.orderId !== order.order_id || !Number.isFinite(time) || time < 0) return;
+    if (!view || this.#sourceDenied.get(gid) === this.messageContext(gid) || this.orderId(gid) !== order.order_id || !Number.isFinite(time) || time < 0) return;
     const context = orderContext(view);
     const scope = this.#orderScopes.get(gid);
     if (!scope || scope.context !== context || scope.fence === null || (scope.fence !== undefined && time <= scope.fence)) return;
@@ -184,7 +209,46 @@ export class ConversationStore {
 
   order(gid: string): UiOrderSummary | null {
     const stored = this.#orders.get(gid), view = this.view(gid), scope = this.#orderScopes.get(gid);
-    return stored && view && scope && scope.fence !== null && stored.revision === scope.revision && stored.context === orderContext(view) && (scope.fence === undefined || stored.time > scope.fence) ? stored.order : null;
+    if (scope && this.#sourceDenied.get(gid) === scope.revision) return null;
+    const source = this.#sourceOrders.get(gid);
+    const base = source && scope && source.revision === scope.revision ? source.order : null;
+    const message = stored && view && scope && stored.order.order_id === this.orderId(gid) && scope.fence !== null && stored.revision === scope.revision && stored.context === orderContext(view) && (scope.fence === undefined || stored.time > scope.fence) ? stored.order : null;
+    // Sparse history/realtime cards must not erase fields from the official
+    // current-source read. Both records belong to the same service revision.
+    const nonempty = (order: UiOrderSummary) => Object.fromEntries(Object.entries(order).filter(([, value]) => typeof value === 'string' && value.trim()));
+    return base && message ? stored!.time > source!.time ? { ...base, ...nonempty(message) } : { ...message, ...nonempty(base) } : message ?? base;
+  }
+
+  /** A fresh gid-scoped official read may return a source older than the
+   * current service snapshot. Bind it to the captured revision, not its age. */
+  noteSourceOrder(gid: string, order: UiOrderSummary, revision: number | null, time: number, read?: number): void {
+    const scope = this.#orderScopes.get(gid), view = this.view(gid);
+    if (!scope || !view || (read !== undefined && read !== this.#sourceReads.get(gid)) || revision !== scope.revision || (view.orderId !== null && view.orderId !== order.order_id)) return;
+    if (!Number.isFinite(time) || time < 0 || (this.#sourceOrders.get(gid)?.time ?? -1) > time) return;
+    this.#sourceDenied.delete(gid);
+    this.#sourceOrders.set(gid, { revision: scope.revision, time, order });
+  }
+
+  denySourceOrder(gid: string, revision: number | null, read: number): boolean {
+    const scope = this.#orderScopes.get(gid);
+    if (!scope || scope.revision !== revision || this.#sourceReads.get(gid) !== read) return false;
+    this.#sourceDenied.set(gid, scope.revision);
+    this.#sourceOrders.delete(gid);
+    this.#orders.delete(gid);
+    return true;
+  }
+
+  /** An authorized current-gid source can establish the display/query order
+   * when the conversation list has no order identity. Known row IDs win. */
+  orderId(gid: string): string | null {
+    const view = this.view(gid), source = this.#sourceOrders.get(gid), scope = this.#orderScopes.get(gid);
+    return view?.orderId ?? (source && scope && source.revision === scope.revision ? (source.order.order_id || null) : null);
+  }
+
+  beginSourceRead(gid: string): number {
+    const read = (this.#sourceReads.get(gid) ?? 0) + 1;
+    this.#sourceReads.set(gid, read);
+    return read;
   }
 
   /** Called with the gids of every `update`; returns an unsubscribe. */
@@ -220,6 +284,27 @@ export class RoleBook implements MemberRoles {
   readonly #checked = new Map<string, number>();
   readonly #inflight = new Map<string, Promise<void>>();
   readonly #ttlMs: number;
+  readonly #versions = new Map<string, number>();
+  #active = 0;
+  readonly #waiting: { gid: string; version: number; priority: 'foreground' | 'background'; resolve: () => void }[] = [];
+
+  /** Invalidates queued/in-flight member evidence when a gid changes service. */
+  invalidate(gid: string): void {
+    this.#versions.set(gid, (this.#versions.get(gid) ?? 0) + 1);
+    this.#checked.delete(gid);
+    this.#inflight.delete(gid);
+  }
+
+  async #acquire(gid: string, version: number, priority: 'foreground' | 'background'): Promise<void> {
+    if (this.#active < 4) { this.#active++; return; }
+    await new Promise<void>(resolve => this.#waiting.push({ gid, version, priority, resolve }));
+  }
+
+  #release(): void {
+    const foreground = this.#waiting.findIndex(job => job.priority === 'foreground');
+    const next = this.#waiting.splice(foreground < 0 ? 0 : foreground, 1)[0];
+    if (next) next.resolve(); else this.#active--;
+  }
 
   constructor(selfUid: string, ttlMs = 5 * 60_000) {
     this.#self = norm(selfUid);
@@ -272,23 +357,36 @@ export class RoleBook implements MemberRoles {
   }
 
   /** `13500/checkMemberStatus {head, groupId}` once per gid per TTL; failures are silent (roles stay unknown). */
-  ensure(deps: AdapterDeps, soa: SoaClient, gid: string): Promise<void> {
+  ensure(deps: AdapterDeps, soa: SoaClient, gid: string, priority: 'foreground' | 'background' = 'foreground'): Promise<void> {
     const at = this.#checked.get(gid);
     if (at !== undefined && deps.now() - at < this.#ttlMs) return Promise.resolve();
     const running = this.#inflight.get(gid);
-    if (running) return running;
+    if (running) {
+      // A foreground reader joins the same promise while promoting a queued
+      // background profile read ahead of unrelated background conversations.
+      if (priority === 'foreground') {
+        const queued = this.#waiting.find(job => job.gid === gid && job.version === (this.#versions.get(gid) ?? 0));
+        if (queued) queued.priority = 'foreground';
+      }
+      return running;
+    }
+    const version = this.#versions.get(gid) ?? 0;
+    const current = () => (this.#versions.get(gid) ?? 0) === version;
     const p = (async () => {
-      const outcome = await soa.post<{ members?: unknown }>(Endpoints.CHECK_MEMBER_STATUS, { head: businessHead(deps.context), groupId: gid });
-      if (outcome.kind === 'success') {
+      await this.#acquire(gid, version, priority);
+      try {
+        if (!current()) return;
+        const outcome = await soa.post<{ members?: unknown }>(Endpoints.CHECK_MEMBER_STATUS, { head: businessHead(deps.context), groupId: gid });
+        if (!current() || outcome.kind !== 'success') return;
         this.addMembers(outcome.body.members);
-        // gid mode includes former participants and their display identity/roles;
-        // uidList mode only supplies customer remarks and cannot replace it.
+        // gid mode preserves former participants; uidList cannot replace it.
         const remarks = await soa.post<{ remarkList?: unknown }>(Endpoints.REMARK_LIST, { head: businessHead(deps.context), gid });
+        if (!current()) return;
         if (remarks.kind === 'success' && isBizSuccess(remarks.body)) this.addMembers(remarks.body.remarkList);
         this.#checked.set(gid, deps.now());
-      }
+      } finally { this.#release(); }
     })().finally(() => {
-      this.#inflight.delete(gid);
+      if (this.#inflight.get(gid) === p) this.#inflight.delete(gid);
     });
     this.#inflight.set(gid, p);
     return p;
@@ -301,12 +399,19 @@ export const UNREAD_BATCH = 20;
 
 export class UnreadBook implements UnreadLookup {
   readonly #counts = new Map<string, number>();
+  readonly #readThrough = new Map<string, LatestMessage>();
 
   unreadOf(gid: string): number | null {
     return this.#counts.get(gid) ?? null;
   }
 
-  invalidate(gid: string): void { this.#counts.delete(gid); }
+  invalidate(gid: string): void { this.#counts.delete(gid); this.#readThrough.delete(gid); }
+
+  /** Confirmed visible consumption, bounded by the snapshot that owned the receipt. */
+  acknowledge(gid: string, through: LatestMessage): boolean {
+    this.#readThrough.set(gid, through);
+    return this.set(gid, 0);
+  }
 
   set(gid: string, n: number): boolean {
     const prev = this.#counts.get(gid);
@@ -323,7 +428,8 @@ export class UnreadBook implements UnreadLookup {
     const changed: string[] = [];
     const unique = [...new Set(gids)];
     for (let i = 0; i < unique.length; i += UNREAD_BATCH) {
-      const batch = unique.slice(i, i + UNREAD_BATCH);
+      const batch = unique.slice(i, i + UNREAD_BATCH).filter(current);
+      if (batch.length === 0) continue;
       const outcome = await soa.post<{ conversationInfoList?: unknown }>(Endpoints.CONVERSATION_INFO_BY_GID_LIST, { head: businessHead(deps.context), gidList: batch });
       if (outcome.kind !== 'success' || !isBizSuccess(outcome.body)) continue;
       const list = Array.isArray(outcome.body.conversationInfoList) ? outcome.body.conversationInfoList : [];
@@ -332,8 +438,14 @@ export class UnreadBook implements UnreadLookup {
         const gid = r?.['gid'];
         const n = r?.['unreadCount'];
         if (typeof gid !== 'string' || !batch.includes(gid) || !current(gid)) continue;
-        if (typeof n === 'number' && Number.isInteger(n) && n >= 0 && this.set(gid, n)) changed.push(gid);
         const msg = recordOrNull(r?.['message']);
+        const through = this.#readThrough.get(gid);
+        const time = normalizeTimeMs(msg?.['createTime']), id = idStr(msg?.['msgId']);
+        // A lagging detail response must not resurrect already consumed messages.
+        // Different IDs at the same timestamp are conservatively treated as new.
+        const consumed = through && time !== null && (time < through.createTime || time === through.createTime && id === through.msgId);
+        if (through && !consumed && typeof n === 'number' && n > 0) this.#readThrough.delete(gid);
+        if (typeof n === 'number' && Number.isInteger(n) && n >= 0 && this.set(gid, consumed ? 0 : n)) changed.push(gid);
         if (msg && onMessage) onMessage(gid, msg as HttpMessageObject);
       }
     }

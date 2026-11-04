@@ -20,6 +20,7 @@
  *   `getConversationList.currentStatus`).
  */
 
+import { customerLanguage } from '../../ipc/src/customer-language.ts';
 import { resolveSdkAddress } from './facts.ts';
 import type { AgentStatus, MarkAction, UiMessage, UiMessageKind, UiOrderSummary } from '../../ipc/src/client.ts';
 import type { DisplayConversation } from '../../ipc/src/adapterProtocol.ts';
@@ -27,6 +28,8 @@ import type { SdkMessageEvent } from './deps.ts';
 import { toConversationFact, type ConversationListItem, type UnreadLookup } from './conversationList.ts';
 import { jidLocal, jidSender, normalizeTimeMs, type HttpMessageObject, type MemberRoles } from './facts.ts';
 import { recordOrNull } from './soa.ts';
+import { effectiveMessageSender } from './message-body.ts';
+import { parseVoiceMessage } from './voice.ts';
 
 // ------------------------------------------------------------- small readers
 
@@ -82,9 +85,16 @@ export interface ConversationRowView {
 export function parseLastMessage(row: ConversationListItem): HttpMessageObject | null {
   const raw = (row as { lastMessageJsonString?: unknown; lastMessage?: unknown }).lastMessageJsonString;
   const parsed = parseJsonObject(raw);
-  if (parsed) return parsed as HttpMessageObject;
-  const direct = recordOrNull((row as { lastMessage?: unknown }).lastMessage);
-  return direct ? (direct as HttpMessageObject) : null;
+  const direct = parsed ?? recordOrNull((row as { lastMessage?: unknown }).lastMessage) ?? recordOrNull((row as { message?: unknown }).message);
+  if (!direct) return null;
+  if (direct['msgtype'] !== undefined) return direct as HttpMessageObject;
+  // Official desktop va normalizes cached messages before exposing the list.
+  const type = msgTypeNumber(direct['messageType']);
+  if (type === null) return direct as HttpMessageObject;
+  const body = typeof direct['messageBody'] === 'string' ? direct['messageBody'] : type === 0
+    ? direct['content']
+    : JSON.stringify({ title: direct['title'], action: direct['actionCode'], ext: direct['extPropertys'], isPresent: direct['isPresent'], url: direct['imageUrl'] ?? direct['url'], file: { filename: direct['filename'] } });
+  return { ...direct, msgtype: type, messageBody: body, msgId: direct['messageId'] } as HttpMessageObject;
 }
 
 export function orderIdOf(row: ConversationListItem): string | null {
@@ -125,7 +135,14 @@ export function langOf(row: ConversationListItem): string {
   const ext = recordOrNull(r.ext);
   const raw = str(li?.['lang']) ?? str(ext?.['locale']) ?? '';
   const m = /^([A-Za-z]{2,3})(?:[-_]|$)/.exec(raw.trim());
-  return m && m[1] ? m[1].toLowerCase() : 'zh';
+  const locale = m && m[1] ? m[1].toLowerCase() : 'zh';
+  // The list already carries the last original message: only a verified customer
+  // sender can refine its language before the conversation is opened.
+  const view = rowView(row);
+  const last = view?.lastMessage;
+  const from = last && typeof last.fromJid === 'string' ? jidSender(last.fromJid) : '';
+  if (!last || !view?.customerUid || from.toLowerCase() !== view.customerUid.toLowerCase() || msgTypeNumber(last.msgtype) !== 0 || typeof last.messageBody !== 'string') return locale;
+  return customerLanguage({ lang: locale }, [{ sender_role: 'customer', kind: 'text', text: last.messageBody }]);
 }
 
 /** Deterministic avatar colour from the gid (prototype palette). */
@@ -152,8 +169,9 @@ export function markOf(raw: unknown): MarkAction {
 // ------------------------------------------------------------- message bodies
 
 /** `null` → not a displayable message (typing, acks, protocol frames). */
-export function uiKindOf(msgtype: unknown): UiMessageKind | null {
+export function uiKindOf(msgtype: unknown, body?: unknown): UiMessageKind | null {
   const n = msgTypeNumber(msgtype);
+  if (parseVoiceMessage(n, body)) return 'voice';
   switch (n) {
     case 0:
       return 'text';
@@ -165,6 +183,9 @@ export function uiKindOf(msgtype: unknown): UiMessageKind | null {
       return 'file';
     case 2:
     case 7:
+      // Official CardMessage / CustomContentMessage: sender-aligned content.
+      // CTL01 with order fields is upgraded to order_card by the mapper.
+      return 'text';
     case 1007:
     case 1009:
       return 'system';
@@ -175,8 +196,27 @@ export function uiKindOf(msgtype: unknown): UiMessageKind | null {
 
 /** Display text per kind; media bodies are the inner JSON string (one serialization). */
 export function messageText(msgtype: unknown, body: unknown): string {
-  const kind = uiKindOf(msgtype);
+  const kind = uiKindOf(msgtype, body);
   if (kind === null) return '';
+  if (kind === 'voice') return parseVoiceMessage(msgtype, body)?.text ?? '';
+  if (msgTypeNumber(msgtype) === 2 || msgTypeNumber(msgtype) === 7) {
+    const inner = parseJsonObject(body);
+    const ext = recordOrNull(inner?.['ext']);
+    if (inner?.['action'] === 'CBZ34' || inner?.['action'] === 'NBZ73') {
+      return (str(ext?.['title']) ?? '') + (str(ext?.['highlight']) ?? '');
+    }
+    // Structured consultation cards carry their useful content in dataInfoList.
+    // Render the supplied labels and values without treating a product as an order.
+    if (inner?.['action'] === 'CTL01' && Array.isArray(ext?.['dataInfoList'])) {
+      const rows = ext['dataInfoList'].flatMap(item => {
+        const row = recordOrNull(item), label = str(row?.['title']), value = str(row?.['text']);
+        return value ? [label ? `${label}：${value}` : value] : [];
+      });
+      if (rows.length) return [str(ext['title']), str(ext['desc']), ...rows].filter(Boolean).join('\n');
+    }
+    // Official Nke fallback is title then messageBody, never a system label.
+    return str(inner?.['title']) ?? str(ext?.['title']) ?? (typeof body === 'string' && !inner ? body : '');
+  }
   if (kind === 'text') return typeof body === 'string' ? body : '';
   const inner = parseJsonObject(body);
   switch (kind) {
@@ -195,29 +235,32 @@ export function messageText(msgtype: unknown, body: unknown): string {
   }
 }
 
-/** One-line list preview. */
-export function previewOf(msg: HttpMessageObject | null): string {
+/** Official Kr summaries are independent of supported thread rendering components. */
+export function previewOf(msg: HttpMessageObject | null, selfUid?: string): string {
   if (!msg) return '';
-  if (!isPresented(msg.messageBody)) return '';
-  const kind = uiKindOf(msg.msgtype);
-  switch (kind) {
-    case 'text':
-      return messageText(msg.msgtype, msg.messageBody).replace(/\s+/g, ' ').slice(0, 200);
-    case 'image':
-      return '[图片]';
-    case 'video':
-      return '[视频]';
-    case 'file': {
-      const name = messageText(msg.msgtype, msg.messageBody);
-      return name ? `[文件] ${name}` : '[文件]';
-    }
-    case 'system': {
-      const t = messageText(msg.msgtype, msg.messageBody);
-      return t ? t.slice(0, 200) : '[消息]';
-    }
-    default:
-      return '';
+  const sender = effectiveMessageSender(typeof msg.fromJid === 'string' ? jidSender(msg.fromJid) : '', msg.messageBody, msg.msgtype);
+  if (!isPresented(msg.msgtype, msg.messageBody, sender, selfUid)) return '';
+  const type = msgTypeNumber(msg.msgtype), inner = parseJsonObject(msg.messageBody);
+  const ext = recordOrNull(inner?.['ext']);
+  const action = inner?.['action'];
+  const summaries: Record<string, string> = { CBZ03: '[订单]', CBZ09: '[语音]', CBZ04: '[问答消息]', CBZ58: '[商品]', CBZ59: '[内容]' };
+  if (type === 7 && typeof action === 'string' && summaries[action]) return summaries[action]!;
+  let text = '';
+  switch (type) {
+    case 0: text = typeof msg.messageBody === 'string' ? msg.messageBody : ''; break;
+    case 1: return '[图片]';
+    case 2: return '[卡片]';
+    case 3: return '[视频]';
+    case 4: return '[语音]';
+    case 5: return '[文件]';
+    case 6: return '[位置]';
+    case 9: text = typeof msg.messageBody === 'string' ? msg.messageBody : ''; break;
+    case 1009: text = `${str(inner?.['operatorName']) ?? '系统'} 撤回了一条消息`; break;
+    case 7: text = str(inner?.['title']) ?? str(ext?.['title']) ?? ''; break;
+    case 1007: text = str(inner?.['title']) ?? ''; break;
+    default: return '';
   }
+  return text.replace(/\s+/g, ' ').slice(0, 200);
 }
 
 // ------------------------------------------------------------- conversations
@@ -243,12 +286,32 @@ export function orderSummaryFromMessage(msg: HttpMessageObject): UiOrderSummary 
     if (key && value) fields.set(key, value);
   }
   const id = fields.get('orderid');
-  if (!id || !/^\d{1,32}$/.test(id)) return null;
+  if (!id) {
+    // The official desktop shows a separate product consultation source with
+    // no order. Accept only the observed title and labeled product field.
+    const title = str(ext['title']) ?? '';
+    if (!/^(?:产品查询通知|產品查詢通知)$/.test(title)) return null;
+    const byLabel = new Map<string, string>();
+    for (const item of ext['dataInfoList']) {
+      const row = recordOrNull(item), label = str(row?.['title']), value = str(row?.['text']);
+      if (label && value) byLabel.set(label.replace(/[：:\s]/g, ''), value);
+    }
+    const product = byLabel.get('产品名称') ?? byLabel.get('產品名稱');
+    if (!product) return null;
+    return { order_id: '', product, use_date: '', quantity: '', status: '', contact: '',
+      source_title: title, source_description: str(ext['desc']) ?? '',
+      source_channel: byLabel.get('来源渠道') ?? byLabel.get('來源渠道') ?? '',
+      product_id: byLabel.get('产品ID') ?? byLabel.get('產品ID') ?? '',
+      customer_language: byLabel.get('客户语言') ?? byLabel.get('客戶語言') ?? '',
+      product_price: byLabel.get('产品价格') ?? byLabel.get('產品價格') ?? '' };
+  }
+  if (!/^\d{1,32}$/.test(id)) return null;
   return {
     order_id: id, product: fields.get('productName') ?? '', use_date: fields.get('usedate') ?? '',
     quantity: '', status: '', contact: '', source_channel: fields.get('platformName') ?? '',
     total_amount: fields.get('orderamout') ?? '', source_title: str(ext?.['title']) ?? '',
     source_description: str(ext?.['desc']) ?? '',
+    remark_name: str(recordOrNull(ext?.['extendInfo'])?.['providerProductName']) ?? '',
   };
 }
 
@@ -257,7 +320,7 @@ function displayConversationType(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 64 && !/[\u0000-\u001f\u007f-\u009f]/.test(value) ? value : null;
 }
 
-export function toDisplayConversation(row: ConversationListItem, isFullSnapshot: boolean, unread?: UnreadLookup): DisplayConversation | null {
+export function toDisplayConversation(row: ConversationListItem, isFullSnapshot: boolean, unread?: UnreadLookup, selfUid?: string): DisplayConversation | null {
   const fact = toConversationFact(row, isFullSnapshot, unread);
   const view = rowView(row);
   if (!fact || !view) return null;
@@ -273,7 +336,8 @@ export function toDisplayConversation(row: ConversationListItem, isFullSnapshot:
     color: colorOf(view.gid),
     lang: langOf(row),
     biz: bizLabel(view.serviceType),
-    preview: previewOf(view.lastMessage),
+    last_message_time_ms: normalizeTimeMs(view.lastMessage?.createTime) ?? fact.last_message_time_ms,
+    preview: previewOf(view.lastMessage, selfUid),
     mark: markOf(row.star),
     customer_tags: [],
     order: order ? { ...order, product: str((row as { groupTitle?: unknown }).groupTitle) ?? '' } : null,
@@ -294,6 +358,8 @@ function senderFields(sender: string, roles: MemberRoles) {
 }
 
 function mediaFields(msgtype: unknown, body: unknown) {
+  const voice = parseVoiceMessage(msgtype, body);
+  if (voice) return { media_url: voice.media_url, media_thumbnail: null, media_filename: null, voice_duration_s: voice.voice_duration_s };
   const kind = uiKindOf(msgtype);
   const inner = parseJsonObject(body);
   const video = recordOrNull(inner?.['video']);
@@ -306,8 +372,25 @@ function mediaFields(msgtype: unknown, body: unknown) {
 }
 
 /** Official status/control events explicitly opt out of presentation. */
-function isPresented(body: unknown): boolean {
-  return parseJsonObject(body)?.['isPresent'] !== false;
+function isPresented(msgtype: unknown, body: unknown, sender?: string, selfUid?: string): boolean {
+  const type = msgTypeNumber(msgtype);
+  // Text is opaque user content, including JSON that resembles metadata.
+  if (type === 0) return true;
+  const inner = parseJsonObject(body);
+  // Only these wire models project ext/isPresent in desktop va. In
+  // particular, a CardMessage (2) does not have the custom-message metadata.
+  const hasExt = type === 3 || type === 5 || type === 7 || type === 1007 || type === 1009 || type === 1012;
+  const ext = hasExt ? recordOrNull(inner?.['ext']) : null;
+  const action = type === 7 || type === 1007 || type === 1012 ? inner?.['action'] : undefined;
+  // Desktop Ph uses the effective sender, never its role label, for CTL01.
+  if (action === 'CTL01' && selfUid !== undefined && sender !== undefined) {
+    const field = sender.toLowerCase() === selfUid.toLowerCase() ? 'fromCardHide' : 'toCardHide';
+    if (ext?.[field] === '1' || ext?.[field] === 1) return false;
+  }
+  // Ph gives the numeric visibility mask priority over isPresent; NBZ37 is
+  // the desktop exception that remains visible without the vendor bit (4).
+  if (typeof ext?.['visibleRule'] === 'number') return (ext['visibleRule'] & 4) !== 0 || action === 'NBZ37';
+  return !(type === 7 || type === 1007 || type === 1009 || type === 1012) || inner?.['isPresent'] !== false;
 }
 
 function recallFields(msgtype: unknown, body: unknown) {
@@ -319,8 +402,8 @@ function recallFields(msgtype: unknown, body: unknown) {
 export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?: string, extras: UiMessageExtras = {}): UiMessage | null {
   if (typeof msg !== 'object' || msg === null) return null;
   const order = orderSummaryFromMessage(msg);
-  const kind = order ? 'order_card' : uiKindOf(msg.msgtype);
-  if (kind === null || !isPresented(msg.messageBody)) return null;
+  const kind = order ? 'order_card' : uiKindOf(msg.msgtype, msg.messageBody);
+  if (kind === null) return null;
   const createTime = normalizeTimeMs(msg.createTime);
   if (createTime === null) return null;
   const partner = str(msg.partner);
@@ -328,8 +411,10 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
   const from = str(msg.fromJid);
   const g = gid ?? (partner ? jidLocal(partner) : from?.includes('/') ? jidLocal(from) : to ? jidLocal(to) : null);
   if (!g) return null;
-  const sender = from ? jidSender(from) : '';
-  const cite = idStr((msg as { citeMsgId?: unknown }).citeMsgId);
+  const sender = effectiveMessageSender(from ? jidSender(from) : '', msg.messageBody, msg.msgtype);
+  if (!isPresented(msg.msgtype, msg.messageBody, sender, roles.selfUid)) return null;
+  // Desktop va accepts both HTTP spellings; SDK frames use citemsgid.
+  const cite = idStr(msg.citeMsgId) ?? idStr(msg.citemsgid);
   return {
     gid: g,
     message_id: idStr(msg.msgId),
@@ -338,6 +423,7 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
     sender_role: sender ? roles.roleOf(sender) : 'unknown',
     ...senderFields(sender, roles),
     kind,
+    platform_type: msgTypeNumber(msg.msgtype),
     text: order?.product ?? messageText(msg.msgtype, msg.messageBody),
     ...mediaFields(msg.msgtype, msg.messageBody),
     ...recallFields(msg.msgtype, msg.messageBody),
@@ -345,7 +431,8 @@ export function httpMessageToUi(msg: HttpMessageObject, roles: MemberRoles, gid?
     original: extras.original ?? null,
     quote: cite,
     order_id: order?.order_id ?? null,
-    read_status: roles.roleOf(sender) === 'merchant_self' && typeof msg.isTargetRead === 'boolean' ? (msg.isTargetRead ? 'read' : 'unread') : 'unknown',
+    read_status: (roles.roleOf(sender) === 'merchant_self' || roles.roleOf(sender) === 'merchant_other') && typeof msg.isTargetRead === 'boolean' ? (msg.isTargetRead ? 'read' : 'unread')
+      : roles.roleOf(sender) === 'customer' && typeof msg.isread === 'boolean' ? (msg.isread ? 'read' : 'unread') : 'unknown',
     disposition: extras.disposition ?? (sender && roles.roleOf(sender) === 'merchant_self' && idStr(msg.msgId) ? { kind: 'confirmed', server_message_id: idStr(msg.msgId)!, server_time_ms: createTime } : null),
   };
 }
@@ -356,11 +443,12 @@ export function sdkMessageToUi(evt: SdkMessageEvent, roles: MemberRoles): UiMess
   const type = str(evt.type);
   if (type !== 'groupchat' && type !== 'chat') return null;
   const order = orderSummaryFromMessage({ msgtype: evt.msgtype, messageBody: evt.body });
-  const kind = order ? 'order_card' : uiKindOf(evt.msgtype);
-  if (kind === null || !isPresented(evt.body)) return null;
+  const kind = order ? 'order_card' : uiKindOf(evt.msgtype, evt.body);
+  if (kind === null) return null;
   const address = resolveSdkAddress(evt, roles);
   if (!address) return null;
   const { gid, senderId: sender } = address;
+  if (!isPresented(evt.msgtype, evt.body, sender, roles.selfUid)) return null;
   const createTime = normalizeTimeMs(evt.create_time) ?? normalizeTimeMs(evt.ts);
   if (createTime === null) return null;
   return {
@@ -371,6 +459,7 @@ export function sdkMessageToUi(evt: SdkMessageEvent, roles: MemberRoles): UiMess
     sender_role: sender ? roles.roleOf(sender) : 'unknown',
     ...senderFields(sender, roles),
     kind,
+    platform_type: msgTypeNumber(evt.msgtype),
     text: order?.product ?? messageText(evt.msgtype, evt.body),
     ...mediaFields(evt.msgtype, evt.body),
     ...recallFields(evt.msgtype, evt.body),
@@ -393,6 +482,8 @@ export function previewOfUi(m: UiMessage): string {
       return '[视频]';
     case 'file':
       return m.text ? `[文件] ${m.text}` : '[文件]';
+    case 'voice':
+      return '[语音]';
     default:
       return m.text ? m.text.slice(0, 200) : '[消息]';
   }

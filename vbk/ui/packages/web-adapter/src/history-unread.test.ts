@@ -6,7 +6,7 @@ import { roomJidFromMessage } from './stores.ts';
 import { SoaClient } from './soa.ts';
 import { FakePageSdk, OK_STATUS, jsonResponse, makeDeps, sampleRow } from './testing.ts';
 
-test('history preserves authoritative unread across unchanged polling until server confirms zero', async () => {
+test('history preserves unread until a visible confirmed receipt; server zero still propagates', async () => {
   let serverUnread = 3;
   const base = makeDeps((call) => {
     if (call.url.includes('getConversationList')) return jsonResponse({ ResponseStatus: OK_STATUS, conversationList: [sampleRow('123456')], haveRest: false });
@@ -39,7 +39,7 @@ test('history preserves authoritative unread across unchanged polling until serv
       assert.equal((await session.rpc.handle({ req_id: 'read', op: 'im.mark_read', args: { gid: '123456', expected_message_id: 'm-123456', expected_context_revision: session.store.assistantContextRevision('123456', 'me', roomJidFromMessage('123456', session.store.view('123456')?.lastMessage ?? null)) } }))?.ok, true);
     }
     assert.equal(sdk.readReceipts.length, 1);
-    assert.equal(latestUnread(), 3, 'SDK acknowledgment alone does not prove server unread zero');
+    assert.equal(latestUnread(), 0, 'confirmed visible consumption clears the local badge');
     serverUnread = 0;
     await base.clock.advance(5100);
     assert.equal(latestUnread(), 0, 'confirmed server zero must still propagate');

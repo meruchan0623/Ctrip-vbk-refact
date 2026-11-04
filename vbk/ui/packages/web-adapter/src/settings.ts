@@ -149,6 +149,7 @@ export interface QuickReplyScript {
   readonly id: string;
   readonly content: string;
   readonly shortCut: string;
+  readonly type: string;
   readonly sortNo: number;
 }
 
@@ -177,7 +178,21 @@ export function parseQuickReplyScript(row: unknown): QuickReplyScript | null {
     id,
     content,
     shortCut: typeof r['shortCut'] === 'string' ? (r['shortCut'] as string) : '',
+    type: typeof r['type'] === 'string' ? r['type'] : '',
     sortNo: typeof r['sortNo'] === 'number' && Number.isFinite(r['sortNo']) ? (r['sortNo'] as number) : 0,
+  };
+}
+
+/** Official suggestions consume content/type; an ID is optional on this endpoint. */
+export function parseScriptSuggestion(row: unknown, index: number): QuickReplyScript | null {
+  const r = recordOrNull(row);
+  if (!r || typeof r['content'] !== 'string' || r['content'].trim() === '') return null;
+  return {
+    id: idText(r['id']) ?? `suggestion-${index}`,
+    content: r['content'],
+    shortCut: typeof r['shortCut'] === 'string' ? r['shortCut'] : '',
+    type: typeof r['type'] === 'string' ? r['type'] : '',
+    sortNo: typeof r['sortNo'] === 'number' && Number.isFinite(r['sortNo']) ? r['sortNo'] : index,
   };
 }
 
@@ -236,10 +251,8 @@ export interface ScriptSuggester {
 
 /**
  * Typing-time suggestion over `getCustomerScripts {content}`. The official page
- * sends one request per character (round 3); this debounces to one per pause
- * and drops answers for superseded queries. Row shape beyond the
- * `getCategories` sample is unproven, so rows failing `parseQuickReplyScript`
- * are dropped, never repaired.
+ * uses a 200 ms pause and drops answers for superseded queries. The official
+ * desktop consumes content/type without requiring a script ID.
  */
 export function createScriptSuggester(deps: AdapterDeps, soa: SoaClient, onSuggestion: (s: ScriptSuggestion) => void): ScriptSuggester {
   let timer: TimerHandle | null = null;
@@ -250,6 +263,7 @@ export function createScriptSuggester(deps: AdapterDeps, soa: SoaClient, onSugge
   };
   return {
     query(content) {
+      content = content.trim();
       clear();
       const mine = ++generation;
       if (content.trim() === '') return;
@@ -258,7 +272,7 @@ export function createScriptSuggester(deps: AdapterDeps, soa: SoaClient, onSugge
         void getCustomerScripts(deps, soa, content).then((r) => {
           if (mine !== generation) return;
           const result: ReadResult<readonly QuickReplyScript[]> =
-            r.kind === 'ok' ? { kind: 'ok', raw: r.raw, value: r.value.map(parseQuickReplyScript).filter((x): x is QuickReplyScript => x !== null) } : r;
+            r.kind === 'ok' ? { kind: 'ok', raw: r.raw, value: r.value.map(parseScriptSuggestion).filter((x): x is QuickReplyScript => x !== null) } : r;
           onSuggestion({ query: content, result });
         });
       }, SCRIPT_SUGGEST_DEBOUNCE_MS);

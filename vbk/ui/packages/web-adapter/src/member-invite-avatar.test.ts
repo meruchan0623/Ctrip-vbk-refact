@@ -21,10 +21,13 @@ test('member/invite avatar: real endpoint fields and matching uid profiles survi
   assert.ok(read.kind === 'success'); assert.equal(read.value.length, 5, 'write preflight retains the raw company member');
   const result = await rpc.handle({ req_id: 'members', op: 'im.members', args: { gid: '123456' } });
   assert.ok(result?.ok); const data = result.data as UiMembers;
-  assert.deepEqual(data.members.map(m => m.uid), ['me', 'customer', 'cached', 'missing']);
-  assert.deepEqual(data.members.map(m => m.avatar), ['https://example.invalid/self.png', 'https://example.invalid/customer.png', 'https://example.invalid/cached.png', null]);
+  // Official order: agents before the customer; status "4" is a current member.
+  assert.deepEqual(data.members.map(m => m.uid), ['me', 'cached', 'missing', 'customer']);
+  assert.deepEqual(data.members.map(m => m.avatar), ['https://example.invalid/self.png', 'https://example.invalid/cached.png', null, 'https://example.invalid/customer.png']);
   assert.equal(data.members[0]?.status, '4', 'self status remains the server value');
-  assert.ok(data.members.every(m => m.can_transfer === false), 'avatar display does not broaden current write eligibility');
+  assert.deepEqual(data.members.filter(m => m.can_transfer).map(m => m.uid), [], 'avatar display does not grant a non-primary agent transfer permission');
+  assert.ok(data.members.every(m => m.can_remove === false), 'a non-primary agent cannot remove members');
+  assert.equal(data.members.find(m => m.uid === 'customer')?.role, 'customer');
   const invited = await rpc.handle({ req_id: 'invite', op: 'im.invite_candidates', args: { gid: '123456' } });
   assert.ok(invited?.ok); const candidates = invited.data as UiInviteCandidates;
   assert.deepEqual(candidates.agents.map(a => [a.uid, a.avatar]), [['90071992547409931', 'https://example.invalid/invite.png'], ['profile-only', 'https://example.invalid/profile.png'], ['unknown', null]]);

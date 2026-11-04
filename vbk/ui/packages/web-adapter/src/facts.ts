@@ -9,7 +9,10 @@
  * (`localid, id, ts, msgtype, bizType, threadid, create_time, from, to`).
  *
  * Observed `msgtype` values and the kind they map to:
- *   0 text, 1 image, 2 card(推荐), 3 video, 5 file, 7 CTL card → business
+ *   0 text, 1 image, 2 card, 3 video, 4 voice, 5 file, 7 custom content → business
+ *     Official desktop `va`/`rje`: custom content includes customer text
+ *     (CBZ06), not just context cards. System category is 1000–1999.
+ *     Evidence: docs/research/2026-11-03-desktop-message-classification.md.
  *   1009 recall notice (body `code:2, recallMessageId`) → recall
  *   9901 input_state → typing
  *   1007 system NBZ event (join/invite/leave titles) → control
@@ -22,6 +25,7 @@
 
 import type { MessageFact, MessageSource, MsgKind, SenderRole, StreamCursor } from '../../ipc/src/contracts.ts';
 import type { SdkMessageEvent } from './deps.ts';
+import { effectiveMessageSender } from './message-body.ts';
 
 // ------------------------------------------------------------- member roles
 
@@ -91,6 +95,7 @@ export const MSG_TYPE_KIND: Readonly<Record<number, MsgKind>> = {
   1: 'business',
   2: 'business',
   3: 'business',
+  4: 'business',
   5: 'business',
   7: 'business',
   1007: 'control',
@@ -159,6 +164,8 @@ export interface HttpMessageObject {
   readonly isTargetRead?: unknown;
   readonly partner?: unknown;
   readonly localId?: unknown;
+  readonly citeMsgId?: unknown;
+  readonly citemsgid?: unknown;
 }
 
 export interface NormalizeHttpOptions {
@@ -183,7 +190,7 @@ export function normalizeHttpMessage(msg: HttpMessageObject, opts: NormalizeHttp
   const from = s(msg.fromJid);
   const gid = opts.gid ?? (partner ? jidLocal(partner) : from?.includes('/') ? jidLocal(from) : to ? jidLocal(to) : null);
   if (!gid) return null;
-  const senderId = from ? jidSender(from) : '';
+  const senderId = effectiveMessageSender(from ? jidSender(from) : '', msg.messageBody, msg.msgtype);
   return {
     gid,
     message_id: s(msg.msgId),
@@ -219,12 +226,12 @@ export function resolveSdkAddress(evt: SdkMessageEvent, roles: MemberRoles): { g
     const gid = norm(fromUid) !== self ? fromUid : norm(toUid) !== self ? toUid : fromUid;
     const resource = from.includes('/') ? from.slice(from.indexOf('/') + 1) : '';
     const senderId = resource && norm(resource) === self ? resource : fromUid;
-    return { gid, senderId };
+    return { gid, senderId: effectiveMessageSender(senderId, evt.body, evt.msgtype) };
   }
   const gid = from && from.includes('/') ? jidLocal(from) : to ? jidLocal(to) : from ? jidLocal(from) : null;
   if (!gid) return null;
   const senderId = from && (evt.type !== 'groupchat' || from.includes('/')) ? jidSender(from) : '';
-  return { gid, senderId };
+  return { gid, senderId: effectiveMessageSender(senderId, evt.body, evt.msgtype) };
 }
 
 export function normalizeSdkMessage(evt: SdkMessageEvent, opts: NormalizeSdkOptions): MessageFact | null {

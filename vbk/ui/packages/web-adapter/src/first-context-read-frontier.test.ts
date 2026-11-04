@@ -46,7 +46,7 @@ test('first service context: real history/session/visible read cannot promote ol
     controller.afterRender(); await Promise.all(attempts); await flush();
     assert.equal(attempts.length, 1);
     assert.deepEqual(sdk.readReceipts.map(r => r.msgId), ['B-current-low']);
-    assert.equal(conversation().unread_count, 3);
+    assert.equal(conversation().unread_count, 0, 'only the mounted current B message is consumed after its confirmed receipt');
   } finally { session.stop(); }
 });
 

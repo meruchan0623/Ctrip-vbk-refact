@@ -20,16 +20,16 @@ test('review/order: ttdOrderId stays a string even when it is all digits (leadin
   assert.equal(isValidOrderId('1'.repeat(32)), true);
 });
 
-test('review/order: none / one / multiple are distinct and come from totalCount or list length, hostile shapes tolerated', async () => {
+test('review/order: malformed business envelopes fail closed', async () => {
   const bodies: unknown[] = [
     { ResponseStatus: OK_STATUS, response: { errorCode: 0, errorMsg: '' }, orderList: [], totalCount: 2 }, // multiple(2)
-    { ResponseStatus: OK_STATUS, response: null, orderList: null, totalCount: null }, // none
-    { ResponseStatus: OK_STATUS, response: 'x', orderList: 'x', totalCount: '2' }, // none (string count ignored)
-    { ResponseStatus: OK_STATUS, orderList: [{ a: 1 }] }, // one
-    { ResponseStatus: OK_STATUS, orderList: [], totalCount: 1 }, // error: row malformed
-    { ResponseStatus: OK_STATUS, orderList: [null], totalCount: 1 }, // error: row malformed
+    { ResponseStatus: OK_STATUS, response: null, orderList: null, totalCount: null }, // malformed business envelope
+    { ResponseStatus: OK_STATUS, response: 'x', orderList: 'x', totalCount: '2' }, // malformed business envelope
+    { ResponseStatus: OK_STATUS, orderList: [{ a: 1 }] }, // missing business envelope
+    { ResponseStatus: OK_STATUS, orderList: [], totalCount: 1 }, // missing business envelope
+    { ResponseStatus: OK_STATUS, orderList: [null], totalCount: 1 }, // missing business envelope
     { ResponseStatus: OK_STATUS, orderList: [{}, {}] }, // multiple(2)
-    { ResponseStatus: OK_STATUS, response: { errorCode: '3', errorMsg: 'No permission' }, orderList: [{}] }, // string errorCode ignored → one
+    { ResponseStatus: OK_STATUS, response: { errorCode: '3', errorMsg: 'No permission' }, orderList: [{}] }, // string errorCode rejected
     { ResponseStatus: FAILURE_STATUS, orderList: [{}] }, // error (ack)
   ];
   const deps = makeDeps((_, i) => jsonResponse(bodies[i]));
@@ -39,10 +39,10 @@ test('review/order: none / one / multiple are distinct and come from totalCount 
     const r = await searchOrderExact(deps, soa, '1', params);
     kinds.push(r.kind === 'multiple' ? `multiple(${r.count})` : r.kind === 'error' ? `error:${r.detail}` : r.kind);
   }
-  assert.deepEqual(kinds, ['multiple(2)', 'none', 'none', 'one', 'error:order row malformed', 'error:order row malformed', 'multiple(2)', 'one', 'error:business_failure']);
+  assert.deepEqual(kinds, ['multiple(2)', 'error:order response malformed', 'error:order response malformed', 'error:order response malformed', 'error:order response malformed', 'error:order response malformed', 'error:order response malformed', 'error:order response malformed', 'error:business_failure']);
 });
 
-test('review/order: createImChat ok requires Ack Success AND a non-empty url AND errorCode 0/absent', async () => {
+test('review/order: createImChat ok requires Ack Success AND a non-empty url AND explicit numeric errorCode 0', async () => {
   const bodies: unknown[] = [
     { ResponseStatus: OK_STATUS, response: { errorCode: 0, errorMsg: '' }, url: 'https://imvendor.ctrip.com/main' },
     { ResponseStatus: OK_STATUS, response: { errorCode: 0, errorMsg: '' }, url: '' },
@@ -57,7 +57,7 @@ test('review/order: createImChat ok requires Ack Success AND a non-empty url AND
   const soa = new SoaClient(deps);
   const kinds: string[] = [];
   for (let i = 0; i < bodies.length; i++) kinds.push((await createImChat(deps, soa, '1')).kind);
-  assert.deepEqual(kinds, ['ok', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'ok', 'ok']);
+  assert.deepEqual(kinds, ['ok', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected']);
   assert.equal(deps.fakeFetch.calls.length, bodies.length, 'one request per call, never a retry');
 });
 

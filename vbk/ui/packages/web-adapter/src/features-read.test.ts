@@ -51,9 +51,11 @@ test('the registered adapter features expose exactly the planned ops', () => {
 
 // ------------------------------------------------------------------ notice
 
-test('translateIQMessage is unsupported and sends nothing (request shape never captured)', async () => {
+test('translateIQMessage skips an empty notice list without network traffic', async () => {
+  const deps = makeDeps();
   assert.equal(TRANSLATE_IQ_MESSAGE.path, '11679/translateIQMessage');
-  assert.deepEqual(await translateNoticeMessage(), { kind: 'unsupported', reason: 'request_shape_not_captured' });
+  assert.deepEqual(await translateNoticeMessage(deps, new SoaClient(deps), []), { kind: 'unchanged', items: [] });
+  assert.equal(deps.fakeFetch.calls.length, 0);
 });
 
 // ------------------------------------------------------------------ quick replies
@@ -102,7 +104,7 @@ test('getCategories: bad typeList is refused locally; non-array response fails c
 });
 
 test('script suggestions: 200 ms debounce, latest query wins, empty query only cancels', async () => {
-  const deps = makeDeps((c) => jsonResponse({ ResponseStatus: OK_STATUS, customerScripts: [{ id: 1, content: `re:${(c.bodyJson as { content: string }).content}`, sortNo: 0 }] }));
+  const deps = makeDeps((c) => jsonResponse({ ResponseStatus: OK_STATUS, customerScripts: [{ content: `re:${(c.bodyJson as { content: string }).content}`, type: 'VAGENT' }] }));
   const soa = new SoaClient(deps);
   const got: ScriptSuggestion[] = [];
   const s = createScriptSuggester(deps, soa, (x) => got.push(x));
@@ -110,7 +112,7 @@ test('script suggestions: 200 ms debounce, latest query wins, empty query only c
   await deps.clock.advance(100);
   s.query('he');
   await deps.clock.advance(100);
-  s.query('hel');
+  s.query('  hel  ');
   assert.equal(deps.fakeFetch.calls.length, 0, 'typing faster than 200 ms sends nothing');
   await deps.clock.advance(SCRIPT_SUGGEST_DEBOUNCE_MS);
   await flush();

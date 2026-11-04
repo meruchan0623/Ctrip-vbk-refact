@@ -110,7 +110,7 @@ export interface SdkSendBody {
   readonly biztype: string;
   readonly localid: string;
   readonly msg: string;
-  readonly msgtype: '0' | '1' | '3' | '5';
+  readonly msgtype: '0' | '1' | '2' | '3' | '5' | '8' | '9';
   readonly autoextend: 0;
   readonly threadid: string;
 }

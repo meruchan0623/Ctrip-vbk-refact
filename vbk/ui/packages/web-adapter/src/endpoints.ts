@@ -35,6 +35,7 @@ export const Endpoints = {
   FINISH_CONVERSATION: endpoint('finishConversation', M, '16037/finishConversation', 'write'),
   START_CHAT_B2C: endpoint('startChatB2C', M, '16037/startChatB2C', 'may_create_conversation'),
   // orders
+  VBK_IM_USER_INFO: endpoint('getVbkImUserinfo', M, '15529/getVbkImUserinfo', 'read'),
   SEARCH_ORDER_LIST: endpoint('searchorderlist', SEC_M, '14361/searchorderlist', 'read'),
   CREATE_IM_CHAT: endpoint('createimchat', SEC_M, '14361/createimchat', 'may_create_conversation'),
   // settings

@@ -8,7 +8,7 @@ const params = { page: '{{page}}', sortProperty: '{{property}}' };
 
 test('searchOrderExact: string id, observed defaults, one/none/multiple/forbidden/error', async () => {
   const deps = makeDeps((_, i) => {
-    if (i === 0) return jsonResponse({ ResponseStatus: OK_STATUS, response: { errorCode: 0, errorMsg: '' }, orderList: [{ orderId: '{{id}}' }], totalCount: 1 });
+    if (i === 0) return jsonResponse({ ResponseStatus: OK_STATUS, response: { errorCode: 0, errorMsg: '' }, orderList: [{ ttdOrderId: '1234567890123' }], totalCount: 1 });
     if (i === 1) return jsonResponse({ ResponseStatus: OK_STATUS, response: { errorCode: 0, errorMsg: '' }, orderList: [], totalCount: 0 });
     if (i === 2) return jsonResponse({ ResponseStatus: OK_STATUS, response: { errorCode: 0, errorMsg: '' }, orderList: [{}, {}], totalCount: 2 });
     if (i === 3) return jsonResponse({ ResponseStatus: OK_STATUS, response: { errorCode: 3, errorMsg: 'No permission' }, orderList: [], totalCount: 0 });
