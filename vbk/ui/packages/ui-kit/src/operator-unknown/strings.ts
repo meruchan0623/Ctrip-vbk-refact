@@ -1,0 +1,21 @@
+/** TSIM operator overlay and read-only unknown-send verification copy. */
+export const operatorUnknownStrings = {
+  'operatorUnknown.operator.title': 'TSIM 订单查询',
+  'operatorUnknown.operator.loadFailed': 'TSIM 页面未能加载，请关闭后重试。',
+  'operatorUnknown.operator.close': '关闭订单',
+  'operatorUnknown.operator.opening': '正在打开 TSIM 订单页…',
+  'operatorUnknown.operator.timeout': 'TSIM 页面尚未接管登录态，可在页面内登录，或关闭后重试。',
+  'operatorUnknown.operator.login': '请在 TSIM 页面内完成登录。',
+  'operatorUnknown.operator.handoff': '正在使用 TSIM 登录态打开订单…',
+  'operatorUnknown.operator.result': '请在 TSIM 页面查看订单结果。',
+  'operatorUnknown.unknown.metadataUnavailable': '未知发送元数据暂不可用，账本保持不变。',
+  'operatorUnknown.unknown.metadataHidden': '部分元数据不属于当前账号或格式无效，已隐藏；账本保持不变。',
+  'operatorUnknown.unknown.metadataFailed': '读取未知发送元数据失败，账本保持不变。',
+  'operatorUnknown.unknown.uploadOnly': '这只是附件上传阶段记录，消息尚未提交；不会查询消息页、解锁或重发。',
+  'operatorUnknown.unknown.metadataDuplicate': '元数据重复或不可用，无法核验；结果仍未知。',
+  'operatorUnknown.unknown.pageInvalid': '最新页格式不可用，结果仍未知。',
+  'operatorUnknown.unknown.found': '找到服务端记录，ID可核对；账本仍保留未知，不会自动重发。',
+  'operatorUnknown.unknown.multiple': '找到多条匹配记录，无法唯一核验；结果仍未知。',
+  'operatorUnknown.unknown.notFound': '当前最新页未找到唯一有效记录；这不是发送被拒绝的证据，结果仍未知。',
+  'operatorUnknown.unknown.lookupFailed': '只读查询失败，结果仍未知；不会重发。',
+} as const;

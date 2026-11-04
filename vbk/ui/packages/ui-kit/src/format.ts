@@ -1,3 +1,4 @@
+import { t } from './i18n.ts';
 /** Pure formatting helpers (no DOM). */
 
 function pad2(n: number): string {
@@ -7,11 +8,11 @@ function pad2(n: number): string {
 /** `16秒`, `1分42秒`, `1小时02分` — matches the prototype's `fmtWait`. */
 export function formatDuration(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
-  if (s < 60) return `${s}秒`;
+  if (s < 60) return t('displayFormat.duration.seconds', { seconds: s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}分${pad2(s % 60)}秒`;
+  if (m < 60) return t('displayFormat.duration.minutesSeconds', { minutes: m, seconds: pad2(s % 60) });
   const hh = Math.floor(m / 60);
-  return `${hh}小时${pad2(m % 60)}分`;
+  return t('displayFormat.duration.hoursMinutes', { hours: hh, minutes: pad2(m % 60) });
 }
 
 /** Fixed-width stopwatch text: `00:45`, `12:05`, `1:05:30`. */
@@ -50,7 +51,7 @@ export function formatRelativeTime(ms: number, nowMs: number): string {
   const now = new Date(nowMs);
   if (sameDay(d, now)) return formatClock(ms);
   const y = new Date(nowMs - 86_400_000);
-  if (sameDay(d, y)) return '昨天';
+  if (sameDay(d, y)) return t('displayFormat.yesterday');
   return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 

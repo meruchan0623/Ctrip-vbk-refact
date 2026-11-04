@@ -44,3 +44,15 @@ test('formatStopwatch counts every second at a fixed width', () => {
   assert.equal(formatStopwatch(3930), '1:05:30');
   assert.equal(formatStopwatch(-3), '00:00');
 });
+
+test('localized duration templates preserve flooring, padding and unit boundaries', () => {
+  const cases: [number, string][] = [[-0.5, '0秒'], [59.999, '59秒'], [60, '1分00秒'], [61, '1分01秒'], [3599, '59分59秒'], [3600, '1小时00分'], [3659, '1小时00分'], [3660, '1小时01分'], [360000, '100小时00分']];
+  for (const [seconds, expected] of cases) assert.equal(formatDuration(seconds), expected);
+});
+
+test('localized yesterday remains based on the existing local-day comparison across year boundary', () => {
+  const now = new Date(2027, 0, 1, 12, 0).getTime();
+  assert.equal(formatRelativeTime(new Date(2026, 11, 31, 23, 59).getTime(), now), '昨天');
+  assert.equal(formatRelativeTime(new Date(2027, 0, 1, 0, 1).getTime(), now), '00:01');
+  assert.equal(formatRelativeTime(new Date(2026, 11, 30, 23, 59).getTime(), now), '12-30');
+});

@@ -1,0 +1,28 @@
+/** Read-only package-detail UI copy; API field labels and values remain raw data. */
+export const packageDetailStrings = {
+  "packageDetailRuntime.closeFailed": "无法关闭窗口，请使用系统窗口关闭操作。",
+  "packageDetailRuntime.noData": "未返回可显示的数据",
+  "packageDetailRuntime.heading": "TSim 套餐详情",
+  "packageDetailRuntime.closeLabel": "关闭套餐详情",
+  "packageDetailRuntime.orderFallback": "订单套餐",
+  "packageDetailRuntime.planFallback": "套餐详情",
+  "packageDetailRuntime.subtitle": "套餐信息 · 实时状态 · 用量记录",
+  "packageDetailRuntime.refreshing": "正在刷新…",
+  "packageDetailRuntime.refresh": "刷新详情",
+  "packageDetailRuntime.loading": "正在读取套餐详情、实时状态和用量记录…",
+  "packageDetailRuntime.remaining": "剩余流量",
+  "packageDetailRuntime.usagePending": "用量待查询",
+  "packageDetailRuntime.status": "套餐状态",
+  "packageDetailRuntime.information": "套餐信息",
+  "packageDetailRuntime.live": "实时状态",
+  "packageDetailRuntime.cdrHeading": "用量记录 CDR（最多展示前 100 条）",
+  "packageDetailRuntime.noCdr": "未返回可显示的用量记录",
+  "packageDetailRuntime.identityUnverified": "TSim 登录状态无法核对，请从会话重新打开详情。",
+  "packageDetailRuntime.scopeInvalidated": "会话、账号或订单范围已变化，旧套餐详情已清除。请从当前会话重新打开。",
+  "packageDetailRuntime.viewInvalidated": "查看范围已变化，请返回当前会话重新打开套餐详情。",
+  "packageDetailRuntime.identityChangedCleared": "TSim 登录身份已变化，旧套餐详情已清除。请从会话重新打开。",
+  "packageDetailRuntime.identityChanged": "TSim 登录身份已变化，请从会话重新打开详情。",
+  "packageDetailRuntime.order": "订单 {id}",
+  "packageDetailRuntime.record": "记录 {index}",
+  "packageDetailRuntime.fetched": "数据读取时间：{time}"
+} as const;

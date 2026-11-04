@@ -1,0 +1,27 @@
+/** Main runtime display copy; attachment diagnostics remain private stable codes. */
+export const mainRuntimeStrings = {
+  'mainRuntime.draftSyncFailed': '草稿同步失败，请点击重试或继续编辑',
+  'mainRuntime.retryDraftSync': '重试',
+  "mainRuntime.language.ar": "阿拉伯语",
+  "mainRuntime.language.pt": "葡萄牙语",
+  "mainRuntime.language.it": "意大利语",
+  "mainRuntime.language.tr": "土耳其语",
+  "mainRuntime.language.zh": "中文",
+  "mainRuntime.language.en": "英语",
+  "mainRuntime.language.ja": "日语",
+  "mainRuntime.language.ko": "韩语",
+  "mainRuntime.language.th": "泰语",
+  "mainRuntime.language.vi": "越南语",
+  "mainRuntime.language.id": "印尼语",
+  "mainRuntime.language.ms": "马来语",
+  "mainRuntime.language.es": "西班牙语",
+  "mainRuntime.language.fr": "法语",
+  "mainRuntime.language.de": "德语",
+  "mainRuntime.language.ru": "俄语",
+  "mainRuntime.language.zh-TW": "繁体中文",
+  "mainRuntime.quoteUnavailable": "引用内容不可用",
+  "mainRuntime.quoteRecalled": "引用消息已撤回",
+  "mainRuntime.rejectedReason": "{label}（{reason}）",
+  "mainRuntime.invalidNoticeList": "通知列表返回格式不正确",
+  "mainRuntime.invalidNoticeCategories": "通知分类返回格式不正确"
+} as const;
