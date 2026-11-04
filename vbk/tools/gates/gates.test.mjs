@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { formatViolation } from './lib/common.mjs';
 import { selfTest } from './lib/selftest.mjs';
-import { gates, deferredGates } from './run.mjs';
+import { gates } from './run.mjs';
 import * as dom from './dom-sinks.mjs';
 import * as dev from './devtools-launch.mjs';
 import * as csp from './csp.mjs';
@@ -18,12 +18,6 @@ test('gate fixtures: must-fail are flagged, must-pass stay clean, at least 3 of 
 for (const g of gates) {
   test(`gate ${g.GATE}: zero violations on the real tree`, () => {
     assert.deepEqual(g.run().map(formatViolation), []);
-  });
-}
-
-for (const g of deferredGates) {
-  test(`deferred gate ${g.GATE}: scans the real tree without failing (enforcement pending the copy migration)`, () => {
-    assert.ok(Array.isArray(g.run()));
   });
 }
 

@@ -33,20 +33,18 @@ test('main catalog references are static and every named interpolation matches i
     ts.forEachChild(node, visit);
   }
   visit(source);
-  // Entries may be unused: main's newer copy stays literal until the pending migration, so only a reference without an entry is wrong.
-  assert.deepEqual([...referenced].filter(key => !(key in mainStrings)).sort(), [], 'no missing main entries');
+  assert.deepEqual([...referenced].sort(), Object.keys(mainStrings).sort(), 'every main entry is referenced and every reference has an entry');
 });
 
-test('reviewed 162-entry copy snapshot retains original Chinese, spaces, punctuation and placeholder names', () => {
-  assert.equal(Object.keys(mainStrings).length, 162);
+test('reviewed 134-entry copy snapshot retains original Chinese, spaces, punctuation and placeholder names', () => {
+  assert.equal(Object.keys(mainStrings).length, 134);
   const hash = createHash('sha256').update(JSON.stringify(Object.entries(mainStrings).sort())).digest('hex');
-  assert.equal(hash, '1e996ac2ba1694efbd1f42b93829c20f6a068a157753d9d745422b96f1a62021');
+  assert.equal(hash, '1414bb94e3b74db37f20810485db1c88b1e40ebdf4eebe7143e400c670d26f54');
   for (const key of Object.keys(mainStrings) as (keyof typeof mainStrings)[]) assert.equal(t(key), mainStrings[key]);
 });
 
 test('UI interpolation inserts user labels and diagnostics once without interpreting their braces or changing surrounding spaces', () => {
-  const label = '客户 {label} <script>', message = 'upstream {message}', name = '成员 {count}';
-  assert.equal(t('main.messageRow.senderLabel', { label }), `${label}：`);
+  const message = 'upstream {message}', name = '成员 {count}';
   assert.equal(t('main.orderView.detailSuffix', { message }), ` （${message}）`);
   assert.equal(t('main.unknownOutboundDialog.intentMetadata', { date: 'DATE', time: 'TIME', generation: 3, phase: message }), `DATE TIME · 创建代次 3 · ${message}`);
   assert.equal(t('main.peripheralDialog.selectPerson', { name }), `选择${name}`);

@@ -94,6 +94,7 @@ src-tauri 宿主：校验来源/身份/代次 → crates/core-* 纯逻辑 → �
 4. 提醒消费事实：已读、打开会话、点击发送、发送中、结果未知都不结束等待轮次；只有服务端确认的有效商家回复、会话结束或转出才清除。
 5. 持久化先于成功事件；先订阅缓冲再取快照重放；跳号或换 epoch 必须重新握手。
 6. 远程页面没有通用本机权限：官方登录页、订单页、TSim 查询窗都不进 capability；`acct-*` 只有窄 `adapter_*` 命令，且宿主按 WebView 标签核对身份，不信任页面自报。日志和提醒数据不含凭据与客户正文；例外是 `alarm`、`notice` 窗的消息预览，由宿主从内存展示缓存附加并定向发给这两个本地窗口，不进 `core-notify`、持久化和日志（见 `docs/dev/03-strong-alert.md` 第 6 节）。
+7. 界面文案不得以中文字面量写在逻辑代码里：所有展示文案必须进字符串目录，文件名只能是 `strings.ts`（窗口或模块本地目录）或 `ui-kit/src/i18n.ts`（共享目录），经 `t()` 或目录常量引用。`cjk-literals` 门禁（`node tools/gates/run.mjs`，`npm run gates:cjk` 只跑树扫描）默认强制，测试里的 `expectNoCjkLiterals` 同样强制；协议字段名等例外只能登记在 `tools/gates/cjk-protocols.mjs`。目录条目必须被引用，无用条目要删除而不是放宽测试。
 
 ## 文档与证据
 

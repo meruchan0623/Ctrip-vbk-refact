@@ -43,8 +43,7 @@ test('all attachment UI references are static catalog keys and every placeholder
     }
     inspect(file);
   }
-  // Entries may be unused (video was dropped with the standalone-viewer decision); only a missing entry is wrong.
-  assert.deepEqual([...references].filter(key => !entries.has(key)).sort(), [], 'no missing attachment entries');
+  assert.deepEqual([...references].sort(), [...entries.keys()].sort(), 'every attachment entry is referenced and every reference has an entry');
   for (const [key, value] of entries) {
     assert.deepEqual([...value.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort(), [...(placeholders[key] ?? [])].sort(), key);
     assert.equal(t(key as I18nKey), value, 'zh-CN lookup preserves the exact catalog text');

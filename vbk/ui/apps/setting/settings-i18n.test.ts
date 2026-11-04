@@ -13,10 +13,6 @@ const expected = {
   "logoutUnconfirmed": "退出未获确认，请刷新登录状态后再操作。",
   "importUnconfirmed": "已有会话导入未获确认，请重新取得会话或使用账号密码登录。",
   "browserMissing": "没有找到 TSim 网页会话。请先在 Chrome 普通窗口登录客服系统，再重试；也可以在下方使用账号密码登录。",
-  "gpuManaged": "由系统管理",
-  "gpuUnsupported": "当前版本不支持手动切换硬件加速",
-  "unsupported": "暂未支持",
-  "dndFollowUnsupported": "应用内强提醒尚不跟随系统勿扰",
   "shortcutRequired": "请输入快捷键，例如 Ctrl+Shift+X。",
   "shortcutConfirm": "无法确认快捷键保存结果",
   "shortcutSaved": "快捷键已保存",
@@ -30,12 +26,6 @@ const expected = {
   "reading": "正在读取…",
   "fromChrome": "从 Chrome 登录",
   "browserDescription": "直接使用 Chrome 中已登录的 TSim 账号；多个浏览器配置时选择要连接的账号。断开不会退出浏览器。",
-  "proxyUnsupported": "暂未支持切换",
-  "proxyDescription": "当前版本无法统一控制网页和宿主请求的代理",
-  "cacheDescription": "当前版本不会按保存天数自动清理缓存",
-  "cacheClearDescription": "当前版本暂不支持统计或清理本地缓存",
-  "cacheClearTitle": "缓存清理暂未支持",
-  "cacheClearButton": "暂未支持清理",
   "diagnosticsExported": "诊断信息已导出",
   "recoveryTitle": "页面恢复状态",
   "recoveryDescription": "重新读取本机页面故障记录",
@@ -76,8 +66,8 @@ const placeholders: Record<string, readonly string[]> = {
   titleWithAccount: ['nick'], shortcutFailed: ['message'], shortcutCurrent: ['shortcut'], connectProfile: ['label'], errorCode: ['code', 'message'],
 };
 
-test('all 61 settings entries preserve the reviewed Chinese text and placeholder contracts', () => {
-  assert.equal(Object.keys(expected).length, 61);
+test('all 51 settings entries preserve the reviewed Chinese text and placeholder contracts', () => {
+  assert.equal(Object.keys(expected).length, 51);
   for (const [name, value] of Object.entries(expected)) {
     const key = `set.runtime.${name}`;
     assert.ok(hasKey(key)); assert.equal(t(key), value, name);
@@ -93,6 +83,8 @@ test('settings production TS has no CJK copy outside the catalog and every new t
     expectNoCjkLiterals(scanFile(`ui/apps/setting/${path.slice(2)}`, text), path);
     const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
     function inspect(node: ts.Node): void {
+      // Legacy templates are read through SETTING_STRINGS (`S.name`), the same entry as `set.runtime.name`.
+      if (ts.isPropertyAccessExpression(node) && ['S', 'SETTING_STRINGS'].includes(node.expression.getText(source)) && node.name.text in expected && path !== './strings.ts') references.add(`set.runtime.${node.name.text}`);
       if (ts.isCallExpression(node) && node.expression.getText(source) === 't') {
         const key = node.arguments[0];
         if (!key || !ts.isStringLiteral(key)) {
@@ -115,9 +107,8 @@ test('settings production TS has no CJK copy outside the catalog and every new t
     }
     inspect(source);
   }
-  // Entries may be unused while main's newer settings copy stays literal; every reference must be catalogued.
   const known = new Set(Object.keys(expected).map(key => `set.runtime.${key}`));
-  assert.deepEqual([...references].filter(key => !known.has(key)).sort(), []);
+  assert.deepEqual([...references].sort(), [...known].sort(), 'every settings runtime entry is referenced and every reference is catalogued');
   const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
   assert.match(html, /<html lang="zh-CN">/);
   assert.equal(html.split('<title>')[1]?.split('</title>')[0], t('set.title'), 'static fallback title accurately remains zh-CN');

@@ -8,7 +8,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \"ui/**/*.test.ts\" \"ui/tools/*.test.mjs\" \"tools/gates/*.test.mjs\"",
     "gates": "node tools/gates/run.mjs",
-    "gates:cjk": "node tools/gates/run.mjs --tree --with-deferred",
+    "gates:cjk": "node tools/gates/run.mjs --tree",
     "build:ui": "tsc -p tsconfig.build.json",
     "smoke:ui": "node ui/tests/smoke/run.mjs",
     "check": "npm run typecheck && npm run test && cargo test --manifest-path Cargo.toml",

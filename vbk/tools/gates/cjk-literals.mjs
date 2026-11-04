@@ -8,11 +8,9 @@ import { productionFiles, readText, violation, formatViolation, vbkRoot } from '
 import { protocolLiteralPolicy } from './cjk-protocols.mjs';
 
 export const GATE = 'cjk-literals';
-// Real-tree enforcement is deferred (see run.mjs). Tests that scan production files call
-// `expectNoCjkLiterals`, which only fails when VBK_CJK_GATE=1 or `npm run gates:cjk` enforce it.
-export const CJK_ENFORCED = process.env.VBK_CJK_GATE === '1';
+// Always enforced: tests that scan production files call `expectNoCjkLiterals`, which fails on any violation.
 export function expectNoCjkLiterals(violations, message) {
-  if (CJK_ENFORCED) assert.deepEqual(violations.map(formatViolation), [], message);
+  assert.deepEqual(violations.map(formatViolation), [], message);
 }
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff00-\uffef]/u;
 

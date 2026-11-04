@@ -72,8 +72,7 @@ test('protocol lookup exceptions resolve exact immutable helper bindings', async
   const { readFileSync } = await import('node:fs');
   const file = 'ui/apps/main/companion-card.ts';
   const source = readFileSync(new URL('../../ui/apps/main/companion-card.ts', import.meta.url), 'utf8');
-  // companion-card.ts still carries untranslated copy (migration pending); the protocol fields must add no violation.
-  const base = scanFile(file, source).length;
+  assert.deepEqual(scanFile(file, source), []);
   for (const [before, after] of [
     ['const field =', 'let field ='],
     ['const cdrField =', 'let cdrField ='],
@@ -83,10 +82,10 @@ test('protocol lookup exceptions resolve exact immutable helper bindings', async
     ["'业务流水号'", "'新协议字段'"],
   ]) {
     assert.ok(source.includes(before), before);
-    assert.ok(scanFile(file, source.replace(before, after)).length > base, after);
+    assert.ok(scanFile(file, source.replace(before, after)).length, after);
   }
-  assert.ok(scanFile(file, source + "\nfunction unrelated(field) { return field(plan, '业务流水号'); }").length > base);
-  assert.ok(scanFile(file, source + "\nrender('业务流水号');").length > base);
+  assert.ok(scanFile(file, source + "\nfunction unrelated(field) { return field(plan, '业务流水号'); }").length);
+  assert.ok(scanFile(file, source + "\nrender('业务流水号');").length);
   assert.ok(scanFile('ui/apps/main/other.ts', source).length);
 });
 
