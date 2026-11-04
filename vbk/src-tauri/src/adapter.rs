@@ -2530,6 +2530,9 @@ pub(crate) fn cached_image_url(
                 && message.message_id.as_deref() == Some(message_id)
                 && message.kind == "image"
         })
+        // The display layer falls back to the thumbnail when no original exists;
+        // that stand-in must never be saved as the original.
+        .filter(|message| message.media_thumbnail != message.media_url)
         .and_then(|message| message.media_url.filter(|url| !url.is_empty()))
         .ok_or_else(|| not_ready("cached image is unavailable"))
 }

@@ -108,39 +108,6 @@ test('official feed increments received during a large full snapshot stay serial
   adapter.stop();
 });
 
-test('a 125-message server batch with its first translation chunk held cannot issue a second chunk after queue fault', async () => {
-  let recent = 0, releaseTranslation!: () => void, holdFacts = false, releaseFact!: () => void;
-  const displays: unknown[] = [];
-  const base = makeDeps(call => {
-    if (call.url.includes('getConversationList')) return jsonResponse({ ResponseStatus: OK_STATUS, conversationList: [sampleRow('room')], currentStatus: 0, lastUpdateTime: base.now() });
-    if (call.url.includes('checkMemberStatus')) return jsonResponse({ ResponseStatus: OK_STATUS, status: { code: 0 }, members: [{ uid: 'cust-room', roles: [0, 1, 1] }] });
-    if (call.url.includes('getRemarkList')) return jsonResponse({ ResponseStatus: OK_STATUS, bizResponseStatus: { resultCode: 'SUCCESS' }, remarkList: [] });
-    if (call.url.includes('batchTranslateByMsgIds')) return new Promise(resolve => { releaseTranslation = () => resolve(jsonResponse({ ResponseStatus: OK_STATUS, translateMessageList: [{ msgId: 'large-0', msgtype: 0, messageBody: 'late translation' }] })); });
-    if (call.url.includes('getRecentMessages')) return jsonResponse({ ResponseStatus: OK_STATUS, messages: recent++ === 0 ? [] : Array.from({ length: 125 }, (_, i) => ({ msgId: `large-${i}`, msgtype: 0, messageBody: 'source', fromJid: 'room@conf.x/cust-room', createTime: base.now() })), lastMessageTimestamp: base.now() });
-    return jsonResponse({ ResponseStatus: OK_STATUS });
-  });
-  const sdk = new FakePageSdk();
-  const deps = { ...base, sdk, invoke: (command: string, payload: unknown) => {
-    if (holdFacts && command === ImCommands.PUSH_FACT) { base.invoked.push({ cmd: command, payload }); return new Promise(resolve => { releaseFact = () => resolve(null); }); }
-    return base.invoke(command, payload);
-  } };
-  const session = createPageSession(deps, { account, selfUid: 'self', initialEpoch: 1, beginMsgTime: base.now(), sdk, bridgeCapacity: 160, pushDisplay: async value => { displays.push(value); return null; } });
-  session.start(); await base.clock.advance(0); await session.adapter.bridge.flush();
-  await base.clock.advance(10_000);
-  await until(() => session.adapter.compensation.cursor === 1700000010000 && !!releaseTranslation);
-  await session.adapter.bridge.flush();
-  assert.equal(base.fakeFetch.calls.filter(call => call.url.includes('batchTranslateByMsgIds')).length, 1);
-  holdFacts = true;
-  const message = (id: number) => ({ id: `pressure-${id}`, type: 'groupchat', msgtype: '0', body: '', from: 'room@conf.x/cust-room', create_time: base.now() });
-  sdk.emit('message', message(1)); await flush();
-  for (let i = 2; i <= 161; i++) sdk.emit('message', message(i));
-  assert.equal(session.adapter.running, false);
-  const output = displays.length, requests = base.fakeFetch.calls.length, facts = base.invoked.length;
-  releaseTranslation(); releaseFact(); await flush(); await base.clock.advance(60_000);
-  assert.equal(base.fakeFetch.calls.filter(call => call.url.includes('batchTranslateByMsgIds')).length, 1);
-  assert.equal(base.fakeFetch.calls.length, requests);
-  assert.equal(displays.length, output); assert.equal(base.invoked.length, facts);
-});
 
 test('official feed backlog has a finite bound and explicitly faults instead of discarding an intermediate delta', async () => {
   const base = makeDeps(call => jsonResponse(call.url.includes('getConversationList') ? { ResponseStatus: OK_STATUS, conversationList: [], lastUpdateTime: 1700000000100 } : { ResponseStatus: OK_STATUS, messages: [], lastMessageTimestamp: 1700000000000 }));

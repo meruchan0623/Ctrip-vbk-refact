@@ -188,7 +188,7 @@ for (const producer of ['compensation', 'conversation_list'] as const) {
   });
 }
 
-for (const phase of ['members', 'translation'] as const) {
+for (const phase of ['members'] as const) { // first-open auto translation was replaced by on-demand translation in main
   test(`overflow revokes held ${phase}, list, compensation and unread callbacks before any late output or new HTTP`, async () => {
     type Release = { url: string; resolve: (value: ReturnType<typeof jsonResponse>) => void };
     const held: Release[] = [], displays: unknown[] = [];
@@ -211,8 +211,7 @@ for (const phase of ['members', 'translation'] as const) {
     const session = createPageSession(deps, { account, selfUid: 'self', initialEpoch: 3, beginMsgTime: base.now(), sdk, bridgeCapacity: 4, pushDisplay: async value => { displays.push(value); return null; } });
     session.start(); await base.clock.advance(0); await session.adapter.bridge.flush();
     const message = (id: string) => ({ id, type: 'groupchat', msgtype: '0', body: 'source text', from: 'room@conf.x/cust-room', create_time: base.now() });
-    if (phase === 'translation') { sdk.emit('message', message('before-fault')); await flush(); await session.adapter.bridge.flush(); }
-    assert.ok(held.some(item => item.url.includes(phase === 'members' ? 'checkMemberStatus' : 'batchTranslateByMsgIds')));
+    assert.ok(held.some(item => item.url.includes('checkMemberStatus')));
     holdResponses = true; await base.clock.advance(10_000);
     assert.ok(held.some(item => item.url.includes('getConversationList')));
     assert.ok(held.some(item => item.url.includes('getRecentMessages')));

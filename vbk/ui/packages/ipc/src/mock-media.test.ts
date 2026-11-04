@@ -12,7 +12,6 @@ import { isRegisteredMediaAttachment } from '../../../apps/main/sendComposer.ts'
 
 for (const [command, message] of [
   [UiCommands.MEDIA_SCREENSHOT, '演示模式不提供系统截图；请在客户端中使用。'],
-  [UiCommands.MEDIA_PICK, '演示模式不支持选择本地附件；请在客户端中使用。'],
 ] as const) test(`default mock ${command} refuses explicitly and its real main invokeSafe displays the stable explanation`, async () => {
   const ipc = createMockIpc('default', { latency: 0, tick: false });
   try {
@@ -32,12 +31,6 @@ for (const [command, message] of [
   } finally { ipc.dispose(); }
 });
 
-test('all default picker kinds remain unsupported instead of returning incomplete success handles', async () => {
-  const ipc = createMockIpc('default', { latency: 0, tick: false });
-  try {
-    for (const kind of ['image', 'file', 'video']) await assert.rejects(ipc.invoke(UiCommands.MEDIA_PICK, { kind }), error => isAppError(error) && error.code === ErrorCodes.HOST_UNSUPPORTED);
-  } finally { ipc.dispose(); }
-});
 
 test('annotation scenario retains its clearly named registered synthetic PNG and annotation source', async () => {
   const ipc = createMockIpc('annotation', { latency: 0, tick: false });

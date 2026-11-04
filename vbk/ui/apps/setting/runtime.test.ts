@@ -23,7 +23,7 @@ async function fixture(overrides: Record<string, any> = {}) {
   const calls: { command: string }[] = []; const results = new Map<string, unknown>([[PrefsCommands.SNAPSHOT, prefs], [UiCommands.ASSIST_TSIM_STATUS, { logged_in: false, user: null }], [UiCommands.ASSIST_TSIM_LOGIN, { logged_in: true, user: 'SYNTHETIC_USER' }], [UiCommands.ASSIST_TSIM_LOGOUT, { logged_in: false, user: null }]]);
   let importKeys: string[] = []; const shortcutPayloads: object[] = [];
   const invoke = async (command: string, payload?: object) => { calls.push({ command, payload } as { command: string }); if (command === UiCommands.PREFS_SET && payload && 'section' in payload && payload.section === 'keys') shortcutPayloads.push(payload); if (command === UiCommands.ASSIST_TSIM_IMPORT_SESSION) importKeys = Object.keys(payload ?? {}); const result = await results.get(command); if (result instanceof Error || (result && typeof result === 'object' && 'code' in result)) throw result; return result; };
-  const env: Record<string, any> = { recoveryView: () => null, recovery: { refresh() {} }, ...vm, settingsNavigationVersion: 0, ALLOWED_T1_SECONDS, preferenceWrites: new Map(), S: SETTING_STRINGS, fmt, store, ipc: { invoke }, PrefsCommands, ShellCommands, UiCommands, isPrefsSnapshot, cx, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string) => key, msg: () => 'SYNTHETIC_UNTRUSTED_ERROR', toast: (value: string) => store.patch({ toast: value }), icon: () => null, IC: {}, sel: { mock: true }, platform: 'windows', closeWindow() {}, selectSection() {}, onBodyScroll() {}, setPref() {}, setReminder() {}, ...overrides };
+  const env: Record<string, any> = { recoveryView: () => null, recovery: { refresh() {} }, ...vm, settingsNavigationVersion: 0, ALLOWED_T1_SECONDS, preferenceWrites: new Map(), S: SETTING_STRINGS, fmt, store, ipc: { invoke }, PrefsCommands, ShellCommands, UiCommands, isPrefsSnapshot, cx, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), t: (key: string, vars?: Record<string, string | number>) => key.startsWith('set.runtime.') ? translate(key as I18nKey, vars) : key, msg: () => 'SYNTHETIC_UNTRUSTED_ERROR', toast: (value: string) => store.patch({ toast: value }), icon: () => null, IC: {}, sel: { mock: true }, platform: 'windows', closeWindow() {}, selectSection() {}, onBodyScroll() {}, setPref() {}, setReminder() {}, ...overrides };
   function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '(?:<[^>]+>)?\\(')); assert.ok(a >= 0, name); const tail = source.slice(a); const next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z]|subscribeBatched\()/.exec(tail); assert.ok(next, name); return new Function(...Object.keys(env), stripTypeScriptTypes(tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   for (const name of ['head', 'row', 'toggle', 'segment', 'text', 'editShortcut', 'saveShortcut', 'shortcutRow', 'loadSettings', 'refreshTsimStatus', 'tsimLogin', 'tsimLogout', 'tsimImportSession', 'tsimBrowserConnect', 'generalSection', 'displaySection', 'notifySection', 'keysSection', 'assistantSection', 'networkSection', 'storageSection', 'privacySection', 'aboutSection', 'sectionContent', 'body', 'closeWindow', 'titleBar', 'render']) if (new RegExp('function ' + name + '(?:<[^>]+>)?\\(').test(source)) env[name] = actual(name);
   function bootstrap() { if (env['loadSettings']) return env['loadSettings'](); const a = source.lastIndexOf('void (async () => {'), b = source.indexOf('\n})();', a) + '\n})();'.length; assert.ok(a >= 0 && b > a); return new Function(...Object.keys(env), 'return ' + stripTypeScriptTypes(source.slice(a, b).replace('void ', '')))(...Object.values(env)); }
@@ -65,7 +65,7 @@ test('actual login form inputs, submit and logout button use only the explicit T
   const tree = f.tree(); nodes(tree).find(n => n.props.dataset?.fid === 'tsim-user')!.props.oninput({ target: { value: 'SYNTHETIC_USER' } });
   nodes(tree).find(n => n.props.dataset?.fid === 'tsim-pass')!.props.oninput({ target: { value: 'SYNTHETIC_PASSWORD' } });
   function settled() { return new Promise<void>(resolve => { const unsubscribe = f.store.subscribe(s => { if (!s.tsimBusy) { unsubscribe(); resolve(); } }); }); }
-  const loggedIn = settled(); nodes(tree).find(n => n.tag === 'form')!.props.onsubmit({ preventDefault() {} }); await loggedIn;
+  const loggedIn = settled(); nodes(tree).find(n => n.tag === 'form' && n.props.class !== 'shortcut-form')!.props.onsubmit({ preventDefault() {} }); await loggedIn;
   assert.equal(f.store.get().tsimStatus.logged_in, true); assert.equal(f.store.get().tsimForm.password, '');
   const loggedOut = settled(); nodes(f.tree()).find(n => n.props.dataset?.action === 'tsim-logout')!.props.onclick(); await loggedOut;
   assert.equal(f.store.get().tsimStatus.logged_in, false); assert.deepEqual(f.calls.map(c => c.command), [UiCommands.ASSIST_TSIM_LOGIN, UiCommands.ASSIST_TSIM_LOGOUT]);
@@ -343,9 +343,9 @@ test('actual settings page renders every section in one long page; nav is a labe
   assert.deepEqual(buttons.filter(b => b.props['aria-current'] === 'true').map(b => b.props.dataset.section), ['storage']);
   buttons.find(b => b.props.dataset.section === 'about')!.props.onclick(); assert.deepEqual(picked, ['about']);
   assert.ok(all.find(n => n.props.dataset?.keepScroll === 'set')?.props.onscroll);
-  // 已移除的内容：发送模式、只读翻译服务行、截图快捷键
+  // 已移除的内容：发送模式、只读翻译服务行
   const dump = JSON.stringify(f.tree());
-  for (const gone of ['set.asst.sendMode', 'set.asst.outService', 'set.asst.inService', 'set.keys.screenshot']) assert.equal(dump.includes(gone), false, gone);
+  for (const gone of ['set.asst.sendMode', 'set.asst.outService', 'set.asst.inService']) assert.equal(dump.includes(gone), false, gone);
   assert.equal(all.some(n => n.props.dataset?.sendMode), false);
 });
 
@@ -411,7 +411,7 @@ test('settings morph keeps shortcut editor DOM and focus connected across input 
   for (let i = 0; i < 8; i++) await Promise.resolve(); draw();
   assert.deepEqual(f.shortcutPayloads, [{ section: 'keys', key: 'screenshot', value: 'Ctrl+Shift+Z' }]);
   assert.equal(root.querySelector('[data-fid="shortcut-screenshot"]'), input); assert.equal(fakeDocument.activeElement, input);
-  assert.match(source, /subscribeBatched\(store, \(s\) => rerender\(root, \(\) => render\(s\), \{ morph: true \}\)\)/);
+  assert.match(source, /rerender\(root!, \(\) => render\(s\), \{ morph: true \}\)[\s\S]*subscribeBatched\(store, paint\)/);
 });
 
 test('settings morph clears a retained TSim password input before login IPC settles', async () => {

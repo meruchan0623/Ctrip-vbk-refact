@@ -103,7 +103,7 @@ test('actual notification UI distinguishes category/list loading, failed, expire
   const base: NoticeQueryState = { ...EMPTY_NOTICE_QUERY, noticeCats: cats, noticeCat: '1:1', noticeCatsStatus: 'loaded' };
   assert.match(render({ ...base, noticeListStatus: 'loading' }), /正在加载通知…/);
   assert.match(render({ ...base, noticeListStatus: 'error' }), /通知加载失败/);
-  assert.match(render({ ...base, noticeListStatus: 'loaded' }), /notice.empty/);
+  assert.match(render({ ...base, noticeListStatus: 'loaded' }), new RegExp(translateUi('notice.empty')));
 });
 
 test('account chat load starts notice read independently and does not await notice results', () => {

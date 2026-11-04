@@ -84,11 +84,11 @@ test('card-message text is not governed by custom-content metadata', () => {
 });
 
 
-test('image original and thumbnail stay distinct so a missing original cannot be saved as a thumbnail', () => {
+test('image original and thumbnail stay distinct; a missing original falls back to the thumbnail for viewing only (the host refuses to save it)', () => {
   for (const body of [{ thumbUrl: 'https://example.invalid/thumb.png' }, { url: 'https://example.invalid/original.png', thumbUrl: 'https://example.invalid/thumb.png' }]) {
     const { http, sdk } = project(1, body);
     for (const message of [http, sdk]) {
-      assert.equal(message?.media_url, 'url' in body ? body.url : null);
+      assert.equal(message?.media_url, 'url' in body ? body.url : body.thumbUrl);
       assert.equal(message?.media_thumbnail, body.thumbUrl);
     }
   }

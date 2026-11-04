@@ -40,6 +40,8 @@ export function slotPosition(offset: number): 'before' | 'prev' | 'main' | 'next
 
 export interface ViewerHost {
   openExternal(index: number): Promise<unknown>;
+  /** Native save dialog for the original of item `index`; resolves to whether a file was written. */
+  save?(index: number): Promise<boolean>;
   close(): void;
   /** Windows draws its own caption buttons; macOS keeps the traffic lights. */
   caption: HTMLElement | null;
@@ -59,10 +61,15 @@ export function renderViewer(gallery: UiViewerGallery, host: ViewerHost): Viewer
   const origin = h('span');
   const button = (label: string, text: string, action: () => void) => h('button', { type: 'button', title: label, 'aria-label': label, onclick: action }, text);
   const openExternal = () => { void host.openExternal(index).catch(() => { status.textContent = '打开失败，请稍后重试。'; }); };
+  const saveButton = button('另存原图', '另存', () => {
+    const at = index;
+    status.textContent = '';
+    void host.save?.(at).then(saved => { if (index === at && saved) status.textContent = '已保存。'; }).catch(() => { status.textContent = '保存失败，请稍后重试。'; });
+  });
   const element = h('div', { class: 'viewer' },
     h('header', { class: 'viewer-bar', 'data-tauri-drag-region': 'deep' },
       h('div', { class: 'viewer-heading' }, title, origin),
-      button('在系统浏览器中打开', '外部打开 ↗', openExternal), host.caption),
+      saveButton, button('在系统浏览器中打开', '外部打开 ↗', openExternal), host.caption),
     stage, h('footer', { class: 'viewer-footer' }, status, tools));
   function showHeading(): UiViewerAttachment {
     const attachment = items[index]!;
@@ -70,6 +77,7 @@ export function renderViewer(gallery: UiViewerGallery, host: ViewerHost): Viewer
     title.textContent = name;
     title.title = name;
     origin.textContent = new URL(attachment.url).hostname;
+    saveButton.hidden = !(host.save && attachment.saveable === true);
     return attachment;
   }
   const first = showHeading();

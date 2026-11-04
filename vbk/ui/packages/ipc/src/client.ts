@@ -618,6 +618,8 @@ export interface UiViewerAttachment {
   readonly url: string;
   readonly name: string;
   readonly thumbnail: string | null;
+  /** The host can re-resolve and save the original of this item ("另存"). */
+  readonly saveable?: boolean;
 }
 
 export interface UiViewerGallery {

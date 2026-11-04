@@ -106,10 +106,12 @@ fn attachment_of_message(message: &UiMessageDto) -> Result<ViewerAttachment, App
         })
         .flatten()
         .filter(|_| {
+            // A thumbnail standing in for a missing original is not saveable as the original.
             message
                 .media_url
                 .as_deref()
                 .is_some_and(|url| !url.is_empty())
+                && message.media_thumbnail != message.media_url
         });
     Ok(ViewerAttachment {
         saveable: origin.is_some(),

@@ -41,7 +41,7 @@ async function load(): Promise<void> {
     const gallery = await ipc.invoke<unknown>(UiCommands.MEDIA_VIEWER_CURRENT, {});
     if (token !== loadToken) return;
     if (!isViewerGallery(gallery)) { showExpired(); return; }
-    mount(renderViewer(gallery, { openExternal: index => ipc.invoke(UiCommands.MEDIA_VIEWER_OPEN_EXTERNAL, { index }), close, caption: caption() }));
+    mount(renderViewer(gallery, { openExternal: index => ipc.invoke(UiCommands.MEDIA_VIEWER_OPEN_EXTERNAL, { index }), save: async index => { const result = await ipc.invoke<unknown>(UiCommands.MEDIA_SAVE_IMAGE, { index }); return !!result && typeof result === 'object' && (result as { saved?: unknown }).saved === true; }, close, caption: caption() }));
   } catch {
     if (token === loadToken) showExpired();
   }

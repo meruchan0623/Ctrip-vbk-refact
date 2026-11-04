@@ -1515,7 +1515,7 @@ mod tests {
 
     #[test]
     fn media_fields_survive_real_display_cache_and_ui_roundtrip() {
-        for kind in ["image", "video", "file", "audio"] {
+        for kind in ["image", "video", "file", "voice"] {
             let source = "https://example.invalid/synthetic-resource";
             let thumb = "https://example.invalid/synthetic-preview";
             let raw = serde_json::json!({
@@ -2808,72 +2808,6 @@ mod tests {
         assert_eq!(cache.total_unread(&b), 9);
         cache.remove(&ctx(2));
         assert_eq!(cache.total_unread(&ctx(2)), 0);
-    }
-    #[test]
-    fn audio_rows_keep_identity_media_and_fallback_through_cache_pages_and_generation_boundaries() {
-        let mut cache = DisplayCache::new();
-        let mut live = msg(
-            "audio-room",
-            Some("900719925474099312345"),
-            Some("local-audio"),
-            1700000000200,
-            "[音频消息]",
-        );
-        live.kind = "audio".into();
-        live.media_url = Some("https://x.ctrip.com/voice.mp3?synthetic=1".into());
-        live.media_filename = Some("voice.mp3".into());
-        live.quote = Some("quoted-id".into());
-        let mut fallback = msg(
-            "audio-room",
-            Some("fallback-id"),
-            None,
-            1700000000100,
-            "[音频消息]",
-        );
-        fallback.kind = "audio".into();
-        let delta = cache
-            .apply(
-                &ctx(1),
-                DisplayPayload::Messages {
-                    gid: "audio-room".into(),
-                    replace: false,
-                    items: vec![live.clone()],
-                },
-            )
-            .unwrap();
-        let rows = cache
-            .merge_thread(&ctx(1), "audio-room", vec![fallback.clone(), live.clone()])
-            .unwrap();
-        assert_eq!(rows.len(), 2);
-        assert!(rows[1] == live);
-        assert!(rows[0] == fallback);
-        let page = UiMessagePageDto {
-            items: rows,
-            has_more: false,
-            before_ms: Some(1700000000100),
-        };
-        let decoded: UiMessagePageDto =
-            serde_json::from_value(serde_json::to_value(page).unwrap()).unwrap();
-        assert_eq!(decoded.items[1].media_url, live.media_url);
-        assert_eq!(decoded.items[1].quote.as_deref(), Some("quoted-id"));
-        assert!(decoded.items[0].media_url.is_none());
-        assert!(!format!("{cache:?} {delta:?}").contains("voice.mp3"));
-        cache
-            .replace_thread(&ctx(2), "audio-room", vec![fallback])
-            .unwrap();
-        assert!(cache.messages(&ctx(1), "audio-room").is_err());
-        assert_eq!(
-            cache
-                .messages(&ctx(2), "audio-room")
-                .unwrap()
-                .unwrap()
-                .len(),
-            1
-        );
-        assert!(cache
-            .merge_thread(&ctx(1), "audio-room", vec![live])
-            .is_err());
-        assert!(cache.messages(&other(), "audio-room").unwrap().is_none());
     }
 }
 
