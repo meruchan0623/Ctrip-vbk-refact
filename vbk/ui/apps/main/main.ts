@@ -1071,7 +1071,14 @@ async function handleSend(): Promise<void> {
       if (needsOutboundTranslation(text)) {
         const now = S(), tr = now.translation;
         if (tr.status === 'done' && tr.gid === conv.gid && tr.draftVersion === now.draftVersion && tr.text.trim()) await sendText(tr.text, text);
-        else await translateAndSend(text);
+        else if (tr.status === 'busy' && tr.gid === conv.gid && tr.draftVersion === now.draftVersion) {
+          // 预览翻译请求还在途：预定发送，译文返回后自动发出，不另起请求；改动草稿即取消。
+          const owner = activeAccount(now)?.context;
+          if (owner && !queuedSend) { queuedSend = { account: owner, gid: conv.gid, draftVersion: now.draftVersion }; toast('译文返回后自动发送，修改草稿可取消'); }
+        } else {
+          if (trTimer) { clearTimeout(trTimer); trTimer = null; }
+          await translateAndSend(text);
+        }
         return;
       }
     }
@@ -1183,12 +1190,15 @@ async function translateAndSend(text: string): Promise<void> {
 }
 
 let trTimer: ReturnType<typeof setTimeout> | null = null;
+/** 替换草稿模式下，按 Enter 时预览翻译仍在请求中：预定在译文返回后发送。 */
+let queuedSend: { account: AccountContext; gid: string; draftVersion: number } | null = null;
 const composerInput = createComposerInput({
   context: () => composerInputContext(S()),
   invalidateTranslation: () => {
     quickReplies.close();
     if (trTimer) clearTimeout(trTimer);
     trTimer = null;
+    queuedSend = null;
     const s = S();
     store.patch({ draftVersion: s.draftVersion + 1, translation: { ...TRANSLATION_IDLE, gid: s.translation.gid, target: s.translation.target } });
   },
@@ -1236,7 +1246,11 @@ async function runPreviewTranslation(): Promise<void> {
     const r = await ipc.invoke<{ draft_version: number; text: string }>(UiCommands.ASSIST_TRANSLATE, { account: acc.context, gid: conv.gid, draft_version: version, text, target });
     if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || S().translation !== request || r.draft_version !== version) return;
     store.patch({ translation: { status: 'done', gid: conv.gid, draftVersion: version, target, text: r.text, error: null } });
+    const q = queuedSend;
+    queuedSend = null;
+    if (q && q.gid === conv.gid && q.draftVersion === version && sameAccount(q.account, acc.context) && q.account.session_generation === acc.context.session_generation && r.text.trim()) await sendText(r.text, text);
   } catch (e) {
+    queuedSend = null;
     if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || S().translation !== request) return;
     const msg = isAppError(e) && e.code === 'assistant.tsim_unauthenticated' ? t('tr.needLogin') : errorMessage(e);
     store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg } });
@@ -1245,6 +1259,7 @@ async function runPreviewTranslation(): Promise<void> {
 
 function setDraft(value: string): void {
   quickReplies.close();
+  queuedSend = null;
   const s = S();
   store.patch({ draft: value, drafts: s.activeGid ? { ...s.drafts, [s.activeGid]: value } : s.drafts, draftVersion: s.draftVersion + 1 });
   scheduleTranslation();
