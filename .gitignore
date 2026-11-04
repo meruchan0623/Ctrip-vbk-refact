@@ -2,3 +2,7 @@
 
 # macOS Finder metadata
 .DS_Store
+
+# 本地运行时数据（账号、缓存、日志），不入库
+/.runtime/
+vbk/.runtime/
