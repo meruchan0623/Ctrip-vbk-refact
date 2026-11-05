@@ -177,17 +177,23 @@ test('other candidates all get scanned in rotation, each no sooner than its inte
   }
 });
 
-test('a batched directory scan takes turns with other candidates instead of starving them', async () => {
+test('a background directory refresh takes turns with other candidates instead of starving them', async () => {
   const groups = Array.from({ length: 300 }, (_, i) => i + 1);
   const h = harness(async (command, payload) => command === UiCommands.IM_MEMBERS ? memberValue() : level([], payload['parent_skill_group_ids'] ? [] : groups));
   const others = ['x', 'y', 'z'];
   h.service.sync({ account, gids: ['active', ...others], activeGid: 'active' });
+  // The entered conversation's first directory read goes first, then everyone else gets scanned.
   for (let i = 0; !h.service.getDirectory({ account, gid: 'active' }); i++) { assert.ok(i < 200, 'scan never finished'); await h.next(); }
   assert.equal(h.calls.filter(call => (call.payload['parent_skill_group_ids'] as number[] | undefined)?.length).length, 12);
-  for (const gid of others) assert.ok(h.service.peekMembers({ account, gid }), `${gid} starved by the directory scan`);
-  const firstOthers = h.calls.filter(call => others.includes(call.payload['gid'] as string)).slice(0, 3);
-  const directoryCalls = h.calls.filter(call => call.command === UiCommands.IM_INVITE_CANDIDATES);
-  assert.ok(firstOthers[2]!.at < directoryCalls[4]!.at, 'candidates are interleaved, not left until the scan ends');
+  const firstDone = h.now(), firstCalls = h.calls.length;
+  for (let i = 0; others.some(gid => !h.service.peekMembers({ account, gid })); i++) { assert.ok(i < 50, 'others starved after the first scan'); await h.next(); }
+  // The periodic refresh scan interleaves with other candidates.
+  while (h.now() < firstDone + MEMBER_PRELOAD_POLICY.directoryMs + 300_000) await h.next();
+  const later = h.calls.slice(firstCalls);
+  const refresh = later.filter(call => call.command === UiCommands.IM_INVITE_CANDIDATES);
+  assert.ok(refresh.length >= 5, 'refresh scan ran');
+  const between = later.filter(call => others.includes(call.payload['gid'] as string) && call.at > refresh[0]!.at && call.at < refresh[4]!.at);
+  assert.ok(between.length > 0, 'candidates are interleaved with the refresh scan, not left until it ends');
   assertBudget(h.calls, MEMBER_PRELOAD_POLICY.visibleRequestsPerMinute);
 });
 
@@ -335,5 +341,17 @@ test('when the budget cannot refresh every candidate per interval, rotation stil
   h.service.sync({ account, gids, activeGid: null });
   while (h.now() < start + 10_800_000) await h.next();
   for (const gid of gids) assert.ok(memberCalls(h.calls, gid).length >= 3, `${gid} was only read ${memberCalls(h.calls, gid).length} times`);
+  assertBudget(h.calls, MEMBER_PRELOAD_POLICY.visibleRequestsPerMinute);
+});
+
+test('entering a conversation reads every directory batch back-to-back before other candidates', async () => {
+  const groups = Array.from({ length: 60 }, (_, i) => i + 1);
+  const h = harness(async (command, payload) => command === UiCommands.IM_MEMBERS ? memberValue() : level([], payload['parent_skill_group_ids'] ? [] : groups));
+  h.service.sync({ account, gids: ['active', 'x', 'y'], activeGid: 'active' });
+  for (let i = 0; !h.service.getDirectory({ account, gid: 'active' }); i++) { assert.ok(i < 50, 'scan never finished'); await h.next(); }
+  const directoryCalls = h.calls.filter(call => call.command === UiCommands.IM_INVITE_CANDIDATES);
+  assert.equal(directoryCalls.length, 4);
+  assert.ok(h.now() - 100_000 <= 5 * MEMBER_PRELOAD_POLICY.loadingTickMs, `directory took ${h.now() - 100_000}ms`);
+  assert.ok(h.calls.every(call => call.payload['gid'] === 'active'), 'other candidates wait for the entered directory');
   assertBudget(h.calls, MEMBER_PRELOAD_POLICY.visibleRequestsPerMinute);
 });

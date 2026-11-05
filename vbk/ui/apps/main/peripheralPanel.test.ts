@@ -434,3 +434,25 @@ test('preloaded display is immediate but never authorizes a write before a fresh
   assert.equal((state as PeripheralPanelState | null)?.members?.selection_token, members.selection_token);
   panel.close();
 });
+test('preloaded invite list stays selectable while the authorizing read is in flight', async () => {
+  const pending = deferred<unknown>();
+  let state: PeripheralPanelState | null = null;
+  let writes = 0;
+  const agents = [{ uid: 'a', nickname: 'Alpha', status: 0, job_position_type: 4 }, { uid: 'b', nickname: 'Beta', status: 0, job_position_type: 4, in_group: true }];
+  const panel = createPeripheralPanel({
+    current: () => ({ account, gid: 'synthetic-room-a' }), now: () => 100,
+    invoke: async command => { if (command === UiCommands.IM_INVITE_CANDIDATES) return pending.promise; writes++; return {}; },
+    publish: next => { state = next; }, refreshConversation: async () => {},
+    preload: () => ({ candidates: { agents, skill_groups: [], selection_token: '', expires_at_ms: 0 }, updatedAt: 1 }),
+  });
+  const opening = panel.open('invite');
+  const cached = state as PeripheralPanelState | null;
+  assert.equal(cached?.busy, false); assert.equal(cached?.refreshing, true);
+  panel.select('a'); panel.select('b');
+  assert.deepEqual((state as PeripheralPanelState | null)?.selected, ['a']);
+  await panel.submit(); assert.equal(writes, 0, 'no write before the fresh token arrives');
+  pending.resolve({ selection_token: 'fresh', expires_at_ms: 1000, skill_groups: [], agents }); await opening;
+  assert.deepEqual((state as PeripheralPanelState | null)?.selected, ['a']);
+  assert.equal((state as PeripheralPanelState | null)?.candidates?.selection_token, 'fresh');
+  panel.close();
+});

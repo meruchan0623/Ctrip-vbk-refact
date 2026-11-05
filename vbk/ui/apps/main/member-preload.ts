@@ -106,11 +106,12 @@ export function createMemberPreload(deps: Dependencies) {
   let requests: number[] = [];
   const visible = () => deps.isVisible?.() ?? (typeof document === 'undefined' || document.visibilityState !== 'hidden');
   function cancel() { cancelTimer?.(); cancelTimer = null; }
-  /** Just entered: its directory has not been read yet, so the first reads go out back-to-back. */
+  /** Just entered or the members panel opened: the directory read (every batch of
+   * it) goes out back-to-back so the invite list is ready before the user gets there. */
   function loading(): boolean {
     const active = context?.activeGid;
     if (!context || !active || !context.gids.includes(active)) return false;
-    return scan === null && !directory && ready('directory', deps.now());
+    return (forced || !directory) && ready('directory', deps.now());
   }
   function schedule(delay?: number) {
     cancel();
@@ -185,13 +186,14 @@ export function createMemberPreload(deps: Dependencies) {
     const memberDue = !context.paused && active !== null && due(active, foreground ? MEMBER_PRELOAD_POLICY.activeMembersMs : MEMBER_PRELOAD_POLICY.hiddenActiveMembersMs, now);
     const directoryDue = active !== null && ready('directory', now) && (forced || scan !== null || !directory || now - directory.completedAt >= (foreground ? MEMBER_PRELOAD_POLICY.directoryMs : MEMBER_PRELOAD_POLICY.hiddenDirectoryMs));
     // The entered conversation alternates membership and directory reads. Other
-    // candidates only run when neither is due, except that a multi-batch
-    // directory scan takes turns with them so it cannot starve the scan.
+    // candidates only run when neither is due, except that a background
+    // multi-batch directory scan takes turns with them so it cannot starve the
+    // scan. A forced read (just entered / members panel) keeps the budget to itself.
     for (let checked = 0; checked < 3; checked++) {
       const which = category++ % 3;
       if (which === 0 && active !== null && memberDue) return { kind: 'member', gid: active };
       if (which === 1 && active !== null && directoryDue) return { kind: 'directory', gid: active };
-      if (which === 2 && !context.paused && !memberDue && (!directoryDue || scan !== null)) {
+      if (which === 2 && !context.paused && !memberDue && (!directoryDue || (scan !== null && !loading()))) {
         const gid = nextOtherGid(context.gids, context.activeGid, now, foreground);
         if (gid !== null) return { kind: 'member', gid };
       }
@@ -202,7 +204,10 @@ export function createMemberPreload(deps: Dependencies) {
     if (running || !context || (context.paused && !forced) || !context.gids.length) return;
     const now = deps.now(), foreground = visible();
     requests = requests.filter(time => now - time < 60_000);
-    if (requests.length >= (foreground ? MEMBER_PRELOAD_POLICY.visibleRequestsPerMinute : MEMBER_PRELOAD_POLICY.hiddenRequestsPerMinute)) { schedule(); return; }
+    if (requests.length >= (foreground ? MEMBER_PRELOAD_POLICY.visibleRequestsPerMinute : MEMBER_PRELOAD_POLICY.hiddenRequestsPerMinute)) {
+      // Wake when the oldest request leaves the window, not on every fast tick.
+      schedule(loading() ? Math.max(MEMBER_PRELOAD_POLICY.loadingTickMs, requests[0]! + 60_000 - now) : undefined); return;
+    }
     if (scan && !context.gids.includes(scan.gid)) scan = null;
     const task = nextTask(now, foreground);
     if (!task) { schedule(); return; }
@@ -245,7 +250,7 @@ export function createMemberPreload(deps: Dependencies) {
     // The directory is account-wide: keep it across conversations and refresh it slowly.
     if (context?.activeGid !== next?.activeGid) { epoch++; scan = null; category = 0; forced = next?.activeGid != null; }
     const changed = (context ? accountKey(context.account) : null) !== (next ? accountKey(next.account) : null);
-    if (changed) { epoch++; members.clear(); memberRevisions.clear(); directory = null; directoryRevision++; scan = null; failures.clear(); rotation = 0; category = 0; forced = false; }
+    if (changed) { epoch++; members.clear(); memberRevisions.clear(); directory = null; directoryRevision++; scan = null; failures.clear(); rotation = 0; category = 0; forced = next?.activeGid != null; }
     context = next ? { ...next, account: { ...next.account }, gids: boundedCandidates(next) } : null;
     if (!context || (context.paused && !forced) || !context.gids.length) cancel();
     else if (!cancelTimer && !running) schedule(0);

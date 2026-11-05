@@ -249,7 +249,10 @@ export function createPeripheralPanel(deps: Dependencies) {
       }
     }
     deps.publish(state);
-    await refresh();
+    // With a preloaded list on screen, fetch the authorizing read in the
+    // background so rows stay selectable; only submit waits for the token.
+    const shown = kind === 'invite' ? state.candidates !== null : (kind === 'members' || kind === 'transfer') && state.members !== null;
+    await reload(undefined, '', shown);
   }
   function select(uid: string) {
     if (!state || state.busy || state.submitted || !current(state.scope)) return;
