@@ -84,11 +84,7 @@ media_accept_drop
 browser_show
 browser_nav
 browser_close
-media_screenshot
 media_save_image
-media_save_attachment
-media_annotation_source
-media_annotation_apply
 media_pick
 media_release
 prefs_snapshot

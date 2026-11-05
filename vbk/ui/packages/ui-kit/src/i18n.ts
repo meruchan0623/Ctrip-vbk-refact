@@ -5,7 +5,6 @@ import { repliesRecommendStrings } from './replies-recommend/strings.ts';
 import { operatorUnknownStrings } from './operator-unknown/strings.ts';
 import { mediaUiStrings } from './media-ui/strings.ts';
 import { peripheralStrings } from './peripheral/strings.ts';
-import { annotationStrings } from './annotation/strings.ts';
 import { orderInfoStrings } from './order-info/strings.ts';
 import { voiceStrings } from './voice/strings.ts';
 import { searchRecoveryStrings } from './search-recovery/strings.ts';
@@ -30,7 +29,6 @@ const zhCN = {
   ...mediaUiStrings,
   'set.notify.dndScheduleDesc': '每天按本机时间 22:00–08:00；托盘关闭仅暂停本次时段，重启后恢复。',
   ...peripheralStrings,
-  ...annotationStrings,
   ...orderInfoStrings,
   ...voiceStrings,
   ...searchRecoveryStrings,
@@ -231,7 +229,6 @@ const zhCN = {
   'composer.modeDirect': '直接发送',
   'composer.modeDirectDesc': '按发送键直接发送输入框原文，不翻译',
   'composer.dropHint': '松开鼠标，添加到当前会话',
-  'composer.screenshot': '截图',
   'composer.image': '图片',
   'composer.file': '文件',
   'composer.attachHint': '消息里的订单号 / ICCID 可点击',
@@ -435,8 +432,6 @@ const zhCN = {
   'set.keys.send': '发送消息',
   'set.keys.enter': 'Enter',
   'set.keys.ctrlEnter': 'Ctrl+Enter',
-  'set.keys.screenshot': '截图',
-  'set.keys.screenshotDesc': '截图期间：Esc 取消，Enter 确认',
   'set.keys.toggleMain': '显示 / 隐藏工作台',
 
   'set.asst.enabled': '启用商家助手',
@@ -525,13 +520,9 @@ const zhCN = {
   'attachment.reloadTitle': '仅从持久附件恢复当前会话的新访问句柄，不会发送或改写草稿',
   'attachment.reload': '重新载入',
   'attachment.verify': '核验发送',
-  'attachment.annotateTitle': '在本地标注后插入草稿',
-  'attachment.pngOnly': '当前仅支持PNG图片标注',
-  'attachment.annotate': '标注',
   'attachment.removeSelection': '仅移除本地选择，不会撤回已上传或提交的消息。',
   'attachment.removeLocal': '移除本地附件',
   'attachment.sendButton': '发送附件',
-  'attachment.pngUnchanged': '当前仅支持PNG图片标注，原有附件未更改。',
   'attachment.sendKeyKeepText': '{key} 仅发送附件，文字保留',
   'attachment.sendKeyKeepQuote': '{key} 仅发送附件，文字/引用保留',
   'attachment.summary': '{name} · {status}',

@@ -118,7 +118,6 @@ impl Default for DisplayPrefs {
 #[serde(default)]
 pub struct KeyPrefs {
     pub send_key: SendKey,
-    pub screenshot: String,
     pub toggle_main: String,
 }
 
@@ -126,7 +125,6 @@ impl Default for KeyPrefs {
     fn default() -> Self {
         Self {
             send_key: SendKey::Enter,
-            screenshot: "Ctrl+Shift+X".into(),
             toggle_main: "Ctrl+Alt+V".into(),
         }
     }
@@ -320,9 +318,6 @@ pub fn apply_local(
         ("storage", "cache_days") if ![30, 90, 180, 365].contains(&next.storage.cache_days) => {
             return Err(invalid(key, "cache_days must be 30/90/180/365"));
         }
-        ("keys", "screenshot") if next.keys.screenshot.trim().is_empty() => {
-            return Err(invalid(key, "shortcut must not be empty"));
-        }
         ("keys", "toggle_main") if next.keys.toggle_main.trim().is_empty() => {
             return Err(invalid(key, "shortcut must not be empty"));
         }
@@ -465,7 +460,7 @@ impl PrefsModule {
         let mut inner = self.data();
         let next = apply_local(&inner.local, section, key, value)?;
         let system_setting = (section == "general" && key == "autostart")
-            || (section == "keys" && matches!(key, "screenshot" | "toggle_main"));
+            || (section == "keys" && key == "toggle_main");
         if next == inner.local && !system_setting {
             return Ok(None);
         }
@@ -781,7 +776,6 @@ pub fn prefs_set(
         }
         let domain = match (section.as_str(), key.as_str()) {
             ("general", "autostart") => Some(crate::system_integration::Domain::Autostart),
-            ("keys", "screenshot") => Some(crate::system_integration::Domain::Screenshot),
             ("keys", "toggle_main") => Some(crate::system_integration::Domain::ToggleMain),
             _ => None,
         };
@@ -963,7 +957,6 @@ mod tests {
             ("dnd", "schedule_enabled"),
             ("dnd", "follow_system"),
             ("display", "zoom"),
-            ("keys", "screenshot"),
             ("keys", "toggle_main"),
             ("general", "autostart"),
         ] {
@@ -1255,18 +1248,72 @@ mod tests {
     #[test]
     fn invalid_legacy_shortcuts_do_not_block_unrelated_settings() {
         let old: LocalPrefs = serde_json::from_value(json!({
-            "keys": { "screenshot": "", "toggle_main": "" }
+            "keys": { "toggle_main": "" }
         }))
         .unwrap();
         let next = apply_local(&old, "general", "show_msg_time", json!(false)).unwrap();
         assert!(!next.general.show_msg_time);
         assert_eq!(next.keys, old.keys);
-        let repaired = apply_local(&old, "keys", "screenshot", json!("Ctrl+Shift+Y")).unwrap();
-        assert_eq!(repaired.keys.screenshot, "Ctrl+Shift+Y");
-        assert!(repaired.keys.toggle_main.is_empty());
-        assert!(apply_local(&old, "keys", "screenshot", json!(" ")).is_err());
+        let repaired = apply_local(&old, "keys", "toggle_main", json!("Ctrl+Shift+Y")).unwrap();
+        assert_eq!(repaired.keys.toggle_main, "Ctrl+Shift+Y");
+        assert!(apply_local(&old, "keys", "toggle_main", json!(" ")).is_err());
         assert!(apply_local(&old, "general", "show_msg_time", json!("false")).is_err());
         assert!(apply_local(&old, "general", "unknown", json!(false)).is_err());
+    }
+
+    /// Screenshot was removed on 2026-11-05. A prefs.json written by an older
+    /// build still carries `keys.screenshot`; it must parse strictly (no salvage,
+    /// no `.unreadable` copy), keep the other keys, and vanish on the next save.
+    #[test]
+    fn legacy_screenshot_shortcut_in_prefs_file_is_ignored() {
+        let root = std::env::temp_dir().join(format!("vbk-legacy-keys-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join(FILE_NAME);
+        std::fs::write(
+            &path,
+            json!({
+                "keys": {
+                    "send_key": "ctrl_enter",
+                    "screenshot": "Ctrl+Shift+X",
+                    "toggle_main": "Ctrl+Alt+M"
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let loaded = load(&path);
+        assert_eq!(loaded.local.keys.send_key, SendKey::CtrlEnter);
+        assert_eq!(loaded.local.keys.toggle_main, "Ctrl+Alt+M");
+        assert_eq!(
+            std::fs::read_dir(&root).unwrap().count(),
+            1,
+            "a tolerated legacy key must not trigger the unreadable-file path"
+        );
+        assert_eq!(
+            apply_local(&loaded.local, "keys", "screenshot", json!("Ctrl+Shift+Y"))
+                .unwrap_err()
+                .code,
+            codes::UNKNOWN_KEY
+        );
+        let module = PrefsModule {
+            path: Some(path.clone()),
+            inner: Mutex::new(Inner {
+                local: loaded.local.clone(),
+                reminder: None,
+            }),
+            reminder_sync: Mutex::new(()),
+            pending: Mutex::new(Vec::new()),
+        };
+        module
+            .save(&Inner {
+                local: loaded.local,
+                reminder: None,
+            })
+            .unwrap();
+        let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(saved["keys"].get("screenshot").is_none());
+        assert_eq!(saved["keys"]["toggle_main"], "Ctrl+Alt+M");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

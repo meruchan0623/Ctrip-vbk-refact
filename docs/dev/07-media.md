@@ -1,14 +1,13 @@
 # 07 媒体工具
 
-2026-11-03 当前状态：图片查看/安全另存及六工具 PNG 标注已接入主窗；确认生成附件草稿，不自动发送。真实 Canvas 像素、原生截图/保存、Windows、多屏遮罩、视频格式、OCR/纠错仍需实现或验收。下方 2026-10-30 的占位描述为历史状态，详见[第三批记录](../reviews/2026-11-03-screenshot-annotation-followup.md)。
+2026-11-05 当前状态：截图与截图标注已删除，见[决定](../decisions/2026-11-05-no-screenshot.md)。图片查看/安全另存已接入；原生保存、Windows、视频格式仍需验收，OCR/纠错没有代码。下方 2026-10-30 的占位描述为历史状态。
 
 2026-10-30。本项目自有能力，保留。
 
 - 网页消息附件（图片、文件、视频）按目标网页开放的类型实现，上传成功不等于消息发送成功。
-- 截图：多屏遮罩、矩形/椭圆/箭头/文字/画笔/马赛克、撤销重做、确认插入输入框、另存为；全局快捷键。
 - 图片/视频/文档查看器：独立系统窗口 `media-viewer`（见下）；OCR 提取文字（引擎与安装身份需原型确认）；中文错别字检查。
 
-2026-10-30 落盘：仅网页附件上传链路已实现（`vbk/ui/packages/web-adapter/src/upload.ts`：图片 `uploadTokenCreate` + Nephele 授权串与 Content-MD5、文件 `channel=im&public=1`、视频 v3 上传 + proc；上传成功只返回 `MediaRef`，不等于消息发送）。截图、查看器、OCR、纠错在界面上只有入口按钮与宿主命令占位，未实现。
+2026-10-30 落盘：仅网页附件上传链路已实现（`vbk/ui/packages/web-adapter/src/upload.ts`：图片 `uploadTokenCreate` + Nephele 授权串与 Content-MD5、文件 `channel=im&public=1`、视频 v3 上传 + proc；上传成功只返回 `MediaRef`，不等于消息发送）。查看器、OCR、纠错在界面上只有入口按钮与宿主命令占位，未实现。
 
 2026-11-04 查看器改为系统窗口：不再用主窗内的 `<dialog>`。主窗只传 `{account,gid,message_id}`（表情传 `{account,id}`），URL 由宿主从显示缓存解析并过 `check_external_url`；窗口是复用的单例，自绘标题栏（macOS 红绿灯、Windows 三键），OS 窗口标题固定为“附件查看器”，不含文件名。切换账号或再次进入账号（`active_visit_epoch` 变化）时宿主关窗；切换会话不关窗，便于对照回复。关闭窗口即销毁 WebView，播放随之停止。文档仍只显示文件卡片并可外部打开，窗口内渲染 PDF 未实现。
 

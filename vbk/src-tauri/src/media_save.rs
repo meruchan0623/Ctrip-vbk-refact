@@ -1,7 +1,6 @@
 //! Image save boundary ("另存"). The standalone viewer window names only an
 //! index into the gallery the host bound to it; the account, conversation,
-//! message identity, source URL and destination path all stay host-owned. The
-//! main window can save a local annotation export by attachment handle.
+//! message identity, source URL and destination path all stay host-owned.
 //! Display transforms are deliberately unrelated to these commands. No
 //! cookies, tokens or referer are sent.
 
@@ -15,7 +14,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State, Url, Window};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::dto::{AccountContextDto, AppErrorDto};
+use crate::dto::AppErrorDto;
 use crate::state::HostState;
 use crate::views;
 
@@ -259,74 +258,6 @@ pub async fn media_save_image(
         write_atomic(&path, &bytes, || {
             validate_scope(&save_app.state::<HostState>(), &source.owner)?;
             crate::media_viewer::save_source_still_bound(&save_app, index, &source)
-        })
-    })
-    .await
-    .map_err(|_| AppErrorDto::from(refused("无法保存图片")))?
-    .map_err(AppErrorDto::from)?;
-    Ok(SaveImageResult { saved: true })
-}
-
-/// Save an already-local image snapshot (including a confirmed annotation
-/// export). No renderer path or URL is accepted, and saving never consumes it.
-#[tauri::command(rename_all = "snake_case")]
-pub async fn media_save_attachment(
-    app: AppHandle,
-    window: Window,
-    state: State<'_, HostState>,
-    account: AccountContextDto,
-    gid: String,
-    attachment_id: String,
-) -> Result<SaveImageResult, AppErrorDto> {
-    state
-        .authorize(window.label(), "media_save_attachment")
-        .map_err(AppErrorDto::from)?;
-    if window.label() != crate::views::MAIN {
-        return Err(refused("此窗口不能保存图片").into());
-    }
-    let ctx: AccountContext = account.into();
-    let read = || -> Result<crate::media_outbound::FrozenAttachment, AppError> {
-        validate_scope(&state, &ctx)?;
-        let frozen = crate::shell::frozen_attachment(&app, &attachment_id, &ctx, &gid)?;
-        frozen.validate(&ctx, &gid)?;
-        if frozen.dto.kind != "image" || frozen.bytes.is_empty() || frozen.bytes.len() > MAX_BYTES {
-            return Err(refused("图片附件不可用"));
-        }
-        Ok(frozen)
-    };
-    let frozen = read().map_err(AppErrorDto::from)?;
-    crate::adapter::validate_media_target(&app, &ctx, &gid, &frozen.target)
-        .await
-        .map_err(AppErrorDto::from)?;
-    let extension = ImageKind::detect(&frozen.bytes)
-        .map_err(AppErrorDto::from)?
-        .extension();
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    app.dialog()
-        .file()
-        .set_parent(&window)
-        .set_title("保存图片")
-        .set_file_name(format!("vbooking-image.{extension}"))
-        .add_filter("图片", &[extension])
-        .save_file(move |picked| {
-            let _ = tx.send(picked);
-        });
-    let Some(path) = rx.await.ok().flatten() else {
-        return Ok(SaveImageResult { saved: false });
-    };
-    let frozen = read().map_err(AppErrorDto::from)?;
-    crate::adapter::validate_media_target(&app, &ctx, &gid, &frozen.target)
-        .await
-        .map_err(AppErrorDto::from)?;
-    let path = path
-        .into_path()
-        .map_err(|_| AppErrorDto::from(refused("无法使用该保存位置")))?;
-    let save_app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        write_atomic(&path, &frozen.bytes, || {
-            validate_scope(&save_app.state::<HostState>(), &ctx)?;
-            crate::shell::frozen_attachment(&save_app, &attachment_id, &ctx, &gid)?
-                .validate(&ctx, &gid)
         })
     })
     .await

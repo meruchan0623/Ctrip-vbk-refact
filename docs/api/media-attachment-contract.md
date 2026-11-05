@@ -2,11 +2,11 @@
 
 `ATTACHMENT_CONTRACT_VERSION = 1`
 
-owner：I-14（媒体发送链路）。消费者：I-17（Windows/macOS 截图，只登记附件快照）、I-05b（恢复边界，依赖 `unknown` 语义）、I-30f/g/k（转发、评价、自动答复，新增 journal payload 类型须向 I-14 提变更）。
+owner：I-14（媒体发送链路）。消费者：I-05b（恢复边界，依赖 `unknown` 语义）、I-30f/g/k（转发、评价、自动答复，新增 journal payload 类型须向 I-14 提变更）。
 
 本文是契约的**正文**；`vbk/crates/core-im/src/media_contract.rs` 是它的机器可校验副本。该文件的契约测试会读取本文并核对每个字段名、错误码、限额数值与上传路由，任何一边漂移即测试失败（见末节）。TypeScript 侧镜像 `vbk/ui/packages/web-adapter/src/media-limits.ts` 由 `media-limits.test.ts` 读取本文做同样的核对。
 
-**变更规则**：字段、错误码、`kind`/`stage` 取值、上传鉴权模型、限额或 `unknown` 语义的任何变化都必须同时 (1) 将 `ATTACHMENT_CONTRACT_VERSION` 加一，(2) 更新本文与契约测试，(3) 通知 I-17 与 I-05b。仅追加注释、示例、实现细节不算变更。
+**变更规则**：字段、错误码、`kind`/`stage` 取值、上传鉴权模型、限额或 `unknown` 语义的任何变化都必须同时 (1) 将 `ATTACHMENT_CONTRACT_VERSION` 加一，(2) 更新本文与契约测试，(3) 通知 I-05b。仅追加注释、示例、实现细节不算变更。
 
 证据状态：限额与两种上传鉴权来自官方桌面版实机截获（`docs/reviews/2026-11-02-desktop-live-capture-verification.md` 第三轮、计划附录 A）；本客户端的真实上传→发送→读回仍是 C 类，未在目标机验证，见末节「未验证」。
 
@@ -17,13 +17,12 @@ owner：I-14（媒体发送链路）。消费者：I-17（Windows/macOS 截图�
 | 接口 | 形态 | 说明 |
 |---|---|---|
 | `media_pick` | Tauri 命令 `{kind, account, gid} -> Option<MediaAttachmentDto>` | 系统文件选择器；先取页面目标凭据再开选择器 |
-| `media_screenshot` | Tauri 命令 `{account, gid} -> Option<MediaAttachmentDto>` | 截图入口；I-17 重做捕获，但**必须**经下面的登记函数产出附件 |
 | `media_release` | Tauri 命令 `{account, gid, attachment_id} -> ()` | 只释放本地选择；不撤回上游资源，不清 journal，不解除 `unknown` 屏障 |
 | `im_send_media` | Tauri 命令 `{account, gid, local_id, attachment_id} -> MediaSendResult` | 唯一的媒体出站入口；全部语义见 §4、§5 |
-| 登记函数（宿主内部，供 I-17） | `register_attachment(app: &AppHandle, path: PathBuf, temporary: bool, kind: String, account: AccountContext, gid: String, target: MediaTarget) -> Result<MediaAttachmentDto, AppErrorDto>` | 位于 `shell.rs`；`temporary = true` 表示宿主在附件表销毁时删除该临时文件。**v1 约定它是 I-17 唯一的接入点**；其当前可见性为模块私有，改为 `pub(crate)` 属于一行可见性变更，由 `shell.rs` 的当时 owner 在集成时合入，不改变签名 |
+| 登记函数（宿主内部） | `register_attachment(app: &AppHandle, path: PathBuf, kind: String, account: AccountContext, gid: String, target: MediaTarget) -> Result<MediaAttachmentDto, AppErrorDto>` | 位于 `shell.rs`，模块私有 |
 | 内部读取 | `FrozenAttachment::read(path: &Path, kind: &str, account: &AccountContext, gid: &str, target: MediaTarget) -> Result<FrozenAttachment, AppError>` | 冻结有界字节，校验读取前后长度与修改时间，按内容头识别 MIME |
 
-I-17 的义务：截图落为 PNG/JPEG 文件后，调用登记函数并传 `kind = "image"`；不得自行构造 `MediaAttachmentDto`，不得绕过 `im_send_media`，不得持久化路径或字节，不得改 `media_outbound.rs`、`upload.ts`、`media.ts`。
+截图（原消费者 I-17）已取消，见[决定](../decisions/2026-11-05-no-screenshot.md)。
 
 ## 2. `MediaAttachmentDto`
 

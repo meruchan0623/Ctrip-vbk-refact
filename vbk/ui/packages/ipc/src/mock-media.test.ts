@@ -11,7 +11,7 @@ import { errorMessage } from '../../../apps/main/viewmodel.ts';
 import { isRegisteredMediaAttachment } from '../../../apps/main/sendComposer.ts';
 
 for (const [command, message] of [
-  [UiCommands.MEDIA_SCREENSHOT, '演示模式不提供系统截图；请在客户端中使用。'],
+  [UiCommands.IM_MEMBERS, '示例模式未连接官方成员与话术接口'],
 ] as const) test(`default mock ${command} refuses explicitly and its real main invokeSafe displays the stable explanation`, async () => {
   const ipc = createMockIpc('default', { latency: 0, tick: false });
   try {
@@ -32,17 +32,20 @@ for (const [command, message] of [
 });
 
 
-test('annotation scenario retains its clearly named registered synthetic PNG and annotation source', async () => {
-  const ipc = createMockIpc('annotation', { latency: 0, tick: false });
+test('media-draft scenario picks a clearly named registered synthetic PNG and never simulates a sent message', async () => {
+  const ipc = createMockIpc('media-draft', { latency: 0, tick: false });
   try {
-    const account = (await ipc.invoke<UiAccountSnapshot>(AccountCommands.SNAPSHOT)).accounts[0]!.context;
+    const accounts = (await ipc.invoke<UiAccountSnapshot>(AccountCommands.SNAPSHOT)).accounts;
+    const account = accounts[0]!.context;
     const scope = { account, gid: 'g-demo-1' };
-    const attachment = await ipc.invoke<UiAttachment>(UiCommands.MEDIA_SCREENSHOT, scope);
+    const attachment = await ipc.invoke<UiAttachment>(UiCommands.MEDIA_PICK, { ...scope, kind: 'image' });
     assert.ok(isRegisteredMediaAttachment(attachment));
-    assert.equal(attachment.name, '演示标注.png'); assert.equal(attachment.kind, 'image'); assert.equal(attachment.mime, 'image/png');
+    assert.equal(attachment.name, '演示图片.png'); assert.equal(attachment.kind, 'image'); assert.equal(attachment.mime, 'image/png');
     assert.deepEqual(attachment.owner, scope);
-    const source = await ipc.invoke<{ source_hash: string; width: number; height: number; data_base64: string }>(UiCommands.MEDIA_ANNOTATION_SOURCE, { ...scope, attachment_id: attachment.attachment_id });
-    assert.equal(source.source_hash, attachment.content_sha256); assert.equal(source.width, 128); assert.equal(source.height, 96);
-    assert.ok(source.data_base64.startsWith('iVBORw0KGgo'));
+    const handle = { ...scope, attachment_id: attachment.attachment_id };
+    assert.equal((await ipc.invoke<{ kind: string }>(UiCommands.IM_SEND_MEDIA, handle)).kind, 'not_submitted');
+    await assert.rejects(ipc.invoke(UiCommands.MEDIA_RELEASE, { ...handle, account: accounts[1]!.context }), 'a foreign account cannot release this handle');
+    await ipc.invoke(UiCommands.MEDIA_RELEASE, handle);
+    await assert.rejects(ipc.invoke(UiCommands.IM_DRAFT_ATTACHMENT_SAVE, { ...handle, expected_version: 0 }), 'a released handle cannot enter a draft');
   } finally { ipc.dispose(); }
 });

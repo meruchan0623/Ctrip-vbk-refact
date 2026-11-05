@@ -31,7 +31,6 @@ pub mod events;
 pub mod features;
 pub mod local_tz;
 pub mod login;
-mod media_annotation;
 pub mod media_outbound;
 mod media_save;
 pub mod media_viewer;
@@ -313,11 +312,7 @@ pub fn run() {
             browser_tabs::browser_show,
             browser_tabs::browser_nav,
             browser_tabs::browser_close,
-            shell::media_screenshot,
             media_save::media_save_image,
-            media_save::media_save_attachment,
-            media_annotation::media_annotation_source,
-            media_annotation::media_annotation_apply,
             shell::media_pick,
             shell::media_accept_drop,
             shell::media_release,

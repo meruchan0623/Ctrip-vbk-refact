@@ -8,8 +8,6 @@ import { voiceBubble } from './voice-bubble.ts';
 import { voicePlayerOf } from './features/voice-player.ts';
 import { createAttachmentDraftBook, unavailableAttachment, type UnavailableAttachment } from './attachment-draft-book.ts';
 import { createRecovery, recoveryView, type RecoveryState } from '../_shared/recovery.ts';
-import { createAnnotationEditor, sameAnnotationOwner, type AnnotationOwner } from './annotation-editor.ts';
-import type { AnnotationSource } from '../../packages/ipc/src/annotation.ts';
 import { createServerSearchPanel, EMPTY_SERVER_SEARCH, serverSearchView, type ServerSearchState } from './server-search.ts';
 import { createAccountNavigation } from './account-navigation.ts';
 import { bannerKey, loadIgnored, saveIgnored, splitCategories, toggleIgnored, withBannerCategory } from './notice-ignore.ts';
@@ -219,7 +217,6 @@ interface NavigationOperation { readonly targetAccount?: AccountContext; readonl
 
 interface MainState {
   readonly recovery?: RecoveryState;
-  readonly annotationEditing?: boolean;
   readonly navigationOperation?: NavigationOperation | undefined;
   readonly accountVisit?: object;
   readonly roomVisit?: object;
@@ -459,92 +456,6 @@ void recovery.connect();
 const refreshRecovery = () => void recovery.refresh();
 window.addEventListener('focus', refreshRecovery);
 window.addEventListener('pagehide', () => { recovery.dispose(); window.removeEventListener('focus', refreshRecovery); }, { once: true });
-
-
-let annotationSession: { source: UiAttachment; previous: Attachment | null; owner: AnnotationOwner; isNew: boolean; saved?: UiAttachment } | null = null;
-let annotationPortal: HTMLElement | null = null;
-let annotationReturnFocus: HTMLElement | null = null;
-function annotationContext(): AnnotationOwner | null {
-  const s = S(), selection = s.attachmentSelection, conv = activeConv(s);
-  if (annotationSession && s.attachment !== annotationSession.previous) return null;
-  if (!selection || selection.accountVisit !== s.accountVisit || selection.roomVisit !== s.roomVisit || !conv || !composerInputContext(s) || isDone(conv) || s.draftVersion !== selection.draftVersion || conv.gid !== selection.gid || !stillActive(selection.account)) return null;
-  return { account: selection.account, gid: selection.gid, revision: `${conv.assistant_context_revision ?? ''}:${conv.status}`, draftVersion: selection.draftVersion, operationToken: selection };
-}
-const annotationEditor = createAnnotationEditor({
-  current: annotationContext,
-  source: (attachment, owner) => ipc.invoke<AnnotationSource>(UiCommands.MEDIA_ANNOTATION_SOURCE, { account: owner.account, gid: owner.gid, attachment_id: attachment.attachment_id }),
-  apply: async ({ attachment, owner, source, annotations, png_base64, width, height }) => {
-    const result = await ipc.invoke<unknown>(UiCommands.MEDIA_ANNOTATION_APPLY, { account: owner.account, gid: owner.gid, attachment_id: attachment.attachment_id, source_hash: source.source_hash, annotations, png_base64, width, height });
-    if (!isRegisteredMediaAttachment(result)) throw new Error('invalid annotated attachment');
-    return result;
-  },
-  release: releaseAttachment,
-  save: async (attachment) => {
-    const result = await ipc.invoke<unknown>(UiCommands.MEDIA_SAVE_ATTACHMENT, { account: attachment.owner.account, gid: attachment.owner.gid, attachment_id: attachment.attachment_id });
-    if (!result || typeof result !== 'object' || typeof (result as { saved?: unknown }).saved !== 'boolean') throw new Error('invalid image save result');
-    return (result as { saved: boolean }).saved;
-  },
-  publish: (node) => {
-    annotationPortal?.remove(); annotationPortal = node;
-    if (node) { annotationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null; document.body.appendChild(node); }
-    store.patch({ annotationEditing: !!node });
-    if (!node) { const focus = annotationReturnFocus; annotationReturnFocus = null; if (focus?.isConnected) focus.focus({ preventScroll: true }); }
-  },
-  onCancel: (source, owner) => {
-    const session = annotationSession;
-    if (!session || session.owner.operationToken !== owner.operationToken) return;
-    annotationSession = null;
-    if (S().attachmentSelection === owner.operationToken) store.patch({ attachmentSelection: null, annotationEditing: false });
-    if (session.isNew) void releaseAttachment(source);
-  },
-  onConfirm: async (attachment, _source, owner) => {
-    const session = annotationSession;
-    if (!session || !sameAnnotationOwner(owner, annotationContext()) || !ownedAttachment(attachment, owner.account, owner.gid) || attachment.kind !== 'image' || attachment.mime !== 'image/png') return false;
-    const saved = await persistSelectedAttachment(attachment, owner.operationToken as AttachmentSelection);
-    if (!saved || annotationSession !== session || !sameAnnotationOwner(owner, annotationContext())) return false;
-    session.saved = saved; return true;
-  },
-  onCommit: (_attachment, source, owner) => {
-    const session = annotationSession;
-    if (!session?.saved || !sameAnnotationOwner(owner, annotationContext())) {
-      if (session?.owner.operationToken === owner.operationToken) {
-        annotationSession = null;
-        if (session.isNew) void releaseAttachment(source);
-        if (S().attachmentSelection === owner.operationToken) store.patch({ attachmentSelection: null, annotationEditing: false });
-      }
-      return false;
-    }
-    annotationSession = null;
-    store.patch({ attachment: session.saved, attachmentSelection: null, annotationEditing: false, attachmentDraftError: null, mediaOperation: null });
-    void releaseAttachment(source);
-    if (session.previous && session.previous !== source) void releaseAttachment(session.previous);
-    focusComposer(); return true;
-  },
-});
-store.subscribe(() => annotationEditor.sync());
-async function openAttachmentEditor(source: UiAttachment, selection: AttachmentSelection, isNew: boolean): Promise<void> {
-  const owner = annotationContext();
-  if (!owner || owner.operationToken !== selection || source.mime !== 'image/png') {
-    if (S().attachmentSelection === selection) store.patch({ attachmentSelection: null });
-    if (isNew) await releaseAttachment(source);
-    toast(t('attachment.pngUnchanged')); return;
-  }
-  annotationSession = { source, previous: S().attachment, owner, isNew };
-  closeCommerce(); peripheral.close();
-  const opened = await annotationEditor.open(source, owner);
-  if (!opened && !annotationEditor.active() && annotationSession?.owner.operationToken === selection) {
-    annotationSession = null;
-    if (S().attachmentSelection === selection) store.patch({ attachmentSelection: null });
-    if (isNew) await releaseAttachment(source);
-  }
-}
-async function editSelectedAttachment(): Promise<void> {
-  const s = S(), source = s.attachment, conv = activeConv(s), account = activeAccount(s)?.context;
-  if (!source || !isRegisteredMediaAttachment(source) || !conv || !account || s.attachmentSelection || s.annotationEditing || isDone(conv) || (s.mediaOperation && s.mediaOperation.status !== 'not_submitted')) return;
-  if (source.mime !== 'image/png') { toast(t('attachment.pngUnchanged')); return; }
-  const selection: AttachmentSelection = { account: { ...account }, gid: conv.gid, draftVersion: s.draftVersion, accountVisit: s.accountVisit, roomVisit: s.roomVisit };
-  store.patch({ attachmentSelection: selection }); await openAttachmentEditor(source, selection, false);
-}
 
 
 const memberPreload = createMemberPreload({
@@ -1240,7 +1151,7 @@ function upsertConversation(c: UiConversation): void {
 }
 
 async function sendText(text: string, original: string | null, retry?: UiMessage): Promise<void> {
-  if (S().annotationEditing || S().attachmentSelection || S().attachmentDraftError || S().attachmentRestore) return;
+  if (S().attachmentSelection || S().attachmentDraftError || S().attachmentRestore) return;
   if (attachmentSendUnavailable(S().attachment)) { toast(ATTACHMENT_SEND_UNAVAILABLE); return; }
   const acc = activeAccount();
   const conv = activeConv();
@@ -1279,7 +1190,7 @@ async function handleSend(): Promise<void> {
   const s = S();
   const conv = activeConv(s);
   // A pending replacement picker never blocks sending the current attachment; sending clears the token.
-  if (!conv || composerLocked(conv) || s.annotationEditing || (s.attachmentSelection && !isRegisteredMediaAttachment(s.attachment)) || s.attachmentDraftError || s.attachmentRestore) return;
+  if (!conv || composerLocked(conv) || (s.attachmentSelection && !isRegisteredMediaAttachment(s.attachment)) || s.attachmentDraftError || s.attachmentRestore) return;
   // Send barrier (I-04a): keyboard path too (the button is already disabled); the draft is kept.
   if (persistFailed(s.accounts)) { toast(t('bar.persistFailed')); return; }
   const result = await sendComposer({ draft: s.draft, attachment: s.attachment }, async (text) => {
@@ -1317,7 +1228,7 @@ function mediaOperationCurrent(operation: MediaOperation): boolean {
 
 async function sendMediaAttachment(attachment: UiAttachment): Promise<void> {
   // A media send clears attachmentSelection below, which invalidates a still-pending picker.
-  if (S().annotationEditing || S().attachmentDraftError || S().attachmentRestore) return;
+  if (S().attachmentDraftError || S().attachmentRestore) return;
   const s = S(), accountVisit = s.accountVisit, account = activeAccount(s)?.context, conv = activeConv(s);
   if (conv && isDone(conv)) { toast(t('attachment.finished')); return; }
   if (!account || !conv || isDone(conv) || s.attachment !== attachment || !ownedAttachment(attachment, account, conv.gid)) { toast(t('attachment.wrongOwner')); return; }
@@ -1527,7 +1438,7 @@ async function restoreRoomAttachment(account: AccountContext, gid: string, room:
 async function retryAttachmentDraft(): Promise<void> {
   const s = S(), account = activeAccount(s)?.context, gid = s.activeGid;
   if (s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable === 'pending') { toast(t('attachment.pendingNoReplay')); return; }
-  if (!account || !gid || s.attachmentSelection || s.annotationEditing || s.attachmentRestore || s.mediaOperation?.status === 'busy') return;
+  if (!account || !gid || s.attachmentSelection || s.attachmentRestore || s.mediaOperation?.status === 'busy') return;
   await restoreRoomAttachment(account, gid, s.attachmentRoom ?? JSON.stringify([account, gid]));
 }
 async function persistSelectedAttachment(attachment: UiAttachment, selection: AttachmentSelection): Promise<UiAttachment | null> {
@@ -1562,21 +1473,11 @@ async function persistAttachmentBeforeLeave(): Promise<boolean> {
   store.patch({ attachment: saved, attachmentSelection: null }); return true;
 }
 
-function receiveScreenshotRequest(): void {
-  const s = S(), conv = activeConv(s);
-  if (!composerInputContext(s) || !conv || isDone(conv) || composerInput.active() || s.attachmentSelection
-    || s.annotationEditing || s.logoutDialog || s.peripheral || s.receiveDiagnostics || s.unknownOutbound || s.quickReplies?.mode === 'categories' || s.recommendations) return;
-  // Global shortcuts must not capture while the user edits a search, account remark or dialog field.
-  const editor = document.activeElement?.closest<HTMLElement>('input, textarea, [contenteditable]');
-  if (editor && editor.dataset['fid'] !== 'draft') return;
-  void attach('screenshot');
-}
-
-async function acceptAttachment(request: (args: { account: AccountContext; gid: string }) => Promise<unknown>, accepts: (kind: string) => boolean, screenshot = false): Promise<UiAttachment | null> {
+async function acceptAttachment(request: (args: { account: AccountContext; gid: string }) => Promise<unknown>, accepts: (kind: string) => boolean): Promise<UiAttachment | null> {
   const s = S(), account = activeAccount(s)?.context, conv = activeConv(s);
   // A newer picker supersedes a pending one (its selection token invalidates the older reply);
-  // restoring a persisted draft or an open annotation editor owns the composer and blocks it.
-  if (!account || !conv || s.attachmentRestore || s.annotationEditing || isDone(conv) || (s.mediaOperation && s.mediaOperation.status !== 'not_submitted')) return null;
+  // restoring a persisted draft owns the composer and blocks it.
+  if (!account || !conv || s.attachmentRestore || isDone(conv) || (s.mediaOperation && s.mediaOperation.status !== 'not_submitted')) return null;
   const revision = conv.assistant_context_revision, status = conv.status;
   const selection: AttachmentSelection = { account: { ...account }, gid: conv.gid, draftVersion: s.draftVersion, accountVisit: s.accountVisit, roomVisit: s.roomVisit };
   store.patch({ attachmentSelection: selection });
@@ -1594,7 +1495,6 @@ async function acceptAttachment(request: (args: { account: AccountContext; gid: 
     if (isRegisteredMediaAttachment(attachment)) await releaseAttachment(attachment);
     toast(t('attachment.invalidSelection')); return null;
   }
-  if (screenshot) { await openAttachmentEditor(attachment, selection, true); return null; }
   const previous = S().attachment;
   const saved = await persistSelectedAttachment(attachment, selection);
   if (!saved || !currentSelection() || S().attachment !== previous) {
@@ -1606,9 +1506,8 @@ async function acceptAttachment(request: (args: { account: AccountContext; gid: 
   return attachment;
 }
 
-async function attach(kind: 'screenshot' | 'image' | 'file'): Promise<void> {
-  if (kind === 'screenshot') await acceptAttachment((args) => invokeSafe<unknown>(UiCommands.MEDIA_SCREENSHOT, args), (got) => got === 'image', true);
-  else await acceptAttachment((args) => invokeSafe<unknown>(UiCommands.MEDIA_PICK, { ...args, kind }), (got) => got === kind);
+async function attach(kind: 'image' | 'file'): Promise<void> {
+  await acceptAttachment((args) => invokeSafe<unknown>(UiCommands.MEDIA_PICK, { ...args, kind }), (got) => got === kind);
 }
 
 function receiveFileDrag(value: unknown): void {
@@ -2713,7 +2612,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
   const locked = composerLocked(conv);
   const media = s.attachment && isRegisteredMediaAttachment(s.attachment) ? s.attachment : null;
   const operation = s.mediaOperation?.attachment === s.attachment ? s.mediaOperation : null;
-  const mediaLocked = !!s.attachmentDraftError || !!s.attachmentRestore || !!s.annotationEditing || !!s.attachmentSelection || (!!operation && operation.status !== 'not_submitted');
+  const mediaLocked = !!s.attachmentDraftError || !!s.attachmentRestore || !!s.attachmentSelection || (!!operation && operation.status !== 'not_submitted');
   // Send barrier (I-04a): the host refuses sends while persistence is failed; the composer mirrors it.
   const saveBlocked = persistFailed(s.accounts);
   const unavailableDraftAttachment = !!s.attachment && !isRegisteredMediaAttachment(s.attachment);
@@ -2731,7 +2630,6 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
       'div',
       { class: 'ctools', role: 'toolbar', 'aria-label': t('mainTs.toolbar.label') },
       ctool('emoji', t('composer.emoji'), IC.smile, { disabled: locked, on: s.emoOpen, onclick: (e: Event) => { e.stopPropagation(); store.patch({ emoOpen: !S().emoOpen, composerMore: false }); } }),
-      ctool('screenshot', t('composer.screenshot'), IC.scissors, { disabled: finished || mediaLocked, onclick: () => void attach('screenshot') }),
       ctool('image', t('composer.image'), IC.image, { disabled: finished || mediaLocked, onclick: () => void attach('image') }),
       ctool('file', t('composer.file'), IC.file, { disabled: finished || mediaLocked, onclick: () => void attach('file') }),
       ctool('phrases', t('composer.phrases'), IC.chat, { onclick: () => openPeripheral('scripts') }),
@@ -2743,7 +2641,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
     ),
     quote ? h('div', { class: 'quote-bar' }, h('span', { style: { flex: '1', overflow: 'hidden', 'white-space': 'nowrap', 'text-overflow': 'ellipsis' } }, t('chat.quotePrefix'), quote.text), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('chat.cancelQuote'), onclick: () => store.patch({ quote: null }) }, icon(IC.close, 12))) : null,
     (s.attachmentDraftError || (s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable !== 'loading' && s.attachment.unavailable !== 'pending')) ? h('div', { class: 'hint-bad', role: 'alert' }, s.attachmentDraftError ?? attachmentBlockReason(s.attachment), h('button', { class: 'btn sm', type: 'button', disabled: !!s.attachmentSelection || !!s.attachmentRestore, dataset: { action: 'retry-attachment-draft', fid: 'retry-attachment-draft' }, onclick: () => void retryAttachmentDraft() }, t('attachment.retryRead'))) : null,
-    s.attachment ? h('div', { class: 'attach', title: mediaLabel, dataset: { mediaStatus: operation?.status ?? (media ? 'ready' : 'unsupported') } }, operation?.status === 'busy' ? h('span', { class: 'spin' }) : null, h('span', { style: { 'font-size': '12px' }, role: 'status', 'aria-live': 'polite' }, t('attachment.summary', { name: s.attachment.name, status: mediaLabel })), isRegisteredMediaAttachment(s.attachment) && s.attachment.lease_id ? h('button', { class: 'btn sm', type: 'button', disabled: mediaLocked, title: t('attachment.reloadTitle'), dataset: { action: 'reload-attachment', fid: 'reload-attachment' }, onclick: () => void retryAttachmentDraft() }, t('attachment.reload')) : null, s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable === 'pending' ? h('button', { class: 'btn sm', type: 'button', dataset: { action: 'verify-pending-attachment', fid: 'verify-pending-attachment' }, onclick: openUnknownOutbound }, t('attachment.verify')) : null, isRegisteredMediaAttachment(s.attachment) && s.attachment.kind === 'image' ? h('button', { class: 'btn sm', type: 'button', disabled: mediaLocked, title: s.attachment.mime === 'image/png' ? t('attachment.annotateTitle') : t('attachment.pngOnly'), dataset: { action: 'annotate-attachment', fid: 'annotate-attachment' }, onclick: () => void editSelectedAttachment() }, t('attachment.annotate')) : null, h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), title: operation && operation.status !== 'not_submitted' ? t('attachment.removeSelection') : t('attachment.removeLocal'), disabled: operation?.status === 'busy', onclick: () => void removeAttachment(s.attachment!) }, icon(IC.close, 12))) : null,
+    s.attachment ? h('div', { class: 'attach', title: mediaLabel, dataset: { mediaStatus: operation?.status ?? (media ? 'ready' : 'unsupported') } }, operation?.status === 'busy' ? h('span', { class: 'spin' }) : null, h('span', { style: { 'font-size': '12px' }, role: 'status', 'aria-live': 'polite' }, t('attachment.summary', { name: s.attachment.name, status: mediaLabel })), isRegisteredMediaAttachment(s.attachment) && s.attachment.lease_id ? h('button', { class: 'btn sm', type: 'button', disabled: mediaLocked, title: t('attachment.reloadTitle'), dataset: { action: 'reload-attachment', fid: 'reload-attachment' }, onclick: () => void retryAttachmentDraft() }, t('attachment.reload')) : null, s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable === 'pending' ? h('button', { class: 'btn sm', type: 'button', dataset: { action: 'verify-pending-attachment', fid: 'verify-pending-attachment' }, onclick: openUnknownOutbound }, t('attachment.verify')) : null, h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), title: operation && operation.status !== 'not_submitted' ? t('attachment.removeSelection') : t('attachment.removeLocal'), disabled: operation?.status === 'busy', onclick: () => void removeAttachment(s.attachment!) }, icon(IC.close, 12))) : null,
     h('textarea', {
       class: 'ta',
       placeholder: locked ? t('composer.placeholderLocked') : finished ? t('composer.placeholderFinished') : t('composer.placeholder'),
@@ -3380,7 +3278,7 @@ const visibleReads = createVisibleRead({
       messages: conversation ? s.messages[conversation.gid] ?? [] : [],
       firstPage: conversation ? s.history[conversation.gid]?.firstPage : undefined,
       readContextRevision: conversation ? s.history[conversation.gid]?.readContextRevision : undefined,
-      view: s.view, blocked: !!(s.activeWeb || s.annotationEditing || s.logoutDialog || s.peripheral || s.receiveDiagnostics || s.unknownOutbound || s.quickReplies?.mode === 'categories' || s.recommendations) };
+      view: s.view, blocked: !!(s.activeWeb || s.logoutDialog || s.peripheral || s.receiveDiagnostics || s.unknownOutbound || s.quickReplies?.mode === 'categories' || s.recommendations) };
   },
   pane: () => root.querySelector<HTMLElement>('[data-keep-scroll="msgs"]'),
   visible: () => document.visibilityState === 'visible' && document.hasFocus(),
@@ -3524,7 +3422,6 @@ document.addEventListener('mousedown', () => {
   if (s.ctxMenu || s.meMenu || s.emoOpen || s.composerMore) store.patch({ ctxMenu: null, meMenu: false, emoOpen: false, composerMore: false });
 });
 document.addEventListener('keydown', (e) => {
-  if (S().annotationEditing) { if (e.key === 'Escape') annotationEditor.cancel(); return; }
   if (e.key === 'Tab' && (S().peripheral || S().receiveDiagnostics || S().unknownOutbound || S().quickReplies?.mode === 'categories' || S().recommendations)) {
     const dialog = document.querySelector<HTMLElement>((S().quickReplies?.mode === 'categories' || S().recommendations) ? '[data-commerce-dialog]' : S().unknownOutbound ? '[data-unknown-outbound]' : S().receiveDiagnostics ? '[data-receive-diagnostics]' : '[data-peripheral-dialog]');
     const controls = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')] : [];
@@ -3585,7 +3482,6 @@ ipc.listen<unknown>(Events.IM_MESSAGE_NEW, receiveMainMessage);
 ipc.listen<unknown>(Events.IM_MESSAGE_READ_STATUSES, receiveMessageReadStatuses);
 ipc.listen<unknown>(Events.IM_CONVERSATIONS_INVALIDATED, receiveConversationInvalidation);
 ipc.listen<unknown>(UiEvents.MEDIA_SEND_PROGRESS, receiveMediaProgress);
-ipc.listen<unknown>(UiEvents.SCREENSHOT_REQUEST, receiveScreenshotRequest);
 ipc.listen<unknown>(UiEvents.BROWSER_TAB_OPENED, browserTabs.receiveOpened);
 ipc.listen<unknown>(UiEvents.BROWSER_TAB_CHANGED, browserTabs.receiveChanged);
 ipc.listen<unknown>(UiEvents.BROWSER_TAB_CLOSED, browserTabs.receiveClosed);

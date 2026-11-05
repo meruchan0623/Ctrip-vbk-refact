@@ -133,10 +133,6 @@ impl Role {
             "browser_show",
             "browser_nav",
             "browser_close",
-            "media_screenshot",
-            "media_save_attachment",
-            "media_annotation_source",
-            "media_annotation_apply",
             "media_pick",
             "media_accept_drop",
             "media_release",
@@ -546,7 +542,6 @@ mod tests {
         for command in [
             "media_viewer_open_message",
             "media_viewer_open_emoji",
-            "media_save_attachment",
             "shell_open_external",
             "shell_open_webview",
             "im_send_text",
@@ -563,7 +558,14 @@ mod tests {
             .is_ok());
         assert!(registry.authorize(MAIN, "media_viewer_current").is_err());
         assert!(registry.authorize(MAIN, "media_save_image").is_err());
-        assert!(registry.authorize(MAIN, "media_save_attachment").is_ok());
+        for removed in [
+            "media_screenshot",
+            "media_save_attachment",
+            "media_annotation_source",
+            "media_annotation_apply",
+        ] {
+            assert!(registry.authorize(MAIN, removed).is_err(), "{removed}");
+        }
         assert!(registry
             .authorize(MAIN, "media_viewer_open_external")
             .is_err());

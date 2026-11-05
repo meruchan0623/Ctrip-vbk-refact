@@ -4,7 +4,7 @@
 
 ## 入口与归属
 
-`media_pick{account,gid,kind}`与`media_screenshot{account,gid}`只从主窗口准入，先在对应账号页面获取目标凭据，再打开本地选择器。返回的opaque attachment含id、basename、kind、MIME、size、内容SHA256及完整AccountContext/gid；本地路径不离开宿主。对话框返回后重新核对账号、session_generation及页面目标；UI另核对选择实例、gid、草稿版本。旧会话或旧选择的晚到结果不能进入新composer。
+`media_pick{account,gid,kind}`只从主窗口准入，先在对应账号页面获取目标凭据，再打开本地选择器。返回的opaque attachment含id、basename、kind、MIME、size、内容SHA256及完整AccountContext/gid；本地路径不离开宿主。对话框返回后重新核对账号、session_generation及页面目标；UI另核对选择实例、gid、草稿版本。旧会话或旧选择的晚到结果不能进入新composer。
 
 页面目标绑定room、订单、客户、service session、conversationType/serviceType、thread、conversationKey、worksheet、本人UID、AccountContext及页面运行代次。一个字符串别名不能代替gid；缺必要身份字段拒绝。目标凭据和本地附件有5分钟期限，过期需重新选择，不复用旧授权。
 
@@ -45,4 +45,4 @@
 
 必须保留所有旧未注册附件阻断、文本回执、草稿、引用撤回和unknown核验判据。新增覆盖实际UI入口、真实RPC/上传链、真实FileStore持久阶段和文件快照；故障注入需先红后恢复。最终计数、独立复审结论及产物hash写入当轮记录；本文件不将中途工作树绿态称为冻结验证。
 
-未完成：真实受控图片/文件/视频的客户端→官方读回、官方→客户端自然接收、真实出站unknown的跨进程恢复、系统截图（Windows）、大视频分片、长期对象存储/病毒扫描/过期URL再授权与全平台权限。移植到TSim还需独立数据库attempt/资产服务和权限设计，见[迁移说明](../integration/tsim-cs.md)。
+未完成：真实受控图片/文件/视频的客户端→官方读回、官方→客户端自然接收、真实出站unknown的跨进程恢复、大视频分片、长期对象存储/病毒扫描/过期URL再授权与全平台权限。移植到TSim还需独立数据库attempt/资产服务和权限设计，见[迁移说明](../integration/tsim-cs.md)。

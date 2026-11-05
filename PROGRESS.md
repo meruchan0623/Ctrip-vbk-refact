@@ -1,5 +1,10 @@
 # VBooking 消息面板对齐（2026-10-31）
 
+## 2026-11-05：删除截图与截图标注
+- 用户决定不做截图（2026-11-04、2026-11-05），见[决定](docs/decisions/2026-11-05-no-screenshot.md)。这些代码是被旧快照合并误恢复回来的。
+- 已删：`media_screenshot`、截图全局热键与 `keys.screenshot`、主窗入口、标注编辑器及 `media_annotation_*`、只服务标注的 `media_save_attachment`、`crates/core-media`。保留普通图片/文件发送、粘贴拖拽、附件草稿持久化、`media-viewer`、`attachment_leases`、`keys.toggle_main`。
+- 本文件和 `BLOCKED.md` 下方提到截图或标注进度的旧条目只是历史，不再是待办。单测和门禁通过，未做实机验收。
+
 ## 2026-11-04：设置项逐项审计与即时生效
 - `display.zoom` 原本只存不用，现由宿主 `ui_zoom.rs` 用 `set_zoom` 作用于全部本地窗口（登录窗与远程 webview 除外），并同步主窗最小尺寸、小窗尺寸、提醒窗定位和内置浏览器区域；页面用 `--ui-zoom` 换算红绿灯宽度。
 - 接通此前无消费者的设置：勿扰时段、跟随系统勿扰（`SystemState.ambient_dnd`）、全屏应用检测（`attention.rs`）、系统代理（`net_policy.rs`，reqwest 启用 `system-proxy`）；提醒窗位置变更立即移动。

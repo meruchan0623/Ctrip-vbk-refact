@@ -192,10 +192,6 @@ export const UiCommands = {
   BROWSER_CLOSE: 'browser_close', // {tab_id}
   SHELL_OPEN_WINDOW: 'shell_open_window', // {label}
   SHELL_WINDOW: 'shell_window', // {action: 'state'|'minimize'|'toggle_maximize'|'close'|'system_menu'} → {maximized, focused}
-  MEDIA_SCREENSHOT: 'media_screenshot', // {account,gid} → UiAttachment | null
-  MEDIA_ANNOTATION_SOURCE: 'media_annotation_source', // owner + attachment_id → AnnotationSource
-  MEDIA_ANNOTATION_APPLY: 'media_annotation_apply', // validated local annotation export → UiAttachment
-  MEDIA_SAVE_ATTACHMENT: 'media_save_attachment', // owner + attachment_id → {saved:boolean}; native dialog
   MEDIA_SAVE_IMAGE: 'media_save_image', // media-viewer window only: {index} of the bound gallery → {saved:boolean}; native dialog, original bytes only
   MEDIA_PICK: 'media_pick', // {account,gid,kind:'image'|'file'} → UiAttachment | null
   MEDIA_ACCEPT_DROP: 'media_accept_drop', // {account,gid,drop_id} → UiAttachment | null; redeems a media://dropped id
@@ -235,7 +231,6 @@ export const UiEvents = {
   BROWSER_TAB_CHANGED: 'browser://tab-changed', // UiBrowserTab
   BROWSER_TAB_CLOSED: 'browser://tab-closed', // {tab_id}
   WEBVIEW_RECOVERY: 'webview://recovery',
-  SCREENSHOT_REQUEST: 'media://screenshot-request', // local main window only
   PACKAGE_DETAIL_INVALIDATED: 'assistant://package-detail-invalidated',
   MEDIA_VIEWER_CHANGED: 'media-viewer://changed',
   TSIM_STATUS: 'assistant://tsim-status', // UiTsimStatus; local views only
@@ -525,7 +520,7 @@ export interface PrefsSnapshot {
     readonly spell_check: boolean;
   };
   readonly display: { readonly zoom: 75 | 100 | 125 | 150; readonly gpu: boolean };
-  readonly keys: { readonly send_key: 'enter' | 'ctrl_enter'; readonly screenshot: string; readonly toggle_main: string };
+  readonly keys: { readonly send_key: 'enter' | 'ctrl_enter'; readonly toggle_main: string };
   readonly assistant: {
     readonly enabled: boolean;
     readonly outbound_translation: boolean;

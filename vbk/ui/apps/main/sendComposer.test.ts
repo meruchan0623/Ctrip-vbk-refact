@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sendComposer } from './sendComposer.ts';
 
-for (const name of ['synthetic-image.png', 'synthetic-file.pdf', 'synthetic-screenshot.png']) {
+for (const name of ['synthetic-image.png', 'synthetic-file.pdf']) {
   for (const draft of ['', '  SYNTHETIC DRAFT\nkeep whitespace  ']) {
     test(`unimplemented ${name} blocks before outbound callbacks with ${draft ? 'text' : 'empty draft'}`, async () => {
       const attachment = Object.freeze({ name });

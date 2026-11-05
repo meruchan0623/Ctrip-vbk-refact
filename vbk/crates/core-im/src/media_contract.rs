@@ -3,8 +3,8 @@
 //! The prose is `docs/api/media-attachment-contract.md`; this module is its
 //! machine-checkable twin. The tests at the bottom parse the document and
 //! fail when either side drifts, so a field, code or limit can only change
-//! together with `ATTACHMENT_CONTRACT_VERSION` and a notice to I-17 (capture)
-//! and I-05b (recovery boundary).
+//! together with `ATTACHMENT_CONTRACT_VERSION` and a notice to I-05b (recovery
+//! boundary).
 
 use crate::media_limits::{self, MediaKind};
 

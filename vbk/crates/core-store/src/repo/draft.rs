@@ -1,5 +1,5 @@
 //! Drafts with compare-and-set versions (plan §3 "DraftSnapshot / CAS"): a
-//! late translation or screenshot result carrying an old
+//! late translation or attachment result carrying an old
 //! `expected_version` cannot overwrite newer input.
 
 use contracts::json::JsonValue;

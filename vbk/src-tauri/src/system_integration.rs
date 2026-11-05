@@ -1,5 +1,5 @@
 //! Rust-only OS integration. No plugin IPC permissions or remote webview access.
-use std::{collections::HashMap, sync::Mutex};
+use std::{collections::HashSet, sync::Mutex};
 
 use contracts::AppError;
 use tauri::{AppHandle, Manager};
@@ -8,104 +8,34 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::prefs::LocalPrefs;
 
-pub const SCREENSHOT_REQUEST: &str = "media://screenshot-request";
 const ERROR: &str = "prefs.system_integration";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Action {
-    Screenshot,
-    ToggleMain,
-}
-
-#[cfg(test)]
-fn shortcuts(prefs: &LocalPrefs) -> Result<[(Shortcut, Action); 2], AppError> {
-    let parse = |value: &str| {
-        value
-            .parse::<Shortcut>()
-            .map_err(|_| AppError::new(ERROR, "invalid global shortcut"))
-    };
-    let screenshot = parse(&prefs.keys.screenshot)?;
-    let toggle = parse(&prefs.keys.toggle_main)?;
-    if screenshot == toggle {
-        return Err(AppError::new(ERROR, "global shortcuts must be different"));
-    }
-    Ok([
-        (screenshot, Action::Screenshot),
-        (toggle, Action::ToggleMain),
-    ])
-}
 
 /// Explicitly supplied even for same-value saves, which retry failed OS sync.
 #[derive(Clone, Copy)]
 pub(crate) enum Domain {
     Autostart,
-    Screenshot,
     ToggleMain,
 }
 
 trait Backend {
     fn autostart_enabled(&self) -> Result<bool, String>;
     fn autostart(&self, enabled: bool) -> Result<(), String>;
-    fn bindings(&self) -> Vec<(Shortcut, Action)>;
-    fn register(&self, shortcut: Shortcut, action: Action) -> Result<(), String>;
+    fn bindings(&self) -> Vec<Shortcut>;
+    fn register(&self, shortcut: Shortcut) -> Result<(), String>;
     fn unregister(&self, shortcut: Shortcut) -> Result<(), String>;
 }
 
-fn desired_shortcuts(
-    prefs: &LocalPrefs,
-    edited: Action,
-    actual: &[(Shortcut, Action)],
-) -> Result<Vec<(Shortcut, Action)>, AppError> {
-    let (value, other_value, other_action) = match edited {
-        Action::Screenshot => (
-            &prefs.keys.screenshot,
-            &prefs.keys.toggle_main,
-            Action::ToggleMain,
-        ),
-        Action::ToggleMain => (
-            &prefs.keys.toggle_main,
-            &prefs.keys.screenshot,
-            Action::Screenshot,
-        ),
-    };
-    let key = value
+fn parse_shortcut(value: &str) -> Result<Shortcut, AppError> {
+    value
         .parse::<Shortcut>()
-        .map_err(|_| AppError::new(ERROR, "invalid global shortcut"))?;
-    let other_key = other_value.parse::<Shortcut>().ok();
-    if other_key == Some(key) {
-        return Err(AppError::new(ERROR, "global shortcuts must be different"));
-    }
-    // Operate only on the edited action. Do not retry a different action's
-    // missing registration: its OS conflict must not block this field.
-    let mut desired: Vec<_> = actual
-        .iter()
-        .copied()
-        .filter(|(_, action)| *action == other_action)
-        .collect();
-    // Repairing a legacy duplicate leaves its old physical key assigned to
-    // the other action. Rebind an existing handler, but never acquire a
-    // missing unrelated key.
-    if let Some(other_key) = other_key {
-        if actual.iter().any(|(have, _)| *have == other_key) {
-            desired.retain(|(have, _)| *have != other_key);
-            desired.push((other_key, other_action));
-        }
-    }
-    if desired.iter().any(|(other_key, _)| *other_key == key) {
-        return Err(AppError::new(
-            ERROR,
-            "global shortcut is still used by the other action",
-        ));
-    }
-    desired.insert(0, (key, edited));
-    Ok(desired)
+        .map_err(|_| AppError::new(ERROR, "invalid global shortcut"))
 }
 
-// The plugin exposes whether this app owns a key, but cannot read its handler.
-// Keep the action only after each successful OS operation; preference values
-// are not a record of the actual handlers, especially after a failed rollback.
+// The plugin exposes whether this app owns a key, but cannot list its keys.
+// Record a key only after each successful OS operation; preference values are
+// not a record of the actual registrations, especially after a failed rollback.
 #[derive(Default)]
-struct Bindings(Mutex<HashMap<Shortcut, Action>>);
+struct Bindings(Mutex<HashSet<Shortcut>>);
 
 struct Host<'a>(&'a AppHandle);
 impl<'a> Host<'a> {
@@ -127,39 +57,27 @@ impl Backend for Host<'_> {
         }
         .map_err(|e| e.to_string())
     }
-    fn bindings(&self) -> Vec<(Shortcut, Action)> {
+    fn bindings(&self) -> Vec<Shortcut> {
         let state = self.0.state::<Bindings>();
         let bindings = state.0.lock().unwrap_or_else(|e| e.into_inner());
         bindings
             .iter()
-            .filter(|(key, _)| self.0.global_shortcut().is_registered(**key))
-            .map(|(key, action)| (*key, *action))
+            .filter(|key| self.0.global_shortcut().is_registered(**key))
+            .copied()
             .collect()
     }
-    fn register(&self, shortcut: Shortcut, action: Action) -> Result<(), String> {
+    fn register(&self, shortcut: Shortcut) -> Result<(), String> {
         self.0
             .global_shortcut()
             .on_shortcut(shortcut, move |app, _, event| {
                 if event.state != ShortcutState::Pressed {
                     return;
                 }
-                match action {
-                    Action::Screenshot => {
-                        // The UI invokes the existing account/gid-guarded capture command.
-                        // This event never captures or sends anything itself.
+                if let Some(main) = app.get_webview_window(crate::views::MAIN) {
+                    if main.is_visible().unwrap_or(false) && main.is_focused().unwrap_or(false) {
+                        let _ = main.hide();
+                    } else {
                         crate::windows::show_main(app);
-                        crate::events::to_main(app, SCREENSHOT_REQUEST, serde_json::json!({}));
-                    }
-                    Action::ToggleMain => {
-                        if let Some(main) = app.get_webview_window(crate::views::MAIN) {
-                            if main.is_visible().unwrap_or(false)
-                                && main.is_focused().unwrap_or(false)
-                            {
-                                let _ = main.hide();
-                            } else {
-                                crate::windows::show_main(app);
-                            }
-                        }
                     }
                 }
             })
@@ -169,7 +87,7 @@ impl Backend for Host<'_> {
             .0
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(shortcut, action);
+            .insert(shortcut);
         Ok(())
     }
     fn unregister(&self, shortcut: Shortcut) -> Result<(), String> {
@@ -192,23 +110,13 @@ fn failure(message: String) -> AppError {
 }
 
 /// Reconcile from actual successful registrations, never from persisted prefs.
-/// New physical keys are acquired before old keys are released. Retained keys
-/// with a different action must be unregistered and rebound explicitly.
-fn reconcile<B: Backend>(backend: &B, desired: &[(Shortcut, Action)]) -> Result<(), String> {
-    for &(key, action) in desired {
-        if !backend.bindings().iter().any(|(have, _)| *have == key) {
-            backend.register(key, action)?;
-        }
+/// The new physical key is acquired before old keys are released.
+fn reconcile<B: Backend>(backend: &B, desired: Shortcut) -> Result<(), String> {
+    if !backend.bindings().contains(&desired) {
+        backend.register(desired)?;
     }
-    for &(key, action) in desired {
-        if backend.bindings().contains(&(key, action)) {
-            continue;
-        }
-        backend.unregister(key)?;
-        backend.register(key, action)?;
-    }
-    for (key, _) in backend.bindings() {
-        if !desired.iter().any(|(want, _)| *want == key) {
+    for key in backend.bindings() {
+        if key != desired {
             backend.unregister(key)?;
         }
     }
@@ -216,37 +124,20 @@ fn reconcile<B: Backend>(backend: &B, desired: &[(Shortcut, Action)]) -> Result<
 }
 
 /// Restore the snapshot first. If any previous binding cannot be restored,
-/// keep other working replacements instead of deleting the last usable key.
-fn restore<B: Backend>(backend: &B, before: &[(Shortcut, Action)]) -> Result<(), String> {
+/// keep the working replacement instead of deleting the last usable key.
+fn restore<B: Backend>(backend: &B, before: &[Shortcut]) -> Result<(), String> {
     let mut errors = Vec::new();
-    for &(key, action) in before {
-        let current = backend
-            .bindings()
-            .into_iter()
-            .find(|(have, _)| *have == key);
-        if current == Some((key, action)) {
+    for &key in before {
+        if backend.bindings().contains(&key) {
             continue;
         }
-        if current.is_some() {
-            if let Err(e) = backend.unregister(key) {
-                errors.push(e);
-                continue;
-            }
-        }
-        if let Err(e) = backend.register(key, action) {
+        if let Err(e) = backend.register(key) {
             errors.push(e);
-            // A failed same-key restoration should also preserve its last
-            // working handler when possible.
-            if let Some((key, fallback)) = current {
-                if let Err(e) = backend.register(key, fallback) {
-                    errors.push(e);
-                }
-            }
         }
     }
     if errors.is_empty() {
-        for (key, _) in backend.bindings() {
-            if !before.iter().any(|(old, _)| *old == key) {
+        for key in backend.bindings() {
+            if !before.contains(&key) {
                 if let Err(e) = backend.unregister(key) {
                     errors.push(e);
                 }
@@ -288,21 +179,16 @@ fn update<B: Backend>(
             }
             Ok(())
         }
-        Domain::Screenshot | Domain::ToggleMain => {
+        Domain::ToggleMain => {
             let before = backend.bindings();
-            let edited = match domain {
-                Domain::Screenshot => Action::Screenshot,
-                Domain::ToggleMain => Action::ToggleMain,
-                Domain::Autostart => unreachable!(),
-            };
-            let desired = desired_shortcuts(next, edited, &before)?;
-            let result = reconcile(backend, &desired)
+            let desired = parse_shortcut(&next.keys.toggle_main)?;
+            let result = reconcile(backend, desired)
                 .map_err(failure)
                 .and_then(|()| save());
             if let Err(error) = result {
                 if let Err(e) = restore(backend, &before) {
                     return Err(failure(format!(
-                        "{error}; OS rollback failed: {e}; working replacement shortcuts retained where possible; retry saving this setting"
+                        "{error}; OS rollback failed: {e}; working replacement shortcut retained where possible; retry saving this setting"
                     )));
                 }
                 return Err(error);
@@ -329,18 +215,15 @@ pub fn init(app: &AppHandle) {
         log::warn!("autostart sync failed: {e}");
         crate::events::toast(app, "开机启动设置应用失败，请在设置中重新保存");
     }
-    for (value, action) in [
-        (&prefs.keys.screenshot, Action::Screenshot),
-        (&prefs.keys.toggle_main, Action::ToggleMain),
-    ] {
-        let result = value
-            .parse::<Shortcut>()
-            .map_err(|_| "invalid global shortcut".to_string())
-            .and_then(|key| host.register(key, action));
-        if let Err(e) = result {
-            log::warn!("global shortcut registration failed: {e}");
-            crate::events::toast(app, "全局快捷键注册失败，请在设置中更换快捷键");
-        }
+    let result = prefs
+        .keys
+        .toggle_main
+        .parse::<Shortcut>()
+        .map_err(|_| "invalid global shortcut".to_string())
+        .and_then(|key| host.register(key));
+    if let Err(e) = result {
+        log::warn!("global shortcut registration failed: {e}");
+        crate::events::toast(app, "全局快捷键注册失败，请在设置中更换快捷键");
     }
 }
 
@@ -348,18 +231,19 @@ pub fn init(app: &AppHandle) {
 mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
 
     #[derive(Debug, PartialEq, Eq)]
     enum Call {
         ReadAutostart,
         Autostart(bool),
-        Register(Shortcut, Action),
+        Register(Shortcut),
         Unregister(Shortcut),
     }
 
     #[derive(Default)]
     struct Fake {
-        keys: RefCell<HashMap<Shortcut, Action>>,
+        keys: RefCell<HashSet<Shortcut>>,
         fail_register: RefCell<HashMap<Shortcut, usize>>,
         fail_unregister: Cell<Option<Shortcut>>,
         calls: RefCell<Vec<Call>>,
@@ -383,26 +267,22 @@ mod tests {
             self.enabled.set(enabled);
             Ok(())
         }
-        fn bindings(&self) -> Vec<(Shortcut, Action)> {
-            self.keys
-                .borrow()
-                .iter()
-                .map(|(key, action)| (*key, *action))
-                .collect()
+        fn bindings(&self) -> Vec<Shortcut> {
+            self.keys.borrow().iter().copied().collect()
         }
-        fn register(&self, key: Shortcut, action: Action) -> Result<(), String> {
-            self.calls.borrow_mut().push(Call::Register(key, action));
+        fn register(&self, key: Shortcut) -> Result<(), String> {
+            self.calls.borrow_mut().push(Call::Register(key));
             if let Some(remaining) = self.fail_register.borrow_mut().get_mut(&key) {
                 if *remaining > 0 {
                     *remaining -= 1;
                     return Err("occupied".into());
                 }
             }
-            // Like the plugin: an occupied physical key does not replace its handler.
-            if self.keys.borrow().contains_key(&key) {
+            // Like the plugin: an occupied physical key is refused.
+            if self.keys.borrow().contains(&key) {
                 return Err("already registered".into());
             }
-            self.keys.borrow_mut().insert(key, action);
+            self.keys.borrow_mut().insert(key);
             Ok(())
         }
         fn unregister(&self, key: Shortcut) -> Result<(), String> {
@@ -415,45 +295,41 @@ mod tests {
         }
     }
 
+    fn key(prefs: &LocalPrefs) -> Shortcut {
+        parse_shortcut(&prefs.keys.toggle_main).unwrap()
+    }
     fn fixture() -> (Fake, LocalPrefs, LocalPrefs) {
         let old = LocalPrefs::default();
         let fake = Fake::default();
-        *fake.keys.borrow_mut() = shortcuts(&old).unwrap().into_iter().collect();
+        fake.keys.borrow_mut().insert(key(&old));
         let mut next = old.clone();
-        next.keys.screenshot = "Ctrl+Shift+Y".into();
+        next.keys.toggle_main = "Ctrl+Shift+Y".into();
         (fake, old, next)
     }
     fn save_failure() -> Result<(), AppError> {
         Err(AppError::new("prefs.persistence", "disk full"))
     }
-    fn expected(prefs: &LocalPrefs) -> HashMap<Shortcut, Action> {
-        shortcuts(prefs).unwrap().into_iter().collect()
+    fn expected(prefs: &LocalPrefs) -> HashSet<Shortcut> {
+        [key(prefs)].into_iter().collect()
     }
 
     #[test]
     fn occupied_replacement_keeps_old_key_and_does_not_save() {
         let (fake, old, next) = fixture();
-        let replacement = shortcuts(&next).unwrap()[0];
-        fake.fail_register.borrow_mut().insert(replacement.0, 1);
-        assert!(update(&fake, &next, Domain::Screenshot, || panic!("must not save")).is_err());
+        let replacement = key(&next);
+        fake.fail_register.borrow_mut().insert(replacement, 1);
+        assert!(update(&fake, &next, Domain::ToggleMain, || panic!("must not save")).is_err());
         assert_eq!(*fake.keys.borrow(), expected(&old));
-        assert_eq!(
-            *fake.calls.borrow(),
-            [Call::Register(replacement.0, replacement.1)]
-        );
+        assert_eq!(*fake.calls.borrow(), [Call::Register(replacement)]);
     }
 
     #[test]
     fn registers_replacement_before_releasing_old_key() {
         let (fake, old, next) = fixture();
-        update(&fake, &next, Domain::Screenshot, || Ok(())).unwrap();
-        let replacement = shortcuts(&next).unwrap()[0];
+        update(&fake, &next, Domain::ToggleMain, || Ok(())).unwrap();
         assert_eq!(
             *fake.calls.borrow(),
-            [
-                Call::Register(replacement.0, replacement.1),
-                Call::Unregister(shortcuts(&old).unwrap()[0].0)
-            ]
+            [Call::Register(key(&next)), Call::Unregister(key(&old))]
         );
         assert_eq!(*fake.keys.borrow(), expected(&next));
     }
@@ -505,14 +381,14 @@ mod tests {
     #[test]
     fn invalid_shortcuts_do_not_block_autostart_and_failed_autostart_does_not_block_keys() {
         let (fake, mut old, next) = fixture();
-        old.keys.screenshot = "invalid".into();
+        old.keys.toggle_main = "invalid".into();
         old.general.autostart = true;
         update(&fake, &old, Domain::Autostart, || Ok(())).unwrap();
         assert!(fake.enabled.get());
         fake.calls.borrow_mut().clear();
         fake.fail_read_autostart.set(true);
         fake.fail_enable.set(true);
-        update(&fake, &next, Domain::Screenshot, || Ok(())).unwrap();
+        update(&fake, &next, Domain::ToggleMain, || Ok(())).unwrap();
         assert_eq!(*fake.keys.borrow(), expected(&next));
         assert!(fake.enabled.get());
         assert!(fake
@@ -523,21 +399,16 @@ mod tests {
     }
 
     #[test]
-    fn failed_disk_save_restores_actual_shortcut_actions() {
+    fn failed_disk_save_restores_actual_shortcut() {
         let (fake, old, next) = fixture();
-        assert!(update(&fake, &next, Domain::Screenshot, save_failure).is_err());
+        assert!(update(&fake, &next, Domain::ToggleMain, save_failure).is_err());
         assert_eq!(*fake.keys.borrow(), expected(&old));
         assert!(!fake.enabled.get());
     }
 
     #[test]
-    fn equivalent_aliases_and_invalid_edited_shortcuts_are_rejected_before_os_changes() {
+    fn invalid_edited_shortcuts_are_rejected_before_os_changes() {
         let (fake, old, mut prefs) = fixture();
-        prefs.keys.toggle_main = "Control+Shift+X".into();
-        assert!(update(&fake, &prefs, Domain::ToggleMain, || panic!(
-            "must not save"
-        ))
-        .is_err());
         prefs.keys.toggle_main = "not a shortcut".into();
         assert!(update(&fake, &prefs, Domain::ToggleMain, || panic!(
             "must not save"
@@ -548,68 +419,43 @@ mod tests {
     }
 
     #[test]
-    fn legacy_duplicate_repair_rebinds_retained_physical_key_to_correct_action() {
-        let fake = Fake::default();
-        let mut old = LocalPrefs::default();
-        old.keys.toggle_main = "Control+Shift+X".into();
-        let x = old.keys.screenshot.parse().unwrap();
-        fake.keys.borrow_mut().insert(x, Action::Screenshot);
-        let mut next = old;
-        next.keys.screenshot = "Ctrl+Shift+Y".into();
-        update(&fake, &next, Domain::Screenshot, || Ok(())).unwrap();
-        assert_eq!(*fake.keys.borrow(), expected(&next));
-        assert_eq!(fake.keys.borrow().get(&x), Some(&Action::ToggleMain));
-        assert!(fake
-            .calls
-            .borrow()
-            .windows(2)
-            .any(|calls| calls == [Call::Unregister(x), Call::Register(x, Action::ToggleMain)]));
-    }
-
-    #[test]
-    fn failed_rebind_restores_actual_handler_instead_of_ambiguous_prefs_action() {
-        let (fake, _, mut next) = fixture();
-        let x = next.keys.screenshot.parse().unwrap();
-        let original = fake.keys.borrow().clone();
-        next.keys.toggle_main = next.keys.screenshot.clone();
-        next.keys.screenshot = "Ctrl+Shift+Y".into();
-        fake.fail_register.borrow_mut().insert(x, 1);
-        assert!(update(&fake, &next, Domain::Screenshot, || panic!("must not save")).is_err());
-        assert_eq!(*fake.keys.borrow(), original);
+    fn equivalent_alias_of_the_registered_key_saves_without_os_changes() {
+        let (fake, old, mut prefs) = fixture();
+        prefs.keys.toggle_main = "Control+Alt+V".into();
+        assert_eq!(key(&prefs), key(&old));
+        update(&fake, &prefs, Domain::ToggleMain, || Ok(())).unwrap();
+        assert_eq!(*fake.keys.borrow(), expected(&old));
+        assert!(fake.calls.borrow().is_empty());
     }
 
     #[test]
     fn failed_old_key_restore_keeps_replacement_and_can_retry_same_target() {
         let (fake, old, next) = fixture();
-        let old_key = shortcuts(&old).unwrap()[0].0;
-        fake.fail_register.borrow_mut().insert(old_key, 1);
-        let error = update(&fake, &next, Domain::Screenshot, save_failure).unwrap_err();
+        fake.fail_register.borrow_mut().insert(key(&old), 1);
+        let error = update(&fake, &next, Domain::ToggleMain, save_failure).unwrap_err();
         assert!(error.retryable);
         assert!(error.message.contains("OS rollback failed"));
-        assert!(error.message.contains("replacement shortcuts retained"));
+        assert!(error.message.contains("replacement shortcut retained"));
         assert_eq!(*fake.keys.borrow(), expected(&next));
         // A retry uses actual registrations rather than re-registering an occupied key.
-        update(&fake, &next, Domain::Screenshot, || Ok(())).unwrap();
+        update(&fake, &next, Domain::ToggleMain, || Ok(())).unwrap();
         assert_eq!(*fake.keys.borrow(), expected(&next));
     }
 
     #[test]
     fn retrying_persisted_value_after_degraded_rollback_restores_old_key_and_removes_fallback() {
         let (fake, old, next) = fixture();
-        fake.fail_register
-            .borrow_mut()
-            .insert(shortcuts(&old).unwrap()[0].0, 1);
-        assert!(update(&fake, &next, Domain::Screenshot, save_failure).is_err());
-        update(&fake, &old, Domain::Screenshot, || Ok(())).unwrap();
+        fake.fail_register.borrow_mut().insert(key(&old), 1);
+        assert!(update(&fake, &next, Domain::ToggleMain, save_failure).is_err());
+        update(&fake, &old, Domain::ToggleMain, || Ok(())).unwrap();
         assert_eq!(*fake.keys.borrow(), expected(&old));
     }
 
     #[test]
     fn unregister_failure_preserves_original_bindings_and_does_not_save() {
         let (fake, old, next) = fixture();
-        fake.fail_unregister
-            .set(Some(shortcuts(&old).unwrap()[0].0));
-        assert!(update(&fake, &next, Domain::Screenshot, || panic!("must not save")).is_err());
+        fake.fail_unregister.set(Some(key(&old)));
+        assert!(update(&fake, &next, Domain::ToggleMain, || panic!("must not save")).is_err());
         assert_eq!(*fake.keys.borrow(), expected(&old));
     }
 
@@ -617,18 +463,13 @@ mod tests {
     fn same_values_retry_startup_failures_only_in_requested_domain() {
         let (fake, mut prefs, _) = fixture();
         fake.keys.borrow_mut().clear();
-        update(&fake, &prefs, Domain::Screenshot, || Ok(())).unwrap();
-        assert_eq!(
-            *fake.keys.borrow(),
-            [(shortcuts(&prefs).unwrap()[0])].into_iter().collect()
-        );
+        update(&fake, &prefs, Domain::ToggleMain, || Ok(())).unwrap();
+        assert_eq!(*fake.keys.borrow(), expected(&prefs));
         assert!(fake
             .calls
             .borrow()
             .iter()
             .all(|call| matches!(call, Call::Register(..))));
-        update(&fake, &prefs, Domain::ToggleMain, || Ok(())).unwrap();
-        assert_eq!(*fake.keys.borrow(), expected(&prefs));
         fake.calls.borrow_mut().clear();
         prefs.general.autostart = true;
         update(&fake, &prefs, Domain::Autostart, || Ok(())).unwrap();
@@ -638,49 +479,31 @@ mod tests {
             [Call::ReadAutostart, Call::Autostart(true)]
         );
     }
+
     #[test]
-    fn both_invalid_legacy_keys_can_be_repaired_one_field_at_a_time() {
+    fn invalid_legacy_key_can_be_repaired_after_startup_registered_nothing() {
         let fake = Fake::default();
         let mut next = LocalPrefs::default();
-        next.keys.screenshot = "Ctrl+Shift+Y".into();
         next.keys.toggle_main = "invalid".into();
-        update(&fake, &next, Domain::Screenshot, || Ok(())).unwrap();
-        assert_eq!(fake.keys.borrow().len(), 1);
+        assert!(update(&fake, &next, Domain::ToggleMain, || panic!("must not save")).is_err());
+        assert!(fake.keys.borrow().is_empty());
         next.keys.toggle_main = "Ctrl+Shift+J".into();
         update(&fake, &next, Domain::ToggleMain, || Ok(())).unwrap();
         assert_eq!(*fake.keys.borrow(), expected(&next));
     }
 
     #[test]
-    fn malformed_other_preference_does_not_remove_its_working_handler() {
-        let (fake, old, mut next) = fixture();
-        next.keys.toggle_main = "invalid".into();
-        let old_toggle = shortcuts(&old).unwrap()[1];
-        update(&fake, &next, Domain::Screenshot, || Ok(())).unwrap();
-        assert_eq!(fake.keys.borrow().get(&old_toggle.0), Some(&old_toggle.1));
-        assert_eq!(
-            fake.keys
-                .borrow()
-                .get(&next.keys.screenshot.parse().unwrap()),
-            Some(&Action::Screenshot)
-        );
-    }
-    #[test]
-    fn missing_unrelated_shortcut_conflict_does_not_block_edited_action() {
+    fn persisted_key_held_by_another_app_does_not_block_choosing_a_new_one() {
         let (fake, old, next) = fixture();
-        let toggle = shortcuts(&old).unwrap()[1].0;
-        fake.keys.borrow_mut().remove(&toggle);
-        fake.fail_register.borrow_mut().insert(toggle, 10);
-        update(&fake, &next, Domain::Screenshot, || Ok(())).unwrap();
-        assert!(!fake.keys.borrow().contains_key(&toggle));
-        assert_eq!(
-            fake.keys.borrow().get(&shortcuts(&next).unwrap()[0].0),
-            Some(&Action::Screenshot)
-        );
+        // Startup could not register the persisted key: another app holds it.
+        fake.keys.borrow_mut().remove(&key(&old));
+        fake.fail_register.borrow_mut().insert(key(&old), 10);
+        update(&fake, &next, Domain::ToggleMain, || Ok(())).unwrap();
+        assert_eq!(*fake.keys.borrow(), expected(&next));
         assert!(!fake
             .calls
             .borrow()
             .iter()
-            .any(|call| matches!(call, Call::Register(key, _) if *key == toggle)));
+            .any(|call| matches!(call, Call::Register(k) if *k == key(&old))));
     }
 }

@@ -2,7 +2,7 @@
 
 Chrome 登录态复用见 [接入说明](../docs/integrations/2026-11-03-chrome-login.md)；订单 iframe、右下速览及 TSIM 配套发布依赖见 [查询接入](../docs/integrations/2026-11-03-tsim-iframe.md)。
 
-按 [开发总纲](../docs/dev/00-architecture.md)、[总和开发计划](../docs/plan/00-master-development-plan.md) 与 [独立强提醒设计](../docs/dev/03-strong-alert.md) 落盘的工程。范围只含网页 IM（消息、通知、订单“详情 → IM 联系”）和本项目自有能力（多账号、托盘、独立 alarm 窗、商家助手、截图/OCR、更新与诊断）。
+按 [开发总纲](../docs/dev/00-architecture.md)、[总和开发计划](../docs/plan/00-master-development-plan.md) 与 [独立强提醒设计](../docs/dev/03-strong-alert.md) 落盘的工程。范围只含网页 IM（消息、通知、订单“详情 → IM 联系”）和本项目自有能力（多账号、托盘、独立 alarm 窗、商家助手、更新与诊断）。
 
 ## 结构
 
@@ -85,7 +85,6 @@ tools/mac-dev-signing.sh build ~/secure/vbk-dev-signing.p12 --target aarch64-app
 | L0 未读数 | 窗口标题 `(n)`（覆盖图标待 NTF-04） | Dock 角标 + 窗口标题 |
 | alarm 窗 | 置顶、不激活、不进任务栏 | 置顶、不激活，并在所有桌面空间与全屏应用上可见 |
 | 关闭主窗口后找回 | 托盘左键 | 托盘或点击 Dock 图标（`RunEvent::Reopen`） |
-| 截图发送 | 暂未实现：输入框不显示截图按钮、设置页不显示截图快捷键，也不注册该全局热键（`shell::SCREENSHOT_SUPPORTED`） | 截图按钮 + 全局快捷键 |
 | 打包 | NSIS（当前用户安装） | `.app` + `.dmg`（`tauri.macos.conf.json`，`icons/icon.icns`） |
 
 macOS 上 alarm 显示时是否会夺走键盘焦点、锁屏/睡眠行为，仍需按[强提醒设计](../docs/dev/03-strong-alert.md) §7 在 Mac 上实测；未实测前不宣称 macOS 支持。
@@ -107,7 +106,7 @@ macOS 上 alarm 显示时是否会夺走键盘焦点、锁屏/睡眠行为，仍
 | `cargo clippy --workspace --all-targets` | 0 警告 |
 | `tsc -p tsconfig.json` | 无错误 |
 | `node --test "ui/**/*.test.ts"`（ipc、ui-kit、web-adapter、apps 视图模型） | 148 通过 |
-| `node ui/tests/smoke/run.mjs`（Playwright/Chromium，含截图） | 211 项通过 |
+| `node ui/tests/smoke/run.mjs`（Playwright/Chromium，含页面快照） | 211 项通过 |
 | `src-tauri`（Tauri 2 宿主） | 仅 `rustfmt` 语法级检查；`cargo check` 在 CI 的 Windows 与 macOS runner 上执行，本地需对应系统 + crate 注册表 |
 | `node ui/tools/bundle.mjs`（Tauri 嵌入的 `ui/bundle`） | 4 个窗口入口的全部引用可解析；单独托管时 Chromium 渲染无 404/报错 |
 
@@ -120,6 +119,6 @@ macOS 上 alarm 显示时是否会夺走键盘焦点、锁屏/睡眠行为，仍
 ### 尚未完成 / 不作承诺
 
 - 代码落盘不等于 G1–G5 运行验收：官方登录页在隔离 Profile 中的接入、Web IM SDK 在宿主内的事件连续性、受控收发/撤回、断线与睡眠恢复、安装与更新均未在目标机验证。
-- 宿主侧占位：系统 Toast、音频播放、截图/OCR、更新与诊断包、维护屏障（退出/更新排空）仅留有接缝或事件，按 NTF-05 / MED / REL 任务补齐。
+- 宿主侧占位：系统 Toast、音频播放、更新与诊断包、维护屏障（退出/更新排空）仅留有接缝或事件，按 NTF-05 / MED / REL 任务补齐。
 - 适配器中的未闭环项（U01–U10）与 UI 契约建议（C-01–C-05）见各自审查记录；`ConversationFact.unread_count` 在列表接口缺字段时为 0 占位。
 - 前端以零依赖 TypeScript 落盘（云检查环境无 npm 注册表）；引入 Vite/React 时按 `tsconfig.build.json` 的 ES 模块输出迁移即可。

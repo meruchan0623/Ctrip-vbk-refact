@@ -30,7 +30,6 @@ core-notify = { path = "../crates/core-notify" }
 core-assistant = { path = "../crates/core-assistant" }
 core-diag = { path = "../crates/core-diag" }
 core-update = { path = "../crates/core-update" }
-core-media = { path = "../crates/core-media" }
 
 # FND-01 locks exact versions on the first Windows build; these are the
 # minimum majors the code is written against (Tauri 2.x with work_area()).

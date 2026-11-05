@@ -32,7 +32,7 @@ import { EMPTY_TSIM_FORM, PERSONAL_SETTINGS_URL, SECTIONS, SPY_LOCK_MS, ZOOM_OPT
 import { SETTING_STRINGS as S } from './strings.ts';
 import type { SectionId, SpyLock, TsimForm } from './viewmodel.ts';
 
-type ShortcutKey = 'screenshot' | 'toggle_main';
+type ShortcutKey = 'toggle_main';
 
 interface SettingState {
   readonly recovery?: RecoveryState;
@@ -402,7 +402,6 @@ function shortcutRow(p: PrefsSnapshot, key: ShortcutKey, label: string): HTMLEle
 function keysSection(p: PrefsSnapshot): Child[] {
   return [
     segment(t('set.keys.send'), null, [{ value: 'enter', label: t('set.keys.enter') }, { value: 'ctrl_enter', label: t('set.keys.ctrlEnter') }], p.keys.send_key, (v) => void setPref('keys', 'send_key', v), 'keys.send_key'),
-    shortcutRow(p, 'screenshot', t('set.keys.screenshot')),
     shortcutRow(p, 'toggle_main', t('set.keys.toggleMain')),
   ];
 }

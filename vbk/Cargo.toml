@@ -6,7 +6,6 @@ members = [
   "crates/core-store",
   "crates/core-net",
   "crates/core-im",
-  "crates/core-media",
   "crates/core-notify",
   "crates/core-diag",
   "crates/core-assistant",

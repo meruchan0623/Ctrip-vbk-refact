@@ -362,33 +362,31 @@ test('general settings open web personal settings under the active account', asy
 
 
 test('editable shortcuts submit exact prefs commands and keep confirmed values on registration failure', async () => {
-  for (const key of ['screenshot', 'toggle_main']) {
-    const f = await fixture(), pending = deferred(), before = f.store.get().prefs.keys[key];
-    f.store.patch({ section: 'keys' });
-    const input = nodes(f.tree()).find(n => n.props.dataset?.fid === `shortcut-${key}`); assert.ok(input);
-    input.props.oninput({ target: { value: 'Ctrl+Shift+Y' } });
-    assert.equal(nodes(f.tree()).find(n => n.props.dataset?.fid === `shortcut-${key}`)?.props.value, 'Ctrl+Shift+Y');
-    f.setResult(UiCommands.PREFS_SET, pending.promise);
-    const saving = f.actual('saveShortcut')(key);
-    assert.equal(f.store.get().prefs.keys[key], before, 'unconfirmed shortcut never replaces the effective value');
-    assert.deepEqual(f.shortcutPayloads, [{ section: 'keys', key, value: 'Ctrl+Shift+Y' }]);
-    pending.resolve(new Error('shortcut conflict')); await saving;
-    assert.equal(f.store.get().prefs.keys[key], before);
-    assert.equal(f.store.get().shortcutDrafts[key], 'Ctrl+Shift+Y');
-    assert.ok(nodes(f.tree()).some(n => n.props.role === 'alert' && JSON.stringify(n.children).includes('快捷键未保存')));
-    assert.equal(f.store.get().shortcutBusy[key], false);
-  }
+  const key = 'toggle_main', f = await fixture(), pending = deferred(), before = f.store.get().prefs.keys[key];
+  f.store.patch({ section: 'keys' });
+  const input = nodes(f.tree()).find(n => n.props.dataset?.fid === `shortcut-${key}`); assert.ok(input);
+  input.props.oninput({ target: { value: 'Ctrl+Shift+Y' } });
+  assert.equal(nodes(f.tree()).find(n => n.props.dataset?.fid === `shortcut-${key}`)?.props.value, 'Ctrl+Shift+Y');
+  f.setResult(UiCommands.PREFS_SET, pending.promise);
+  const saving = f.actual('saveShortcut')(key);
+  assert.equal(f.store.get().prefs.keys[key], before, 'unconfirmed shortcut never replaces the effective value');
+  assert.deepEqual(f.shortcutPayloads, [{ section: 'keys', key, value: 'Ctrl+Shift+Y' }]);
+  pending.resolve(new Error('shortcut conflict')); await saving;
+  assert.equal(f.store.get().prefs.keys[key], before);
+  assert.equal(f.store.get().shortcutDrafts[key], 'Ctrl+Shift+Y');
+  assert.ok(nodes(f.tree()).some(n => n.props.role === 'alert' && JSON.stringify(n.children).includes('快捷键未保存')));
+  assert.equal(f.store.get().shortcutBusy[key], false);
 });
 
-test('shortcut success preserves another setting and a newer edit, with stable focus identities and isolated keys', async () => {
+test('shortcut success preserves another setting and a newer edit, with stable focus identity', async () => {
   const f = await fixture(), pending = deferred(), before = f.store.get().prefs;
-  f.store.patch({ section: 'keys' }); f.actual('editShortcut')('screenshot', 'Ctrl+Shift+Y');
-  f.setResult(UiCommands.PREFS_SET, pending.promise); const saving = f.actual('saveShortcut')('screenshot');
-  f.actual('editShortcut')('screenshot', 'Ctrl+Shift+Z');
+  f.store.patch({ section: 'keys' }); f.actual('editShortcut')('toggle_main', 'Ctrl+Shift+Y');
+  f.setResult(UiCommands.PREFS_SET, pending.promise); const saving = f.actual('saveShortcut')('toggle_main');
+  f.actual('editShortcut')('toggle_main', 'Ctrl+Shift+Z');
   f.store.patch({ prefs: { ...before, keys: { ...before.keys, send_key: 'ctrl_enter' } } });
-  pending.resolve({ ...before, keys: { ...before.keys, screenshot: 'Ctrl+Shift+Y' } }); await saving;
-  assert.equal(f.store.get().prefs.keys.screenshot, 'Ctrl+Shift+Y'); assert.equal(f.store.get().prefs.keys.send_key, 'ctrl_enter');
-  const input = nodes(f.tree()).find(n => n.props.dataset?.fid === 'shortcut-screenshot'); assert.ok(input);
+  pending.resolve({ ...before, keys: { ...before.keys, toggle_main: 'Ctrl+Shift+Y' } }); await saving;
+  assert.equal(f.store.get().prefs.keys.toggle_main, 'Ctrl+Shift+Y'); assert.equal(f.store.get().prefs.keys.send_key, 'ctrl_enter');
+  const input = nodes(f.tree()).find(n => n.props.dataset?.fid === 'shortcut-toggle_main'); assert.ok(input);
   assert.equal(input.props.value, 'Ctrl+Shift+Z');
   let stopped = 0; input.props.onkeydown({ key: 'Enter', stopPropagation() { stopped++; } }); input.props.onkeyup({ key: 'Enter', stopPropagation() { stopped++; } });
   assert.equal(stopped, 2); assert.equal(f.shortcutPayloads.length, 1, 'keyup does not submit or send');
@@ -400,17 +398,17 @@ test('shortcut success preserves another setting and a newer edit, with stable f
 test('settings morph keeps shortcut editor DOM and focus connected across input while save uses the latest draft', async () => {
   const { root } = installFakeDom(), f = await fixture({ h: domH }); f.store.patch({ section: 'keys' });
   const draw = () => rerender(root as unknown as Element, () => f.tree() as unknown as Node, { morph: true });
-  draw(); const input = root.querySelector('[data-fid="shortcut-screenshot"]')!, form = root.querySelector('form')!;
+  draw(); const input = root.querySelector('[data-fid="shortcut-toggle_main"]')!, form = root.querySelector('form')!;
   input.focus(); input.value = 'Ctrl+Shift+Y'; input.dispatch('input'); resetCounters(); draw();
-  assert.equal(root.querySelector('[data-fid="shortcut-screenshot"]'), input); assert.equal(input.isConnected, true);
+  assert.equal(root.querySelector('[data-fid="shortcut-toggle_main"]'), input); assert.equal(input.isConnected, true);
   assert.equal(fakeDocument.activeElement, input); assert.equal(readCounters().detached, 0);
   input.value = 'Ctrl+Shift+Z'; input.dispatch('input'); draw();
   assert.equal(root.querySelector('form'), form);
-  const before = f.store.get().prefs; f.setResult(UiCommands.PREFS_SET, { ...before, keys: { ...before.keys, screenshot: 'Ctrl+Shift+Z' } });
+  const before = f.store.get().prefs; f.setResult(UiCommands.PREFS_SET, { ...before, keys: { ...before.keys, toggle_main: 'Ctrl+Shift+Z' } });
   for (const fn of form.listeners.get('submit') ?? []) fn.call(form, { type: 'submit', target: form, currentTarget: form, preventDefault() {}, stopPropagation() {} } as any);
   for (let i = 0; i < 8; i++) await Promise.resolve(); draw();
-  assert.deepEqual(f.shortcutPayloads, [{ section: 'keys', key: 'screenshot', value: 'Ctrl+Shift+Z' }]);
-  assert.equal(root.querySelector('[data-fid="shortcut-screenshot"]'), input); assert.equal(fakeDocument.activeElement, input);
+  assert.deepEqual(f.shortcutPayloads, [{ section: 'keys', key: 'toggle_main', value: 'Ctrl+Shift+Z' }]);
+  assert.equal(root.querySelector('[data-fid="shortcut-toggle_main"]'), input); assert.equal(fakeDocument.activeElement, input);
   assert.match(source, /rerender\(root!, \(\) => render\(s\), \{ morph: true \}\)[\s\S]*subscribeBatched\(store, paint\)/);
 });
 
