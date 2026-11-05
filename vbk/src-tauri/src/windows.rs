@@ -135,6 +135,7 @@ pub fn ensure_alarm(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "windows")]
     let builder = builder.shadow(false);
     let win = builder.build()?;
+    disable_browser_accelerators(&win);
     // Close → hide; the window is a singleton reused for every round.
     let handle = win.clone();
     win.on_window_event(move |event| {
@@ -184,6 +185,26 @@ fn show_without_activating(win: &WebviewWindow) -> tauri::Result<()> {
     }
     #[cfg(not(target_os = "windows"))]
     win.show()
+}
+
+/// WebView2 enables browser shortcuts by default, so F5 / Ctrl+R would reload a
+/// local window and Ctrl+P would open a print dialog. Editing keys are unaffected.
+pub fn disable_browser_accelerators(win: &WebviewWindow) {
+    #[cfg(target_os = "windows")]
+    {
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+        use windows::core::Interface;
+        let _ = win.with_webview(|native| unsafe {
+            let _ = native
+                .controller()
+                .CoreWebView2()
+                .and_then(|core| core.Settings())
+                .and_then(|settings| settings.cast::<ICoreWebView2Settings3>())
+                .and_then(|settings| settings.SetAreBrowserAcceleratorKeysEnabled(false));
+        });
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = win;
 }
 
 /// Windows rescales a window that lands on a monitor with another DPI
@@ -401,7 +422,7 @@ pub async fn open_singleton(
             .min_inner_size(min_w, min_h);
         #[cfg(target_os = "windows")]
         let builder = builder.resizable(resizable);
-        with_platform_chrome(builder).build()?;
+        disable_browser_accelerators(&with_platform_chrome(builder).build()?);
         Ok(())
     })
     .await
@@ -475,7 +496,7 @@ pub async fn open_media_viewer(app: &AppHandle) -> tauri::Result<()> {
         .inner_size(1120.0, 820.0)
         .min_inner_size(520.0, 400.0)
         .background_color(tauri::webview::Color(16, 22, 33, 255));
-        with_platform_chrome(builder).build()?;
+        disable_browser_accelerators(&with_platform_chrome(builder).build()?);
         Ok(())
     })
     .await

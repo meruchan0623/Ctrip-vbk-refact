@@ -179,6 +179,7 @@ pub fn run() {
             let handle = app.handle().clone();
             // Main window: close → hide to tray (docs/dev/01-shell.md).
             if let Some(main) = app.get_webview_window(views::MAIN) {
+                windows::disable_browser_accelerators(&main);
                 let h = main.clone();
                 main.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
