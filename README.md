@@ -1,8 +1,52 @@
-# Ctrip-vbk-refact
+# 旅游商家IM
 
-以携程网页版 IM 为业务基准的客户端重构规划。携程业务只保留消息、通知，以及订单“详情 → IM 联系 → 网页会话”的联系入口；左侧栏其他携程业务模块（首页、工作台、事件、公告、商服、产品、数据、点评、完整订单管理）删除。
+旅游商家IM（仓库名 Ctrip-vbk-refact，工程代号 VBooking / vbk）是面向商家的携程网页版 IM 桌面客户端。它把携程商家网页中的消息与通知接入本地应用，并在此基础上提供多账号、独立强提醒和商家助手等本地能力。
 
-本项目自有能力保留：多账号、托盘与任务栏、独立回复超时强提醒窗口、商家助手（TSim、出站翻译、套餐速览）、截图/OCR、客户端更新与诊断。
+工程结构：宿主为 Tauri 2（Rust），核心逻辑为仅依赖 `std` 的 Rust crate，界面与网页适配器为无运行时依赖的 TypeScript。
+
+## 主要功能
+
+- **携程消息与通知**：在本地窗口中打开携程商家 IM 会话，接收消息并显示未读。
+- **订单联系入口**：订单详情 → IM 联系 → 网页会话，直接进入对应客人的会话。
+- **强提醒**：会话长时间未回复时，以独立提醒窗口逐级升级（L0–L4）；只有服务端确认的商家回复、会话结束或转出才会清除。
+- **多账号**：多个商家账号各自隔离身份、登录态与提醒。
+- **托盘与未读提示**：托盘、Dock、窗口标题显示未读状态；支持稍后提醒与勿扰。
+- **商家助手**：TSim 查询、出站消息翻译、套餐速览。
+- **Chrome 登录态复用**：复用 Chrome 中已有的登录态，接入说明见 [Chrome 登录接入](docs/integrations/2026-11-03-chrome-login.md)。
+- **更新与诊断**：客户端更新与诊断能力仍在补齐，当前进度见 [PROGRESS.md](PROGRESS.md)。
+
+## 范围说明
+
+- 携程业务只保留消息、通知和订单联系入口。左侧栏的首页、工作台、事件、公告、商服、产品、数据、点评、完整订单管理等模块不提供，见 [范围决定](docs/decisions/2026-10-30-web-only-scope.md)。
+- 截图与标注已删除，见 [决定记录](docs/decisions/2026-11-05-no-screenshot.md)；OCR 目前没有实现。
+
+## 当前状态
+
+代码落盘不等于验收。G1–G5 运行验收尚未通过：Windows 候选包通过了本机离线检查，但整体验收未通过；macOS 包为未签名、未公证的构建，仅供内部冒烟。当前断点见 [PROGRESS.md](PROGRESS.md) 与 [BLOCKED.md](BLOCKED.md)。
+
+## 安装与构建
+
+两个平台都先在 `vbk/` 下执行 `npm ci`。
+
+- **macOS**（Apple Silicon）：`npx tauri build --target aarch64-apple-darwin`；Intel 用 `x86_64-apple-darwin`。产物为 `.app` 与 `.dmg`。
+- **Windows**：在 Windows 机器上执行 `cargo tauri build`，生成 NSIS 安装包（当前用户安装，WebView2 随包引导安装）。
+
+给测试人员的 macOS 包须用共用测试签名打包，否则换包后钥匙串登录会失效，见 [vbk/README.md](vbk/README.md)。
+
+## 工程结构
+
+```
+vbk/
+├─ crates/          Rust 核心 crate（std-only）：账号、存储、网络策略、IM 去重与发送队列、提醒升级
+├─ src-tauri/       Tauri 2 宿主：窗口、托盘、调度、HTTP、钥匙串等平台能力
+└─ ui/              TypeScript 界面与网页适配器（packages/、apps/）
+browser-extension/  Chrome 登录态复用扩展
+docs/               设计文档、决定记录、接口与调查资料
+```
+
+设计总纲见 [开发总纲](docs/dev/00-architecture.md)，工程说明与本地检查命令见 [vbk/README.md](vbk/README.md)。
+
+## 开发资料
 
 **工程入口：[`vbk/`](vbk/README.md)**。按开发文档落盘的 Tauri 2 宿主、std-only Rust 核心 crate 与无依赖 TypeScript 适配器/界面；`cargo test` 与 `npm run check` 在仓库内可直接运行。代码落盘不等于 G1–G5 运行验收通过；`vbk-electron/` 是调查样本，不是本项目新客户端实现。
 
