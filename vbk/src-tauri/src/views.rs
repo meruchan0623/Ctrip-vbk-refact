@@ -190,9 +190,6 @@ impl Role {
             "assistant_tsim_status",
             "assistant_tsim_login",
             "assistant_tsim_logout",
-            "assistant_tsim_import_session",
-            "assistant_tsim_browser_profiles",
-            "assistant_tsim_browser_connect",
         ];
         const DETAIL_CMDS: &[&str] = &[
             "shell_read_clipboard_text",
@@ -357,36 +354,6 @@ mod tests {
     }
 
     #[test]
-    fn existing_tsim_session_import_is_granted_only_to_registered_settings() {
-        let mut registry = ViewRegistry::default();
-        registry.register(SETTING);
-        assert!(registry
-            .authorize(SETTING, "assistant_tsim_import_session")
-            .is_ok());
-        let detail = format!("{PACKAGE_DETAIL_PREFIX}{}", uuid::Uuid::new_v4());
-        for label in [
-            MAIN,
-            ALARM,
-            UPDATE,
-            LOGIN,
-            "acct-synthetic",
-            detail.as_str(),
-        ] {
-            registry.register(label);
-            assert!(
-                registry
-                    .authorize(label, "assistant_tsim_import_session")
-                    .is_err(),
-                "{label}"
-            );
-        }
-        registry.unregister(SETTING);
-        assert!(registry
-            .authorize(SETTING, "assistant_tsim_import_session")
-            .is_err());
-    }
-
-    #[test]
     fn webview_tabs_open_only_from_main_and_settings() {
         let mut registry = ViewRegistry::default();
         for label in [MAIN, SETTING, ALARM, UPDATE] {
@@ -444,24 +411,6 @@ mod tests {
                     registry.authorize(label, command).is_err(),
                     "{label}: {command}"
                 );
-            }
-            registry.unregister(SETTING);
-            assert!(registry.authorize(SETTING, command).is_err());
-        }
-    }
-
-    #[test]
-    fn browser_session_commands_are_settings_only() {
-        for command in [
-            "assistant_tsim_browser_profiles",
-            "assistant_tsim_browser_connect",
-        ] {
-            let mut registry = ViewRegistry::default();
-            registry.register(SETTING);
-            assert!(registry.authorize(SETTING, command).is_ok());
-            for label in [MAIN, ALARM, UPDATE, LOGIN, "acct-synthetic"] {
-                registry.register(label);
-                assert!(registry.authorize(label, command).is_err());
             }
             registry.unregister(SETTING);
             assert!(registry.authorize(SETTING, command).is_err());

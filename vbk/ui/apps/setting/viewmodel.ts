@@ -140,15 +140,6 @@ export function tsimFormValid(f: TsimForm): boolean {
   return f.user.trim().length > 0 && f.password.length > 0;
 }
 
-export function tsimSessionInputValid(value: string): boolean { return value.trim().length > 0 && value.length <= 16384 && !/[\r\n]/.test(value); }
-
-export function tsimImportErrorText(error: unknown): string {
-  const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
-  if (code === 'assistant.tsim_bad_credentials' || code === 'assistant.tsim_unauthenticated' || code === 'assistant.session_cleared') return t('set.runtime.importExpired');
-  if (code === 'assistant.invalid_input') return t('set.runtime.importInvalid');
-  return tsimErrorText(error);
-}
-
 export function isTsimStatus(value: unknown): value is UiTsimStatus {
   if (!value || typeof value !== 'object') return false;
   const s = value as Partial<UiTsimStatus>;
@@ -159,7 +150,6 @@ export function isTsimStatus(value: unknown): value is UiTsimStatus {
 export function tsimErrorText(error: unknown): string {
   const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
   const descriptions: Readonly<Record<string, string>> = {
-    'assistant.browser_storage_unavailable': t('set.runtime.browserUnavailable'),
     'assistant.tsim_bad_credentials': t('set.runtime.badCredentials'),
     'assistant.invalid_input': t('set.runtime.invalidLogin'),
     'assistant.forbidden': t('set.runtime.forbidden'),

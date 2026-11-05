@@ -30,7 +30,7 @@ import { IC } from '../_shared/icons.ts';
 import { installWindowChrome, windowControls } from '../_shared/window-controls.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isPrefsSnapshot, isUiAccountSnapshot } from '../_shared/guards.ts';
-import { EMPTY_TSIM_FORM, PERSONAL_SETTINGS_URL, SECTIONS, SPY_LOCK_MS, ZOOM_OPTIONS, isSectionId, isTsimStatus, pickActiveSection, prefsCommand, reminderCommand, sectionLabel, tsimErrorText, tsimFormValid, tsimStatusText, tsimSessionInputValid, tsimImportErrorText } from './viewmodel.ts';
+import { EMPTY_TSIM_FORM, PERSONAL_SETTINGS_URL, SECTIONS, SPY_LOCK_MS, ZOOM_OPTIONS, isSectionId, isTsimStatus, pickActiveSection, prefsCommand, reminderCommand, sectionLabel, tsimErrorText, tsimFormValid, tsimStatusText } from './viewmodel.ts';
 import { SETTING_STRINGS as S } from './strings.ts';
 import type { SectionId, SpyLock, TsimForm } from './viewmodel.ts';
 
@@ -49,9 +49,6 @@ interface SettingState {
   readonly tsimError: string | null;
   readonly tsimStatus: UiTsimStatus | null;
   readonly tsimRequest: number;
-  readonly tsimBrowserProfiles?: readonly { id: string; label: string }[];
-  readonly tsimImportExpanded: boolean;
-  readonly tsimImportToken: string;
   readonly settingsRequest: number;
   readonly loading: boolean;
   readonly loadError: string | null;
@@ -63,7 +60,7 @@ interface SettingState {
 }
 
 const params = new URLSearchParams(location.search).get('section');
-const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'general', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, tsimImportExpanded: false, tsimImportToken: '', settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, account: null, version: null });
+const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'general', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, account: null, version: null });
 const sel = selectIpc();
 const ipc = sel.ipc;
 installWindowChrome((command, payload) => ipc.invoke(command, payload));
@@ -246,53 +243,6 @@ async function refreshTsimStatus(): Promise<void> {
   }
 }
 
-async function tsimImportSession(): Promise<void> {
-  const s = store.get();
-  if (s.tsimBusy || !tsimSessionInputValid(s.tsimImportToken)) return;
-  const accessToken = s.tsimImportToken.trim(), ticket = s.tsimRequest + 1;
-  // Keep the session input only for this IPC intent, never in state after submission.
-  store.patch({ tsimRequest: ticket, tsimBusy: true, tsimError: null, tsimImportToken: '' });
-  try {
-    const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_IMPORT_SESSION, { access_token: accessToken });
-    if (store.get().tsimRequest !== ticket) return;
-    if (!isTsimStatus(status) || !Number.isSafeInteger(status.session_epoch) || status.session_epoch < 0) throw { code: 'assistant.malformed_response' };
-    const observed = store.get().tsimStatus;
-    if (observed && observed.session_epoch > status.session_epoch) { store.patch({ tsimBusy: false }); return; }
-    store.patch({ tsimBusy: false, tsimStatus: status, tsimImportExpanded: !status.logged_in, tsimError: status.logged_in ? null : t('set.runtime.importUnconfirmed') });
-  } catch (error) {
-    if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimStatus: null, tsimError: tsimImportErrorText(error) });
-  }
-}
-
-async function tsimBrowserConnect(profileId?: string): Promise<void> {
-  const s = store.get();
-  if (s.tsimBusy) return;
-  const ticket = s.tsimRequest + 1;
-  store.patch({ tsimRequest: ticket, tsimBusy: true, tsimError: null, tsimBrowserProfiles: [], tsimForm: EMPTY_TSIM_FORM, tsimImportToken: '' });
-  try {
-    if (!profileId) {
-      const profiles = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_BROWSER_PROFILES, {});
-      if (store.get().tsimRequest !== ticket) return;
-      if (!Array.isArray(profiles) || profiles.length > 64 || profiles.some(p => !p || typeof p.id !== 'string' || typeof p.label !== 'string')) throw { code: 'assistant.malformed_response' };
-      // A single source completes the explicit browser-login action directly.
-      // With several sources, let the user choose the account's Chrome profile.
-      if (profiles.length !== 1) {
-        store.patch({ tsimBusy: false, tsimBrowserProfiles: profiles, tsimError: profiles.length ? null : t('set.runtime.browserMissing') });
-        return;
-      }
-      profileId = profiles[0].id;
-    }
-    const status = await ipc.invoke<unknown>(UiCommands.ASSIST_TSIM_BROWSER_CONNECT, { profile_id: profileId });
-    if (store.get().tsimRequest !== ticket) return;
-    if (!isTsimStatus(status) || !status.logged_in) throw { code: 'assistant.malformed_response' };
-    const observed = store.get().tsimStatus;
-    if (observed && observed.session_epoch > status.session_epoch) { store.patch({ tsimBusy: false }); return; }
-    store.patch({ tsimBusy: false, tsimStatus: status });
-  } catch (error) {
-    if (store.get().tsimRequest === ticket) store.patch({ tsimBusy: false, tsimStatus: null, tsimError: tsimImportErrorText(error) });
-  }
-}
-
 // ---- row helpers
 
 function head(label: string): HTMLElement {
@@ -420,9 +370,6 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
       { class: 'set-row col', dataset: { tsim: '1' } },
       h('div', { class: 'set-l' }, h('div', { class: 'set-label' }, t('set.asst.tsim'), ' ', h('span', { class: cx('chip', status?.logged_in ? 'chip-ok' : 'chip-muted'), dataset: { tsimStatus: status ? status.logged_in ? 'in' : 'out' : 'unknown' } }, status ? tsimStatusText({ ...a, tsim_logged_in: status.logged_in, tsim_user: status.user }) : t('set.runtime.statusUnknown'))), h('div', { class: 'set-desc' }, t('set.asst.tsimDesc'))),
       h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-refresh' }, onclick: () => void refreshTsimStatus() }, s.tsimBusy ? t('set.runtime.checking') : t('set.runtime.refreshLogin')),
-      h('button', { class: 'btn pri', disabled: s.tsimBusy, dataset: { action: 'tsim-browser-connect' }, onclick: () => void tsimBrowserConnect() }, s.tsimBusy ? t('set.runtime.reading') : t('set.runtime.fromChrome')),
-      h('p', { class: 'set-desc' }, t('set.runtime.browserDescription')),
-      ...(s.tsimBrowserProfiles ?? []).map(p => h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { browserProfile: p.id }, onclick: () => void tsimBrowserConnect(p.id) }, t('set.runtime.connectProfile', { label: p.label }))),
       status?.logged_in
         ? h('div', null, h('button', { class: 'btn sm', disabled: s.tsimBusy, dataset: { action: 'tsim-logout' }, onclick: () => void tsimLogout() }, t('set.asst.tsimLogout')))
         : h(
@@ -433,12 +380,6 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
             h('button', { class: 'btn', type: 'submit', disabled: s.tsimBusy, dataset: { action: 'tsim-login' } }, s.tsimBusy ? h('span', { class: 'spin' }) : null, t('set.asst.tsimLogin')),
           ),
       s.tsimError ? h('div', { class: 'notice-box err', role: 'alert' }, s.tsimError) : null,
-      h('details', { open: s.tsimImportExpanded, dataset: { tsimImport: '1' }, ontoggle: (e: Event) => { const expanded = (e.currentTarget as HTMLDetailsElement).open; if (expanded !== store.get().tsimImportExpanded) store.patch({ tsimImportExpanded: expanded, ...(!expanded ? { tsimImportToken: '' } : {}) }); } },
-        h('summary', { style: { cursor: 'pointer', 'font-weight': '600' } }, t('set.asst.importTitle')),
-        s.tsimImportExpanded ? h('form', { class: 'tsim-form', dataset: { action: 'tsim-import-form' }, onsubmit: (e: Event) => { e.preventDefault(); void tsimImportSession(); } },
-          h('p', { class: 'set-desc', style: { width: '100%' } }, t('set.asst.importDesc')),
-          h('input', { class: 'inp', type: 'password', name: 'tsim-session-token', 'aria-label': t('set.asst.importToken'), placeholder: t('set.asst.importToken'), value: s.tsimImportToken, autocomplete: 'off', spellcheck: false, autocapitalize: 'off', maxlength: 16384, disabled: s.tsimBusy, dataset: { fid: 'tsim-import-token' }, oninput: (e: Event) => store.patch({ tsimImportToken: (e.target as HTMLInputElement).value }) }),
-          h('button', { class: 'btn pri', type: 'submit', dataset: { action: 'tsim-import' }, disabled: s.tsimBusy || !tsimSessionInputValid(s.tsimImportToken) }, s.tsimBusy ? t('set.asst.importBusy') : t('set.asst.importSubmit'))) : null),
     ),
     toggle(t('set.asst.pkg'), t('set.asst.pkgDesc'), a.package_quick_view, (v) => void setPref('assistant', 'package_quick_view', v), 'assistant.package_quick_view'),
   ];
@@ -506,7 +447,7 @@ function body(s: SettingState, p: PrefsSnapshot): Child[] {
 
 function closeWindow(): void {
   const s = store.get();
-  store.patch({ tsimImportToken: '', tsimImportExpanded: false, tsimRequest: s.tsimRequest + 1, tsimBusy: false });
+  store.patch({ tsimRequest: s.tsimRequest + 1, tsimBusy: false });
   void ipc.invoke(UiCommands.SHELL_WINDOW, { action: 'close' }).catch((e: unknown) => toast(msg(e)));
 }
 

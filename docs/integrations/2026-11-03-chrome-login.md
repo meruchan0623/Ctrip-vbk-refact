@@ -16,6 +16,8 @@ macOS 打开添加账号窗口后优先寻找稳定版 Chrome 的 `Default` / `P
 
 ## TSIM
 
+> 2026-11-05 已移除：TSim 只保留账号密码登录，Chrome/Edge 读取与手动导入会话的入口、命令和代码均已删除；旧版本留下的借用会话在启动时丢弃。凭证由宿主在到期前自动续期。以下为历史记录。
+
 设置 → 商家助手使用「从 Chrome 登录」。macOS 新增标准 Chrome 配置读取；Windows 保留 Chrome / Edge，Chrome 优先。只有一个含 TSIM token 的配置时直接连接，多个时选择。只读取 `https://csagent.tsim.tech` 的 `agent_token`，沿用现有服务端身份及权限核验，绑定期间检查浏览器 token 是否变化。断开借用的会话不注销 Chrome 账号。
 
 TSIM 的 Cookie 与携程相互独立；此链路不需要 Chrome Safe Storage 解密。页面查询接管的配套发布依赖见 [iframe 接入说明](2026-11-03-tsim-iframe.md)。

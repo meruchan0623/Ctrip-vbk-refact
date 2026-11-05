@@ -4,7 +4,6 @@ use contracts::AppError;
 
 pub fn to_dto(error: AppError) -> AppErrorDto {
     const PUBLIC_CODES: &[&str] = &[
-        "assistant.browser_storage_unavailable",
         "assistant.tsim_unauthenticated",
         "assistant.tsim_bad_credentials",
         "assistant.session_cleared",

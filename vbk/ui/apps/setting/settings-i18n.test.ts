@@ -4,15 +4,13 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { hasKey, t } from '../../packages/ui-kit/src/i18n.ts';
 import { SETTING_STRINGS } from './strings.ts';
-import { tsimErrorText, tsimImportErrorText } from './viewmodel.ts';
+import { tsimErrorText } from './viewmodel.ts';
 
 // Exact pre-migration zh-CN copy; changes here require an explicit copy review.
 const expected = {
   "loadFailed": "无法读取设置，请重试；若仍失败，请重新打开设置。",
   "loginUnconfirmed": "登录未获确认，请检查用户名和密码后重新输入。",
   "logoutUnconfirmed": "退出未获确认，请刷新登录状态后再操作。",
-  "importUnconfirmed": "已有会话导入未获确认，请重新取得会话或使用账号密码登录。",
-  "browserMissing": "没有找到 TSim 网页会话。请先在 Chrome 普通窗口登录客服系统，再重试；也可以在下方使用账号密码登录。",
   "shortcutRequired": "请输入快捷键，例如 Ctrl+Shift+X。",
   "shortcutConfirm": "无法确认快捷键保存结果",
   "shortcutSaved": "快捷键已保存",
@@ -23,15 +21,9 @@ const expected = {
   "statusUnknown": "登录状态未知",
   "checking": "正在核对…",
   "refreshLogin": "刷新 TSim 登录状态",
-  "reading": "正在读取…",
-  "fromChrome": "从 Chrome 登录",
-  "browserDescription": "直接使用 Chrome 中已登录的 TSim 账号；多个浏览器配置时选择要连接的账号。断开不会退出浏览器。",
   "diagnosticsExported": "诊断信息已导出",
   "retrying": "正在重试…",
   "retrySettings": "重新读取设置",
-  "importExpired": "已有 TSim 会话无效或已过期，请重新取得会话或使用账号密码登录。",
-  "importInvalid": "已有会话的输入格式不正确，请重新取得有效会话。",
-  "browserUnavailable": "无法读取浏览器会话，可能正在写入、格式不支持或没有访问权限。请稍后重试，或使用账号密码登录。",
   "badCredentials": "用户名或密码未通过验证，请检查后重新输入。",
   "invalidLogin": "登录信息格式不正确，请检查输入。",
   "forbidden": "TSim 拒绝了当前账号的权限，请联系管理员。",
@@ -53,17 +45,16 @@ const expected = {
   "checkUpdateDesc": "在独立的更新窗口中检查",
   "shortcutFailed": "快捷键未保存：{message}。请检查格式或更换未被占用的组合。",
   "shortcutCurrent": "当前生效：{shortcut}",
-  "connectProfile": "连接 {label}",
   "errorCode": "{message}（{code}）"
 } as const;
 const { scanFile, expectNoCjkLiterals } = await import(new URL('../../../tools/gates/cjk-literals.mjs', import.meta.url).href);
 
 const placeholders: Record<string, readonly string[]> = {
-  shortcutFailed: ['message'], shortcutCurrent: ['shortcut'], connectProfile: ['label'], errorCode: ['code', 'message'],
+  shortcutFailed: ['message'], shortcutCurrent: ['shortcut'], errorCode: ['code', 'message'],
 };
 
-test('all 47 settings entries preserve the reviewed Chinese text and placeholder contracts', () => {
-  assert.equal(Object.keys(expected).length, 47);
+test('all 38 settings entries preserve the reviewed Chinese text and placeholder contracts', () => {
+  assert.equal(Object.keys(expected).length, 38);
   for (const [name, value] of Object.entries(expected)) {
     const key = `set.runtime.${name}`;
     assert.ok(hasKey(key)); assert.equal(t(key), value, name);
@@ -109,8 +100,7 @@ test('settings production TS has no CJK copy outside the catalog and every new t
 });
 
 test('settings dynamic user values are interpolated once with original whitespace and punctuation', () => {
-  const label = 'Chrome {label}', shortcut = 'Ctrl+{shortcut}', message = 'host {code} <private>';
-  assert.equal(t('set.runtime.connectProfile', { label }), `连接 ${label}`);
+  const shortcut = 'Ctrl+{shortcut}', message = 'host {code} <private>';
   assert.equal(t('set.runtime.shortcutCurrent', { shortcut }), `当前生效：${shortcut}`);
   assert.equal(t('set.runtime.shortcutFailed', { message }), `快捷键未保存：${message}。请检查格式或更换未被占用的组合。`);
   assert.equal(t('set.runtime.errorCode', { message, code: 'net.timeout' }), `${message}（net.timeout）`);
@@ -118,7 +108,7 @@ test('settings dynamic user values are interpolated once with original whitespac
 
 test('actual safe-error mapping keeps exact Chinese and whitelisted codes without echoing unknown error details', () => {
   const cases = {
-    'assistant.browser_storage_unavailable': 'browserUnavailable', 'assistant.tsim_bad_credentials': 'badCredentials',
+    'assistant.tsim_bad_credentials': 'badCredentials',
     'assistant.invalid_input': 'invalidLogin', 'assistant.forbidden': 'forbidden', 'assistant.permission_denied': 'permissionDenied',
     'assistant.tsim_unauthenticated': 'unauthenticated', 'assistant.session_cleared': 'sessionCleared',
     'net.timeout': 'timeout', 'net.offline': 'offline', 'assistant.service_unavailable': 'serviceUnavailable',
@@ -129,8 +119,5 @@ test('actual safe-error mapping keeps exact Chinese and whitelisted codes withou
   }
   for (const code of ['toString', '__proto__', 'constructor', 'PRIVATE_TOKEN', 'set.runtime.badCredentials']) {
     assert.equal(tsimErrorText({ code, message: 'PRIVATE_PASSWORD' }), expected.operationUnconfirmed);
-    assert.equal(tsimImportErrorText({ code, message: 'PRIVATE_PASSWORD' }), expected.operationUnconfirmed);
   }
-  assert.equal(tsimImportErrorText({ code: 'assistant.session_cleared', message: 'PRIVATE_TOKEN' }), expected.importExpired);
-  assert.equal(tsimImportErrorText({ code: 'assistant.invalid_input', message: 'PRIVATE_TOKEN' }), expected.importInvalid);
 });

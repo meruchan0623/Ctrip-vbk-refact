@@ -1,8 +1,7 @@
 //! Local UTC offset of the OS time zone (east positive, minutes).
 //!
 //! `std` has no zone API and the host carries no date crate, so the two
-//! platform calls are declared directly (same pattern as
-//! `assistant/browser_storage.rs`). Only used to find the next local 08:00
+//! platform calls are declared directly. Only used to find the next local 08:00
 //! for "勿扰至明天"; any failure degrades to UTC (0), never a panic.
 
 /// Offset in effect at `utc_ms` (Unix milliseconds).

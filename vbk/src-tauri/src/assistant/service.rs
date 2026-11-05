@@ -15,12 +15,8 @@
 //!   the request, so an old `session_generation` is rejected;
 //! * nothing is retried automatically (a timeout surfaces as `net.timeout`).
 
-#[path = "browser_session.rs"]
-mod browser_session;
 #[path = "order_service.rs"]
 pub mod orders;
-#[path = "session_import.rs"]
-pub mod session_import;
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -90,8 +86,8 @@ struct StoredSession {
     issued_at_ms: i64,
 }
 
-/// Only internal, typed persisted sessions choose a credential slot. No UI flag
-/// or JWT claim can select shared-session ownership.
+/// Only internal, typed persisted sessions choose a credential slot. Borrowed
+/// (browser / imported) sessions are no longer supported and are dropped on restore.
 pub(super) fn stored_is_borrowed(raw: &str) -> Result<bool, AppError> {
     serde_json::from_str::<StoredSession>(raw)
         .map(|s| s.borrowed_session)
@@ -109,8 +105,6 @@ struct Inner {
     user: Option<String>,
     profile_loaded: bool,
     login_ready: bool,
-    borrowed_session: bool,
-    browser_profile: Option<super::browser_storage::BrowserProfile>,
     login_revocation: u64,
     /// Bumps on login, logout and session clear (not on refresh).
     epoch: u64,
@@ -177,7 +171,6 @@ impl<E: Executor, V: Vault> Service<E, V> {
     }
 
     async fn check_epoch(&self, epoch: u64) -> Result<(), AppError> {
-        self.check_browser_binding(epoch).await?;
         let g = self.lock();
         if g.epoch == epoch && g.session.is_some() {
             Ok(())
@@ -218,15 +211,8 @@ impl<E: Executor, V: Vault> Service<E, V> {
             .session
             .as_ref()
             .ok_or_else(|| not_logged_in("tsim login required"))?;
-        if g.browser_profile.is_some() {
-            if complete_login {
-                g.login_ready = true;
-            }
-            self.publish(&g);
-            return Ok(());
-        }
         let stored = StoredSession {
-            borrowed_session: g.borrowed_session,
+            borrowed_session: false,
             user: g.user.clone().unwrap_or_default(),
             access_token: s.access_token.expose().to_string(),
             session_ref: s.session_ref.clone(),
@@ -268,8 +254,6 @@ impl<E: Executor, V: Vault> Service<E, V> {
 
     fn reset_identity(&self, g: &mut Inner) {
         g.login_ready = false;
-        g.borrowed_session = false;
-        g.browser_profile = None;
         g.session = None;
         g.user = None;
         g.profile_loaded = false;
@@ -312,7 +296,8 @@ impl<E: Executor, V: Vault> Service<E, V> {
             let _ = self.vault.clear();
             return;
         };
-        if stored.access_token.is_empty() {
+        // Browser-borrowed / imported sessions are no longer supported.
+        if stored.access_token.is_empty() || stored.borrowed_session {
             let _ = self.vault.clear();
             return;
         }
@@ -326,7 +311,6 @@ impl<E: Executor, V: Vault> Service<E, V> {
         g.epoch += 1;
         g.session = Some(TsimSession::from_token(token, stored.issued_at_ms, g.epoch));
         g.user = Some(stored.user);
-        g.borrowed_session = stored.borrowed_session;
         g.profile_loaded = false;
         g.login_ready = true;
         self.publish(&g);
@@ -341,13 +325,6 @@ impl<E: Executor, V: Vault> Service<E, V> {
             .snapshot()
             .ok_or_else(|| not_logged_in("tsim login required"))?;
         self.check_epoch(epoch).await?;
-        if self.lock().browser_profile.is_some() {
-            if s.is_expired(now) {
-                self.clear_if(epoch);
-                return Err(not_logged_in("browser session expired; reconnect required"));
-            }
-            return Self::usable(s, epoch, now);
-        }
         if !s.refresh_due(now) || now < self.lock().refresh_not_before_ms {
             return Self::usable(s, epoch, now);
         }
@@ -447,7 +424,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
         Ok((out, epoch))
     }
 
-    /// A handoff grant is created only after the current browser binding and
+    /// A handoff grant is created only after the current session and
     /// remote profile were verified. Its caller must also validate its UI scope.
     pub async fn operator_session(&self, expected_epoch: u64) -> Result<TsimSession, AppError> {
         if !self.status().logged_in || self.status().session_epoch != expected_epoch {
@@ -529,10 +506,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
             if g.login_revocation != submitted {
                 return Err(not_logged_in("tsim queued login was cancelled"));
             }
-            let previous = g
-                .session
-                .take()
-                .and_then(|s| (!g.borrowed_session).then_some(s.access_token));
+            let previous = g.session.take().map(|s| s.access_token);
             self.reset_identity(&mut g);
             self.vault.clear()?;
             (g.epoch, previous)
@@ -584,10 +558,7 @@ impl<E: Executor, V: Vault> Service<E, V> {
     pub async fn logout(&self) -> Result<TsimStatus, AppError> {
         let (token, cleared) = {
             let mut g = self.lock();
-            let token = g
-                .session
-                .take()
-                .and_then(|s| (!g.borrowed_session).then_some(s.access_token));
+            let token = g.session.take().map(|s| s.access_token);
             self.reset(&mut g);
             (token, self.vault.clear())
         };

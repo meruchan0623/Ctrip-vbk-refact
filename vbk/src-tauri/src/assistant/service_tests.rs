@@ -1018,56 +1018,14 @@ fn identity_refresh_during_login_cannot_promote_ready_before_first_profile() {
 }
 
 #[test]
-fn browser_binding_change_and_storage_failure_clear_only_local_session() {
-    for failure in [false, true] {
-        let f = logged_in();
-        let epoch = f.svc.status().session_epoch;
-        {
-            let mut g = f.svc.lock();
-            g.borrowed_session = true;
-            g.browser_profile = Some(crate::assistant::browser_storage::BrowserProfile {
-                id: "edge:Default".into(),
-                label: "Edge Default".into(),
-                directory: "synthetic-only".into(),
-            });
-        }
-        assert!(f
-            .svc
-            .check_browser_binding_with(epoch, |_| Ok(Some(SecretString::new("tok-1"))))
-            .is_ok());
-        let result = f.svc.check_browser_binding_with(epoch, |_| {
-            if failure {
-                Err(AppError::new(
-                    "assistant.browser_storage_unavailable",
-                    "synthetic",
-                ))
-            } else {
-                Ok(None)
-            }
-        });
-        assert!(result.is_err());
-        assert!(!f.svc.status().logged_in);
-        assert!(f.http.paths().is_empty());
-    }
-}
-
-#[test]
-fn browser_tokens_are_memory_only_and_disconnect_never_calls_server_logout() {
-    let f = logged_in();
-    let epoch = f.svc.status().session_epoch;
-    f.vault.clear().unwrap();
-    {
-        let mut g = f.svc.lock();
-        g.borrowed_session = true;
-        g.browser_profile = Some(crate::assistant::browser_storage::BrowserProfile {
-            id: "edge:Default".into(),
-            label: "Edge Default".into(),
-            directory: "synthetic-only".into(),
-        });
-    }
-    f.svc.persist_current(epoch, true).unwrap();
-    assert!(f.vault.load().unwrap().is_none());
-    run(f.svc.logout()).unwrap();
-    assert!(f.http.paths().is_empty());
-    assert!(f.svc.lock().browser_profile.is_none());
+fn restore_drops_legacy_borrowed_browser_session() {
+    let r = fx();
+    r.vault
+        .save(r#"{"borrowed_session":true,"user":"synthetic","access_token":"tok-b","session_ref":"s","expires_at_ms":null,"issued_at_ms":0}"#)
+        .expect("seed");
+    r.svc.restore();
+    assert!(!r.svc.status().logged_in);
+    assert!(r.vault.load().expect("l").is_none());
+    run(r.svc.maintain());
+    assert!(r.http.paths().is_empty());
 }
