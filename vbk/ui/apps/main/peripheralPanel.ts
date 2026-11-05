@@ -1,11 +1,11 @@
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 /** Conversation-scoped peripheral actions. Automatic reads never retry writes. */
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
-import type { UiMembers, UiInviteAgent, UiInviteCandidates, UiCustomerScripts, UiPeripheralWrite } from '../../packages/ipc/src/client.ts';
+import type { UiMembers, UiInviteAgent, UiInviteCandidates, UiPeripheralWrite } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { sameAccount, errorMessage } from './viewmodel.ts';
 
-export type PeripheralKind = 'members' | 'scripts' | 'invite' | 'transfer' | 'finish';
+export type PeripheralKind = 'members' | 'invite' | 'transfer' | 'finish';
 /** Write actions. The members panel (official「群聊人员」) submits transfer or
  * remove from its own selection; remove is never a mode of finish. */
 export type PeripheralAction = 'invite' | 'transfer' | 'finish' | 'remove';
@@ -24,7 +24,6 @@ export interface PeripheralPanelState {
   readonly selected: readonly string[];
   readonly members: UiMembers | null;
   readonly candidates: UiInviteCandidates | null;
-  readonly scripts: UiCustomerScripts | null;
   readonly write: UiPeripheralWrite | null;
   /** Action that produced `write` (members panel may transfer or remove). */
   readonly action: PeripheralAction | null;
@@ -81,11 +80,6 @@ function readCandidates(value: unknown): UiInviteCandidates {
     const group = record(raw); return group && Number.isSafeInteger(group['skill_group_id']) && typeof group['name'] === 'string';
   })) throw new Error(t('peripheralRuntime.malformedCandidates'));
   return value as UiInviteCandidates;
-}
-function readScripts(value: unknown): UiCustomerScripts {
-  const row = record(value);
-  if (!row || (row['kind'] !== 'empty' && row['kind'] !== 'unsupported') || !Number.isSafeInteger(row['raw_count']) || (row['raw_count'] as number) < 0) throw new Error(t('peripheralRuntime.malformedScripts'));
-  return value as UiCustomerScripts;
 }
 
 export const MEMBER_REFRESH_MS = 15_000;
@@ -196,10 +190,7 @@ export function createPeripheralPanel(deps: Dependencies) {
       ...(kind === 'invite' ? { query: content.trim() } : {}) });
     try {
       const payload = { account: scope.account, gid: scope.gid };
-      if (kind === 'scripts') {
-        const scripts = readScripts(await deps.invoke(UiCommands.IM_CUSTOMER_SCRIPTS, { account: scope.account, content }));
-        if (valid(ticket, scope)) patch({ scripts, updatedAt: deps.now() });
-      } else if (kind === 'invite') {
+      if (kind === 'invite') {
         const directory = await loadDirectory(ticket, scope, parentSkillGroupIds);
         if (valid(ticket, scope) && directory) { deps.rememberDirectory?.(scope, Object.values(directory.known)); patch({ ...directory, selected: state!.selected.filter(uid => directory.known[uid] && directory.known[uid].in_group !== true), updatedAt: deps.now() }); }
       } else {
@@ -211,7 +202,7 @@ export function createPeripheralPanel(deps: Dependencies) {
           patch({ members, selected, confirming, updatedAt: deps.now() });
         }
       }
-      if (valid(ticket, scope) && kind !== 'scripts') await deps.refreshConversation(scope);
+      if (valid(ticket, scope)) await deps.refreshConversation(scope);
     } catch (error) {
       if (valid(ticket, scope)) patch({ error: errorMessage(error) });
     } finally {
@@ -244,10 +235,10 @@ export function createPeripheralPanel(deps: Dependencies) {
     activeRead = 0;
     const copy = { account: { ...scope.account }, gid: scope.gid };
     // The members panel shares the transfer/remove fences with their own entries.
-    const actions: readonly PeripheralAction[] = kind === 'members' ? ['remove', 'transfer'] : kind === 'scripts' ? [] : [kind];
+    const actions: readonly PeripheralAction[] = kind === 'members' ? ['remove', 'transfer'] : [kind];
     const action = actions.find((a) => attempts.has(scopeKey(copy, a))) ?? null;
     const write = action ? attempts.get(scopeKey(copy, action))! : null;
-    state = { kind, scope: copy, busy: false, refreshing: false, onlineOnly: true, roleFilter: '4', updatedAt: null, selected: [], members: null, candidates: null, scripts: null, write, action, confirming: null, ...EMPTY, submitted: write !== null, error: null, notice: null };
+    state = { kind, scope: copy, busy: false, refreshing: false, onlineOnly: true, roleFilter: '4', updatedAt: null, selected: [], members: null, candidates: null, write, action, confirming: null, ...EMPTY, submitted: write !== null, error: null, notice: null };
     const cached = deps.preload?.(copy);
     if (cached) {
       if (kind === 'invite' && cached.candidates) {

@@ -32,9 +32,9 @@ test('reply and recommendation runtime copy is catalogued with static keys and c
   assert.deepEqual([...keys].sort(), [...Object.keys(repliesRecommendStrings), ...Object.keys(recommendPanelStrings)].sort(), 'every catalog entry is referenced and every reference has an entry');
 });
 
-test('17-entry copy snapshot preserves all original Chinese, spaces, punctuation and nested page-count formatting', () => {
-  assert.equal(Object.keys(repliesRecommendStrings).length, 17);
-  assert.equal(createHash('sha256').update(JSON.stringify(Object.entries(repliesRecommendStrings).sort())).digest('hex'), '34b9f52dd5577123f4baf5708cd0af8ebd7648e221e92e0029ed077cf4dd3efc');
+test('23-entry copy snapshot preserves all original Chinese, spaces, punctuation and nested page-count formatting', () => {
+  assert.equal(Object.keys(repliesRecommendStrings).length, 23);
+  assert.equal(createHash('sha256').update(JSON.stringify(Object.entries(repliesRecommendStrings).sort())).digest('hex'), '600e69d4df63089478bbf39d0ed32d7f992d6506b5591beca40ae8ffb1085f54');
   for (const key of Object.keys(repliesRecommendStrings) as (keyof typeof repliesRecommendStrings)[]) assert.equal(t(key), repliesRecommendStrings[key]);
   assert.equal(t('repliesRuntime.count', { count: 3 }), '3 条回复');
 });

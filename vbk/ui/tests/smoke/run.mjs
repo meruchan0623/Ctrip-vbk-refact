@@ -1036,6 +1036,86 @@ async function testLogin(context, base) {
   for (const e of errors) check(false, `login: ${e}`);
 }
 
+/** 快捷回复弹窗：分组栏（全部 + 非空分组）、按组筛选、设置内嵌共享管理器、返回后重读；只读，不插入、不发送。 */
+async function testQuickReplies(context, base) {
+  console.log('[smoke] quick replies');
+  const errors = [];
+  const page = await openPage(context, { width: 1440, height: 900 });
+  watch(page, errors);
+  await page.goto(`${base}/apps/main/index.html?scenario=default&platform=windows`);
+  await page.waitForSelector('.conv', { timeout: 10000 });
+  await page.click('.conv[data-gid="g-demo-1"]');
+  await page.waitForSelector('.msg', { timeout: 10000 });
+  const rec = await recordInvokes(page);
+  const dialog = '[data-commerce-dialog="replies"]';
+  const cards = () => page.$$eval(`${dialog} .reply-card`, (els) => els.length);
+  const pressed = () => page.$$eval(`${dialog} .reply-group[aria-pressed="true"]`, (els) => els.map((e) => e.textContent.trim()));
+  const since = async (mark, cmd) => (await rec.calls()).slice(mark).filter((c) => c.cmd === cmd);
+  const draftBefore = await page.$eval('textarea[data-fid="draft"]', (el) => el.value).catch(() => null);
+
+  await page.click('[data-tool="phrases"]');
+  await page.waitForSelector(`${dialog} [data-reply-group-all]`, { timeout: 5000 });
+  await page.waitForSelector(`${dialog} .reply-card`, { timeout: 5000 });
+  check((await text(page, `${dialog} [data-reply-group-all]`)) === '全部', 'quick replies: group column starts with 全部');
+  check(JSON.stringify(await pressed()) === '["全部"]', `quick replies: 全部 is selected by default (${await pressed()})`);
+  const groups = await page.$$eval(`${dialog} [data-reply-group]`, (els) => els.map((e) => e.textContent.trim()));
+  check(JSON.stringify(groups) === '["常用回复","订单与出行"]', `quick replies: groups list non-empty categories only, 待整理 hidden (${groups.join('|')})`);
+  const all = await cards();
+  check(all === 5, `quick replies: 全部 shows every personal script (${all})`);
+  check((await page.$$(`${dialog} .reply-card-category`)).length === all, 'quick replies: 全部 cards keep their category label');
+  const column = await page.$eval(`${dialog} .reply-groups`, (el) => Math.round(el.getBoundingClientRect().width));
+  const masonry = await page.$eval(`${dialog} .reply-masonry`, (el) => getComputedStyle(el).columnCount);
+  check(column === 160 && masonry === '2', `quick replies: 160px group column leaves a two-column masonry (${column}px, ${masonry})`);
+
+  await page.click(`${dialog} [data-reply-group="1002"]`);
+  await page.waitForFunction((sel) => document.querySelectorAll(`${sel} .reply-card`).length === 2, dialog, { timeout: 3000 }).catch(() => undefined);
+  check((await cards()) === 2, `quick replies: selecting 订单与出行 narrows cards 5 → 2 (${await cards()})`);
+  check(JSON.stringify(await pressed()) === '["订单与出行"]', 'quick replies: the selected group is pressed, 全部 is not');
+  check((await page.$$(`${dialog} .reply-card-category`)).length === 0, 'quick replies: cards inside one group drop the category label');
+  await page.fill(`${dialog} .reply-search`, '订单');
+  await page.waitForFunction((sel) => document.querySelector(`${sel} [data-reply-group-all]`)?.getAttribute('aria-pressed') === 'true', dialog, { timeout: 3000 }).catch(() => undefined);
+  check(JSON.stringify(await pressed()) === '["全部"]', 'quick replies: typing a search jumps back to 全部');
+  await page.fill(`${dialog} .reply-search`, '');
+
+  const manageMark = (await rec.calls()).length;
+  await page.click(`${dialog} [data-action="reply-manage"]`);
+  await page.waitForSelector(`${dialog} [data-qr="root"] [data-qr="group"]`, { timeout: 5000 });
+  check((await text(page, `${dialog} .dlg-h > span`)) === '快捷回复设置', 'quick replies: 设置 switches the dialog title');
+  check((await page.$(`${dialog} [data-reply-group-all]`)) === null, 'quick replies: the picker is replaced by the manager');
+  check((await page.$$(`${dialog} [data-qr="group"]`)).length === 3, 'quick replies: the manager lists every personal group, empty ones included');
+  check((await page.getAttribute(`${dialog} [data-qr-tab="VAGENT"]`, 'aria-selected')) === 'true', 'quick replies: the manager opens on the current tab (个人)');
+  const reads = await since(manageMark, 'im_quick_reply_categories');
+  check(reads.length >= 1 && reads.every((c) => c.payload?.type === 'VAGENT' && c.payload?.account?.account_id === 'acc-demo-a' && c.payload?.account?.session_generation === 3), `quick replies: the manager reads with the full account context (${JSON.stringify(reads[0]?.payload)})`);
+  const height = await page.$eval(dialog, (el) => Math.round(el.getBoundingClientRect().height));
+  check(height >= 600, `quick replies: manage mode keeps the dialog height (${height}px)`);
+  await shot(page, 'main-quick-replies-manage.png');
+  await page.click(`${dialog} [data-qr-tab="VSKILLGROUP"]`);
+  await page.waitForFunction((sel) => document.querySelector(`${sel} [data-qr-tab="VSKILLGROUP"]`)?.getAttribute('aria-selected') === 'true' && document.querySelector(`${sel} [data-qr="group"]`), dialog, { timeout: 5000 }).catch(() => undefined);
+
+  const backMark = (await rec.calls()).length;
+  await page.click(`${dialog} [data-action="reply-back"]`);
+  await page.waitForSelector(`${dialog} [data-reply-group-all]`, { timeout: 5000 });
+  await page.waitForSelector(`${dialog} .reply-card`, { timeout: 5000 });
+  check((await page.$(`${dialog} [data-qr="root"]`)) === null, 'quick replies: 返回 removes the manager');
+  check((await text(page, `${dialog} .reply-tab[aria-pressed="true"]`)) === '团队', 'quick replies: the tab chosen in the manager carries back to the picker');
+  const back = await since(backMark, 'im_quick_reply_categories');
+  check(back.length === 1 && back[0].payload?.type === 'VSKILLGROUP', `quick replies: 返回 re-reads the current tab once (${back.length})`);
+  const teamGroups = await page.$$eval(`${dialog} [data-reply-group]`, (els) => els.map((e) => e.textContent.trim()));
+  check(JSON.stringify(teamGroups) === '["团队话术","退改政策","夜班交接"]' && JSON.stringify(await pressed()) === '["全部"]', `quick replies: team groups shown with 全部 selected (${teamGroups.join('|')})`);
+  await shot(page, 'main-quick-replies.png');
+
+  await page.focus(dialog);
+  await page.keyboard.press('Escape');
+  await page.waitForSelector(dialog, { state: 'detached', timeout: 3000 }).catch(() => undefined);
+  check((await page.$(dialog)) === null, 'quick replies: Escape closes the dialog');
+  const draftAfter = await page.$eval('textarea[data-fid="draft"]', (el) => el.value).catch(() => null);
+  check(draftAfter === draftBefore, 'quick replies: browsing and managing never touches the draft');
+  const writes = (await rec.calls()).map((c) => c.cmd).filter((cmd) => /quick_reply_edit|send/i.test(cmd));
+  check(writes.length === 0, `quick replies: no write command issued (${writes.join('|')})`);
+  for (const e of errors) check(false, `quick replies: ${e}`);
+  await page.close();
+}
+
 const BUDGET_MS = 180_000;
 
 async function main() {
@@ -1077,6 +1157,7 @@ async function main() {
       ['setting', testSetting],
       ['media-viewer', testMediaViewer],
       ['login', testLogin],
+      ['quick-replies', testQuickReplies],
     ]) {
       // A fresh context per case: no localStorage, cookies or mock state leaks from one case into the next.
       const context = await browser.newContext();

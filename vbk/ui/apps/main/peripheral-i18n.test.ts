@@ -10,7 +10,7 @@ import type { UiPeripheralWrite } from '../../packages/ipc/src/client.ts';
 const { scanFile, expectNoCjkLiterals } = await import(new URL('../../../tools/gates/cjk-literals.mjs', import.meta.url).href);
 const expected = {
   malformedMembers: '成员返回格式无效，正在等待自动更新。', malformedCandidates: '候选返回格式无效，正在等待自动更新。',
-  malformedScripts: '话术返回格式无效，请刷新。', directoryTooLarge: '部门目录过大，暂时无法完整加载。',
+  directoryTooLarge: '部门目录过大，暂时无法完整加载。',
   memberTimeout: '成员状态读取超时，正在等待自动更新。', finishExpired: '会话确认已过期，已只读刷新。请再次确认结束。',
   candidatesExpired: '候选已过期，已自动更新。请重新选择。', finishNotSubmitted: '本次操作尚未提交。请刷新会话后再次确认。',
   membersNotSubmitted: '本次操作尚未提交，成员和会话将自动更新，请稍后再次确认。',
@@ -19,7 +19,7 @@ const expected = {
   unknownMessage: '操作可能已经生效。仅可只读刷新成员和会话，不会重新发送操作。',
 } as const;
 
-test('15 peripheral copy entries preserve exact original text and have static references only in the owned scope', () => {
+test('14 peripheral copy entries preserve exact original text and have static references only in the owned scope', () => {
   const references = new Set<string>();
   const panel = readFileSync(new URL('./peripheralPanel.ts', import.meta.url), 'utf8');
   const model = readFileSync(new URL('./viewmodel.ts', import.meta.url), 'utf8');
@@ -62,7 +62,7 @@ test('actual accepted, contradictory-confirmed and unknown write explanations ne
 });
 
 test('actual malformed read errors keep their exact UI explanation without introducing a write or retry', async () => {
-  for (const [kind, message] of [['members', expected.malformedMembers], ['invite', expected.malformedCandidates], ['scripts', expected.malformedScripts]] as [PeripheralKind, string][]) {
+  for (const [kind, message] of [['members', expected.malformedMembers], ['invite', expected.malformedCandidates]] as [PeripheralKind, string][]) {
     let state: PeripheralPanelState | null = null;
     const current = () => state;
     const calls: string[] = [];

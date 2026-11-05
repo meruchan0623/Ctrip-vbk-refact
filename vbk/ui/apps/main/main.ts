@@ -12,7 +12,7 @@ import { createAccountNavigation } from './account-navigation.ts';
 import { accountTabTitle } from './account-tab-info.ts';
 import { bannerKey, loadIgnored, saveIgnored, splitCategories, toggleIgnored, withBannerCategory } from './notice-ignore.ts';
 import { createNoticeQuery, EMPTY_NOTICE_QUERY, type NoticeQueryState } from './notice-query.ts';
-import { createQuickReplies, quickRepliesView, type QuickRepliesState, type ReplyContext } from './quick-replies.ts';
+import { createQuickReplies, quickRepliesView, replyDialogOpen, type QuickRepliesState, type ReplyContext } from './quick-replies.ts';
 import { createRecommendPanel, recommendView, type RecommendState } from './recommend-panel.ts';
 import { companionPackageCard } from './companion-card.ts';
 import { createOperatorOverlay, operatorGrant } from './operator-overlay.ts';
@@ -312,7 +312,6 @@ interface MainState {
   readonly receiveDiagnostics: ReceiveDiagnosticsView | null;
   readonly unknownOutbound: UnknownOutboundView | null;
   readonly runtimeLog: boolean;
-  readonly scriptsQuery: string;
   readonly inviteQuery: string;
   readonly meMenu: false | 'status';
   readonly logoutDialog: { readonly account: UiAccount; readonly mode: LogoutMode } | null;
@@ -390,7 +389,6 @@ const initial: MainState = {
   receiveDiagnostics: null,
   unknownOutbound: null,
   runtimeLog: false,
-  scriptsQuery: '',
   inviteQuery: '',
   meMenu: false,
   logoutDialog: null,
@@ -600,7 +598,7 @@ function runtimeLogReport(): string {
   });
 }
 
-function openPeripheral(kind: PeripheralKind): void {
+function openPeripheral(kind: PeripheralKind | 'scripts'): void {
   const conv = activeConv();
   if (activeAccount() && conv) {
     if (kind !== 'scripts' && isDone(conv)) {
@@ -627,9 +625,10 @@ function productCanSend(): boolean {
 function focusComposer(): void { requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[data-fid="draft"]')?.focus()); }
 const quickReplies = createQuickReplies({
   current: replyContext, invoke: (command, payload) => ipc.invoke(command, payload),
-  publish: (quickReplies) => { const opening = quickReplies?.mode === 'categories' && S().quickReplies?.mode !== 'categories'; store.patch({ quickReplies }); if (opening) requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-commerce-dialog="replies"]')?.focus()); },
+  publish: (quickReplies) => { const opening = replyDialogOpen(quickReplies) && !replyDialogOpen(S().quickReplies); store.patch({ quickReplies }); if (opening) requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-commerce-dialog="replies"]')?.focus()); },
   insert: (text, replace) => { if (!replyContext() || composerInput.active()) return; const draft = S().draft; setDraft(replace ? text : draft + (draft && !draft.endsWith('\n') ? '\n' : '') + text); focusComposer(); },
   setTimer: (callback, ms) => setTimeout(callback, ms), clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+  notify: (text) => toast(text),
 });
 const recommendations = createRecommendPanel({
   current: replyContext, canSend: productCanSend, invoke: (command, payload) => ipc.invoke(command, payload), now: Date.now,
@@ -640,6 +639,8 @@ const recommendations = createRecommendPanel({
     store.patch({ messages: { ...S().messages, [scope.gid]: mergeHistory(page.items.filter(isUiMessage), S().messages[scope.gid] ?? []) } });
   },
 });
+// 管理模式下编辑器跟随当前会话的账号与代次；账号切换由 applyAccountSnapshot 关闭弹窗。
+store.subscribe((s) => { if (s.quickReplies?.mode === 'manage') quickReplies.sync(); });
 function closeCommerce(): void { quickReplies.close(); recommendations.close(); }
 function openRecommendations(): void { peripheral.close(); quickReplies.close(); void recommendations.open(); }
 
@@ -1640,7 +1641,7 @@ async function refreshPackages(): Promise<void> {
 
 // Native pages sit above all HTML, so they step aside while a menu or dialog overlaps them.
 function webCovered(s: MainState): boolean {
-  return !!(s.meMenu || s.ctxMenu || s.logoutDialog || s.peripheral || s.runtimeLog || s.quickReplies?.mode === 'categories' || s.recommendations);
+  return !!(s.meMenu || s.ctxMenu || s.logoutDialog || s.peripheral || s.runtimeLog || replyDialogOpen(s.quickReplies) || s.recommendations);
 }
 const browserTabs = createBrowserTabs({
   invoke: (command, payload) => ipc.invoke(command, payload),
@@ -3142,7 +3143,7 @@ function logoutDialog(s: MainState): HTMLElement | null {
 function peripheralDialog(s: MainState): HTMLElement | null {
   const d = s.peripheral;
   if (!d || !stillActive(d.scope.account) || s.activeGid !== d.scope.gid) return null;
-  const titles: Record<PeripheralKind, string> = { members: t("main.chatPane.memberManagement"), scripts: t("main.peripheralDialog.quickScripts"), invite: t("main.chatPane.memberManagement"), transfer: t("main.chatPane.memberManagement"), finish: t("chat.end") };
+  const titles: Record<PeripheralKind, string> = { members: t("main.chatPane.memberManagement"), invite: t("main.chatPane.memberManagement"), transfer: t("main.chatPane.memberManagement"), finish: t("chat.end") };
   const title = titles[d.kind];
   const managing = d.kind === 'members' || d.kind === 'invite' || d.kind === 'transfer';
   const target = activeConv(s)?.title || d.scope.gid;
@@ -3160,14 +3161,7 @@ function peripheralDialog(s: MainState): HTMLElement | null {
   const locked = d.busy || d.refreshing || d.submitted || !tokenReady;
   let body: Node;
   let actions: Node[] = [];
-  if (d.kind === 'scripts') {
-    body = h('div', { class: 'peripheral-body' },
-      h('form', { class: 'peripheral-search', onsubmit: (e: Event) => { e.preventDefault(); void peripheral.refresh(undefined, S().scriptsQuery); } },
-        h('input', { class: 'inp', 'aria-label': t("main.peripheralDialog.searchScripts"), placeholder: t("main.peripheralDialog.searchScripts"), value: s.scriptsQuery, dataset: { fid: 'scripts-search' }, oninput: (e: Event) => store.patch({ scriptsQuery: (e.target as HTMLInputElement).value }) }),
-        h('button', { class: 'btn', type: 'submit', disabled: d.busy }, t("main.peripheralDialog.search"))),
-      d.scripts?.kind === 'empty' ? h('p', { class: 'peripheral-empty' }, t("main.peripheralDialog.noScripts")) : null,
-      d.scripts?.kind === 'unsupported' ? h('div', { class: 'notice-box' }, t("main.peripheralDialog.scriptsUnverified")) : null);
-  } else if (d.kind === 'invite') {
+  if (d.kind === 'invite') {
     const agents = filteredInviteAgents(d);
     const picked: UiInviteAgent[] = d.selected.map((uid) => d.known?.[uid] ?? d.candidates?.agents.find((agent) => agent.uid === uid) ?? { uid, nickname: null });
     body = h('div', { class: 'peripheral-body invite-body' },
@@ -3246,7 +3240,7 @@ function peripheralDialog(s: MainState): HTMLElement | null {
       d.notice || expired ? h('div', { class: 'notice-box peripheral-note', role: 'status' }, d.notice || (managing ? t("main.peripheralDialog.membersExpiredUpdating") : t("main.peripheralDialog.candidatesExpired"))) : null,
       result ? h('div', { class: cx('notice-box', 'peripheral-note', { 'peripheral-confirmed': result.confirmed }), role: 'status' }, h('b', null, result.title), h('p', null, result.message)) : null,
       h('div', { class: 'dlg-f' },
-        !managing ? h('button', { class: 'btn', disabled: d.busy, onclick: () => void peripheral.refresh(undefined, d.kind === 'scripts' ? S().scriptsQuery : '') }, d.kind === 'scripts' ? t("main.peripheralDialog.refreshScripts") : t("main.notificationsView.refresh")) : null,
+        !managing ? h('button', { class: 'btn', disabled: d.busy, onclick: () => void peripheral.refresh(undefined, '') }, t("main.notificationsView.refresh")) : null,
         ...actions,
         h('button', { class: 'btn', onclick: () => peripheral.close() }, t("win.close")),
         writable && !d.submitted ? h('button', { class: 'btn pri', disabled: submitDisabled, dataset: { action: `peripheral-${d.kind}-confirm` }, onclick: () => void peripheral.submit() }, d.kind === 'finish' ? t("main.peripheralDialog.confirmFinish") : d.kind === 'transfer' ? t("main.peripheralDialog.confirmTransfer") : t("main.peripheralDialog.confirmInvite", { count: d.selected.length ? t("main.peripheralDialog.countSuffix", { count: d.selected.length }) : '' })) : null)));
@@ -3319,7 +3313,7 @@ function render(s: MainState): Node {
     contextMenu(s),
     part('logoutDialog', () => logoutDialog(s)),
     part('peripheralDialog', () => peripheralDialog(s)),
-    part('quickReplies', () => s.quickReplies?.mode === 'categories' ? quickRepliesView(s.quickReplies, replyContext(), quickReplies) : null),
+    part('quickReplies', () => replyDialogOpen(s.quickReplies) ? quickRepliesView(s.quickReplies, replyContext(), quickReplies) : null),
     part('recommend', () => recommendView(s.recommendations, replyContext(), productCanSend(), recommendations)),
     part('runtimeLog', () => runtimeLogDialog(s)),
     s.fileDrag && !s.activeWeb && composerInputContext(s) ? h('div', { class: 'drop-overlay', 'aria-hidden': 'true' }, h('div', null, icon(IC.file, 28), t('composer.dropHint'))) : null,
@@ -3337,7 +3331,7 @@ const visibleReads = createVisibleRead({
       messages: conversation ? s.messages[conversation.gid] ?? [] : [],
       firstPage: conversation ? s.history[conversation.gid]?.firstPage : undefined,
       readContextRevision: conversation ? s.history[conversation.gid]?.readContextRevision : undefined,
-      view: s.view, blocked: !!(s.activeWeb || s.logoutDialog || s.peripheral || s.runtimeLog || s.quickReplies?.mode === 'categories' || s.recommendations) };
+      view: s.view, blocked: !!(s.activeWeb || s.logoutDialog || s.peripheral || s.runtimeLog || replyDialogOpen(s.quickReplies) || s.recommendations) };
   },
   pane: () => root.querySelector<HTMLElement>('[data-keep-scroll="msgs"]'),
   visible: () => document.visibilityState === 'visible' && document.hasFocus(),
@@ -3497,9 +3491,9 @@ document.addEventListener('mousedown', () => {
   if (s.ctxMenu || s.meMenu || s.emoOpen || s.composerMore) store.patch({ ctxMenu: null, meMenu: false, emoOpen: false, composerMore: false });
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Tab' && (S().peripheral || S().runtimeLog || S().quickReplies?.mode === 'categories' || S().recommendations)) {
-    const dialog = document.querySelector<HTMLElement>((S().quickReplies?.mode === 'categories' || S().recommendations) ? '[data-commerce-dialog]' : S().runtimeLog ? '[data-runtime-log]' : '[data-peripheral-dialog]');
-    const controls = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')] : [];
+  if (e.key === 'Tab' && (S().peripheral || S().runtimeLog || replyDialogOpen(S().quickReplies) || S().recommendations)) {
+    const dialog = document.querySelector<HTMLElement>((replyDialogOpen(S().quickReplies) || S().recommendations) ? '[data-commerce-dialog]' : S().runtimeLog ? '[data-runtime-log]' : '[data-peripheral-dialog]');
+    const controls = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)')] : [];
     const first = controls[0];
     const last = controls[controls.length - 1];
     if (first && last && (e.shiftKey ? document.activeElement === first || document.activeElement === dialog : document.activeElement === last || document.activeElement === dialog)) {
@@ -3508,7 +3502,8 @@ document.addEventListener('keydown', (e) => {
     }
   }
   if (e.key === 'Escape') {
-    closeCommerce();
+    // A quick-reply write that is out keeps its dialog open until it settles.
+    quickReplies.dismiss(); recommendations.close();
     if (S().peripheral) peripheral.close();
     if (S().runtimeLog) closeRuntimeLog();
     const s = S();

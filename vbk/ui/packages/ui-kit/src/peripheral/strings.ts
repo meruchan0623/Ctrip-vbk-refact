@@ -2,7 +2,6 @@
 export const peripheralStrings = {
   "peripheralRuntime.malformedMembers": "成员返回格式无效，正在等待自动更新。",
   "peripheralRuntime.malformedCandidates": "候选返回格式无效，正在等待自动更新。",
-  "peripheralRuntime.malformedScripts": "话术返回格式无效，请刷新。",
   "peripheralRuntime.directoryTooLarge": "部门目录过大，暂时无法完整加载。",
   "peripheralRuntime.memberTimeout": "成员状态读取超时，正在等待自动更新。",
   "peripheralRuntime.finishExpired": "会话确认已过期，已只读刷新。请再次确认结束。",

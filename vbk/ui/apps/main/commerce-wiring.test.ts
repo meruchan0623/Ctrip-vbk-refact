@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
+import { replyDialogOpen } from './quick-replies.ts';
 
 const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
 test('actual visible-read wiring blocks commerce dialogs and permits nonmodal reply suggestions', () => {
@@ -11,10 +12,10 @@ test('actual visible-read wiring blocks commerce dialogs and permits nonmodal re
   let current!: () => { blocked: boolean; account: unknown; conversation: unknown; readContextRevision: unknown };
   const start = source.indexOf('const visibleReads = createVisibleRead('), end = source.indexOf('\n});', start) + '\n});'.length;
   assert.ok(start >= 0 && end > start);
-  const env = { S: () => state, activeConv: () => conversation, activeAccount: () => ({ context: account }), createVisibleRead: (deps: { current: typeof current }) => { current = deps.current; }, root: {}, document: {}, ipc: {}, UiCommands: {} };
+  const env = { S: () => state, activeConv: () => conversation, activeAccount: () => ({ context: account }), createVisibleRead: (deps: { current: typeof current }) => { current = deps.current; }, root: {}, document: {}, ipc: {}, UiCommands: {}, replyDialogOpen };
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)))(...Object.values(env));
   assert.equal(current().blocked, false); assert.equal(current().account, account); assert.equal(current().conversation, conversation); assert.equal(current().readContextRevision, 'visit-1');
-  for (const patch of [{ quickReplies: { mode: 'categories' } }, { recommendations: {} }, { logoutDialog: {} }, { peripheral: {} }, { runtimeLog: true }]) {
+  for (const patch of [{ quickReplies: { mode: 'categories' } }, { quickReplies: { mode: 'manage' } }, { recommendations: {} }, { logoutDialog: {} }, { peripheral: {} }, { runtimeLog: true }]) {
     const base = state; state = { ...base, ...patch }; assert.equal(current().blocked, true, JSON.stringify(patch)); state = base;
   }
   state = { ...state, quickReplies: { mode: 'suggestions' } }; assert.equal(current().blocked, false);

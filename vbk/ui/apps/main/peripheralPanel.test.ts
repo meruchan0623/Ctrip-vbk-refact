@@ -65,12 +65,6 @@ test('ambiguous IPC failure is latched unknown; accepted is not confirmed', asyn
   await other.panel.open('finish'); await other.panel.submit(); assert.equal(other.state()?.write?.kind, 'accepted');
 });
 
-test('script empty and unsupported remain distinct; no reply text fabricated', async () => {
-  const h = harness(async () => ({ kind: 'unsupported', raw_count: 2, reason: 'synthetic missing contract' }));
-  await h.panel.open('scripts'); assert.equal(h.state()?.scripts?.kind, 'unsupported');
-  await h.panel.submit(); assert.equal(h.state()?.write, null);
-});
-
 test('malformed members cannot reach the dialog or authorize a write', async () => {
   const h = harness(async () => ({ ...members, members: null }));
   await h.panel.open('transfer');

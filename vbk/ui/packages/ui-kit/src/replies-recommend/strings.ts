@@ -17,4 +17,10 @@ export const repliesRecommendStrings = {
   "repliesRuntime.empty": "暂无快捷回复",
   "repliesRuntime.insertHint": "点击插入输入框",
   "repliesRuntime.count": "{count} 条回复",
+  "repliesRuntime.groups": "回复分组",
+  "repliesRuntime.allGroups": "全部",
+  "repliesRuntime.manage": "设置",
+  "repliesRuntime.manageHeading": "快捷回复设置",
+  "repliesRuntime.back": "返回",
+  "repliesRuntime.manageInterrupted": "快捷回复的修改仍在提交，结果未确认，请重新打开快捷回复设置核对",
 } as const;
