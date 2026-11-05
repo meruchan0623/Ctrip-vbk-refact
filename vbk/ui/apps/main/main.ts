@@ -87,6 +87,7 @@ import {
   isAlarmSnapshot,
   isAttemptResult,
   isBannerPayload,
+  isTabAttentionPayload,
   isClockReading,
   isLocatePayload,
   isNoticeCategoryPayload,
@@ -183,6 +184,7 @@ import {
   unreadTotal,
   viewingGid,
 } from './viewmodel.ts';
+import { addTabAttention, pruneTabAttention, tabBreathes } from './tab-attention.ts';
 import type { BannerItem, BusinessTab, ListTab, LogoutMode, OrderContactState, TranslationState, QuotedUiMessage } from './viewmodel.ts';
 
 /** Host events not (yet) listed in the frozen `Events` / `UiEvents` tables; names mirror `src-tauri/src/events.rs`. */
@@ -191,6 +193,7 @@ const HostEvents = {
   NOTICE_NEW: 'notice://new',
   NOTICE_LOCATE_CATEGORY: 'notice://locate-category',
   BANNER: 'notify://banner',
+  TAB_ATTENTION: 'notify://tab-attention',
   PLAY_SOUND: 'notify://play-sound',
   STOP_SOUND: 'notify://stop-sound',
 } as const;
@@ -315,6 +318,8 @@ interface MainState {
   readonly logoutDialog: { readonly account: UiAccount; readonly mode: LogoutMode } | null;
   readonly editingTab: { readonly accountId: string; readonly value: string } | null;
   readonly banners: readonly BannerItem[];
+  /** Account ids whose tab breathes after a banner-level message. */
+  readonly tabAlerts: readonly string[];
   readonly bannerHoverAt: number | null;
   readonly toast: string | null;
   readonly toastAction: { readonly label: string; readonly run: () => void } | null;
@@ -391,6 +396,7 @@ const initial: MainState = {
   logoutDialog: null,
   editingTab: null,
   banners: [],
+  tabAlerts: [],
   bannerHoverAt: null,
   toast: null,
   toastAction: null,
@@ -918,12 +924,12 @@ function applyAccountSnapshot(snap: UiAccountSnapshot): void {
     // An explicit account-selection intent may cross its own first host
     // transition. A second transition, including A→B→A, revokes it.
     if (transfer) { navigation.transferred = true; navigation.targetVisit = accountVisit; }
-    store.patch({ accounts: snap, accountsError: null, loginAttempt, ...ACCOUNT_SCOPED_RESET, accountVisit,
+    store.patch({ accounts: snap, accountsError: null, loginAttempt, ...ACCOUNT_SCOPED_RESET, accountVisit, tabAlerts: pruneTabAttention(S().tabAlerts, snap.accounts, viewingAccountId(snap.active_account_id)),
       ...(transfer ? { navigationOperation: navigation } : {}) });
     void loadForActiveAccount();
   } else {
     const before = activeAccount()?.state;
-    store.patch({ accounts: snap, accountsError: null, loginAttempt, ...(before === 'online' && nextAccount?.state !== 'online' ? { conversationsError: null } : {}) });
+    store.patch({ accounts: snap, accountsError: null, loginAttempt, tabAlerts: pruneTabAttention(S().tabAlerts, snap.accounts, viewingAccountId(snap.active_account_id)), ...(before === 'online' && nextAccount?.state !== 'online' ? { conversationsError: null } : {}) });
     if (before && before !== 'online' && nextAccount?.state === 'online') void loadForActiveAccount();
   }
 }
@@ -1856,6 +1862,19 @@ function onBanner(p: { account: AccountContext; gid: string; count: number; stay
   store.patch({ banners: pushBanner(s.banners, { id: bannerSeq, account: p.account, gid: p.gid, count: p.count, system: p.system === true, at: Date.now(), stayMs: p.stay_ms }) });
 }
 
+/** The account whose tab is on screen; `null` while a web tab covers it. */
+function viewingAccountId(active: string | null | undefined): string | null {
+  return S().activeWeb ? null : active ?? null;
+}
+
+function onTabAttention(p: { account: AccountContext }): void {
+  const s = S();
+  const known = s.accounts?.accounts.find((a) => sameAccount(a.context, p.account));
+  if (!known) return;
+  const next = addTabAttention(s.tabAlerts, known.context.account_id, viewingAccountId(s.accounts?.active_account_id));
+  if (next !== s.tabAlerts) store.patch({ tabAlerts: next });
+}
+
 function dismissBanner(id: number): void {
   store.patch({ banners: S().banners.filter((b) => b.id !== id) });
 }
@@ -1910,7 +1929,7 @@ function titleBar(s: MainState): HTMLElement {
     return h(
       'div',
       {
-        class: cx('tab', { on, logging }),
+        class: cx('tab', { on, logging, alert: tabBreathes(s.tabAlerts, a, on) }),
         role: 'tab',
         'aria-selected': String(on),
         title: accountTabTitle(a),
@@ -3581,6 +3600,7 @@ function receiveAgentStatus(payload: unknown): void {
 }
 ipc.listen<unknown>(UiEvents.AGENT_STATUS, receiveAgentStatus);
 ipc.listen<unknown>(UiEvents.TOAST, guarded(UiEvents.TOAST, isToastPayload, (p) => toast(p.text)));
+ipc.listen<unknown>(HostEvents.TAB_ATTENTION, guarded(HostEvents.TAB_ATTENTION, isTabAttentionPayload, onTabAttention));
 ipc.listen<unknown>(HostEvents.BANNER, guarded(HostEvents.BANNER, isBannerPayload, onBanner));
 ipc.listen<unknown>(HostEvents.PLAY_SOUND, guarded(HostEvents.PLAY_SOUND, isSoundName, onPlaySound));
 ipc.listen<unknown>(HostEvents.STOP_SOUND, () => stopSound());

@@ -167,6 +167,11 @@ export function isBannerPayload(x: unknown): x is BannerPayload {
   return rec(x) && accountContext(x['account']) && str(x['gid']) && num(x['count']) && x['count'] >= 0 && num(x['stay_ms']) && x['stay_ms'] >= 0 && (x['system'] === undefined || bool(x['system']));
 }
 
+/** `notify://tab-attention` → `{account}`: a banner-level message arrived for that account's tab. */
+export function isTabAttentionPayload(x: unknown): x is { readonly account: AccountContext } {
+  return rec(x) && accountContext(x['account']);
+}
+
 export type SoundName = 'new_message' | 'timeout' | 'loop';
 
 /** `notify://notice-update`: late customer name and preview for a card on screen. */

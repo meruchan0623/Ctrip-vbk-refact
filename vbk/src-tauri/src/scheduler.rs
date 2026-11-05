@@ -127,12 +127,18 @@ fn run(app: AppHandle) {
                     gid,
                     count,
                     stay_ms,
-                } => crate::notifications::show(&app, &account, &gid, count, stay_ms),
+                } => {
+                    notify_tab_attention(&app, &account);
+                    crate::notifications::show(&app, &account, &gid, count, stay_ms);
+                }
                 Effect::SystemToast {
                     account,
                     gid,
                     count,
-                } => crate::notifications::show(&app, &account, &gid, count, BANNER_STAY_MS),
+                } => {
+                    notify_tab_attention(&app, &account);
+                    crate::notifications::show(&app, &account, &gid, count, BANNER_STAY_MS);
+                }
             }
         }
         let alarm_shown = windows::alarm_is_visible(&app);
@@ -157,6 +163,16 @@ fn run(app: AppHandle) {
         }
         thread::sleep(Duration::from_millis(pacer.sleep_ms(now_ms(), fast)));
     }
+}
+
+/// A banner-level message makes that account's tab breathe in the main window.
+/// Only the account identity goes out; the conversation and text stay out.
+fn notify_tab_attention(app: &AppHandle, account: &contracts::AccountContext) {
+    events::to_main(
+        app,
+        events::NOTIFY_TAB_ATTENTION,
+        serde_json::json!({ "account": crate::dto::AccountContextDto::from(account) }),
+    );
 }
 
 /// Whatever opened the alarm window, it never stays up with nothing to list.

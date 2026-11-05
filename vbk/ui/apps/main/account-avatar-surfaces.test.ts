@@ -43,7 +43,7 @@ function render(name: string, next: string, state: unknown, conv?: unknown): Nod
     onTitleMouseDown: () => undefined, onTabsWheel: () => undefined, revealActiveTab: () => () => undefined, windowControls: () => null, agentView: () => ({ label: 'online', colorVar: '--c-ok' }), browserTabs: { activate() {}, close() {} }, webTabView: () => null, switchAccount() {}, startLogin() {}, saveRemark() {}, cancelLogin() {}, store: { patch() {} }, invokeSafe() {}, unreadTotal: () => 0, AGENT_STATUS_ORDER, agentStatusColorVar: () => '', agentStatusLabel: () => '', agentStatusDesc: () => '',
     memberPillsFor: () => ({ count: null, isMaster: false }), activeConv: () => conv, historyScopeKey: () => '', isDone: () => true, customerLanguage: () => 'zh', netView: () => ({ offline: false }), messagePane: () => null, composer: () => null, emojiPicker: () => null, part: (_name: string, build: () => unknown) => build(), featureRuntime: { renderSlot: () => [] }, EMPTY_MESSAGES: [],
     splitCategories: (cats: unknown[]) => ({ visible: cats, hidden: [] }), ignoredNoticeCats: () => [],
-    packageCard: () => null, BANNER_VISIBLE: 3, formatClock: () => '', badgeText: () => '',
+    tabBreathes: () => false, packageCard: () => null, BANNER_VISIBLE: 3, formatClock: () => '', badgeText: () => '',
   };
   const run = new Function(...Object.keys(env), actualFunction(name, next) + `\nreturn ${name};`)(...Object.values(env));
   return run(state, conv) as Node;

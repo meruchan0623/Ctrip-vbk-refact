@@ -26,6 +26,9 @@ html[data-platform="macos"] .tb-logo .logo { display: none; }
 .tab-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
 .tab-x { width: 18px; height: 18px; border-radius: 4px; display: flex; align-items: center; justify-content: center; opacity: 0.65; flex: none; }
 .tab-x:hover { opacity: 1; background: rgba(127, 140, 160, 0.25); }
+@keyframes tab-breathe { 0%, 100% { background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 -2px 0 rgba(125, 190, 255, 0); } 50% { background: rgba(125, 190, 255, 0.34); box-shadow: inset 0 -2px 0 rgba(160, 210, 255, 0.9); } }
+.tab.alert:not(.on) { animation: tab-breathe 1.6s ease-in-out infinite; color: #fff; }
+@media (prefers-reduced-motion: reduce) { .tab.alert:not(.on) { animation: none; background: rgba(125, 190, 255, 0.28); box-shadow: inset 0 -2px 0 rgba(160, 210, 255, 0.9); } }
 .tab-badge { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--c-badge); color: #fff; font-size: 10.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex: none; }
 .tab-warn { font-size: 11px; color: #FFB224; flex: none; display: flex; align-items: center; gap: 3px; }
 .tab.on .tab-warn { color: #9A5B00; }

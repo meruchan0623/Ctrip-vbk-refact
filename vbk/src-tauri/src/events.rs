@@ -22,6 +22,7 @@ pub const MEDIA_SEND_PROGRESS: &str = "media://send-progress";
 pub const PREFS_CHANGED: &str = "prefs://changed"; // PrefsSnapshot
 pub const SHELL_TOAST: &str = "shell://toast"; // {text}
 pub const NOTIFY_BANNER: &str = "notify://banner";
+pub const NOTIFY_TAB_ATTENTION: &str = "notify://tab-attention"; // {account}; main only, no gid or text
 pub const NOTIFY_PLAY_SOUND: &str = "notify://play-sound";
 pub const NOTIFY_NOTICE: &str = "notify://notice"; // {account, gid, title, preview, count, stay_ms}
 pub const NOTIFY_NOTICE_UPDATE: &str = "notify://notice-update"; // {account, gid, title, preview}
