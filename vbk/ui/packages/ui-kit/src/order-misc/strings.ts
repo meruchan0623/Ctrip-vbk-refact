@@ -20,7 +20,7 @@ export const orderMiscStrings = {
   // TSIM operator overlay
   'orderMisc.operator.timeout': 'TSIM 页面尚未接管登录态，可在页面内登录，或关闭后重试。',
   'orderMisc.operator.loadFailed': 'TSIM 页面未能加载，请关闭后重试。',
-  'orderMisc.operator.close': '关闭订单',
+  'orderMisc.operator.close': '关闭窗口',
   'orderMisc.operator.opening': '正在打开 TSIM 订单页…',
   'orderMisc.operator.handoffSlow': '正在使用 TSIM 登录态打开订单…第一次打开可能较慢，请等待',
   'orderMisc.operator.completeLogin': '请在 TSIM 页面内完成登录。',

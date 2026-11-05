@@ -28,7 +28,7 @@ import { IC } from '../_shared/icons.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isPrefsSnapshot, isUiAccountSnapshot } from '../_shared/guards.ts';
 import { EMPTY_TSIM_FORM, PERSONAL_SETTINGS_URL, SECTIONS, SPY_LOCK_MS, ZOOM_OPTIONS, isSectionId, isTsimStatus, pickActiveSection, prefsCommand, reminderCommand, sectionLabel, tsimErrorText, tsimFormValid, tsimStatusText, tsimSessionInputValid, tsimImportErrorText } from './viewmodel.ts';
-import { SETTING_STRINGS as S, fmt } from './strings.ts';
+import { SETTING_STRINGS as S } from './strings.ts';
 import type { SectionId, SpyLock, TsimForm } from './viewmodel.ts';
 
 type ShortcutKey = 'screenshot' | 'toggle_main';
@@ -54,15 +54,13 @@ interface SettingState {
   readonly loadError: string | null;
   readonly net: UiNetStatus | null;
   readonly toast: string | null;
-  /** Nick of the active account for the title (prototype 「设置 · 昵称」). */
-  readonly nick: string | null;
   /** Active account; web personal settings open under its identity. */
   readonly account: AccountContext | null;
   readonly version: string | null;
 }
 
 const params = new URLSearchParams(location.search).get('section');
-const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'general', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, tsimImportExpanded: false, tsimImportToken: '', settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, nick: null, account: null, version: null });
+const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'general', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, tsimImportExpanded: false, tsimImportToken: '', settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, account: null, version: null });
 const sel = selectIpc();
 const ipc = sel.ipc;
 const root = document.getElementById('app');
@@ -510,12 +508,11 @@ function closeWindow(): void {
 }
 
 function titleBar(s: SettingState): HTMLElement {
-  const title = s.nick ? fmt(S.titleWithAccount, { nick: s.nick }) : t('set.title');
   return h(
     'div',
     { class: 'fwin-h', 'data-tauri-drag-region': 'deep' },
     icon(IC.gear, 14),
-    h('span', { class: 'fwin-title' }, title),
+    h('span', { class: 'fwin-title' }, t('set.title')),
     h('span', { class: 'sp' }),
     sel.mock ? h('span', { class: 'muted mock-tag' }, t('app.mockMode')) : null,
     platform === 'windows' ? h('button', { class: 'cap-x', 'aria-label': S.close, title: S.close, dataset: { action: 'close' }, onclick: closeWindow }, icon(IC.close, 14)) : null,
@@ -585,9 +582,9 @@ function render(s: SettingState): Node {
   );
 }
 
-function activeAccountPatch(snap: UiAccountSnapshot): Pick<SettingState, 'nick' | 'account'> {
+function activeAccountPatch(snap: UiAccountSnapshot): Pick<SettingState, 'account'> {
   const a = snap.accounts.find((x) => x.context.account_id === snap.active_account_id) ?? null;
-  return { nick: a ? (a.remark ?? a.nick) : null, account: a?.context ?? null };
+  return { account: a?.context ?? null };
 }
 
 // 增量 morph：滚动容器 .setbody 原地保留，滚动（含平滑滚动）不会被重渲染打断。

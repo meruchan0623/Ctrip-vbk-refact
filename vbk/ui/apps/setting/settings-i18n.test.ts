@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { hasKey, t } from '../../packages/ui-kit/src/i18n.ts';
-import { SETTING_STRINGS, fmt } from './strings.ts';
+import { SETTING_STRINGS } from './strings.ts';
 import { tsimErrorText, tsimImportErrorText } from './viewmodel.ts';
 
 // Exact pre-migration zh-CN copy; changes here require an explicit copy review.
@@ -47,7 +47,6 @@ const expected = {
   "malformedResponse": "返回的登录状态无法识别，请刷新状态后再操作。",
   "credentialStoreUnavailable": "系统凭据存储不可用，请检查系统权限后重试。",
   "operationUnconfirmed": "操作未完成，登录状态尚待核对。请先刷新 TSim 登录状态后再操作。",
-  "titleWithAccount": "设置 · {nick}",
   "assistant": "商家助手 · TSim 登录",
   "close": "关闭设置",
   "about": "关于与更新",
@@ -63,17 +62,16 @@ const expected = {
 const { scanFile, expectNoCjkLiterals } = await import(new URL('../../../tools/gates/cjk-literals.mjs', import.meta.url).href);
 
 const placeholders: Record<string, readonly string[]> = {
-  titleWithAccount: ['nick'], shortcutFailed: ['message'], shortcutCurrent: ['shortcut'], connectProfile: ['label'], errorCode: ['code', 'message'],
+  shortcutFailed: ['message'], shortcutCurrent: ['shortcut'], connectProfile: ['label'], errorCode: ['code', 'message'],
 };
 
-test('all 51 settings entries preserve the reviewed Chinese text and placeholder contracts', () => {
-  assert.equal(Object.keys(expected).length, 51);
+test('all 50 settings entries preserve the reviewed Chinese text and placeholder contracts', () => {
+  assert.equal(Object.keys(expected).length, 50);
   for (const [name, value] of Object.entries(expected)) {
     const key = `set.runtime.${name}`;
     assert.ok(hasKey(key)); assert.equal(t(key), value, name);
     assert.deepEqual([...value.matchAll(/\{(\w+)\}/g)].map(m => m[1]!).sort(), [...(placeholders[name] ?? [])].sort(), name);
   }
-  assert.equal(SETTING_STRINGS.titleWithAccount, expected.titleWithAccount);
 });
 
 test('settings production TS has no CJK copy outside the catalog and every new t reference is static, known and used', () => {
@@ -96,8 +94,7 @@ test('settings production TS has no CJK copy outside the catalog and every new t
           references.add(key.text); assert.ok(hasKey(key.text));
           const name = key.text.slice('set.runtime.'.length), names = placeholders[name] ?? [];
           const vars = node.arguments[1];
-          if (name === 'titleWithAccount') assert.equal(vars, undefined, 'legacy title template is interpolated once by fmt');
-          else if (names.length) {
+          if (names.length) {
             assert.ok(vars && ts.isObjectLiteralExpression(vars), key.text);
             assert.deepEqual(vars.properties.map(p => p.name?.getText(source)).sort(), [...names].sort(), key.text);
           } else assert.equal(vars, undefined, key.text);
@@ -115,8 +112,7 @@ test('settings production TS has no CJK copy outside the catalog and every new t
 });
 
 test('settings dynamic user values are interpolated once with original whitespace and punctuation', () => {
-  const nick = '<name> {nick}', label = 'Chrome {label}', shortcut = 'Ctrl+{shortcut}', message = 'host {code} <private>';
-  assert.equal(fmt(SETTING_STRINGS.titleWithAccount, { nick }), `设置 · ${nick}`);
+  const label = 'Chrome {label}', shortcut = 'Ctrl+{shortcut}', message = 'host {code} <private>';
   assert.equal(t('set.runtime.connectProfile', { label }), `连接 ${label}`);
   assert.equal(t('set.runtime.shortcutCurrent', { shortcut }), `当前生效：${shortcut}`);
   assert.equal(t('set.runtime.shortcutFailed', { message }), `快捷键未保存：${message}。请检查格式或更换未被占用的组合。`);
