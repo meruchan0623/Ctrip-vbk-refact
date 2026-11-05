@@ -160,6 +160,9 @@ impl FileStore {
     /// by `open` / `write_atomic`; unrelated ancestors need no write access.
     /// Every open or sync failure is returned to the caller, never downgraded.
     pub fn sync_namespace(&self, ns: &Namespace) -> Result<(), AppError> {
+        // Its writable open of state.json must not collide with a reader's handle.
+        let lock = self.commit_lock(ns);
+        let _held = lock.lock().unwrap_or_else(|p| p.into_inner());
         let dir = self.namespace_dir(ns);
         let mut options = fs::OpenOptions::new();
         options.read(true);
@@ -330,6 +333,14 @@ impl FileStore {
         Ok(())
     }
 
+    /// `load` for callers outside a commit. On Windows an open read handle makes
+    /// the commit's rename over state.json fail, so reads wait for the commit.
+    fn load_shared(&self, ns: &Namespace) -> Result<NsState, AppError> {
+        let lock = self.commit_lock(ns);
+        let _held = lock.lock().unwrap_or_else(|p| p.into_inner());
+        self.load(ns)
+    }
+
     fn commit_lock(&self, ns: &Namespace) -> Arc<Mutex<()>> {
         let mut map = self.commit_locks.lock().unwrap_or_else(|p| p.into_inner());
         Arc::clone(map.entry(ns.clone()).or_default())
@@ -345,7 +356,7 @@ impl Store for FileStore {
         if self.is_locked(ns)? {
             return Err(err(codes::STORE_LOCKED, "namespace is logout-locked"));
         }
-        let state = self.load(ns)?;
+        let state = self.load_shared(ns)?;
         Ok(Txn::new(ns.clone(), self.tag, state.revision))
     }
 
@@ -377,15 +388,15 @@ impl Store for FileStore {
         collection: &str,
         key: &str,
     ) -> Result<Option<JsonValue>, AppError> {
-        Ok(self.load(ns)?.get(collection, key).cloned())
+        Ok(self.load_shared(ns)?.get(collection, key).cloned())
     }
 
     fn list(&self, ns: &Namespace, collection: &str) -> Result<Vec<(String, JsonValue)>, AppError> {
-        Ok(self.load(ns)?.list(collection))
+        Ok(self.load_shared(ns)?.list(collection))
     }
 
     fn last_commit(&self, ns: &Namespace) -> Result<Option<CommitFact>, AppError> {
-        Ok(self.load(ns)?.last_commit())
+        Ok(self.load_shared(ns)?.last_commit())
     }
 
     fn logout_lock(&self, ns: &Namespace) -> Result<(), AppError> {
