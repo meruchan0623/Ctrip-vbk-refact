@@ -9,6 +9,7 @@ import { voicePlayerOf } from './features/voice-player.ts';
 import { createAttachmentDraftBook, unavailableAttachment, type UnavailableAttachment } from './attachment-draft-book.ts';
 import { createRecovery, recoveryRowText, recoveryView, type RecoveryState } from '../_shared/recovery.ts';
 import { createAccountNavigation } from './account-navigation.ts';
+import { accountTabTitle } from './account-tab-info.ts';
 import { bannerKey, loadIgnored, saveIgnored, splitCategories, toggleIgnored, withBannerCategory } from './notice-ignore.ts';
 import { createNoticeQuery, EMPTY_NOTICE_QUERY, type NoticeQueryState } from './notice-query.ts';
 import { createQuickReplies, quickRepliesView, type QuickRepliesState, type ReplyContext } from './quick-replies.ts';
@@ -1910,7 +1911,7 @@ function titleBar(s: MainState): HTMLElement {
         class: cx('tab', { on, logging }),
         role: 'tab',
         'aria-selected': String(on),
-        title: t('tab.editRemark'),
+        title: accountTabTitle(a),
         dataset: { account: a.context.account_id, state: a.state, fid: `acct-tab:${a.context.account_id}` },
         ...(on ? { ref: revealActiveTab(a.context.account_id) } : {}),
         onclick: () => { browserTabs.activate(null); void switchAccount(a); },

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { renderMessageAvatar } from './message-profile.ts';
+import { accountTabTitle } from './account-tab-info.ts';
 import { initialOf } from '../../packages/ui-kit/src/format.ts';
 import { AGENT_STATUS_ORDER, accountInitial, accountLabel, sameAccount } from './viewmodel.ts';
 import { cx } from '../../packages/ui-kit/src/h.ts';
@@ -36,7 +37,7 @@ function render(name: string, next: string, state: unknown, conv?: unknown): Nod
   const doc = { querySelector: () => null, createElement: (tag: string) => ({ tag, replaceWith() {} }), createTextNode: (text: string) => ({ tag: '#text', text }) };
   const accountName = new Function('accountLabel', actualFunction('accountAvatarName', 'activeConv') + '\nreturn accountAvatarName;')(accountLabel);
   const env = {
-    document: doc, renderMessageAvatar, accountAvatarName: accountName, accountInitial, accountLabel, initialOf, sameAccount, cx,
+    document: doc, renderMessageAvatar, accountTabTitle, accountAvatarName: accountName, accountInitial, accountLabel, initialOf, sameAccount, cx,
     h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, t: translateUi,
     activeAccount: (s: ReturnType<typeof fixture>['state']) => s.accounts.accounts.find((a) => a.context.account_id === s.accounts.active_account_id),
     onTitleMouseDown: () => undefined, onTabsWheel: () => undefined, revealActiveTab: () => () => undefined, windowControls: () => null, agentView: () => ({ label: 'online', colorVar: '--c-ok' }), browserTabs: { activate() {}, close() {} }, webTabView: () => null, switchAccount() {}, startLogin() {}, saveRemark() {}, cancelLogin() {}, store: { patch() {} }, invokeSafe() {}, unreadTotal: () => 0, AGENT_STATUS_ORDER, agentStatusColorVar: () => '', agentStatusLabel: () => '', agentStatusDesc: () => '',
