@@ -152,7 +152,6 @@ pub fn start() -> Result<(), AppError> {
     let path = rendezvous_path()?;
     prepare(&path)?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).map_err(|_| error())?;
-    listener.set_nonblocking(true).map_err(|_| error())?;
     let secret = format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
@@ -182,18 +181,10 @@ pub fn start() -> Result<(), AppError> {
         .map_err(|_| error())?;
     std::thread::Builder::new()
         .name("browser-bridge".into())
-        .spawn(move || loop {
-            if let Ok(mut s) = state().lock() {
-                fresh(&mut s);
-            }
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    let _ = serve(stream, &secret);
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(100))
-                }
-                Err(_) => break,
+        // Blocking accept: an idle bridge never wakes. Expiry is `expire_after_ttl`'s job.
+        .spawn(move || {
+            while let Ok((stream, _)) = listener.accept() {
+                let _ = serve(stream, &secret);
             }
         })
         .map_err(|_| error())?;
@@ -215,7 +206,22 @@ pub fn begin(attempt: &str) -> Result<(), AppError> {
         challenge: uuid::Uuid::new_v4().to_string(),
         created: Instant::now(),
     });
+    drop(s);
+    expire_after_ttl();
     Ok(())
+}
+/// Offered cookies must leave memory when the attempt expires even if nobody
+/// asks again. One short-lived timer per attempt replaces a permanent poll;
+/// a newer attempt is untouched because `fresh` judges the current one.
+fn expire_after_ttl() {
+    let _ = std::thread::Builder::new()
+        .name("browser-bridge-expiry".into())
+        .spawn(|| {
+            std::thread::sleep(TTL + Duration::from_secs(1));
+            if let Ok(mut s) = state().lock() {
+                fresh(&mut s);
+            }
+        });
 }
 pub fn cancel(attempt: &str) {
     if let Ok(mut s) = state().lock() {
@@ -340,6 +346,7 @@ fn read_frame(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 fn serve(mut stream: TcpStream, secret: &str) -> std::io::Result<()> {
+    stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
     let bytes = read_frame(&mut stream)?;
