@@ -8,6 +8,8 @@ use std::{
     fs::{self, File, Metadata, OpenOptions},
     io::Read,
     path::{Path, PathBuf},
+    sync::Mutex,
+    time::{Duration, Instant},
 };
 
 const MAX_FILE: usize = 64 * 1024 * 1024;
@@ -164,12 +166,81 @@ pub fn read_token(directory: &Path) -> Result<Option<SecretString>> {
             .iter()
             .any(|p| p.directory == directory),
     )?;
-    for _ in 0..3 {
-        if let Ok(token) = attempt(directory) {
-            return Ok(token);
+    read_reusing(directory, &LAST_READ, MAX_REUSE, |directory| {
+        for _ in 0..3 {
+            if let Ok(token) = attempt(directory) {
+                return Ok(token);
+            }
+        }
+        Err(unavailable())
+    })
+}
+
+/// The binding check runs every few seconds and before every request. An
+/// untouched store cannot hold a different token, so its last full read is
+/// reused; `MAX_REUSE` bounds trust in file metadata alone.
+const MAX_REUSE: Duration = Duration::from_secs(60);
+/// Every name in the store, with the signature of each file a read consumes.
+type Fingerprint = Vec<(String, Vec<u64>)>;
+struct LastRead {
+    directory: PathBuf,
+    fingerprint: Fingerprint,
+    token: Option<SecretString>,
+    at: Instant,
+}
+static LAST_READ: Mutex<Option<LastRead>> = Mutex::new(None);
+
+/// Signatures come from opened handles (`signature`), never from directory
+/// entries: on Windows an entry's size and times lag behind a file being written.
+fn fingerprint(directory: &Path) -> Result<Fingerprint> {
+    directory_names(directory)?
+        .into_iter()
+        .map(|name| {
+            let consumed = name == "CURRENT"
+                || name.starts_with("MANIFEST-")
+                || [".log", ".ldb", ".sst"].iter().any(|s| name.ends_with(s));
+            let signature = if consumed {
+                signature(&open_read(&directory.join(&name))?)?
+            } else {
+                Vec::new()
+            };
+            Ok((name, signature))
+        })
+        .collect()
+}
+
+fn read_reusing(
+    directory: &Path,
+    last: &Mutex<Option<LastRead>>,
+    max_reuse: Duration,
+    read: impl FnOnce(&Path) -> Result<Option<SecretString>>,
+) -> Result<Option<SecretString>> {
+    let lock = || last.lock().unwrap_or_else(|p| p.into_inner());
+    // No fingerprint (unreadable or unexpected entry) simply means a full read.
+    let before = fingerprint(directory).ok();
+    if let (Some(fingerprint), Some(hit)) = (&before, lock().as_ref()) {
+        if hit.directory == directory
+            && hit.fingerprint == *fingerprint
+            && hit.at.elapsed() < max_reuse
+        {
+            return Ok(hit.token.clone());
         }
     }
-    Err(unavailable())
+    *lock() = None;
+    let token = read(directory)?;
+    // The result belongs to `before` only if the store stood still meanwhile.
+    *lock() = before
+        .filter(|fingerprint| fingerprint_matches(directory, fingerprint))
+        .map(|fingerprint| LastRead {
+            directory: directory.to_path_buf(),
+            fingerprint,
+            token: token.clone(),
+            at: Instant::now(),
+        });
+    Ok(token)
+}
+fn fingerprint_matches(directory: &Path, expected: &Fingerprint) -> bool {
+    fingerprint(directory).is_ok_and(|now| now == *expected)
 }
 
 struct Cursor<'a> {
@@ -1397,6 +1468,46 @@ mod tests {
         fixture.put("000002.ldb", &table);
         fixture.put("000002.sst", &table);
         assert!(attempt(&fixture.0).is_err()); // Ambiguous table files are rejected.
+    }
+
+    #[test]
+    fn an_untouched_store_reuses_its_last_read_until_it_changes_or_ages_out() {
+        let fixture = Fixture::new();
+        let mut wal = record(
+            1,
+            &batch(5, &[(1, key(false), value("SYNTHETIC_ONLY", false))]),
+        );
+        fixture.store(&wal);
+        let last = Mutex::new(None);
+        let reads = std::cell::Cell::new(0);
+        let read = |max: Duration| {
+            read_reusing(&fixture.0, &last, max, |directory| {
+                reads.set(reads.get() + 1);
+                attempt(directory)
+            })
+        };
+        let long = Duration::from_secs(3600);
+        assert_eq!(read(long).unwrap().unwrap().expose(), "SYNTHETIC_ONLY");
+        assert_eq!(read(long).unwrap().unwrap().expose(), "SYNTHETIC_ONLY");
+        assert_eq!(reads.get(), 1);
+        // The reuse window is a hard bound even for an untouched store.
+        assert!(read(Duration::ZERO).unwrap().is_some());
+        assert_eq!(reads.get(), 2);
+        // A logout appends a deletion: the changed log is read again at once.
+        wal.extend(record(1, &batch(6, &[(0, key(false), vec![])])));
+        fixture.put("000003.log", &wal);
+        assert!(read(long).unwrap().is_none());
+        assert_eq!(reads.get(), 3);
+        // A new file in the store is a change even if no known file moved.
+        fixture.put("000009.log", b"");
+        let _ = read(long);
+        assert_eq!(reads.get(), 4);
+        // A failed read is never remembered.
+        fixture.put("000003.log", b"torn");
+        assert!(read(long).is_err());
+        assert!(read(long).is_err());
+        assert_eq!(reads.get(), 6);
+        assert!(last.lock().unwrap().is_none());
     }
 
     #[test]
