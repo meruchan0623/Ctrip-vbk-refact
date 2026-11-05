@@ -441,6 +441,41 @@ fn refresh_503_keeps_unexpired_token_and_backs_off() {
 }
 
 #[test]
+fn upkeep_backs_off_a_failing_profile_load() {
+    let f = logged_in();
+    let r = fx();
+    r.vault
+        .save(&f.vault.load().expect("l").expect("s"))
+        .expect("copy");
+    r.http.set(|req| match path_of(req) {
+        "/agent/profile" => status(503),
+        _ => tsim(req),
+    });
+    r.svc.restore();
+    let profile_reads = |fx: &Fx| {
+        fx.http
+            .take()
+            .iter()
+            .filter(|req| path_of(req) == "/agent/profile")
+            .count()
+    };
+    let upkeep_at = |ms: i64| {
+        r.clock.store(T0 + ms, Ordering::SeqCst);
+        run(r.svc.maintain());
+        profile_reads(&r)
+    };
+    assert_eq!(upkeep_at(0), 1);
+    // Upkeep ticks every 4 s: the second failure waits 8 s, the third 16 s.
+    assert_eq!(upkeep_at(3_999), 0);
+    assert_eq!(upkeep_at(4_000), 1);
+    assert_eq!(upkeep_at(8_000), 0);
+    assert_eq!(upkeep_at(12_000), 1);
+    assert_eq!(upkeep_at(24_000), 0);
+    assert_eq!(profile_retry_delay_ms(1), 4_000);
+    assert_eq!(profile_retry_delay_ms(40), PROFILE_RETRY_MAX_MS);
+}
+
+#[test]
 fn malformed_vault_entry_is_dropped() {
     let f = fx();
     f.vault.save("not json").expect("s");

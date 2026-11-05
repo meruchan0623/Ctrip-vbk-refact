@@ -41,6 +41,13 @@ use super::http::{Executor, HttpResponse};
 
 /// After a failed refresh (not 401/423), wait this long before trying again.
 pub const REFRESH_RETRY_MS: i64 = 60 * 1000;
+const PROFILE_RETRY_BASE_MS: i64 = 4 * 1000;
+const PROFILE_RETRY_MAX_MS: i64 = 5 * 60 * 1000;
+
+/// 4 s, 8 s, 16 s … capped at five minutes. A new login epoch starts over.
+fn profile_retry_delay_ms(failures: u32) -> i64 {
+    (PROFILE_RETRY_BASE_MS << failures.saturating_sub(1).min(16)).min(PROFILE_RETRY_MAX_MS)
+}
 
 /// Secret storage for the persisted TSim session (one opaque string).
 pub trait Vault: Send + Sync + 'static {
@@ -108,6 +115,8 @@ struct Inner {
     /// Bumps on login, logout and session clear (not on refresh).
     epoch: u64,
     refresh_not_before_ms: i64,
+    /// Upkeep's profile-load backoff: (epoch it belongs to, consecutive failures, not before).
+    profile_retry: (u64, u32, i64),
     translations: TranslationCache,
     packages: PackageCache<PackageInfo>,
 }
@@ -485,10 +494,23 @@ impl<E: Executor, V: Vault> Service<E, V> {
             log::info!("assistant: tsim upkeep: {}", e.code);
             return;
         }
-        if !self.lock().profile_loaded {
-            if let Err(e) = self.load_profile().await {
-                log::info!("assistant: tsim profile: {}", e.code);
+        let now = self.now_ms();
+        {
+            let g = self.lock();
+            let (epoch, _, not_before) = g.profile_retry;
+            if g.profile_loaded || (epoch == g.epoch && now < not_before) {
+                return;
             }
+        }
+        if let Err(e) = self.load_profile().await {
+            log::info!("assistant: tsim profile: {}", e.code);
+            // Upkeep ticks every few seconds; a failing endpoint is not retried at that pace.
+            let mut g = self.lock();
+            let failures = match g.profile_retry {
+                (epoch, failures, _) if epoch == g.epoch => failures.saturating_add(1),
+                _ => 1,
+            };
+            g.profile_retry = (g.epoch, failures, now + profile_retry_delay_ms(failures));
         }
     }
 
