@@ -165,7 +165,7 @@ const zhCN = {
   'chat.memberCount': '{n}人',
   'chat.memberCountLabel': '当前群组 {n} 人',
   'chat.masterPill': '主客服',
-  'chat.masterPillLabel': '我是主客服',
+  'chat.masterPillLabel': '你在该对话中是主客服',
   'chat.finished': '会话已结束',
   'chat.waiting': '客户等待 {t}',
   'chat.toggleSide': '展开或收起侧栏',
