@@ -140,7 +140,10 @@ pub async fn assistant_tsim_iccid_open(
         if !owner_is_current(&account, crate::login::active_context(app).as_ref()) {
             return Err(super::order_commands::invalid());
         }
-        app.state::<HostState>().lock().accounts.validate(&account)?;
+        app.state::<HostState>()
+            .lock()
+            .accounts
+            .validate(&account)?;
         Ok(())
     };
     local(&app).map_err(public_error)?;
@@ -193,7 +196,14 @@ mod tests {
             "https://csagent.tsim.tech/embed/operator?source=travel-merchant-companion&session=handoff&identifier=8965012512295895417&identifierType=iccid&requestId=00000000-0000-4000-8000-000000000001"
         );
         assert!(allowed_navigation(&url));
-        for bad in ["", "1965012512295895417", "896501251229589541", "89650125122958954171x", "8965012512295895417&x=1", "89650125122958954171234"] {
+        for bad in [
+            "",
+            "1965012512295895417",
+            "896501251229589541",
+            "89650125122958954171x",
+            "8965012512295895417&x=1",
+            "89650125122958954171234",
+        ] {
             assert!(operator_iccid_url(bad, &rid()).is_err(), "{bad:?}");
         }
     }

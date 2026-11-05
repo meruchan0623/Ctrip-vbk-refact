@@ -226,6 +226,23 @@ pub fn deep_link_take(
     Ok(result)
 }
 
+/// Opens settings on `section` through the same inbox a deep link uses.
+/// Unknown sections fall back to a plain open.
+pub async fn open_setting_section(app: &AppHandle, section: &str) -> tauri::Result<()> {
+    let known = deeplink::normalize_setting_section(section);
+    if let Some(section) = known {
+        *app.state::<Inbox>()
+            .setting
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some((section, Instant::now()));
+    }
+    crate::windows::open_setting(app).await?;
+    if known.is_some() {
+        let _ = app.emit_to(crate::views::SETTING, "deeplink://setting-pending", ());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn deep_link_setting_take(
     app: AppHandle,

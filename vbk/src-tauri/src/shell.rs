@@ -287,6 +287,7 @@ pub async fn shell_open_window(
     window: Window,
     state: State<'_, HostState>,
     label: String,
+    section: Option<String>,
 ) -> CmdResult<()> {
     guard(&state, &window, "shell_open_window")?;
     match label.as_str() {
@@ -300,7 +301,12 @@ pub async fn shell_open_window(
                 .await
                 .map_err(tauri_err)
         }
-        views::SETTING => windows::open_setting(&app).await.map_err(tauri_err),
+        views::SETTING => match section.as_deref() {
+            Some(section) => crate::deep_link_runtime::open_setting_section(&app, section)
+                .await
+                .map_err(tauri_err),
+            None => windows::open_setting(&app).await.map_err(tauri_err),
+        },
         views::UPDATE => windows::open_update(&app).await.map_err(tauri_err),
         other => Err(invalid_argument(format!(
             "window {other:?} cannot be opened"
