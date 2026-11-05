@@ -52,8 +52,20 @@ export function formatOrderTime(value: string | null | undefined): string {
 export const PACKAGE_REUSE_SECONDS = 60;
 /** 卡片在右栏中的高度上限：可以顶到订单信息中部，右栏剩余部分仍可滚动。 */
 export const COMPANION_MAX_HEIGHT = '78%';
-/** 含补发单时卡片固定高度（仍受上限约束）：切换套餐/补发版本、内容多寡都不改变卡片高度，超出部分在卡片内滚动。 */
-export const COMPANION_FIXED_HEIGHT = '440px';
+
+/** 横向轨道（套餐标签、补发时间轴）中点击某项：其后还有同类项时，把它滚到首项静止时所在的位置（轨道左缘 + 左内边距），
+ * 已到滚动极限时由浏览器夹住；最后一项没有可露出的后续，只保证完整可见。 */
+export function alignTrackItem(track: HTMLElement | null | undefined, target: HTMLElement | null | undefined, selector: string): void {
+  if (!track || !target?.getBoundingClientRect) return;
+  const items = Array.from(track.querySelectorAll?.(selector) ?? []);
+  const at = items.indexOf(target);
+  if (at < 0 || at === items.length - 1) { target.scrollIntoView?.({ inline: 'nearest', block: 'nearest' }); return; }
+  const view = track.ownerDocument?.defaultView;
+  const pad = Number.parseFloat(view?.getComputedStyle(track).paddingLeft ?? '') || 0;
+  const left = track.scrollLeft + target.getBoundingClientRect().left - track.getBoundingClientRect().left - track.clientLeft - pad;
+  const smooth = !view?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (track.scrollTo) track.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' }); else track.scrollLeft = left;
+}
 
 /** 底栏的更新时间：一分钟内「刚刚更新」，一小时内按分钟，其余给出时刻。 */
 export function packageFreshness(fetchedAtMs: number, nowMs: number): string {
@@ -158,7 +170,7 @@ export function companionPackageCard(input: CompanionCardInput, h: typeof dom = 
     if (track) track.scrollLeft = scrollLeft;
     const target = panel.querySelector?.<HTMLElement>(`[data-reissue="${next}"]`);
     target?.focus?.({ preventScroll: true });
-    target?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
+    alignTrackItem(track, target, '.rchip');
   };
   /** 从左到右时间轴：原套餐 → 补发 1 → 补发 2 …；点击只在本地切换展示，不发起任何请求。 */
   const timeline = (root: PackagePlanInfo, index: number, active: number): Child | null => {
@@ -199,6 +211,7 @@ export function companionPackageCard(input: CompanionCardInput, h: typeof dom = 
     if (selectedScope !== input.scope) return;
     selectedPlan = index;
     const tab = event.currentTarget as HTMLElement, root = tab.getRootNode() as ShadowRoot;
+    alignTrackItem(tab.closest?.<HTMLElement>('.tabs'), tab, '.tab,.more');
     if (!built.has(index)) {
       const empty = root.querySelector<HTMLElement>(`[data-package-plan="${index}"]`);
       const panel = buildPanel(plans[index]!, index);
@@ -214,9 +227,10 @@ export function companionPackageCard(input: CompanionCardInput, h: typeof dom = 
       plans.length > 1 || input.total > plans.length ? h('div', { class: 'tabs', role: 'tablist', 'aria-label': t('companion.planList') }, tabs, input.total > plans.length ? h('span', { class: 'more', title: t('companion.morePlans', { total: input.total }) }, t('companion.moreCount', { count: input.total - plans.length })) : null) : null,
       input.open ? input.notice : null, panels),
     h('div', { class: 'foot' }, h('span', { class: 'rel' }, plans[0] ? t('companion.freshnessFooter', { freshness: packageFreshness(plans[0].fetched_at_ms, input.now ?? Date.now()), seconds: PACKAGE_REUSE_SECONDS }) : input.identity)));
-  const style = h('style', null, COMPANION_CARD_STYLE + '\n.ring>span,.mini>span{position:absolute;inset:0;display:block}[data-tone=warn]>span>svg .fg{stroke:#e7a034}[data-tone=over]>span>svg .fg{stroke:#e0574c}[data-tone=muted]>span>svg .fg{stroke:#c3c9d5}.card{max-height:inherit;animation:none}:host(.fixed) .card{flex:1 1 0;min-height:0}.body{min-height:0}.actions{padding-top:6px}:host(.hot) .card{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}');
-  const fixed = input.open && plans.some(plan => plan.reissues?.length);
-  const host = h('div', { class: `companion-card${input.hot ? ' hot' : ''}${fixed ? ' fixed' : ''}`, role: 'region', 'aria-label': t('companion.regionLabel'), style: { margin: '8px 8px 10px', ...(fixed ? { height: COMPANION_FIXED_HEIGHT } : {}), 'max-height': COMPANION_MAX_HEIGHT, 'min-height': '0', display: 'flex', 'flex-direction': 'column', 'flex-shrink': '0' } }, style, card);
+  const style = h('style', null, COMPANION_CARD_STYLE + '\n.ring>span,.mini>span{position:absolute;inset:0;display:block}[data-tone=warn]>span>svg .fg{stroke:#e7a034}[data-tone=over]>span>svg .fg{stroke:#e0574c}[data-tone=muted]>span>svg .fg{stroke:#c3c9d5}.card{max-height:inherit;animation:none}:host(.fill) .card{flex:1 1 0;min-height:0}.body{min-height:0}.actions{padding-top:6px}:host(.hot) .card{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}');
+  // 展开时总是撑满容器允许的最大高度：内容多寡、切换套餐/补发、滚动条出现或悬停都不改变卡片高度，超出部分在卡片内滚动。
+  const fill = input.open;
+  const host = h('div', { class: `companion-card${input.hot ? ' hot' : ''}${fill ? ' fill' : ''}`, role: 'region', 'aria-label': t('companion.regionLabel'), style: { margin: '8px 8px 10px', 'max-height': COMPANION_MAX_HEIGHT, 'min-height': '0', display: 'flex', 'flex-direction': 'column', flex: fill ? '1 1 0' : '0 0 auto' } }, style, card);
   // Test renderers return structural trees; native DOM uses the original isolation boundary.
   if (typeof host.attachShadow === 'function') {
     host.attachShadow({ mode: 'open' }).append(style, card);

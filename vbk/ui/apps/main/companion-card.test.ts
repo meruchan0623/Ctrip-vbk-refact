@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { COMPANION_FIXED_HEIGHT, COMPANION_MAX_HEIGHT, companionPackageCard, formatOrderTime, formatReissueTime, packageFreshness, preserveCompanionFocus } from './companion-card.ts';
+import { COMPANION_MAX_HEIGHT, alignTrackItem, companionPackageCard, formatOrderTime, formatReissueTime, packageFreshness, preserveCompanionFocus } from './companion-card.ts';
+import { COMPANION_CARD_STYLE } from './companion-card-style.ts';
 import { packageInfo } from './package-preview.ts';
 import type { PackagePlanInfo } from './package-preview.ts';
 import type { h } from '../../packages/ui-kit/src/h.ts';
@@ -159,14 +160,29 @@ test('freshness wording and the raised height cap', () => {
   assert.equal(COMPANION_MAX_HEIGHT, '78%');
   assert.equal((render('height').tree as unknown as Tree).props.style['max-height'], '78%');
 });
-test('a card with reissues has a fixed height and no count badge; without reissues it stays auto', () => {
-  const fixed = render('fixed', [reissued, plan]), host = fixed.tree as unknown as Tree;
-  assert.equal(host.props.style.height, COMPANION_FIXED_HEIGHT);
+test('an open card always fills its dock, with or without reissues; a collapsed card keeps its own height', () => {
+  const withReissues = render('fill', [reissued, plan]), host = withReissues.tree as unknown as Tree;
+  assert.equal(host.props.style.flex, '1 1 0');
+  assert.equal(host.props.style.height, undefined, 'no content-independent fixed pixel height');
   assert.equal(host.props.style['max-height'], COMPANION_MAX_HEIGHT);
-  assert.ok(host.props.class.includes('fixed'));
-  assert.equal(fixed.nodes.some(n => n.props.class === 'rcount'), false);
-  const plain = render('fixed-none', [plan]).tree as unknown as Tree;
-  assert.equal(plain.props.style.height, undefined);
+  assert.ok(host.props.class.includes('fill'));
+  assert.equal(withReissues.nodes.some(n => n.props.class === 'rcount'), false);
+  const plain = render('fill-plain', [plan]).tree as unknown as Tree;
+  assert.equal(plain.props.style.flex, '1 1 0');
+  assert.ok(plain.props.class.includes('fill'));
+  const collapsed = companionPackageCard({ scope: 'fill-collapsed', plans: [plan], total: 1, open: false, busy: false, hot: false, identity: '', refreshDisabled: false, notice: [], refresh() {}, toggle() {}, copy() {} }, fakeH, (() => null) as any) as unknown as Tree;
+  assert.equal(collapsed.props.style.flex, '0 0 auto');
+  assert.equal(collapsed.props.class.includes('fill'), false);
+});
+test('plan tabs and the reissue track reserve a hairline scrollbar lane that never resizes', () => {
+  for (const sel of ['.tabs', '.rtrack']) {
+    const rule = COMPANION_CARD_STYLE.split('\n').find(line => line.startsWith(`${sel}{`)) ?? '';
+    assert.match(rule, /overflow-x:scroll/, `${sel} always reserves the lane`);
+    assert.doesNotMatch(rule, /scrollbar-(width|color)/, `${sel} must not disable ::-webkit-scrollbar`);
+    assert.ok(COMPANION_CARD_STYLE.includes(`${sel}::-webkit-scrollbar`), `${sel} styles its own scrollbar`);
+  }
+  assert.match(COMPANION_CARD_STYLE, /\.tabs::-webkit-scrollbar,\.rtrack::-webkit-scrollbar\{width:5px;height:5px\}/);
+  assert.doesNotMatch(COMPANION_CARD_STYLE, /:hover::-webkit-scrollbar\{/, 'hover may recolor the thumb but never resize the bar');
 });
 
 test('fractional usage stays compact while meter precision and copy values are retained', () => {
@@ -277,4 +293,21 @@ test('a stale reissue selection falls back to the original package', () => {
   const refreshed = render('timeline-stale', [{ ...plan, reissues: [{ create_time_ms: 1, state: 'error', info: null }] }]);
   assert.ok(nodes(refreshed.tree).some(n => n.props['aria-pressed'] === 'true' && n.props.dataset?.reissue === '0'));
   assert.ok(!texts(refreshed.tree as unknown as Tree).includes('补发渠道套餐'));
+});
+test('clicking a track item with a successor aligns it to the track start; the last item only scrolls into view', () => {
+  const calls: string[] = [];
+  const item = (left: number) => ({ getBoundingClientRect: () => ({ left }), scrollIntoView: () => calls.push(`nearest@${left}`) }) as unknown as HTMLElement;
+  const items = [item(110), item(190), item(270)];
+  const view = { getComputedStyle: () => ({ paddingLeft: '10px' }), matchMedia: () => ({ matches: false }) };
+  const track = { scrollLeft: 40, clientLeft: 0, ownerDocument: { defaultView: view }, querySelectorAll: () => items, getBoundingClientRect: () => ({ left: 100 }), scrollTo: (o: ScrollToOptions) => calls.push(`to:${o.left}:${o.behavior}`) } as unknown as HTMLElement;
+  alignTrackItem(track, items[1], '.tab');
+  assert.deepEqual(calls, ['to:120:smooth'], 'scrollLeft 40 + (190 - 100) - padding 10');
+  calls.length = 0;
+  alignTrackItem(track, items[2], '.tab');
+  assert.deepEqual(calls, ['nearest@270']);
+  calls.length = 0;
+  view.matchMedia = () => ({ matches: true });
+  alignTrackItem(track, items[0], '.tab');
+  assert.deepEqual(calls, ['to:40:auto'], 'reduced motion jumps without animation');
+  alignTrackItem(null, items[0], '.tab'); alignTrackItem(track, null, '.tab');
 });

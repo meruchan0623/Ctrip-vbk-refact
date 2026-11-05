@@ -28,8 +28,15 @@ svg{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:
 .body::-webkit-scrollbar{width:3px;height:3px}.body::-webkit-scrollbar-track{background:transparent}
 .body::-webkit-scrollbar-thumb{background:rgba(23,29,43,.28);border-radius:2px}.body::-webkit-scrollbar-thumb:hover{background:rgba(23,29,43,.5)}
 .body::-webkit-scrollbar-button{display:none;width:0;height:0}
-.tabs{display:flex;gap:4px;margin:0 calc(-1 * var(--pad));padding:8px 18px 7px var(--pad);overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--line-soft);-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}
-.tabs::-webkit-scrollbar{display:none}
+/* Plan tabs and the reissue timeline share one hairline horizontal scrollbar. overflow-x:scroll keeps its
+ * 5px lane reserved whether or not it overflows or is hovered, so the rows never change height. No
+ * scrollbar-width/scrollbar-color here: Chromium ignores ::-webkit-scrollbar once either is set. */
+.tabs{display:flex;gap:4px;margin:0 calc(-1 * var(--pad));padding:8px 18px 7px var(--pad);overflow-x:scroll;overflow-y:hidden;overscroll-behavior-x:contain;border-bottom:1px solid var(--line-soft);-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}
+.tabs::-webkit-scrollbar,.rtrack::-webkit-scrollbar{width:5px;height:5px}
+.tabs::-webkit-scrollbar-track,.rtrack::-webkit-scrollbar-track{background:transparent}
+.tabs::-webkit-scrollbar-thumb,.rtrack::-webkit-scrollbar-thumb{background:rgba(23,29,43,.24);border-radius:3px}
+.tabs:hover::-webkit-scrollbar-thumb,.rtrack:hover::-webkit-scrollbar-thumb{background:rgba(23,29,43,.4)}
+.tabs::-webkit-scrollbar-button,.rtrack::-webkit-scrollbar-button{display:none;width:0;height:0}
 .tab{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:7px;border:1px solid transparent;color:var(--ink-2);font-size:var(--fs-sm);flex:none}
 .tab:hover:not([aria-selected="true"]){background:var(--sunken)}
 .tab[aria-selected="true"]{background:#fff;color:var(--ink);font-weight:650;border-color:var(--line);box-shadow:0 1px 2px rgba(23,29,43,.06)}
@@ -123,7 +130,7 @@ svg{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:
 .foot{min-height:26px}.foot .rel{color:var(--ink-3)}.solid,.outline{height:28px}.skeleton{padding:9px 0}
 .reissues{padding:6px 0 4px}
 .rbar{display:flex;align-items:center;gap:6px;min-width:0}
-.rtrack{flex:1;height:38px;display:flex;align-items:center;gap:3px;overflow-x:scroll;overflow-y:hidden;padding:0 1px;scrollbar-width:thin;scrollbar-color:#c9d0dc transparent;overscroll-behavior-x:contain}
+.rtrack{flex:1;height:38px;display:flex;align-items:center;gap:3px;overflow-x:scroll;overflow-y:hidden;padding:0 1px;overscroll-behavior-x:contain}
 .rarrow{flex:none;color:var(--ink-3);font-size:var(--fs-sm);line-height:1}
 .rchip{flex:none;display:inline-flex;align-items:center;gap:6px;height:26px;line-height:1;white-space:nowrap;padding:0 9px 0 3px;border:1px solid var(--line);border-radius:13px;background:#fff;font-size:var(--fs-xs);color:var(--ink-2)}
 .rchip:hover:not(:disabled):not(.on){border-color:var(--accent)}
