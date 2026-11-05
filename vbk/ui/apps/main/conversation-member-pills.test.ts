@@ -91,7 +91,8 @@ test('scan candidates are open customer conversations in list order', () => {
 test('main window wiring: deps, placement, shared class, cache-driven repaint', () => {
   const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
   assert.match(source, /const deps = \[[^\n]*\bmaster\];/, 'list row deps must include the master state');
-  assert.match(source, /h\('span', \{ class: 'cname' \}, c\.title\), master \? masterPill\(\) : null, language !== 'zh'/);
+  assert.match(source, /h\('span', \{ class: cx\('ctime', \{ 'ctime-master': master \}\)/, 'a master row marks its time field');
+  assert.doesNotMatch(source, /c\.title\), master \? masterPill\(\)/, 'the list no longer shows a separate master pill');
   assert.match(source, /peekMembers\(\{ account: acc\.context, gid: conv\.gid \}\)/);
   assert.match(source, /const master = memberPillsFor\(acc, c\)\.isMaster;/);
   assert.match(source, /conv\.title\), pills\.count !== null \? h\('span', \{ class: 'chip chip-members'[^\n]*pills\.isMaster \? masterPill\(\) : null, customerLanguage\(/);
@@ -108,4 +109,6 @@ test('pill colours differ from each other and from the language and muted chips'
   const colours = ['chip-members', 'chip-master', 'chip-lang', 'chip-muted'].map(background);
   assert.ok(colours.every(Boolean));
   assert.equal(new Set(colours).size, 4);
+  const list = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+  assert.match(list, new RegExp(`\\.ctime-master:not\\(:empty\\) \\{[^}]*background: var\\(--c-warn-soft\\)[^}]*color: var\\(--c-warn-text\\)`), 'list time pill uses the master colour');
 });

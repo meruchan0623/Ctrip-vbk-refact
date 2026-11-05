@@ -2159,7 +2159,7 @@ function conversationList(s: MainState): HTMLElement {
       h(
         'div',
         { class: 'conv-main' },
-        h('div', { class: 'crow' }, h('span', { class: 'cname' }, c.title), master ? masterPill() : null, language !== 'zh' ? h('span', { class: 'chip chip-lang' }, langName(language)) : null, h('span', { class: 'ctime', dataset: { relativeTime: String(c.last_message_time_ms ?? 0) } }, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '')),
+        h('div', { class: 'crow' }, h('span', { class: 'cname' }, c.title), language !== 'zh' ? h('span', { class: 'chip chip-lang' }, langName(language)) : null, h('span', { class: cx('ctime', { 'ctime-master': master }), title: master ? t('chat.masterPillLabel') : undefined, dataset: { relativeTime: String(c.last_message_time_ms ?? 0) } }, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '')),
         h('div', { class: 'crow' }, hasDraft ? h('span', { class: 'cdraft' }, t('list.draft')) : null, h('span', { class: 'cprev' }, hasDraft ? draft : preview), accBadge(c.unread_count)),
         h(
           'div',
