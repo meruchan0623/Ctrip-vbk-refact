@@ -100,8 +100,8 @@ test('delayed indexing that resolves during the budget applies with no visible f
 });
 
 test('not_needed, unsupported and an identical translation are terminal and silent', async () => {
-  const f = fixture(ids => ({ supplier: null, items: ids.map(id => id === 'same' ? translated(id, 'text-same') : answer(id === 'zh' ? 'not_needed' : 'unsupported', id)) }));
-  const rows = [message('zh'), message('no'), message('same')];
+  const f = fixture(ids => ({ supplier: null, items: ids.map(id => id === 'same' ? translated(id, '您好') : answer(id === 'zh' ? 'not_needed' : 'unsupported', id)) }));
+  const rows = [message('zh', { text: '您好，流量用完了' }), message('no'), message('same', { text: '您好' })];
   f.controller.sync(scope(), rows);
   await f.flush();
   await f.advance(60_000);
@@ -152,9 +152,12 @@ test('a new row gets a longer bounded budget, then stops', async () => {
   assert.equal(f.controller.view(row), null, 'still inside the budget');
   await f.advance(45_000);
   assert.equal(f.calls.length, 6);
+  assert.equal(f.controller.view(row), null, 'a lagging session keeps its quiet retries');
+  await f.advance(180_000);
+  assert.equal(f.calls.length, 8);
   assert.deepEqual(f.controller.view(row), { status: 'missing' });
   await f.advance(300_000);
-  assert.equal(f.calls.length, 6, 'never polls forever');
+  assert.equal(f.calls.length, 8, 'never polls forever');
 });
 
 test('a later message asks again about a recent row that ended without a result', async () => {
@@ -164,8 +167,8 @@ test('a later message asks again about a recent row that ended without a result'
     const first = fresh('first');
     f.controller.sync(scope(), [first]);
     await f.flush();
-    await f.advance(57_000);
-    assert.equal(f.calls.length, 6);
+    await f.advance(240_000);
+    assert.equal(f.calls.length, 8);
     ready = true;
     f.changed.length = 0;
     f.controller.sync(scope(), [first, fresh('second')]);
@@ -183,7 +186,7 @@ test('a new foreign row that never gets a translation ends with the visible retr
   f.controller.sync(scope(), [row, short]);
   await f.flush();
   assert.equal(f.controller.view(row), null);
-  await f.advance(57_000);
+  await f.advance(240_000);
   assert.deepEqual(f.controller.view(row), { status: 'missing' });
   assert.equal(f.controller.view(short), null, 'no language evidence stays silent');
 });
@@ -278,7 +281,7 @@ test('a late answer from a previous conversation or account is discarded', async
 test('leaving a thread forgets failures so reopening asks again, but keeps terminal answers', async () => {
   let call = 0;
   const f = fixture(ids => { call++; return call <= 4 ? new Error('offline') : { supplier: null, items: ids.map(id => answer('not_needed', id)) }; });
-  const row = message('m');
+  const row = message('m', { text: '您好，流量用完了' });
   f.controller.sync(scope(), [row]);
   await f.flush();
   await f.advance(12_000);
@@ -291,4 +294,79 @@ test('leaving a thread forgets failures so reopening asks again, but keeps termi
   f.controller.sync(scope(), [row]);
   await f.flush();
   assert.equal(call, 5, 'a not_needed row is not requested again');
+});
+
+const foreignOld = (id: string, extra: Partial<UiMessage> = {}) => message(id, { text: 'Здравствуйте, у меня не работает eSIM', ...extra });
+
+test('history: an old foreign row answered not_needed is asked again before it is believed, then ends silent', async () => {
+  const f = fixture((ids, call) => ({ supplier: null, items: [call < 3 ? answer('not_needed', ids[0]!) : translated(ids[0]!, '您好')] }));
+  f.controller.sync(scope(), [foreignOld('old')]);
+  await f.flush();
+  await f.advance(12_000);
+  assert.deepEqual(f.applied, [['g', 'old', '您好']]);
+  const never = fixture(ids => ({ supplier: null, items: ids.map(id => answer('not_needed', id)) }));
+  const row = foreignOld('old');
+  never.controller.sync(scope(), [row]);
+  await never.flush();
+  await never.advance(60_000);
+  assert.equal(never.calls.length, 4, 'bounded');
+  assert.equal(never.controller.view(row), null, 'old rows do not get a failure marker');
+});
+
+test('history: an old Chinese row or one without language evidence is believed at once', async () => {
+  const f = fixture(ids => ({ supplier: null, items: ids.map(id => answer('not_needed', id)) }));
+  f.controller.sync(scope(), [message('zh', { text: '您好，流量用完了' }), message('num', { text: '12' })]);
+  await f.flush();
+  await f.advance(60_000);
+  assert.equal(f.calls.length, 1);
+});
+
+test('reopening a thread asks again about foreign rows that ended without a result', async () => {
+  let ready = false;
+  const f = fixture(ids => ({ supplier: null, items: ids.map(id => ready ? translated(id) : answer('not_needed', id)) }));
+  const row = foreignOld('old');
+  f.controller.sync(scope(), [row]);
+  await f.flush();
+  await f.advance(12_000);
+  assert.equal(f.calls.length, 4);
+  f.controller.sync(null, null);
+  ready = true;
+  f.controller.sync(scope(), [row]);
+  await f.flush();
+  assert.deepEqual(f.applied, [['g', 'old', '译-old']]);
+});
+
+test('a new row reopens an old ended row only after the cooldown', async () => {
+  let ready = false;
+  const f = fixture(ids => ({ supplier: null, items: ids.map(id => ready ? translated(id) : answer('missing', id)) }));
+  const old = foreignOld('old');
+  f.controller.sync(scope(), [old]);
+  await f.flush();
+  await f.advance(12_000);
+  assert.equal(f.calls.length, 4);
+  ready = true;
+  f.controller.sync(scope(), [old, foreignOld('n1')]);
+  await f.flush();
+  assert.deepEqual(f.calls.at(-1), ['n1'], 'inside the cooldown only the new row goes out');
+  await f.advance(31_000);
+  f.controller.sync(scope(), [old, foreignOld('n1', { translation: '译' }), foreignOld('n2')]);
+  await f.flush();
+  assert.ok(f.applied.some(a => a[1] === 'old'), 'the old row is asked again after the cooldown');
+});
+
+test('recheck (window back in view) reopens ended rows after the cooldown, never inside it', async () => {
+  let ready = false;
+  const f = fixture(ids => ({ supplier: null, items: ids.map(id => ready ? translated(id) : answer('missing', id)) }));
+  f.controller.sync(scope(), [foreignOld('old')]);
+  await f.flush();
+  await f.advance(12_000);
+  assert.equal(f.calls.length, 4);
+  ready = true;
+  f.controller.recheck();
+  await f.flush();
+  assert.equal(f.calls.length, 4, 'cooldown');
+  await f.advance(31_000);
+  f.controller.recheck();
+  await f.flush();
+  assert.deepEqual(f.applied, [['g', 'old', '译-old']]);
 });

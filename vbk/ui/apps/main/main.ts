@@ -512,6 +512,8 @@ store.subscribe((s, previous) => {
   if (s.accounts !== previous.accounts || s.messages !== previous.messages || s.activeGid !== previous.activeGid || s.view !== previous.view || s.hideInboundTr !== previous.hideInboundTr) syncInboundTranslation(s);
 });
 window.addEventListener('pagehide', () => inboundTranslation.stop());
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') inboundTranslation.recheck(); });
+window.addEventListener('focus', () => inboundTranslation.recheck());
 
 const peripheral = createPeripheralPanel({
   preload: scope => {

@@ -7,6 +7,11 @@
  * asked again, unless the row is new and foreign: the platform can answer that
  * before it has translated, so such a row keeps its retries, and any later
  * message asks about it again. A superseded scope can never publish a late result.
+ *
+ * Backfill: a foreign row without a translation is never believed "not needed"
+ * on the first answer, whatever its age (history, a freshly opened thread, rows
+ * the backend pulled late). Such rows end silently, are forgotten when the thread
+ * is left, and are asked again by a new row or by `recheck()` after a cooldown.
  */
 import type { UiMessage, UiMessageTranslations } from '../../packages/ipc/src/client.ts';
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
@@ -31,6 +36,9 @@ interface Entry {
   attempts: number;
   dueAt: number;
   manual: boolean;
+  /** Ended without a result although the row looks foreign: asked again on the next trigger. */
+  reask: boolean;
+  settledAt: number;
   error: string;
   waiters: ((outcome: InboundTranslationOutcome) => void)[];
 }
@@ -52,7 +60,9 @@ const REQUEST_TIMEOUT_MS = 30_000;
 /** Indexing can lag a just-delivered message, so an unanswered ID is asked again on this schedule. */
 const RETRY_DELAYS_MS = [1_000, 3_000, 8_000] as const;
 /** A just-delivered row may lag further: the first message of a new session has stayed untranslated past the base schedule. */
-const RECENT_RETRY_DELAYS_MS = [...RETRY_DELAYS_MS, 15_000, 30_000] as const;
+const RECENT_RETRY_DELAYS_MS = [...RETRY_DELAYS_MS, 15_000, 30_000, 60_000, 120_000] as const;
+/** Rows that ended without a result are only reopened by a trigger once this long after they ended (new rows bypass it for recent rows). */
+const REOPEN_COOLDOWN_MS = 30_000;
 const RECENT_MS = 10 * 60_000;
 const MAX_ENTRIES = 5_000;
 const MAX_SUPPLIERS = 500;
@@ -75,11 +85,12 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
   const suppliers = new Map<string, string>();
   const entryKey = (id: string) => `${scope?.key ?? ''}\0${id}`;
 
-  const fresh = (): Entry => ({ status: 'queued', attempts: 0, dueAt: 0, manual: false, error: '', waiters: [] });
+  const fresh = (): Entry => ({ status: 'queued', attempts: 0, dueAt: 0, manual: false, reask: false, settledAt: 0, error: '', waiters: [] });
   const settle = (key: string, entry: Entry, outcome: InboundTranslationOutcome): void => {
     const waiters = entry.waiters;
     entry.waiters = [];
     entry.manual = false;
+    entry.settledAt = deps.now();
     for (const resolve of waiters) resolve(outcome);
     if (outcome === 'translated') entries.delete(key);
   };
@@ -114,8 +125,12 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
   }
 
   const isRecent = (m: UiMessage): boolean => Math.abs(deps.now() - m.create_time_ms) < RECENT_MS;
-  /** "Nothing to show" is only believed at once for old rows and for text already in the display language. */
-  const mayStillTranslate = (m: UiMessage): boolean => m.kind === 'text' && isRecent(m) && suggestLanguage(m.text) !== 'zh';
+  /** "Nothing to show" is only believed at once for text already in the display language, or for old rows with no language evidence. */
+  const mayStillTranslate = (m: UiMessage): boolean => {
+    if (m.kind !== 'text') return false;
+    const lang = suggestLanguage(m.text);
+    return lang !== 'zh' && (isRecent(m) || lang !== null);
+  };
 
   /** Records one unanswered attempt and schedules the next, or ends visibly when attempts run out. */
   function retryOrEnd(id: string, outcome: 'missing' | 'failed' | 'not_needed' | 'unsupported', error: string): boolean {
@@ -134,6 +149,7 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     }
     entry.status = outcome;
     entry.error = error;
+    entry.reask = outcome === 'not_needed' || outcome === 'unsupported';
     settle(key, entry, outcome);
     return true;
   }
@@ -141,7 +157,8 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
   /** A foreign row that never gets a translation ends with the visible retry offer rather than in silence. */
   function answerNothing(id: string, key: string, entry: Entry, message: UiMessage | undefined): boolean {
     const wasManual = entry.manual;
-    if (!wasManual && message && mayStillTranslate(message)) return retryOrEnd(id, suggestLanguage(message.text) ? 'missing' : 'not_needed', '');
+    // Only a recent foreign row ends with the visible retry offer; old rows end silently (and are asked again later).
+    if (!wasManual && message && mayStillTranslate(message)) return retryOrEnd(id, isRecent(message) && suggestLanguage(message.text) ? 'missing' : 'not_needed', '');
     entry.status = 'not_needed';
     settle(key, entry, 'not_needed');
     return wasManual;
@@ -179,7 +196,7 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
         visible = answerNothing(id, key, entry, message) || visible;
       } else if (item?.status === 'unsupported') {
         // Judged from the conversation row, which a new session's first message can outrun.
-        if (!wasManual && mayStillTranslate(message)) {
+        if (!wasManual && isRecent(message) && mayStillTranslate(message)) {
           retryOrEnd(id, 'unsupported', '');
           continue;
         }
@@ -238,17 +255,29 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     if (visible) deps.changed();
   }
 
-  /** Like the official client, a new row is also the moment to ask again about recent rows that ended without a result. */
-  function reopenRecent(): boolean {
+  /**
+   * Like the official client, a new row is also the moment to ask again about rows that ended without a result:
+   * recent ones at once, older foreign ones (and failures) once their cooldown has passed. `recheck` honours the cooldown for all.
+   */
+  function reopenEnded(recentBypassesCooldown: boolean): boolean {
     let visible = false;
+    const now = deps.now();
     for (const [id, message] of known) {
       const entry = entries.get(entryKey(id));
-      if (!entry || !isRecent(message)) continue;
+      if (!entry) continue;
       const shown = entry.status === 'missing' || entry.status === 'failed';
-      if (!shown && !((entry.status === 'not_needed' || entry.status === 'unsupported') && mayStillTranslate(message))) continue;
+      const ended = shown || entry.status === 'not_needed' || entry.status === 'unsupported';
+      if (!ended) continue;
+      const recent = isRecent(message);
+      const wanted = recent
+        ? shown || mayStillTranslate(message)
+        : shown || (entry.reask && mayStillTranslate(message));
+      if (!wanted) continue;
+      if (!(recent && recentBypassesCooldown) && now - entry.settledAt < REOPEN_COOLDOWN_MS) continue;
       entry.status = 'queued';
       entry.attempts = 0;
       entry.error = '';
+      entry.reask = false;
       queue.push(id);
       visible = visible || shown;
     }
@@ -269,7 +298,7 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     }
     // Newest rows are the ones on screen when a thread opens.
     if (add.length) queue = [...add.reverse(), ...queue];
-    const visible = add.length > 0 && reopenRecent();
+    const visible = add.length > 0 && reopenEnded(true);
     prune();
     return visible;
   }
@@ -283,9 +312,9 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
         known.clear();
         if (timer !== null) { deps.clearTimeout(timer); timer = null; }
         const visible = [...entries.values()].some(entry => entry.manual || entry.status === 'failed' || entry.status === 'missing');
-        // Terminal "no translation" answers stay cached; everything else is asked again on return.
+        // Believed "no translation" answers stay cached; everything else (failures, foreign rows with no result) is asked again on return.
         for (const [key, entry] of entries) {
-          if (entry.status === 'not_needed' || entry.status === 'unsupported') continue;
+          if ((entry.status === 'not_needed' || entry.status === 'unsupported') && !entry.reask) continue;
           const waiters = entry.waiters;
           entries.delete(key);
           for (const resolve of waiters) resolve('failed');
@@ -297,6 +326,14 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
       if (!next || !list || list === messages) return;
       messages = list;
       const visible = scan(list);
+      pump();
+      arm();
+      if (visible) deps.changed();
+    },
+    /** Window back in view or another backfill trigger: asks again about ended rows whose cooldown has passed. */
+    recheck(): void {
+      if (!scope || !messages) return;
+      const visible = reopenEnded(false);
       pump();
       arm();
       if (visible) deps.changed();
