@@ -2,6 +2,7 @@
 // Source-level security gates (I-02). `node tools/gates/run.mjs` runs the fixture self-test and then
 // every gate against the real tree; exit code 1 on any problem. `--self-test` / `--tree` run one half.
 // cjk-literals is enforced by default; `--with-deferred` is accepted as a no-op for backward compatibility.
+import { pathToFileURL } from 'node:url';
 import { formatViolation } from './lib/common.mjs';
 import { selfTest } from './lib/selftest.mjs';
 import * as tls from './tls-debug.mjs';
@@ -18,7 +19,7 @@ export function runTree() {
   return gates.flatMap((g) => g.run());
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const only = process.argv.includes('--self-test') ? 'self' : process.argv.includes('--tree') ? 'tree' : 'all';
   let failed = false;
   if (only !== 'tree') {
