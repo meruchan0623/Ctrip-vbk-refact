@@ -8,6 +8,7 @@
 //! `get_webview_window` / `webview_windows` stop reporting it: reach it with
 //! `get_window`, its pages with `get_webview`, its UI webview with `views::MAIN`.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use contracts::{codes, AppError};
@@ -28,6 +29,10 @@ const TAB_OPENED: &str = "browser://tab-opened"; // BrowserTabDto; opened by a p
 const TAB_CHANGED: &str = "browser://tab-changed"; // BrowserTabDto
 const TAB_CLOSED: &str = "browser://tab-closed"; // {tab_id}
 const MAX_TABS: usize = 12;
+/// Each tab is a full official page in its own content process. Beyond these
+/// counts the least recently shown hidden tab is closed to make room.
+const MAX_TABS_PER_ACCOUNT: usize = 4;
+const MAX_TABS_KEPT: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BrowserTabDto {
@@ -70,6 +75,43 @@ struct Inner {
     seq: u64,
     tabs: Vec<BrowserTabDto>,
     bounds: Option<BoundsDto>,
+    /// The tab currently on stage; never reclaimed.
+    shown: Option<String>,
+    /// Tab id -> order of its last open or show.
+    used: HashMap<String, u64>,
+    tick: u64,
+}
+
+impl Inner {
+    fn touch(&mut self, tab_id: &str) {
+        self.tick += 1;
+        self.used.insert(tab_id.to_string(), self.tick);
+    }
+    fn forget(&mut self, keep: impl Fn(&BrowserTabDto) -> bool) {
+        self.tabs.retain(|t| keep(t));
+        let tabs = &self.tabs;
+        self.used
+            .retain(|id, _| tabs.iter().any(|t| &t.tab_id == id));
+        if self
+            .shown
+            .as_ref()
+            .is_some_and(|id| !tabs.iter().any(|t| &t.tab_id == id))
+        {
+            self.shown = None;
+        }
+    }
+    /// Removes the least recently used hidden tab, optionally within one account.
+    fn reclaim(&mut self, account_id: Option<&str>) -> Option<String> {
+        let id = self
+            .tabs
+            .iter()
+            .filter(|t| account_id.map_or(true, |a| t.account_id == a))
+            .filter(|t| self.shown.as_deref() != Some(t.tab_id.as_str()))
+            .min_by_key(|t| self.used.get(&t.tab_id).copied().unwrap_or(0))
+            .map(|t| t.tab_id.clone())?;
+        self.forget(|t| t.tab_id != id);
+        Some(id)
+    }
 }
 
 #[derive(Default)]
@@ -81,18 +123,40 @@ impl BrowserTabs {
     }
 }
 
-/// Reuses the account's tab showing this exact URL; otherwise reserves a new label.
+/// Reuses the account's tab showing this exact URL; otherwise reserves a new
+/// label, reclaiming hidden tabs over the limits into `reclaimed`.
 fn reserve(
     inner: &mut Inner,
     account_id: &str,
     url: &Url,
+    reclaimed: &mut Vec<String>,
 ) -> Result<(BrowserTabDto, bool), AppError> {
     if let Some(tab) = inner
         .tabs
         .iter()
         .find(|t| t.account_id == account_id && t.url == url.as_str())
+        .cloned()
     {
-        return Ok((tab.clone(), false));
+        inner.touch(&tab.tab_id);
+        return Ok((tab, false));
+    }
+    while inner
+        .tabs
+        .iter()
+        .filter(|t| t.account_id == account_id)
+        .count()
+        >= MAX_TABS_PER_ACCOUNT
+    {
+        match inner.reclaim(Some(account_id)) {
+            Some(id) => reclaimed.push(id),
+            None => break,
+        }
+    }
+    while inner.tabs.len() >= MAX_TABS_KEPT {
+        match inner.reclaim(None) {
+            Some(id) => reclaimed.push(id),
+            None => break,
+        }
     }
     if inner.tabs.len() >= MAX_TABS {
         return Err(AppError::new(
@@ -109,7 +173,17 @@ fn reserve(
         loading: true,
     };
     inner.tabs.push(tab.clone());
+    inner.touch(&tab.tab_id);
     Ok((tab, true))
+}
+
+fn close_reclaimed(app: &AppHandle, reclaimed: Vec<String>) {
+    for id in reclaimed {
+        if let Some(view) = app.get_webview(&id) {
+            let _ = view.close();
+        }
+        events::to_main(app, TAB_CLOSED, serde_json::json!({ "tab_id": id }));
+    }
 }
 
 fn change(app: &AppHandle, label: &str, apply: impl FnOnce(&mut BrowserTabDto)) {
@@ -159,14 +233,17 @@ pub fn open(
     url: Url,
 ) -> Result<BrowserTabDto, AppError> {
     let tabs = app.state::<BrowserTabs>();
-    let (tab, created) = reserve(&mut tabs.lock(), account_id, &url)?;
+    let mut reclaimed = Vec::new();
+    let reserved = reserve(&mut tabs.lock(), account_id, &url, &mut reclaimed);
+    close_reclaimed(app, reclaimed);
+    let (tab, created) = reserved?;
     if !created {
         return Ok(tab);
     }
     let view = match build(app, &tab, profile_id, url) {
         Ok(view) => view,
         Err(e) => {
-            tabs.lock().tabs.retain(|t| t.tab_id != tab.tab_id);
+            tabs.lock().forget(|t| t.tab_id != tab.tab_id);
             return Err(AppError::new(
                 codes::HOST_UNSUPPORTED,
                 format!("webview: {e}"),
@@ -287,6 +364,12 @@ pub async fn browser_show(
         if bounds.is_some() {
             inner.bounds = bounds;
         }
+        inner.shown = tab_id
+            .clone()
+            .filter(|id| inner.tabs.iter().any(|t| &t.tab_id == id));
+        if let Some(id) = inner.shown.clone() {
+            inner.touch(&id);
+        }
         inner
             .tabs
             .iter()
@@ -357,8 +440,7 @@ pub async fn browser_close(
     let view = known(&app, &tab_id).ok();
     app.state::<BrowserTabs>()
         .lock()
-        .tabs
-        .retain(|t| t.tab_id != tab_id);
+        .forget(|t| t.tab_id != tab_id);
     match view {
         Some(view) => view.close().map_err(host_err),
         None => Ok(()),
@@ -378,7 +460,7 @@ pub fn close_account(app: &AppHandle, account_id: &str) {
             .filter(|t| t.account_id == account_id)
             .map(|t| t.tab_id.clone())
             .collect();
-        inner.tabs.retain(|t| t.account_id != account_id);
+        inner.forget(|t| t.account_id != account_id);
         ids
     };
     for id in closing {
@@ -400,24 +482,81 @@ mod tests {
     #[test]
     fn same_account_and_url_reuses_the_tab_but_accounts_stay_separate() {
         let mut inner = Inner::default();
-        let (first, created) = reserve(&mut inner, "a", &url("x")).unwrap();
+        let mut gone = Vec::new();
+        let (first, created) = reserve(&mut inner, "a", &url("x"), &mut gone).unwrap();
         assert!(created);
-        let (again, created) = reserve(&mut inner, "a", &url("x")).unwrap();
+        let (again, created) = reserve(&mut inner, "a", &url("x"), &mut gone).unwrap();
         assert!(!created);
         assert_eq!(first, again);
-        let (other, created) = reserve(&mut inner, "b", &url("x")).unwrap();
+        let (other, created) = reserve(&mut inner, "b", &url("x"), &mut gone).unwrap();
+        assert!(gone.is_empty());
         assert!(created);
         assert_ne!(first.tab_id, other.tab_id);
     }
 
+    fn open_tab(inner: &mut Inner, account: &str, path: &str) -> (String, Vec<String>) {
+        let mut gone = Vec::new();
+        let (tab, _) = reserve(inner, account, &url(path), &mut gone).unwrap();
+        (tab.tab_id, gone)
+    }
+
     #[test]
-    fn tab_count_is_capped() {
+    fn an_account_over_its_limit_reclaims_its_least_recently_used_hidden_tab() {
         let mut inner = Inner::default();
-        for n in 0..MAX_TABS {
-            reserve(&mut inner, "a", &url(&n.to_string())).unwrap();
+        let ids: Vec<String> = (0..MAX_TABS_PER_ACCOUNT)
+            .map(|n| open_tab(&mut inner, "a", &n.to_string()).0)
+            .collect();
+        let (other, _) = open_tab(&mut inner, "b", "x");
+        // Reopening the oldest tab makes it the most recent one.
+        assert_eq!(open_tab(&mut inner, "a", "0"), (ids[0].clone(), vec![]));
+        let (_, gone) = open_tab(&mut inner, "a", "new");
+        assert_eq!(gone, vec![ids[1].clone()]);
+        assert!(inner.tabs.iter().any(|t| t.tab_id == other));
+        assert!(!inner.used.contains_key(&ids[1]));
+        assert_eq!(
+            inner.tabs.iter().filter(|t| t.account_id == "a").count(),
+            MAX_TABS_PER_ACCOUNT
+        );
+    }
+
+    #[test]
+    fn the_tab_on_stage_is_never_reclaimed() {
+        let mut inner = Inner::default();
+        let ids: Vec<String> = (0..MAX_TABS_PER_ACCOUNT)
+            .map(|n| open_tab(&mut inner, "a", &n.to_string()).0)
+            .collect();
+        // Shown long ago and never touched since: still the oldest by use.
+        inner.shown = Some(ids[0].clone());
+        let (_, gone) = open_tab(&mut inner, "a", "new");
+        assert_eq!(gone, vec![ids[1].clone()]);
+        assert!(inner.tabs.iter().any(|t| t.tab_id == ids[0]));
+    }
+
+    #[test]
+    fn the_total_is_bounded_across_accounts() {
+        let mut inner = Inner::default();
+        let mut first = None;
+        for account in ["a", "b", "c"] {
+            for n in 0..3 {
+                let (id, gone) = open_tab(&mut inner, account, &n.to_string());
+                first.get_or_insert(id);
+                if inner.tabs.len() < MAX_TABS_KEPT {
+                    assert!(gone.is_empty());
+                }
+            }
         }
-        assert!(reserve(&mut inner, "a", &url("over")).is_err());
-        assert!(reserve(&mut inner, "a", &url("0")).is_ok());
+        assert_eq!(inner.tabs.len(), MAX_TABS_KEPT);
+        assert!(!inner.tabs.iter().any(|t| Some(&t.tab_id) == first.as_ref()));
+        assert!(inner.tabs.len() < MAX_TABS);
+    }
+
+    #[test]
+    fn closing_tabs_forgets_their_use_order_and_stage_mark() {
+        let mut inner = Inner::default();
+        let (id, _) = open_tab(&mut inner, "a", "x");
+        inner.shown = Some(id.clone());
+        inner.forget(|t| t.account_id != "a");
+        assert!(inner.tabs.is_empty() && inner.used.is_empty() && inner.shown.is_none());
     }
 
     #[test]
