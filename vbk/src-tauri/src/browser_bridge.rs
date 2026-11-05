@@ -110,21 +110,23 @@ fn prepare(path: &std::path::Path) -> Result<(), AppError> {
     }
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         // User-private ACL even if LOCALAPPDATA inherited a permissive ACL.
+        // Granted by SID: whoami prints account names in the OEM code page.
         let who = std::process::Command::new("whoami")
+            .args(["/user", "/fo", "csv", "/nh"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|_| error())?;
         if !who.status.success() {
             return Err(error());
         }
-        let user = String::from_utf8(who.stdout).map_err(|_| error())?;
+        let sid = sid_from_whoami(&who.stdout).ok_or_else(error)?;
         let status = std::process::Command::new("icacls")
             .arg(dir)
-            .args([
-                "/inheritance:r",
-                "/grant:r",
-                &format!("{}:(OI)(CI)F", user.trim()),
-            ])
+            .args(["/inheritance:r", "/grant:r", &format!("*{sid}:(OI)(CI)F")])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|_| error())?;
         if !status.status.success() {
@@ -132,6 +134,14 @@ fn prepare(path: &std::path::Path) -> Result<(), AppError> {
         }
     }
     Ok(())
+}
+/// The SID from `whoami /user /fo csv /nh`, whose name column may not be UTF-8.
+#[cfg(any(target_os = "windows", test))]
+fn sid_from_whoami(stdout: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(stdout);
+    let sid = text[text.rfind("S-1-")?..].split('"').next()?.trim();
+    let valid = sid.len() > 4 && sid[4..].bytes().all(|b| b.is_ascii_digit() || b == b'-');
+    valid.then(|| sid.to_string())
 }
 /// Call once at app setup (or lazily from begin). No cookies are written here.
 pub fn start() -> Result<(), AppError> {
@@ -510,5 +520,17 @@ mod tests {
         let s = state().lock().unwrap();
         assert!(s.pending.is_none());
         assert!(s.offers.is_empty());
+    }
+    #[test]
+    fn sid_is_read_from_whoami_csv_even_when_the_name_is_not_utf8() {
+        let mut gbk_name = b"\"host\\".to_vec();
+        gbk_name.extend([0xd5, 0xc5, 0xc8, 0xfd]);
+        gbk_name.extend(b"\",\"S-1-5-21-100-200-1001\"\r\n");
+        assert_eq!(
+            sid_from_whoami(&gbk_name).as_deref(),
+            Some("S-1-5-21-100-200-1001")
+        );
+        assert_eq!(sid_from_whoami(b"\"host\\name\",\"S-1-x\"\r\n"), None);
+        assert_eq!(sid_from_whoami(b""), None);
     }
 }
