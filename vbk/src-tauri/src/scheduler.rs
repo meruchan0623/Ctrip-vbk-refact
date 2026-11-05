@@ -70,7 +70,7 @@ fn run(app: AppHandle) {
         crate::adapter::expire_agent_statuses(&app);
         if ticks_since_os_read >= OS_READ_EVERY_TICKS {
             ticks_since_os_read = 0;
-            os_attention = attention::read();
+            os_attention = attention::read(&app);
         }
         ticks_since_os_read += 1;
         // Also the quiet-hours edge, hence every tick.

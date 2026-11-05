@@ -685,7 +685,7 @@ fn apply_runtime(app: &AppHandle, old: &LocalPrefs, new: &LocalPrefs) {
         crate::net_policy::set_use_system_proxy(new.network.system_proxy);
     }
     if old.dnd != new.dnd {
-        crate::attention::sync(app, crate::attention::read());
+        crate::attention::sync(app, crate::attention::read(app));
     }
 }
 
@@ -764,7 +764,7 @@ pub fn prefs_set(
     }
     if section == "dnd" && key == "schedule_enabled" {
         return if m.set_dnd_schedule(&state, value)? {
-            crate::attention::sync(&app, crate::attention::read());
+            crate::attention::sync(&app, crate::attention::read(&app));
             Ok(announce(&app))
         } else {
             Ok(snapshot(&app))

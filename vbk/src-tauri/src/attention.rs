@@ -17,8 +17,10 @@ pub struct OsAttention {
     pub quiet: bool,
 }
 
-pub fn read() -> OsAttention {
-    imp::read()
+/// `follow_system` 关闭时系统勿扰读数不会被使用（见 [`sync`]），此时不去读它：
+/// macOS 上那是一次磁盘读加 JSON 解析。
+pub fn read(app: &AppHandle) -> OsAttention {
+    imp::read(prefs::dnd_prefs(app).is_some_and(|dnd| dnd.follow_system))
 }
 
 /// 打开“跟随系统勿扰”前确认确实读得到系统状态，读不到就让开关如实失败。
@@ -175,14 +177,15 @@ mod imp {
         std::fs::read(std::path::Path::new(&home).join("Library/DoNotDisturb/DB/Assertions.json"))
     }
 
-    pub fn read() -> OsAttention {
+    pub fn read(follow_system: bool) -> OsAttention {
         OsAttention {
             fullscreen: other_app_fullscreen(),
             presentation: false,
-            quiet: assertions()
-                .ok()
-                .and_then(|bytes| focus_active_from_assertions(&bytes))
-                .unwrap_or(false),
+            quiet: follow_system
+                && assertions()
+                    .ok()
+                    .and_then(|bytes| focus_active_from_assertions(&bytes))
+                    .unwrap_or(false),
         }
     }
 
@@ -207,7 +210,7 @@ mod imp {
 
     use super::OsAttention;
 
-    pub fn read() -> OsAttention {
+    pub fn read(_follow_system: bool) -> OsAttention {
         // SAFETY: 无参数的只读系统查询。
         let Ok(state) = (unsafe { SHQueryUserNotificationState() }) else {
             return OsAttention::default();
@@ -231,7 +234,7 @@ mod imp {
 mod imp {
     use super::OsAttention;
 
-    pub fn read() -> OsAttention {
+    pub fn read(_follow_system: bool) -> OsAttention {
         OsAttention::default()
     }
 
@@ -275,6 +278,8 @@ mod tests {
 
     #[test]
     fn reading_the_real_system_state_does_not_panic() {
-        let _ = read();
+        let _ = imp::read(true);
+        // 开关关闭时不读系统勿扰，读数恒为“未勿扰”。
+        assert!(!imp::read(false).quiet || cfg!(target_os = "windows"));
     }
 }
