@@ -52,7 +52,7 @@ function fixture(opts: { mode?: 'replace_draft' | 'send_direct'; sendKey?: 'ente
   }
   for (const name of ['activeAccount', 'activeConv', 'stillActive', 'upsertMessage', 'translationOn', 'translationTarget', 'sendText', 'translateAndSend', 'runPreviewTranslation', 'scheduleTranslation', 'sendMediaAttachment', 'composerInputContext']) env[name] = actual(name);
   env['setSendMode'] = () => {};
-  for (const name of ['setDraft', 'handleSend', 'translationBar', 'ctool', 'formatFileSize', 'composerMoreMenu', 'composer']) env[name] = actual(name);
+  for (const name of ['setDraft', 'handleSend', 'ctool', 'formatFileSize', 'translationBar', 'composerMoreMenu', 'composer']) env[name] = actual(name);
   return {
     store, calls, notices, env,
     get state() { return store.get(); },

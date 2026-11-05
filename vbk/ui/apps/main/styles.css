@@ -186,6 +186,11 @@ html[data-platform="macos"] .tb-logo .logo { display: none; }
 .ctool.on { color: var(--c-primary); background: var(--c-primary-tint); }
 .ctool:disabled { opacity: 0.45; cursor: default; }
 .more-menu { right: 8px; bottom: calc(100% + 4px); width: 280px; z-index: 30; }
+.more-wrap { display: contents; }
+.trhead { position: relative; }
+.trhead .more-menu { right: 0; top: calc(100% + 4px); bottom: auto; }
+.trhead .more-wrap > .ibtn { flex: none; order: 2; }
+.trhead > .trmode { order: 1; }
 .mi-mode { height: auto; padding: 7px 10px; white-space: normal; text-align: left; }
 .mi-mode-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .mi-mode-t b { font-weight: 600; }
@@ -526,6 +531,8 @@ html[data-platform="macos"] .tb-logo .logo { display: none; }
 .chat-name > .chip { flex: none; }
 @container (max-width: 560px) {
   .trmode { flex-basis: 100%; text-align: left; margin-left: 0 !important; }
+  .trhead > .trmode { order: 3; }
+  .trhead .more-wrap > .ibtn { margin-left: auto; }
   .chat-h { padding: 0 8px; gap: 5px; }
   .chat-h > .btn { flex: none; white-space: nowrap; padding-left: 6px; padding-right: 6px; }
   .trbar { margin: 6px 8px 0; padding: 7px 8px; }

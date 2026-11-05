@@ -2531,9 +2531,9 @@ function messageRow(s: MainState, m: UiMessage, conv: UiConversation, acc: UiAcc
   );
 }
 
-function translationBar(s: MainState, conv: UiConversation): HTMLElement | null {
+function translationBar(s: MainState, conv: UiConversation, more: HTMLElement | null = null): HTMLElement | null {
   const p = s.prefs;
-  if (!p || !translationOn(s, conv)) return null;
+  if (!p || !shouldShowTranslationBar(conv, !!p.assistant.enabled, !!p.assistant.outbound_translation, customerLanguage(conv, s.messages[conv.gid] ?? []))) return null;
   const direct = p.assistant.send_mode === 'send_direct';
   const sendKey = (p.keys?.send_key ?? 'enter') === 'enter' ? 'Enter' : 'Ctrl/⌘+Enter';
   const modeHint = s.attachment ? t('attachment.sendKeyKeepText', { key: sendKey }) : direct ? t("main.translationBar.directSendKey", { key: sendKey }) : t("main.translationBar.replaceSendKey", { key: sendKey, action: s.draft.trim() && !needsOutboundTranslation(s.draft) ? t("main.translationBar.sendDraft") : t("tr.sendTranslated") });
@@ -2544,7 +2544,7 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
   const attachment = s.attachment;
   const applies = (): boolean => {
     const current = S();
-    return !!owner && stillActive(owner) && current.activeGid === conv.gid && current.draftVersion === draftVersion && current.translation === tr && current.attachment === attachment;
+    return !current.trBarOff && !!owner && stillActive(owner) && current.activeGid === conv.gid && current.draftVersion === draftVersion && current.translation === tr && current.attachment === attachment;
   };
   const target = translationTarget(s, conv);
   const stale = tr.status === 'done' && tr.draftVersion !== s.draftVersion;
@@ -2582,11 +2582,21 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
   }
   return h(
     'div',
-    { class: 'trbar' },
+    { class: cx('trbar', { 'trbar-off': s.trBarOff }) },
     h(
       'div',
       { class: 'trrow trhead' },
-      icon(IC.translate, 15, { style: 'color: var(--c-primary)' }),
+      h('button', {
+        type: 'button', class: 'tr-switch', role: 'switch', 'aria-label': t('tr.title'), 'aria-checked': String(!s.trBarOff),
+        onclick: () => {
+          if (!owner || !stillActive(owner) || S().activeGid !== conv.gid) return;
+          if (trTimer) clearTimeout(trTimer);
+          trTimer = null;
+          queuedSend = null;
+          store.patch({ trBarOff: !S().trBarOff, translation: { ...TRANSLATION_IDLE, gid: conv.gid, target: translationTarget(S(), conv) } });
+          scheduleTranslation();
+        },
+      }, h('span', { class: 'tr-switch-knob' })),
       h('span', { class: 'trlabel', style: { 'font-weight': '600' } }, t('tr.title')),
       h('span', { class: 'muted trlabel' }, t('tr.target')),
       h(
@@ -2596,6 +2606,7 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
           style: { height: '24px' },
           'aria-label': t("main.translationBar.targetLanguage"),
           value: target,
+          disabled: s.trBarOff,
           onchange: (e: Event) => {
             if (!applies()) return;
             store.patch({ translation: { ...TRANSLATION_IDLE, gid: conv.gid, target: (e.target as HTMLSelectElement).value } });
@@ -2604,9 +2615,10 @@ function translationBar(s: MainState, conv: UiConversation): HTMLElement | null 
         },
         TR_TARGETS.map((code) => h('option', { value: code, selected: code === target }, `${langName(code)} ${code}`)),
       ),
-      h('span', { class: 'muted trmode', style: { 'margin-left': 'auto' } }, modeHint),
+      h('span', { class: 'muted trmode', style: { 'margin-left': 'auto' } }, s.trBarOff ? t('main.translationBar.offHint') : modeHint),
+      more,
     ),
-    bodyEl,
+    s.trBarOff ? null : bodyEl,
   );
 }
 
@@ -2618,8 +2630,9 @@ function formatFileSize(size: number): string {
   return size < 1024 * 1024 ? `${Math.max(1, Math.round(size / 1024))} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function composerMoreMenu(s: MainState): HTMLElement | null {
-  if (!s.composerMore) return null;
+function composerMoreMenu(s: MainState): HTMLElement {
+  const button = h('button', { type: 'button', class: cx('ibtn', { on: s.composerMore }), 'aria-label': t('composer.more'), title: t('composer.more'), 'aria-haspopup': 'menu', 'aria-expanded': String(s.composerMore), dataset: { tool: 'more', fid: 'tool:more' }, onmousedown: (e: Event) => e.stopPropagation(), onclick: () => store.patch({ composerMore: !S().composerMore, emoOpen: false }) }, icon(IC.more, 18));
+  if (!s.composerMore) return h('span', { class: 'more-wrap' }, button);
   const current = s.prefs?.assistant.send_mode ?? 'replace_draft';
   const option = (mode: 'replace_draft' | 'send_direct', label: string, desc: string) => h(
     'button',
@@ -2627,10 +2640,11 @@ function composerMoreMenu(s: MainState): HTMLElement | null {
     h('span', { class: 'mi-mode-t' }, h('b', null, label), h('span', { class: 'muted' }, desc)),
     current === mode ? icon(IC.check, 14, { style: 'color: var(--c-primary)' }) : null,
   );
-  return h('div', { class: 'menu more-menu', role: 'menu', onmousedown: (e: Event) => e.stopPropagation() },
+  const menu = h('div', { class: 'menu more-menu', role: 'menu', onmousedown: (e: Event) => e.stopPropagation() },
     h('div', { class: 'mhead' }, t('composer.trMode')),
     option('replace_draft', t('composer.modeReplace'), t('composer.modeReplaceDesc')),
     option('send_direct', t('composer.modeDirect'), t('composer.modeDirectDesc')));
+  return h('span', { class: 'more-wrap' }, button, menu);
 }
 
 function composer(s: MainState, conv: UiConversation): HTMLElement {
@@ -2649,10 +2663,12 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
   const trOn = translationOn(s, conv);
   const direct = s.prefs?.assistant.send_mode === 'send_direct' && trOn;
   const sendKey = s.prefs?.keys.send_key ?? 'enter';
+  const more = composerMoreMenu(s);
+  const bar = translationBar(s, conv, more);
   return h(
     'div',
     { class: 'composer' },
-    translationBar(s, conv),
+    bar,
     !trOn && s.quickReplies?.mode === 'suggestions' ? quickRepliesView(s.quickReplies, replyContext(), quickReplies) : null,
     h(
       'div',
@@ -2664,8 +2680,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
       ctool('recommend', t('composer.recommend'), IC.box, { disabled: locked, onclick: () => openRecommendations() }),
       ctool('hide-tr', s.hideInboundTr ? t('composer.showTr') : t('composer.hideTr'), IC.translate, { on: s.hideInboundTr, onclick: () => store.patch({ hideInboundTr: !S().hideInboundTr }) }),
       h('span', { class: 'sp' }),
-      h('button', { type: 'button', class: cx('ibtn', { on: s.composerMore }), 'aria-label': t('composer.more'), title: t('composer.more'), 'aria-haspopup': 'menu', 'aria-expanded': String(s.composerMore), dataset: { tool: 'more', fid: 'tool:more' }, onmousedown: (e: Event) => e.stopPropagation(), onclick: () => store.patch({ composerMore: !S().composerMore, emoOpen: false }) }, icon(IC.more, 18)),
-      composerMoreMenu(s),
+      bar ? null : more,
     ),
     quote ? h('div', { class: 'quote-bar' }, h('span', { style: { flex: '1', overflow: 'hidden', 'white-space': 'nowrap', 'text-overflow': 'ellipsis' } }, t('chat.quotePrefix'), quote.text), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('chat.cancelQuote'), onclick: () => store.patch({ quote: null }) }, icon(IC.close, 12))) : null,
     (s.attachmentDraftError || (s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable !== 'loading' && s.attachment.unavailable !== 'pending')) ? h('div', { class: 'hint-bad', role: 'alert' }, s.attachmentDraftError ?? attachmentBlockReason(s.attachment), h('button', { class: 'btn sm', type: 'button', disabled: !!s.attachmentSelection || !!s.attachmentRestore, dataset: { action: 'retry-attachment-draft', fid: 'retry-attachment-draft' }, onclick: () => void retryAttachmentDraft() }, t('attachment.retryRead'))) : null,

@@ -18,6 +18,7 @@ export const mainStrings = {
   "main.translationBar.replaceSendKey": "替换草稿模式，此时按{key}将直接{action}",
   "main.translationBar.translationError": "{label}：{message}",
   "main.translationBar.directSendHint": "输入内容后，按发送键直接发送输入框原文。",
+  "main.translationBar.offHint": "翻译已关闭，发送输入框原文",
   "main.translationBar.targetLanguage": "目标语言",
   "main.composer.messageInput": "输入消息",
   "main.composer.sendOriginal": "发送输入框原文",
