@@ -54,6 +54,8 @@ export interface PageSessionOptions {
   readonly variants?: readonly ConversationListVariant[];
   /** Compensation normal-loop stop delay (ms); `null`/omitted = never stop. */
   readonly normalLoopStopAfterMs?: number | null;
+  /** This session stopped on a bridge fault; the owner boots a fresh one. */
+  readonly onFaultUnhandled?: () => void;
   /** Official page's own conversation-list loop (fetch hook); pollers consume it instead of requesting (I-06). */
   readonly officialConversationFeed?: OfficialConversationFeed;
   readonly conversationVisibility?: VisibilityGate;
@@ -691,11 +693,15 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       adapter.bridge.dispose();
       opts.sdk.dispose();
       void pushDisplay({ kind: 'transport', state: 'disconnected' });
+      // The host keeps the account signed in, so a stopped page must not
+      // stay this way: the owner reboots it, whatever the host answered.
+      const unhandled = (): void => { log('bridge queue fault: session stopped, handing over to a fresh boot'); opts.onFaultUnhandled?.(); };
       // One out-of-band lifecycle report; it cannot wait behind the full fact
       // queue. Unknown outcome is never replayed and no SDK reconnect is made.
       try {
-        void deps.invoke(AdapterCommands.PUSH_FACT, { account: opts.account, stream: FactStreams.TRANSPORT, epoch: opts.initialEpoch, seq: 0, fact: { kind: 'bridge_fault', fault: { boot_epoch: opts.initialEpoch, reason: error.code === 'bridge.delivery_failed' ? 'delivery_failed' : 'queue_overflow' } } }).catch(() => log('bridge queue fault host notification failed; session remains stopped'));
-      } catch { log('bridge queue fault host notification failed; session remains stopped'); }
+        void deps.invoke(AdapterCommands.PUSH_FACT, { account: opts.account, stream: FactStreams.TRANSPORT, epoch: opts.initialEpoch, seq: 0, fact: { kind: 'bridge_fault', fault: { boot_epoch: opts.initialEpoch, reason: error.code === 'bridge.delivery_failed' ? 'delivery_failed' : 'queue_overflow' } } })
+          .then(unhandled, unhandled);
+      } catch { unhandled(); }
     },
     account: opts.account,
     initialBeginMsgTime: opts.beginMsgTime,

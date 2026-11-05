@@ -498,6 +498,19 @@ impl ImCore {
         }
     }
 
+    /// A new adapter document finished its READY handshake. It restarts every
+    /// stream under a new epoch, so old cursors say nothing about it. What it
+    /// missed is unproven until its own compensation and full list arrive,
+    /// hence the barrier.
+    pub fn adapter_rebooted(&mut self) {
+        self.cursors.clear();
+        self.cursor_broken.clear();
+        self.required_resyncs.clear();
+        self.required_resyncs.insert(StreamId::Message);
+        self.required_resyncs.insert(StreamId::Conversation);
+        self.enter_reconciling();
+    }
+
     /// Streams still awaiting `resync_complete`.
     pub fn required_resyncs(&self) -> Vec<StreamId> {
         self.required_resyncs.iter().copied().collect()

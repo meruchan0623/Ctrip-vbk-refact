@@ -258,6 +258,13 @@ impl HostState {
             _ => None,
         };
         let is_compensation = matches!(fact, Fact::CompensationSync { .. });
+        // What re-establishes a stream after a boot or restore: a completed
+        // compensation pass and a complete list, each on its own stream.
+        let settles = match &fact {
+            Fact::CompensationSync { .. } => Some(StreamId::Message),
+            Fact::ConversationListSync { full: true, .. } => Some(StreamId::Conversation),
+            _ => None,
+        };
         if cores.im.get(&account).is_none() {
             cores.im.insert(ImCore::new(account.clone()));
             // First facts after (re-)login: rounds persisted under this
@@ -274,7 +281,19 @@ impl HostState {
             seq: dto.seq,
             fact,
         };
-        let report = cores.im.ingest(env)?;
+        let mut report = cores.im.ingest(env)?;
+        if let (true, Some(settled)) = (report.applied, settles) {
+            Self::settle_stream(
+                &mut cores,
+                &account,
+                settled,
+                contracts::StreamCursor::new(dto.epoch, dto.seq),
+            );
+            report.needs_resync = cores
+                .im
+                .get(&account)
+                .and_then(|core| core.required_resyncs().first().copied());
+        }
         let mut jobs: Vec<PersistJob> = Vec::new();
         if is_compensation && report.applied {
             jobs.extend(self.collect_compensation_snapshot(&cores, &account));
@@ -650,6 +669,45 @@ impl HostState {
         cores.notify.restore(restored, &now);
     }
 
+    /// A new adapter document of `account` completed READY. No-op before the
+    /// account's first fact: a core created then starts without old cursors.
+    pub fn adapter_booted(&self, account: &AccountContext) {
+        let mut cores = self.lock();
+        let Some(core) = cores.im.get_mut(account) else {
+            return;
+        };
+        core.adapter_rebooted();
+        let key = (account.environment.clone(), account.account_id.clone());
+        cores
+            .glue
+            .entry(key)
+            .or_default()
+            .reconcile
+            .begin_reconcile(ReconcileReason::StreamGap);
+    }
+
+    fn settle_stream(
+        cores: &mut Cores,
+        account: &AccountContext,
+        stream: StreamId,
+        cursor: contracts::StreamCursor,
+    ) {
+        let Some(core) = cores.im.get_mut(account) else {
+            return;
+        };
+        if !core.required_resyncs().contains(&stream) {
+            return;
+        }
+        core.resync_complete(stream, cursor);
+        if !core.is_reconciling() {
+            let key = (account.environment.clone(), account.account_id.clone());
+            if let Some(glue) = cores.glue.get_mut(&key) {
+                let gen = glue.reconcile.current_generation();
+                glue.reconcile.complete(gen);
+            }
+        }
+    }
+
     /// Called by the adapter after it re-handshaked a stream.
     pub fn resync_complete(
         &self,
@@ -815,20 +873,6 @@ impl HostState {
         self.logout_checked(account_id, mode, None)
     }
 
-    /// A fault may suspend only the still-current account and source view.
-    /// Both checks and generation revocation occur under the same Cores lock.
-    pub(crate) fn suspend_current_view(
-        &self,
-        account: &AccountContext,
-        view: &contracts::ViewContext,
-    ) -> Result<core_account::RevokeList, AppError> {
-        self.logout_checked(
-            account.account_id.as_str(),
-            LogoutMode::ExitOnline,
-            Some((account, Some(view))),
-        )
-    }
-
     pub(crate) fn logout_context(
         &self,
         account: &AccountContext,
@@ -948,7 +992,7 @@ fn convert_fact(dto: AdapterFactDto) -> Result<Fact, AppError> {
 }
 
 #[cfg(test)]
-mod queue_fault_suspension_tests {
+mod adapter_fact_tests {
     use super::*;
 
     #[test]
@@ -984,43 +1028,92 @@ mod queue_fault_suspension_tests {
             .ctx
     }
 
-    #[test]
-    fn suspension_is_atomic_with_account_and_view_generation_checks() {
-        let host = HostState::new(None, 1);
-        let account = online(&host, "fault-a");
-        let other = online(&host, "fault-b");
-        let original_view = host.lock().views.register("acct-fault-a");
-        let replacement_view = host.lock().views.register("acct-fault-a");
-        assert!(host.suspend_current_view(&account, &original_view).is_err());
-        assert!(host.lock().accounts.validate(&account).is_ok());
-        host.suspend_current_view(&account, &replacement_view)
-            .unwrap();
-        assert_eq!(
-            host.lock()
-                .accounts
-                .state(&account.account_id)
-                .unwrap()
-                .kind(),
-            // This fixture has no saved credential; ExitOnline intentionally
-            // becomes LoggedOut, while preserving other accounts.
-            core_account::AccountStateKind::LoggedOut
-        );
-        assert!(host.lock().accounts.validate(&other).is_ok());
-        assert!(host
-            .suspend_current_view(&account, &replacement_view)
-            .is_err());
+    fn envelope(
+        ctx: &AccountContext,
+        stream: &str,
+        epoch: u64,
+        seq: u64,
+        fact: serde_json::Value,
+    ) -> AdapterFactEnvelopeDto {
+        serde_json::from_value(serde_json::json!({
+            "account": crate::dto::AccountContextDto::from(ctx),
+            "stream": stream,
+            "epoch": epoch,
+            "seq": seq,
+            "fact": fact,
+        }))
+        .unwrap()
+    }
+
+    fn message(id: Option<&str>, kind: &str) -> serde_json::Value {
+        serde_json::json!({"kind":"message","fact":{"gid":"g","message_id":id,"local_id":null,"create_time_ms":1700000000000i64,"sender_role":"customer","sender_id":"c","kind":kind,"source":"realtime","disposition":null}})
     }
 
     #[test]
-    fn old_account_generation_cannot_suspend_a_relogged_session() {
+    fn a_typing_frame_without_identity_is_dropped_and_does_not_fail_or_break_the_stream() {
         let host = HostState::new(None, 1);
-        let old = online(&host, "fault-a");
-        let view = host.lock().views.register("acct-fault-a");
-        host.logout(old.account_id.as_str(), LogoutMode::ExitOnline)
+        let ctx = online(&host, "typing");
+        let report = host
+            .push_fact(envelope(&ctx, "im.message", 5, 1, message(None, "typing")))
             .unwrap();
-        let new = online(&host, "fault-a");
-        assert_ne!(old.session_generation, new.session_generation);
-        assert!(host.suspend_current_view(&old, &view).is_err());
-        assert!(host.lock().accounts.validate(&new).is_ok());
+        assert!(!report.applied && report.needs_resync.is_none());
+        let next = host
+            .push_fact(envelope(
+                &ctx,
+                "im.message",
+                5,
+                2,
+                message(Some("m1"), "business"),
+            ))
+            .unwrap();
+        assert!(next.applied);
+    }
+
+    #[test]
+    fn a_reloaded_page_is_a_new_handshake_not_a_broken_stream_and_its_syncs_lift_the_barrier() {
+        let host = HostState::new(None, 1);
+        let ctx = online(&host, "reload");
+        assert!(
+            host.push_fact(envelope(
+                &ctx,
+                "im.message",
+                5,
+                1,
+                message(Some("m1"), "business")
+            ))
+            .unwrap()
+            .applied
+        );
+        // Without a READY a new epoch stays what it always was.
+        let unannounced = host
+            .push_fact(envelope(
+                &ctx,
+                "im.message",
+                6,
+                1,
+                message(Some("m2"), "business"),
+            ))
+            .unwrap();
+        assert!(!unannounced.applied && unannounced.needs_resync.is_some());
+        host.adapter_booted(&ctx);
+        let hinted = host
+            .push_fact(envelope(
+                &ctx,
+                "im.message",
+                7,
+                1,
+                message(Some("m3"), "business"),
+            ))
+            .unwrap();
+        assert!(hinted.applied && hinted.needs_resync.is_some());
+        let compensated = host
+            .push_fact(envelope(&ctx, "im.message", 7, 2, serde_json::json!({"kind":"compensation_sync","last_message_timestamp_ms":1700000000000i64})))
+            .unwrap();
+        assert_eq!(compensated.needs_resync, Some(StreamId::Conversation));
+        let listed = host
+            .push_fact(envelope(&ctx, "im.conversation", 7, 1, serde_json::json!({"kind":"conversation_list_sync","full":true,"last_update_time_ms":1700000000000i64})))
+            .unwrap();
+        assert!(listed.applied && listed.needs_resync.is_none());
+        assert!(!host.lock().im.get(&ctx).unwrap().is_reconciling());
     }
 }

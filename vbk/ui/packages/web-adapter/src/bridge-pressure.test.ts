@@ -111,13 +111,13 @@ test('real session overflow stops intake, expires old facts and reports one fixe
   const base = makeDeps(call => jsonResponse(call.url.includes('getConversationList')
     ? { ResponseStatus: OK_STATUS, conversationList: [], lastUpdateTime: base.now(), currentStatus: 0 }
     : { ResponseStatus: OK_STATUS, messages: [], lastMessageTimestamp: base.now() }));
-  const sdk = new FakePageSdk(); let hold = false, release!: () => void, disposes = 0;
+  const sdk = new FakePageSdk(); let hold = false, release!: () => void, disposes = 0, unhandled = 0;
   sdk.dispose = () => { disposes++; };
   const deps = { ...base, sdk, invoke: (command: string, payload: unknown) => {
     if (hold && command === ImCommands.PUSH_FACT) { base.invoked.push({ cmd: command, payload }); return new Promise(resolve => { release = () => resolve(null); }); }
     return base.invoke(command, payload);
   } };
-  const session = createPageSession(deps, { account, selfUid: 'self', initialEpoch: 17, beginMsgTime: base.now(), sdk, bridgeCapacity: 4, pushDisplay: async () => null });
+  const session = createPageSession(deps, { account, selfUid: 'self', initialEpoch: 17, beginMsgTime: base.now(), sdk, bridgeCapacity: 4, pushDisplay: async () => null, onFaultUnhandled: () => { unhandled++; } });
   session.start(); await base.clock.advance(0); await session.adapter.bridge.flush();
   session.stop(); session.start(); await base.clock.advance(0); await session.adapter.bridge.flush();
   assert.equal(session.adapter.bridge.epoch, 18);
@@ -136,6 +136,8 @@ test('real session overflow stops intake, expires old facts and reports one fixe
   assert.equal(notifications[0]!.cmd, AdapterCommands.PUSH_FACT);
   const control = { account, stream: 'im.transport', epoch: 17, seq: 0, fact: { kind: 'bridge_fault', fault: { boot_epoch: 17, reason: 'queue_overflow' } } };
   assert.deepEqual(notifications[0]!.payload, control);
+  await flush();
+  assert.equal(unhandled, 1, 'the host did not answer applied: the owner is told once so the page cannot stay bound and stopped');
   assert.deepEqual(hostArgs(notifications[0]!.cmd, notifications[0]!.payload), { envelope: control }, 'the actual boot wrapper adds exactly one named envelope');
   assert.equal(session.adapter.bridge.diagnostics.expired, 3);
   assert.equal(session.adapter.bridge.diagnostics.in_flight, 1);
@@ -289,6 +291,7 @@ test('real session delivery failure reports one delivery_failed control and stop
   assert.equal(base.invoked.some(c => (c.payload as AdapterFactEnvelope)?.fact?.kind === 'auth_invalid'), false);
   assert.equal(disposes, 1); assert.equal(base.fakeSdk.sent.length, 0);
 });
+
 test('a typing frame stays out of the message stream, so it cannot be rejected and stop the session', async () => {
   const base = makeDeps(call => jsonResponse(call.url.includes('getConversationList') ? { ResponseStatus: OK_STATUS, conversationList: [], lastUpdateTime: 1700000000000 } : { ResponseStatus: OK_STATUS, messages: [], lastMessageTimestamp: 1700000000000 }));
   const sdk = new FakePageSdk();

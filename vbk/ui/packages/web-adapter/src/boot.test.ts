@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boot, hostArgs, isOfficialImPage, resolveHostBridge, type BootWindow } from './boot.ts';
+import { boot, faultReloadDelayMs, FAULT_RELOAD_KEY, FAULT_RELOAD_MIN_INTERVAL_MS, hostArgs, isOfficialImPage, resolveHostBridge, type BootWindow } from './boot.ts';
 import { OK_STATUS, sampleRow } from './testing.ts';
 
 for (const useApi of [false, true]) {
@@ -184,10 +184,11 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
       invoke: (cmd: string, args: unknown) => {
         invoked.push({ cmd, args });
         if (cmd === 'plugin:event|listen') return Promise.resolve(9);
-        if (cmd === 'adapter_ready') return Promise.resolve({ account: identityPublished ? account : null, begin_msg_time: 1700000000000, initial_epoch: 4 });
+        // Like the host: every READY takes a new epoch, and only a bound account gets the lease and its watermark.
+        if (cmd === 'adapter_ready') return Promise.resolve({ account: identityPublished ? account : null, begin_msg_time: identityPublished ? 1700000000000 : 0, initial_epoch: 3 + invoked.filter((i) => i.cmd === 'adapter_ready').length });
         if (cmd === 'adapter_identity') {
           identityPublished = true;
-          return Promise.resolve(null);
+          return Promise.resolve(account);
         }
         return Promise.resolve(null);
       },
@@ -213,7 +214,9 @@ test('boot: full sequence ready → identity → bind → SDK → session, and a
   assert.ok(facts.length > 0);
   const env = (facts[0]?.args as { envelope: { account: unknown; epoch: number } }).envelope;
   assert.deepEqual(env.account, account);
-  assert.equal(env.epoch, 4);
+  // The identity reply named the account, but the lease-bearing READY is still requested and its epoch is the one used.
+  assert.equal(invoked.filter((i) => i.cmd === 'adapter_ready').length, 2);
+  assert.equal(env.epoch, 5);
   const displays = invoked.filter((i) => i.cmd === 'adapter_push_display').map((i) => (i.args as { payload: { kind: string } }).payload);
   assert.ok(displays.some((d) => d.kind === 'conversations'));
   assert.ok(displays.some((d) => d.kind === 'transport'));
@@ -313,4 +316,18 @@ test('host bridge handles synchronous and asynchronous global cleanup failures',
     await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(calls, 1);
   }
+});
+
+test('fault reload: always comes back, a repeating fault only waits out the interval', () => {
+  const store = new Map<string, string>();
+  const sessionStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v); } };
+  const base = { setTimeout: () => 0, clearTimeout: () => undefined, location: { ...IM, href: '', search: '' } };
+  const win = { ...base, sessionStorage } as BootWindow;
+  assert.equal(faultReloadDelayMs(win, 1_000_000), 0);
+  assert.equal(store.get(FAULT_RELOAD_KEY), '1000000');
+  assert.equal(faultReloadDelayMs(win, 1_000_001), FAULT_RELOAD_MIN_INTERVAL_MS - 1);
+  assert.equal(faultReloadDelayMs(win, 1_000_000 + 10 * FAULT_RELOAD_MIN_INTERVAL_MS), 0);
+  assert.equal(faultReloadDelayMs(base as BootWindow, 5), FAULT_RELOAD_MIN_INTERVAL_MS);
+  const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => undefined };
+  assert.equal(faultReloadDelayMs({ ...base, sessionStorage: broken } as BootWindow, 5), FAULT_RELOAD_MIN_INTERVAL_MS);
 });

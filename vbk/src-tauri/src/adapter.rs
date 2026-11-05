@@ -1398,6 +1398,9 @@ pub fn adapter_ready(
         + 1;
     let account =
         login::issue_adapter_ready(&app, webview.label(), initial_epoch).map_err(e2dto)?;
+    if let Some(ctx) = &account {
+        state.adapter_booted(ctx);
+    }
     let begin_msg_time = account
         .as_ref()
         .map(|c| state.compensation_watermark(c))
@@ -1453,28 +1456,50 @@ pub fn adapter_push_fact(
     state: State<'_, HostState>,
     request: Request<'_>,
 ) -> CmdResult<IngestReportDto> {
-    guard(&state, webview.label(), "adapter_push_fact")?;
-    let mut envelope: AdapterFactEnvelopeDto = body(&request, "envelope").map_err(e2dto)?;
+    let result = ingest_adapter_fact(app, &webview, &state, &request);
+    // A rejection stops the page's fact queue: leave the reason in the log.
+    // Only the code: the message may quote payload values.
+    if let Err(error) = &result {
+        log::warn!("adapter_push_fact rejected: {}", error.code);
+    }
+    result
+}
+
+fn ingest_adapter_fact(
+    app: AppHandle,
+    webview: &Webview,
+    state: &State<'_, HostState>,
+    request: &Request<'_>,
+) -> CmdResult<IngestReportDto> {
+    guard(state, webview.label(), "adapter_push_fact")?;
+    let mut envelope: AdapterFactEnvelopeDto = body(request, "envelope").map_err(e2dto)?;
     if let AdapterFactDto::BridgeFault { fault } = &envelope.fact {
         // Host-only terminal control, never an IM cursor/fact or auth signal.
         validate_bridge_fault_control(&envelope, fault.boot_epoch).map_err(e2dto)?;
         let account: AccountContext = envelope.account.clone().into();
-        let suspended = login::suspend_faulted_adapter(
+        // The page recovers by rebooting itself; the account stays signed in.
+        let current = login::note_faulted_adapter(
             &app,
             webview.label(),
             &account,
             fault.boot_epoch,
             &fault.reason,
-        )
-        .map_err(e2dto)?;
+        );
         return Ok(IngestReportDto {
-            applied: suspended,
-            dropped: (!suspended).then(|| "stale_adapter_boot".into()),
+            applied: false,
+            dropped: Some(
+                if current {
+                    "adapter_rebooting"
+                } else {
+                    "stale_adapter_boot"
+                }
+                .into(),
+            ),
             needs_resync: None,
             auth_invalid: false,
         });
     }
-    let ctx = bound_caller(&app, &state, &webview, "adapter_push_fact")?;
+    let ctx = bound_caller(&app, state, webview, "adapter_push_fact")?;
     let claimed: AccountContext = envelope.account.clone().into();
     if claimed != ctx {
         return Err(e2dto(unauthorized(

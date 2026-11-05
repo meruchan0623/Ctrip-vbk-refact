@@ -191,8 +191,9 @@ export function createVisibilityGate(doc: DocumentLike | undefined): VisibilityG
 // ------------------------------------------------------------- boot
 
 export interface BootWindow {
-  readonly location: LocationLike & { readonly href: string; readonly origin?: string; readonly search: string };
+  readonly location: LocationLike & { readonly href: string; readonly origin?: string; readonly search: string; reload?(): void };
   readonly document?: DocumentLike;
+  readonly sessionStorage?: { getItem(key: string): string | null; setItem(key: string, value: string): void };
   readonly top?: unknown;
   readonly self?: unknown;
   fetch?: unknown;
@@ -234,6 +235,26 @@ function consoleLogger(): BootLogger {
     info: (m) => c?.info?.(`${LOG_PREFIX} ${m}`),
     error: (m) => c?.error?.(`${LOG_PREFIX} ${m}`),
   };
+}
+
+export const FAULT_RELOAD_KEY = 'vbk.adapter.fault-reload.v1';
+export const FAULT_RELOAD_MIN_INTERVAL_MS = 2 * 60_000;
+/**
+ * A stopped session recovers by a fresh boot (new READY lease, new epoch, full
+ * resync; nothing is replayed). The page never stays stopped; a fault that
+ * repeats right after a reload only waits out the interval. The stamp lives in
+ * sessionStorage, and without it every reload waits the whole interval.
+ */
+export function faultReloadDelayMs(win: BootWindow, nowMs: number): number {
+  try {
+    const storage = win.sessionStorage;
+    if (!storage) return FAULT_RELOAD_MIN_INTERVAL_MS;
+    const last = Number(storage.getItem(FAULT_RELOAD_KEY));
+    const known = Number.isFinite(last) && last > 0 && last <= nowMs + FAULT_RELOAD_MIN_INTERVAL_MS;
+    const delay = known ? Math.max(0, last + FAULT_RELOAD_MIN_INTERVAL_MS - nowMs) : 0;
+    storage.setItem(FAULT_RELOAD_KEY, String(nowMs + delay));
+    return delay;
+  } catch { return FAULT_RELOAD_MIN_INTERVAL_MS; }
 }
 
 function sleep(win: BootWindow, ms: number): Promise<void> {
@@ -398,8 +419,13 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     logger.error('adapter_identity rejected');
     return { kind: 'failed', step: 'identity_publish' };
   }
-  for (let i = 0; account === null && i < (opts.bindAttempts ?? 10); i++) {
-    await sleep(win, opts.bindDelayMs ?? 1000);
+  // The host issues its READY lease (fault suspension, compensation watermark,
+  // epoch) only to a bound account. A page that booted before the binding
+  // existed therefore asks again, also when the identity reply already named
+  // the account: without the lease the host cannot tell this boot's fault
+  // report from a stale one.
+  for (let i = 0; ack.account === null && i < (opts.bindAttempts ?? 10); i++) {
+    if (i > 0 || account === null) await sleep(win, opts.bindDelayMs ?? 1000);
     try {
       const again = asAck(await call(AdapterCommands.READY, readyPayload));
       if (again?.account) {
@@ -414,6 +440,7 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     logger.error('host did not bind an account to this webview');
     return { kind: 'failed', step: 'bind' };
   }
+  if (ack.account === null) logger.error('host issued no READY lease for the bound account');
   traffic.setAccount(account.account_id);
   logger.info('identity published, account bound');
 
@@ -438,6 +465,7 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     officialConversationFeed: officialFeed,
     conversationVisibility: createVisibilityGate(win.document),
     onConversationBootstrap: () => traffic.markBootstrap('conversation_list'),
+    onFaultUnhandled: () => { win.setTimeout(() => win.location.reload?.(), faultReloadDelayMs(win, now())); },
     ...(opts.normalLoopStopAfterMs !== undefined ? { normalLoopStopAfterMs: opts.normalLoopStopAfterMs } : {}),
   });
   session.start();

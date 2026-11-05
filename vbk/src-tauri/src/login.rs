@@ -113,7 +113,7 @@ struct AccountMeta {
     color: String,
     /// Web profile currently bound to the account (None after logout).
     profile_id: Option<String>,
-    /// Explicit exit-online or overload pause: never resumed automatically at startup.
+    /// Explicit exit-online: never resumed automatically at startup.
     #[serde(default)]
     suspended_by_user: bool,
 }
@@ -1938,73 +1938,39 @@ fn take_queue_fault_lease(
     inner.adapter_ready.remove(label)
 }
 
-fn detach_overloaded_account(inner: &mut Inner, id: &str) -> Vec<String> {
-    settle_account_exit(inner, id, LogoutMode::ExitOnline).0
-}
-
-fn bridge_fault_message(reason: &BridgeFaultReason) -> &'static str {
-    match reason {
-        BridgeFaultReason::QueueOverflow => "消息通道过载，已暂停，请重新登录",
-        BridgeFaultReason::DeliveryFailed => "消息同步失败，已暂停，请重新登录",
-    }
-}
-
-/// Called only after the command's adapter-only ACL check. The registry and
-/// view are checked atomically by HostState before generation revocation.
-pub(crate) fn suspend_faulted_adapter(
+/// Records a bridge fault of the current boot. The account is not touched: a
+/// fault says this page's fact queue stopped, not that the login ended, so the
+/// page reboots itself (new READY, new epoch, full resync, nothing replayed).
+pub(crate) fn note_faulted_adapter(
     app: &AppHandle,
     label: &str,
     account: &AccountContext,
     boot_epoch: u64,
     reason: &BridgeFaultReason,
-) -> Result<bool, AppError> {
+) -> bool {
     let ls = login_state(app);
-    let lifecycle = ls.lifecycle();
+    let _lifecycle = ls.lifecycle();
     let host = app.state::<HostState>();
-    let lease = {
-        let cores = host.lock();
-        let view = cores.views.current(label);
-        take_queue_fault_lease(
-            &mut ls.lock(),
-            &cores.accounts,
-            view.as_ref(),
-            label,
-            account,
-            boot_epoch,
-        )
-    };
-    let Some(lease) = lease else {
-        return Ok(false);
-    };
-    // A concurrent fact may have invalidated the account after admission;
-    // this operation rechecks the complete generation and view in one lock.
-    let transition = crate::adapter::with_outbound_transition(app, |journal| {
-        host.suspend_current_view(&lease.account, &lease.view)
-            .map(|revoke| (revoke, lock_account_storage(&host, journal, &lease.account)))
-    });
-    let (revoke, storage) = match transition {
-        Ok(result) => result,
-        Err(_) => return Ok(false),
-    };
-    let id = account.account_id.as_str();
-    let labels = detach_overloaded_account(&mut ls.lock(), id);
-    // Capture concrete handles while settlement is gated. A late teardown
-    // must never look up a reused label and destroy the replacement window.
-    let windows: Vec<_> = labels
-        .iter()
-        .filter_map(|label| app.get_webview_window(label))
-        .collect();
-    drop(lifecycle);
-    crate::browser_tabs::close_account(app, account.account_id.as_str());
-    for window in windows {
-        let _ = window.destroy();
-    }
-    crate::adapter::on_account_removed(app, account);
-    apply_credential_revoke(&revoke); // ExitOnline keeps committed credentials.
-    persist_and_emit(app);
-    events::toast(app, bridge_fault_message(reason));
-    storage?;
-    Ok(true)
+    let cores = host.lock();
+    let view = cores.views.current(label);
+    let current = take_queue_fault_lease(
+        &mut ls.lock(),
+        &cores.accounts,
+        view.as_ref(),
+        label,
+        account,
+        boot_epoch,
+    )
+    .is_some();
+    log::warn!(
+        "adapter bridge fault ({reason:?}) on {label}: {}",
+        if current {
+            "page reboots"
+        } else {
+            "stale boot"
+        }
+    );
+    current
 }
 
 /// Label of the `acct-*` webview currently serving `account`.
@@ -2527,10 +2493,7 @@ pub(crate) fn recovery_binding_is_current(
 #[cfg(test)]
 mod adapter_queue_fault_tests {
     use super::*;
-    use crate::adapter::outbound_journal::{self, OutboundJournal, SendPayload};
-    use crate::dto::SendDispositionDto;
-    use core_account::{AccountState, MemorySecretStore, ProfileAction};
-    use core_store::{DraftBook, FileStore, Namespace};
+    use core_account::MemorySecretStore;
 
     pub(super) fn online(host: &HostState, buid: &str) -> AccountContext {
         let mut cores = host.lock();
@@ -2609,18 +2572,6 @@ mod adapter_queue_fault_tests {
     }
 
     #[test]
-    fn bridge_fault_notifications_distinguish_capacity_from_delivery_failure() {
-        assert_eq!(
-            bridge_fault_message(&BridgeFaultReason::QueueOverflow),
-            "消息通道过载，已暂停，请重新登录"
-        );
-        let delivery = bridge_fault_message(&BridgeFaultReason::DeliveryFailed);
-        assert_eq!(delivery, "消息同步失败，已暂停，请重新登录");
-        assert!(!delivery.contains("过载"));
-        assert!(!delivery.contains("登录失效"));
-    }
-
-    #[test]
     fn latest_ready_full_account_and_boot_are_required_without_consuming_a_valid_successor() {
         let host = HostState::new(None, 1);
         let a = online(&host, "a");
@@ -2671,7 +2622,6 @@ mod adapter_queue_fault_tests {
         let replacement_view = host.lock().views.register("acct-a");
         assert_ne!(old_view, replacement_view);
         assert!(claim(&host, &mut inner, "acct-a", &old, 10).is_none());
-        assert!(host.suspend_current_view(&old, &old_view).is_err());
         {
             let cores = host.lock();
             publish_adapter_ready(&mut inner, &cores.accounts, &cores.views, "acct-a", 11).unwrap();
@@ -2688,103 +2638,6 @@ mod adapter_queue_fault_tests {
         assert!(claim(&host, &mut inner, "acct-a", &old, 11).is_none());
         assert!(host.lock().accounts.validate(&new).is_ok());
         assert!(claim(&host, &mut inner, "acct-a", &new, 12).is_some());
-    }
-
-    #[test]
-    fn queue_fault_revokes_once_only_and_keeps_profile_credentials_and_other_accounts() {
-        let host = HostState::new(None, 1);
-        let a = online(&host, "a");
-        let b = online(&host, "b");
-        let mut inner = Inner::default();
-        bind(&host, &mut inner, &a, "acct-a", 10);
-        bind(&host, &mut inner, &b, "acct-b", 20);
-        let profile = inner.meta[a.account_id.as_str()].profile_id.clone();
-        let revision = host.lock().accounts.credential_revision(&a.account_id);
-        let lease = claim(&host, &mut inner, "acct-a", &a, 10).unwrap();
-        let revoke = host
-            .suspend_current_view(&lease.account, &lease.view)
-            .unwrap();
-        let labels = detach_overloaded_account(&mut inner, a.account_id.as_str());
-        assert_eq!(labels, ["acct-a"]);
-        assert_eq!(revoke.credential, CredentialAction::Keep);
-        assert_eq!(revoke.profile_action, ProfileAction::Isolate);
-        assert!(matches!(
-            host.lock().accounts.state(&a.account_id),
-            Some(AccountState::Suspended(_))
-        ));
-        let paused = host.lock().accounts.current_context(&a.account_id).unwrap();
-        assert!(paused.session_generation > a.session_generation);
-        assert_eq!(
-            host.lock().accounts.credential_revision(&a.account_id),
-            revision
-        );
-        assert_eq!(inner.meta[a.account_id.as_str()].profile_id, profile);
-        assert!(inner.meta[a.account_id.as_str()].suspended_by_user);
-        assert!(current_adapter_account(&inner, &host.lock().accounts, "acct-a").is_none());
-        assert!(claim(&host, &mut inner, "acct-a", &a, 10).is_none());
-        assert_eq!(
-            host.lock().accounts.current_context(&a.account_id),
-            Some(paused)
-        );
-        assert!(host.lock().accounts.validate(&b).is_ok());
-        assert!(inner.bindings.contains_key("acct-b"));
-        assert!(require_identity_binding(&inner, "acct-a", a.account_id.as_str()).is_err());
-        assert!(require_identity_binding(&inner, "acct-b", b.account_id.as_str()).is_ok());
-        assert!(claim(&host, &mut inner, "acct-b", &b, 20).is_some());
-    }
-
-    #[test]
-    fn queue_pause_preserves_real_draft_and_unknown_outbound_ledger_without_redispatch() {
-        let root = std::env::temp_dir().join(format!("vbk-queue-pause-{}", uuid::Uuid::new_v4()));
-        let host = HostState::new(Some(FileStore::open(root.join("state")).unwrap()), 1);
-        let a = online(&host, "a");
-        let mut inner = Inner::default();
-        bind(&host, &mut inner, &a, "acct-a", 10);
-        let store = host.lock().store.clone().unwrap();
-        let ns = Namespace::from_context(&a);
-        DraftBook::save(store.as_ref(), &ns, "room", "retained draft", 0).unwrap();
-        let journal = Mutex::new(OutboundJournal::open(root.join("outbound")).unwrap());
-        let payload = SendPayload {
-            gid: "room".into(),
-            text: "synthetic text".into(),
-            original: None,
-            quote_id: None,
-        };
-        let outcome = tauri::async_runtime::block_on(outbound_journal::send_once(
-            &journal,
-            &a,
-            "local-unknown",
-            &payload,
-            || async { Ok(SendDispositionDto::Unknown) },
-        ))
-        .unwrap();
-        assert_eq!(outcome, SendDispositionDto::Unknown);
-        let before = journal.lock().unwrap().unknown_metadata(&a).unwrap();
-        assert_eq!(before.len(), 1);
-        let lease = claim(&host, &mut inner, "acct-a", &a, 10).unwrap();
-        host.suspend_current_view(&lease.account, &lease.view)
-            .unwrap();
-        detach_overloaded_account(&mut inner, a.account_id.as_str());
-        assert!(host.flush_persist(Duration::from_secs(5)));
-        let paused = host.lock().accounts.current_context(&a.account_id).unwrap();
-        assert_eq!(
-            DraftBook::load(store.as_ref(), &ns).unwrap()[0].text,
-            "retained draft"
-        );
-        assert!(journal.lock().unwrap().unknown_metadata(&paused).unwrap() == before);
-        let replay = tauri::async_runtime::block_on(outbound_journal::send_once(
-            &journal,
-            &paused,
-            "local-unknown",
-            &payload,
-            || async { panic!("queue pause cannot authorize redispatch") },
-        ))
-        .unwrap();
-        assert_eq!(replay, SendDispositionDto::Unknown);
-        drop(journal);
-        drop(store);
-        drop(host);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
