@@ -430,6 +430,12 @@ impl ImCore {
                 if fact.sender_role != SenderRole::MerchantSelf || fact.kind != MsgKind::Business {
                     fact.local_id = None;
                 }
+                // The cursor already advanced: refusing the envelope here would
+                // turn one identity-less frame into a stream failure.
+                if fact.dedup_key().is_none() {
+                    report.dropped = Some(DropReason::Unidentified);
+                    return Ok(report);
+                }
                 let outcome = self.index.merge(&fact)?;
                 if matches!(outcome, crate::dedup::MergeOutcome::Inserted) {
                     self.defer_notice_if_unsettled(&fact);

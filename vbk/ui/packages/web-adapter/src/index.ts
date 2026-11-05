@@ -284,7 +284,8 @@ export function createAdapter(deps: AdapterDeps, opts: AdapterOptions): Adapter 
         deps.sdk.on('message', (evt) => {
           if (!running || authInvalidSeen) return;
           const fact = normalizeSdkMessage(evt, { roles: rolesProxy, ...(opts.msgTypeOverrides ? { msgTypeOverrides: opts.msgTypeOverrides } : {}) });
-          if (!fact) return;
+          // Typing frames carry no message identity and have no place in the message stream.
+          if (!fact || (fact.message_id === null && fact.local_id === null)) return;
           emit({ kind: 'message', fact });
           if (fact.sender_role === 'unknown' && fact.kind === 'business' && fact.message_id) {
             if (unresolved.length >= MAX_UNRESOLVED) unresolved.shift();

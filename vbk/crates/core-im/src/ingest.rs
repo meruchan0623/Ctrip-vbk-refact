@@ -109,6 +109,9 @@ pub enum DropReason {
     /// A previous gap/epoch change on this stream has not been resolved by
     /// `resync_complete` yet.
     AwaitingResync,
+    /// A message-stream fact with neither server nor local id (for example a
+    /// typing frame). It has no identity to merge; the stream stays intact.
+    Unidentified,
 }
 
 /// Outcome of one `ingest` call.

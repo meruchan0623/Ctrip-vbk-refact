@@ -289,3 +289,16 @@ test('real session delivery failure reports one delivery_failed control and stop
   assert.equal(base.invoked.some(c => (c.payload as AdapterFactEnvelope)?.fact?.kind === 'auth_invalid'), false);
   assert.equal(disposes, 1); assert.equal(base.fakeSdk.sent.length, 0);
 });
+test('a typing frame stays out of the message stream, so it cannot be rejected and stop the session', async () => {
+  const base = makeDeps(call => jsonResponse(call.url.includes('getConversationList') ? { ResponseStatus: OK_STATUS, conversationList: [], lastUpdateTime: 1700000000000 } : { ResponseStatus: OK_STATUS, messages: [], lastMessageTimestamp: 1700000000000 }));
+  const sdk = new FakePageSdk();
+  const session = createPageSession({ ...base, sdk }, { account, selfUid: 'self', initialEpoch: 7, beginMsgTime: base.now(), sdk, pushDisplay: async () => null });
+  session.start(); await base.clock.advance(0); await session.adapter.bridge.flush();
+  const messages = () => base.invoked.filter(call => (call.payload as AdapterFactEnvelope)?.fact?.kind === 'message').length;
+  const before = messages();
+  sdk.emit('message', { id: 'x', type: 'input_state', msgtype: '9901', from: 'room@conf/customer', body: '{"status":2}' });
+  await session.adapter.bridge.flush();
+  assert.equal(messages(), before);
+  assert.equal(session.adapter.running, true);
+  session.stop();
+});
