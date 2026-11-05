@@ -134,6 +134,7 @@ function retireLeaving(): void {
     cards = cards.filter((c) => !gone.includes(c));
     // The last card can vanish under the cursor without a mouseleave.
     if (cards.length === 0) hoveredSince = null;
+    syncTicker();
     syncHeight();
   }, LEAVE_MS);
 }
@@ -141,6 +142,7 @@ function retireLeaving(): void {
 function update(next: readonly NoticeCard[]): void {
   if (next === cards) return;
   cards = next;
+  syncTicker();
   syncHeight();
   render();
   retireLeaving();
@@ -175,11 +177,19 @@ function endHover(): void {
   update(extendDeadlines(cards, paused));
 }
 root.addEventListener('mouseleave', endHover);
-setInterval(() => {
-  // A shrinking window may not report the cursor leaving; never hold forever.
-  if (hoveredSince !== null && Date.now() - hoveredSince > MAX_HOVER_MS) endHover();
-  if (hoveredSince === null) update(expire(cards, Date.now()));
-}, 200);
+// The window stays alive hidden between notices: the expiry tick only runs while cards exist.
+let ticker: ReturnType<typeof setInterval> | null = null;
+function syncTicker(): void {
+  if (cards.length === 0) {
+    if (ticker !== null) { clearInterval(ticker); ticker = null; }
+    return;
+  }
+  ticker ??= setInterval(() => {
+    // A shrinking window may not report the cursor leaving; never hold forever.
+    if (hoveredSince !== null && Date.now() - hoveredSince > MAX_HOVER_MS) endHover();
+    if (hoveredSince === null) update(expire(cards, Date.now()));
+  }, 200);
+}
 
 ipc.listen<unknown>(Events.NOTICE, guarded(Events.NOTICE, isNoticeEvent, onNotice));
 ipc.listen<unknown>(Events.NOTICE_UPDATE, guarded(Events.NOTICE_UPDATE, isNoticeUpdate, onNoticeUpdate));
