@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import { SourceMap, createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Script } from 'node:vm';
 import { bundleAdapter } from './bundle-adapter.mjs';
@@ -94,11 +94,11 @@ test('real release keeps exact ESM maps and composed adapter map, excludes mock 
   for (const mapFile of maps) {
     const raw = JSON.parse(readFileSync(mapFile, 'utf8'));
     assert.equal(raw.sourcesContent, undefined);
-    assert.equal(raw.file, mapFile.split('/').at(-1).slice(0, -4));
+    assert.equal(raw.file, basename(mapFile).slice(0, -4));
     assert.ok(raw.sources.every(s => s.startsWith('vbk:///ui/') && !s.includes('..')));
     assert.equal(JSON.stringify(raw).includes(root), false);
   }
-  assert.equal(release.some(f => /\/mock\.js(?:\.map)?$/.test(f)), false);
+  assert.equal(release.some(f => /[\\/]mock\.js(?:\.map)?$/.test(f)), false);
   assert.equal(release.some(f => /mock-loader\.js\.map$/.test(f)), false);
   const mapFile = join(result.out, 'dist/apps/main/main.js.map');
   const raw = JSON.parse(readFileSync(mapFile, 'utf8'));
