@@ -108,6 +108,7 @@ import { MESSAGE_CACHE_HIDDEN_MS, keptConversations, touchRecent, trimMessageCac
 import { createMemberPreload } from './member-preload.ts';
 import { memberPills, memberScanGids } from './member-pills.ts';
 import { createPeripheralPanel, filteredInviteAgents, type PeripheralKind, type PeripheralPanelState } from './peripheralPanel.ts';
+import { createConversationFinisher, summarizeFinish, type FinishResult, type FinishSummary } from './conversation-finish.ts';
 import { settleAccountSend } from './sendScope.ts';
 import { messageAlignment } from './message-alignment.ts';
 import { mergeMessageProfile, renderMessageAvatar } from './message-profile.ts';
@@ -183,6 +184,8 @@ import {
   tabCounts,
   unreadTotal,
   viewingGid,
+  conversationBusiness,
+  conversationListStatus,
 } from './viewmodel.ts';
 import { addTabAttention, pruneTabAttention, tabBreathes } from './tab-attention.ts';
 import type { BannerItem, BusinessTab, ListTab, LogoutMode, OrderContactState, TranslationState, QuotedUiMessage } from './viewmodel.ts';
@@ -250,6 +253,10 @@ interface MainState {
   readonly conversationsLoading?: boolean;
   readonly business: BusinessTab;
   readonly tab: ListTab;
+  /** 待处理列表的批量结束：勾选只在同一账号代次内有效；running 为进行中的进度。 */
+  readonly batchFinish: { readonly scope: string; readonly selected: readonly string[]; readonly running: { readonly done: number; readonly total: number } | null } | null;
+  /** 单个结束会话进行中（账号代次 + gid 键），用于禁用重复点击。 */
+  readonly finishing: readonly string[];
   readonly query: string;
   readonly activeGid: string | null;
   readonly history: Readonly<Record<string, { hasMore: boolean; beforeMs: number | null; busy: boolean; firstPage?: 'loading' | 'loaded' | 'error'; pageError?: boolean; readContextRevision?: string | undefined }>>;
@@ -344,6 +351,8 @@ const initial: MainState = {
   conversations: [],
   business: 'customer',
   tab: 'doing',
+  batchFinish: null,
+  finishing: [],
   query: '',
   activeGid: null,
   messages: {},
@@ -598,6 +607,72 @@ function runtimeLogReport(): string {
   });
 }
 
+const finisher = createConversationFinisher({ invoke: (command, payload) => ipc.invoke(command, payload), now: Date.now });
+let batchFinishStop = false;
+
+function finishMessage(result: FinishResult): string {
+  if (result.outcome === 'confirmed') return t('mainTs.finish.confirmed');
+  if (result.outcome === 'pending') return t('mainTs.finish.pending');
+  return result.reason ? t('mainTs.finish.failedReason', { reason: result.reason }) : t('mainTs.finish.failed');
+}
+function batchFinishMessage(summary: FinishSummary): string {
+  return [
+    t('mainTs.batchFinish.summary', { count: summary.confirmed }),
+    summary.pending ? t('mainTs.batchFinish.summaryPending', { count: summary.pending }) : '',
+    summary.failed ? t('mainTs.batchFinish.summaryFailed', { count: summary.failed }) : '',
+    summary.skipped ? t('mainTs.batchFinish.summarySkipped', { count: summary.skipped }) : '',
+  ].join('');
+}
+
+/** 会话头「结束会话」：不弹确认框，直接读取成员令牌并结束；结果未知时不重复提交。 */
+async function finishConversationNow(conv: UiConversation): Promise<void> {
+  const acc = activeAccount();
+  if (!acc || acc.state !== 'online' || isDone(conv) || !sameAccount(acc.context, conv.account) || acc.context.session_generation !== conv.account.session_generation) return;
+  const account = { ...acc.context };
+  const key = finishKey(account, conv.gid);
+  if (S().finishing.includes(key)) return;
+  peripheral.close();
+  store.patch({ finishing: [...S().finishing, key] });
+  let result: FinishResult;
+  try {
+    result = await finisher.finish(account, conv.gid);
+  } finally {
+    store.patch({ finishing: S().finishing.filter((k) => k !== key) });
+  }
+  if (!stillActive(account)) return;
+  toast(finishMessage(result));
+  if (result.outcome !== 'failed') void loadForActiveAccount();
+}
+
+function cancelBatchFinish(): void {
+  // 进行中只停止尚未开始的会话；已发出的结束请求不能撤回。
+  if (S().batchFinish?.running) { batchFinishStop = true; return; }
+  store.patch({ batchFinish: null });
+}
+async function runBatchFinish(): Promise<void> {
+  const s = S(), acc = activeAccount(s);
+  if (!acc || acc.state !== 'online' || s.batchFinish?.running) return;
+  const gids = batchSelection(s);
+  if (!gids.length) return;
+  const account = { ...acc.context }, scope = accountScope(account);
+  batchFinishStop = false;
+  peripheral.close();
+  store.patch({ batchFinish: { scope, selected: gids, running: { done: 0, total: gids.length } } });
+  const live = () => S().batchFinish?.scope === scope && stillActive(account);
+  const results = await finisher.finishMany(account, gids, {
+    proceed: () => !batchFinishStop && live() && activeAccount()?.state === 'online',
+    progress: (done, total) => { const batch = S().batchFinish; if (live() && batch) store.patch({ batchFinish: { ...batch, running: { done, total } } }); },
+  });
+  batchFinishStop = false;
+  if (!live()) return;
+  // 未提交成功或被取消的留在勾选里便于重试；已结束和待核对的移出（待核对的不会重复提交）。
+  const settled = new Set(results.filter((r) => r.outcome !== 'failed').map((r) => r.gid));
+  const keep = gids.filter((gid) => !settled.has(gid));
+  store.patch({ batchFinish: { scope, selected: keep, running: null } });
+  toast(batchFinishMessage(summarizeFinish(results, gids.length)));
+  if (settled.size) void loadForActiveAccount();
+}
+
 function openPeripheral(kind: PeripheralKind | 'scripts'): void {
   const conv = activeConv();
   if (activeAccount() && conv) {
@@ -681,6 +756,7 @@ const ACCOUNT_SCOPED_RESET = {
   conversationsLoading: false,
   business: 'customer',
   tab: 'doing',
+  batchFinish: null,
   query: '',
   activeGid: null,
   messages: {},
@@ -2094,8 +2170,13 @@ function conversationList(s: MainState): HTMLElement {
   const av = agentView(s.agent);
   const nv = netView(s.net, s.netOfflineConfirmed);
   const nextRows = new Map<string, { deps: readonly unknown[]; node: HTMLElement }>();
+  const batching = s.tab === 'doing' && batchMode(s);
+  const selected = batching ? batchSelection(s) : [];
+  const picked = new Set(selected);
+  const batchRunning = !!s.batchFinish?.running;
   const rows = list.slice(range.start, range.end).map((c) => {
     const on = c.gid === s.activeGid;
+    const check = batching ? (picked.has(c.gid) ? 'on' : 'off') + (batchRunning ? ':busy' : '') : null;
     const msgs = s.messages[c.gid] ?? EMPTY_MESSAGES;
     // 显示取接口字段（`conv.lang`），不随客户原文变化；翻译目标仍用 customerLanguage。
     const language = c.lang;
@@ -2108,7 +2189,7 @@ function conversationList(s: MainState): HTMLElement {
     const master = memberPillsFor(acc, c).isMaster;
     // 行只依赖这些输入：未变就交回上次的节点，增量渲染原地保留，不再逐帧重建/比对整行（滚动与计时刷新时的主要脚本开销）。
     // 等待秒数不进依赖：命中缓存时只就地改写计时文本，不因每秒变化重建整行。
-    const deps = [c, language, preview, on, hasDraft ? draft : null, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '', waiting ? waitTier(waited) : null, s.prefs, master];
+    const deps = [c, language, preview, on, hasDraft ? draft : null, c.last_message_time_ms ? formatRelativeTime(c.last_message_time_ms, s.now) : '', waiting ? waitTier(waited) : null, s.prefs, check, master];
     const cached = conversationRows.get(c.gid);
     if (cached && cached.deps.length === deps.length && cached.deps.every((value, i) => value === deps[i])) {
       nextRows.set(c.gid, cached);
@@ -2121,7 +2202,7 @@ function conversationList(s: MainState): HTMLElement {
     const node = h(
       'div',
       {
-        class: cx('conv', { on, top: c.is_top }),
+        class: cx('conv', { on, top: c.is_top, batch: batching }),
         role: 'button',
         tabindex: '0',
         dataset: { gid: c.gid, fid: `conv:${c.gid}` },
@@ -2154,6 +2235,10 @@ function conversationList(s: MainState): HTMLElement {
           c.is_top ? icon(IC.pin, 12, { style: 'color: var(--c-text-faint)', 'aria-label': t('list.pinned') }) : null,
         ),
       ),
+      // 自定义复选框：点击与按键不冒泡到行，不会顺带打开会话。
+      batching ? h('label', { class: 'conv-check', title: t('mainTs.batchFinish.select', { name: c.title }), onclick: (e: Event) => e.stopPropagation(), onkeydown: (e: Event) => e.stopPropagation() },
+        h('input', { type: 'checkbox', class: 'sr-only', checked: picked.has(c.gid), disabled: batchRunning, 'aria-label': t('mainTs.batchFinish.select', { name: c.title }), dataset: { fid: `batch-check:${c.gid}` }, onchange: () => toggleBatchSelect(c.gid) }),
+        h('span', { class: 'conv-check-box', 'aria-hidden': 'true' }, icon(IC.check, 12))) : null,
     );
     nextRows.set(c.gid, { deps, node });
     return node;
@@ -2188,13 +2273,14 @@ function conversationList(s: MainState): HTMLElement {
             )),
           ) : null,
         ),
+        batchFinishControls(s, selected),
       ),
       h('label', { class: 'search', title: t("main.conversationList.localSearchDescription") }, icon(IC.search, 15), h('input', { class: 'inp', placeholder: t("main.conversationList.localSearch"), 'aria-label': t("main.conversationList.localSearch"), value: s.query, dataset: { fid: 'search' }, oninput: (e: Event) => store.patch({ query: (e.target as HTMLInputElement).value }) })),
       h(
         'div',
         { class: 'ftabs', role: 'tablist' },
-        h('button', { class: cx('ftab', { on: s.tab === 'doing' }), role: 'tab', 'aria-selected': String(s.tab === 'doing'), dataset: { tab: 'doing', fid: 'list-tab:doing' } , onclick: () => store.patch({ tab: 'doing' }) }, `${t('list.doing')} ${counts.doing}`),
-        h('button', { class: cx('ftab', { on: s.tab === 'done' }), role: 'tab', 'aria-selected': String(s.tab === 'done'), dataset: { tab: 'done', fid: 'list-tab:done' } , onclick: () => store.patch({ tab: 'done' }) }, `${t('list.done')} ${counts.done}`),
+        h('button', { class: cx('ftab', { on: s.tab === 'doing' }), role: 'tab', 'aria-selected': String(s.tab === 'doing'), dataset: { tab: 'doing', fid: 'list-tab:doing' } , onclick: () => switchListTab('doing') }, `${t('list.doing')} ${counts.doing}`),
+        h('button', { class: cx('ftab', { on: s.tab === 'done' }), role: 'tab', 'aria-selected': String(s.tab === 'done'), dataset: { tab: 'done', fid: 'list-tab:done' } , onclick: () => switchListTab('done') }, `${t('list.done')} ${counts.done}`),
       ),
     )),
     s.conversationsError ? h('div', { class: 'conversation-load-error', role: 'alert', dataset: { conversationsError: '1' } },
@@ -2208,6 +2294,53 @@ function conversationList(s: MainState): HTMLElement {
       if (conversationWindowStale(range, list.length, el.scrollTop, el.clientHeight)) store.patch({ listWindow: { scope, top: el.scrollTop, height: el.clientHeight } });
     } }, h('div', { style: { height: `${range.start * 80}px` }, 'aria-hidden': 'true' }), rows, h('div', { style: { height: `${(list.length - range.end) * 80}px` }, 'aria-hidden': 'true' }), rows.length === 0 ? h('div', { class: 'empty', style: { margin: '16px' } }, s.query ? t('list.emptySearch') : t('list.empty')) : null),
   );
+}
+/** 账号代次范围键：批量勾选与单个结束的进行中标记都只在同一代次内有效。 */
+function accountScope(account: AccountContext): string {
+  return JSON.stringify([account.environment, account.account_id, account.session_generation]);
+}
+function finishKey(account: AccountContext, gid: string): string {
+  return JSON.stringify([account.environment, account.account_id, account.session_generation, gid]);
+}
+/** 点击「批量结束」后进入勾选模式（默认不勾选），取消或换账号代次即退出。 */
+function batchMode(s: MainState): boolean {
+  const acc = activeAccount(s), batch = s.batchFinish;
+  return !!acc && !!batch && batch.scope === accountScope(acc.context);
+}
+/** 当前账号代次下仍在“待处理”中的勾选（已结束、已转出或已消失的会话自动不计）。 */
+function batchSelection(s: MainState): readonly string[] {
+  const batch = s.batchFinish;
+  if (!batchMode(s) || !batch || batch.selected.length === 0) return [];
+  const doing = new Set(s.conversations.filter((c) => conversationBusiness(c) === 'customer' && conversationListStatus(c) === 'doing').map((c) => c.gid));
+  return batch.selected.filter((gid) => doing.has(gid));
+}
+function setBatchSelection(selected: readonly string[]): void {
+  const acc = activeAccount();
+  if (!acc || S().batchFinish?.running) return;
+  store.patch({ batchFinish: { scope: accountScope(acc.context), selected, running: null } });
+}
+function toggleBatchSelect(gid: string): void {
+  const selected = batchSelection(S());
+  setBatchSelection(selected.includes(gid) ? selected.filter((g) => g !== gid) : [...selected, gid]);
+}
+/** stat-row 右侧：待处理标签下的「批量结束」；进入勾选模式后换成「结束会话」+「取消」。 */
+function batchFinishControls(s: MainState, selected: readonly string[]): HTMLElement | null {
+  if (s.tab !== 'doing') return null;
+  const online = activeAccount(s)?.state === 'online';
+  if (!batchMode(s)) {
+    return h('button', { class: 'btn sm', type: 'button', title: t('mainTs.batchFinish.startTitle'), disabled: !online, dataset: { fid: 'batch-finish' }, onclick: () => setBatchSelection([]) }, t('mainTs.batchFinish.start'));
+  }
+  const running = s.batchFinish?.running ?? null;
+  return h('div', { class: 'batch-finish-actions' },
+    h('button', { class: 'btn sm dan', type: 'button', disabled: !!running || !online || selected.length === 0, 'aria-busy': running ? 'true' : undefined, dataset: { fid: 'batch-finish-confirm' }, onclick: () => void runBatchFinish() },
+      running ? h('span', { class: 'spin' }) : null,
+      running ? t('mainTs.batchFinish.running', { done: running.done, total: running.total }) : t('mainTs.batchFinish.confirm', { count: selected.length })),
+    h('button', { class: 'btn sm', type: 'button', dataset: { fid: 'batch-finish-cancel' }, onclick: cancelBatchFinish }, t('dlg.cancel')));
+}
+/** 切换待处理/已结束：未在进行的批量勾选模式随之退出。 */
+function switchListTab(tab: ListTab): void {
+  const batch = S().batchFinish;
+  store.patch({ tab, ...(batch && !batch.running && tab !== S().tab ? { batchFinish: null } : {}) });
 }
 /** 会话列表行节点缓存（gid → 依赖 + 节点），只保存当前窗口内的行。 */
 let conversationRows = new Map<string, { deps: readonly unknown[]; node: HTMLElement }>();
@@ -2850,6 +2983,7 @@ function chatPane(s: MainState): HTMLElement {
   const waiting = conv.waiting_since_ms !== null && !isDone(conv);
   const sub = [isDone(conv) ? t('mainTs.peripheral.conversationEnded') : waiting ? t('chat.waiting', { t: formatDuration(waitedSeconds(conv, s.now)) }) : ''].filter(Boolean).join(' · ');
   const pills = memberPillsFor(acc, conv);
+  const finishingNow = !!acc && !!s.finishing?.includes(JSON.stringify([acc.context.environment, acc.context.account_id, acc.context.session_generation, conv.gid]));
   return h(
     'div',
     { class: 'chat' },
@@ -2858,7 +2992,7 @@ function chatPane(s: MainState): HTMLElement {
       { class: 'chat-h' },
       h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)),
       h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, h('span', { class: 'chat-name-text', title: conv.title }, conv.title), pills.count !== null ? h('span', { class: 'chip chip-members', title: t('chat.memberCountLabel', { n: pills.count }), 'aria-label': t('chat.memberCountLabel', { n: pills.count }) }, t('chat.memberCount', { n: pills.count })) : null, pills.isMaster ? masterPill() : null, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null), sub ? h('div', { class: 'chat-sub', dataset: { chatWaitingGid: conv.gid } }, sub) : null),
-      h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end', fid: 'chat-act:end' } , onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),
+      h('button', { class: 'btn sm', disabled: isDone(conv) || acc?.state !== 'online' || finishingNow, 'aria-busy': finishingNow ? 'true' : undefined, dataset: { chatAct: 'end', fid: 'chat-act:end' } , onclick: () => void finishConversationNow(conv) }, finishingNow ? h('span', { class: 'spin' }) : icon(IC.exit, 14), t('chat.end')),
       h('button', { class: 'btn sm', 'aria-label': t("main.chatPane.memberManagement"), disabled: isDone(conv), title: isDone(conv) ? t("main.openPeripheral.membersFinished") : t("main.chatPane.memberManagement"), dataset: { chatAct: 'members', fid: 'chat-act:members' } , onclick: () => openPeripheral('members') }, icon(IC.users, 17), t("main.chatPane.memberManagement")),
       h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side', fid: 'chat-act:side' } , onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     )),
