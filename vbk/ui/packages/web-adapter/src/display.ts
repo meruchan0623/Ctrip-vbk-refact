@@ -136,9 +136,10 @@ export function langOf(row: ConversationListItem): string {
   const ext = recordOrNull(r.ext);
   const raw = str(li?.['lang']) ?? str(ext?.['locale']) ?? '';
   const m = /^([A-Za-z]{2,3})(?:[-_]|$)/.exec(raw.trim());
-  const locale = m && m[1] ? m[1].toLowerCase() : 'zh';
-  // The list already carries the last original message: only a verified customer
-  // sender can refine its language before the conversation is opened.
+  if (m && m[1]) return m[1].toLowerCase();
+  const locale = 'zh';
+  // Only a row without the field falls back to its last original message, and
+  // only a verified customer sender counts.
   const view = rowView(row);
   const last = view?.lastMessage;
   const from = last && typeof last.fromJid === 'string' ? jidSender(last.fromJid) : '';

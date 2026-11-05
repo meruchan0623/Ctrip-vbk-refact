@@ -95,7 +95,7 @@ test('main window wiring: deps, placement, shared class, cache-driven repaint', 
   assert.doesNotMatch(source, /c\.title\), master \? masterPill\(\)/, 'the list no longer shows a separate master pill');
   assert.match(source, /peekMembers\(\{ account: acc\.context, gid: conv\.gid \}\)/);
   assert.match(source, /const master = memberPillsFor\(acc, c\)\.isMaster;/);
-  assert.match(source, /conv\.title\), pills\.count !== null \? h\('span', \{ class: 'chip chip-members'[^\n]*pills\.isMaster \? masterPill\(\) : null, customerLanguage\(/);
+  assert.match(source, /conv\.title\), pills\.count !== null \? h\('span', \{ class: 'chip chip-members'[^\n]*pills\.isMaster \? masterPill\(\) : null, conv\.lang !== 'zh'/);
   assert.equal(source.match(/chip-master/g)?.length, 1, 'both places must share one master pill');
   assert.match(source, /publish: \(\) => store\.patch\(\{ memberCacheRevision: S\(\)\.memberCacheRevision \+ 1 \}\)/);
   const trigger = source.slice(source.indexOf('function syncMemberPreload'), source.indexOf("document.addEventListener('visibilitychange', syncMemberPreload)"));

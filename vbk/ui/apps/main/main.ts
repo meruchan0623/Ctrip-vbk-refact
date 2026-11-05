@@ -2072,7 +2072,8 @@ function conversationList(s: MainState): HTMLElement {
   const rows = list.slice(range.start, range.end).map((c) => {
     const on = c.gid === s.activeGid;
     const msgs = s.messages[c.gid] ?? EMPTY_MESSAGES;
-    const language = customerLanguage(c, msgs);
+    // 显示取接口字段（`conv.lang`），不随客户原文变化；翻译目标仍用 customerLanguage。
+    const language = c.lang;
     const waiting = c.waiting_since_ms !== null && !isDone(c);
     const waited = waiting ? waitedSeconds(c, s.now) : 0;
     const mark = MARK_COLORS.find((m) => m.action === c.mark);
@@ -2808,7 +2809,7 @@ function chatPane(s: MainState): HTMLElement {
       'div',
       { class: 'chat-h' },
       h('div', { class: 'ava sm', style: { background: conv.color } }, renderMessageAvatar(document, conv.title, conv.customer_avatar)),
-      h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, h('span', { class: 'chat-name-text', title: conv.title }, conv.title), pills.count !== null ? h('span', { class: 'chip chip-members', title: t('chat.memberCountLabel', { n: pills.count }), 'aria-label': t('chat.memberCountLabel', { n: pills.count }) }, t('chat.memberCount', { n: pills.count })) : null, pills.isMaster ? masterPill() : null, customerLanguage(conv, s.messages[conv.gid] ?? EMPTY_MESSAGES) !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(customerLanguage(conv, s.messages[conv.gid] ?? EMPTY_MESSAGES)) })) : null), sub ? h('div', { class: 'chat-sub', dataset: { chatWaitingGid: conv.gid } }, sub) : null),
+      h('div', { class: 'chat-title' }, h('div', { class: 'chat-name' }, h('span', { class: 'chat-name-text', title: conv.title }, conv.title), pills.count !== null ? h('span', { class: 'chip chip-members', title: t('chat.memberCountLabel', { n: pills.count }), 'aria-label': t('chat.memberCountLabel', { n: pills.count }) }, t('chat.memberCount', { n: pills.count })) : null, pills.isMaster ? masterPill() : null, conv.lang !== 'zh' ? h('span', { class: 'chip chip-lang' }, t('chat.lang', { lang: langName(conv.lang) })) : null), sub ? h('div', { class: 'chat-sub', dataset: { chatWaitingGid: conv.gid } }, sub) : null),
       h('button', { class: 'btn sm', disabled: isDone(conv), dataset: { chatAct: 'end', fid: 'chat-act:end' } , onclick: () => openPeripheral('finish') }, icon(IC.exit, 14), t('chat.end')),
       h('button', { class: 'btn sm', 'aria-label': t("main.chatPane.memberManagement"), disabled: isDone(conv), title: isDone(conv) ? t("main.openPeripheral.membersFinished") : t("main.chatPane.memberManagement"), dataset: { chatAct: 'members', fid: 'chat-act:members' } , onclick: () => openPeripheral('members') }, icon(IC.users, 17), t("main.chatPane.memberManagement")),
       h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side', fid: 'chat-act:side' } , onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),

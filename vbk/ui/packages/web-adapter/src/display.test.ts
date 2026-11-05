@@ -194,11 +194,17 @@ test('page context: sniffed head cid/sid + _fxpcqlniredt; cookie fallback for ci
   assert.equal(localeFromSearch('?lang=<script>'), 'zh-CN');
 });
 
-test('list language uses only the customer original, including unopened Chinese conversations', () => {
+test('list language is the returned field; the original text never overrides it', () => {
  const row = { gid: '123', uid: 'customer', languageInfo: { lang: 'en_US' }, lastMessageJsonString: JSON.stringify({ fromJid: 'customer@x', msgtype: 0, messageBody: '你好' }) };
- assert.equal(langOf(row), 'zh');
- const agentRow = {...row, lastMessageJsonString: JSON.stringify({ fromJid: 'agent@x', msgtype: 0, messageBody: '您好请问有什么可以帮您' })};
- assert.equal(langOf(agentRow), 'en');
+ assert.equal(langOf(row), 'en');
+ assert.equal(langOf({ ...row, languageInfo: { lang: 'zh_HK' }, lastMessageJsonString: JSON.stringify({ fromJid: 'customer@x', msgtype: 0, messageBody: 'Hello there friend' }) } as never), 'zh');
+ assert.equal(langOf({ ...row, languageInfo: { lang: '' }, ext: { locale: 'ru_RU' } } as never), 'ru');
+});
+
+test('a row without the field falls back to a verified customer original, then zh', () => {
+ const row = { gid: '123', uid: 'customer', languageInfo: { lang: '' }, lastMessageJsonString: JSON.stringify({ fromJid: 'customer@x', msgtype: 0, messageBody: 'Здравствуйте' }) };
+ assert.equal(langOf(row), 'ru');
+ assert.equal(langOf({ ...row, lastMessageJsonString: JSON.stringify({ fromJid: 'agent@x', msgtype: 0, messageBody: 'Здравствуйте' }) } as never), 'zh');
 });
 
 test('list previews accept official normalized self and system messages', () => {

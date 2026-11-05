@@ -50,6 +50,7 @@ function scriptLanguage(messages: readonly LanguageMessage[]): string | null {
  * 会话的有效客户语言。官方行的 `languageInfo.lang / ext.locale` 是客户端界面区域
  * （Trip-App 常见 `zh_HK`，或整个缺失而被归为 zh），不等于客户实际书写的语言；
  * 优先客户原文；短句、编号等无可靠证据时才回退地区语言。拉丁文字不能独自区分英法等语言。
+ * 只用于翻译目标；列表和会话头显示的语言直接取接口字段（`conv.lang`）。
  */
 export function customerLanguage(conv: Pick<UiConversation, 'lang'>, messages: readonly LanguageMessage[]): string {
   const lang = scriptLanguage(messages);
