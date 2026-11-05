@@ -634,7 +634,9 @@ fn bound_caller(
     Ok(ctx)
 }
 
-/// Validates a UI-supplied read scope without recording or restoring UI focus.
+/// Validates a UI-supplied account scope without recording or restoring UI
+/// focus: for reads, and for commands the settings window shares with main
+/// (quick-reply management) so it never moves the main shell's focus.
 fn read_account(state: &HostState, account: AccountContextDto) -> CmdResult<AccountContext> {
     let ctx: AccountContext = account.into();
     state.lock().accounts.validate(&ctx).map_err(e2dto)?;
@@ -2086,7 +2088,7 @@ pub async fn im_quick_reply_categories(
     r#type: display::QuickReplyCategoryTypeDto,
 ) -> CmdResult<Value> {
     guard(&state, webview.label(), "im_quick_reply_categories")?;
-    let ctx = ui_account(&app, &state, account)?;
+    let ctx = read_account(&state, account)?;
     let result = forward(
         &app,
         &ctx,
@@ -2098,6 +2100,89 @@ pub async fn im_quick_reply_categories(
     .map_err(e2dto)?;
     state.lock().accounts.validate(&ctx).map_err(e2dto)?;
     Ok(result)
+}
+
+/// Whether the account may edit this scope, and the team skill groups a
+/// category can apply to (I-26). Shared by main and settings; no focus write.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_quick_reply_manage_info(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    r#type: display::QuickReplyCategoryTypeDto,
+) -> CmdResult<display::UiQuickReplyManageInfoDto> {
+    guard(&state, webview.label(), "im_quick_reply_manage_info")?;
+    let ctx = read_account(&state, account)?;
+    let reply = request(
+        &app,
+        &ctx,
+        "im.quick_reply_manage_info",
+        serde_json::json!({"type": r#type}),
+        READ_TIMEOUT,
+    )
+    .await
+    .map_err(e2dto)?;
+    let info =
+        display::UiQuickReplyManageInfoDto::from_reply(reply).ok_or_else(|| e2dto(bad_reply()))?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(info)
+}
+
+/// One quick-reply write (I-26). The edit is checked here before the page is
+/// contacted; once it may have been sent the answer is always a result, never
+/// a retryable error. Not journaled: within this run the UI never resends an
+/// `unknown`, it reads the list back.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn im_quick_reply_edit(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    r#type: Value,
+    edit: Value,
+) -> CmdResult<display::UiQuickReplyEditResultDto> {
+    guard(&state, webview.label(), "im_quick_reply_edit")?;
+    let ctx = read_account(&state, account)?;
+    let Some((kind, edit)) = display::quick_reply_edit_request(r#type, edit) else {
+        return Ok(display::UiQuickReplyEditResultDto::invalid());
+    };
+    let args = serde_json::json!({"type": kind, "edit": edit});
+    let result = request_inner(&app, &ctx, "im.quick_reply_edit", args, WRITE_TIMEOUT).await;
+    let current = state.lock().accounts.validate(&ctx).is_ok();
+    quick_reply_edit_outcome(result, current).map_err(e2dto)
+}
+
+/// Classifies one `im.quick_reply_edit` round trip. Nothing sent, or the page
+/// refusing before its write (it never throws after one): the error passes
+/// through. Sent but no reply, or a reply outside the adapter's outcome set:
+/// `unknown` without a list. `current` is the generation re-check after the
+/// reply; a changed generation never yields a final outcome.
+fn quick_reply_edit_outcome(
+    result: Result<Value, RequestFailure>,
+    current: bool,
+) -> Result<display::UiQuickReplyEditResultDto, AppError> {
+    let outcome = match result {
+        Ok(v) => display::UiQuickReplyEditResultDto::from_reply(v)
+            .unwrap_or_else(display::UiQuickReplyEditResultDto::write_unknown),
+        // Only failures known to precede the write stay errors (the UI offers a retry for
+        // them): nothing emitted, or the page refused before dispatching the handler. Any
+        // other page error may follow a sent write, so it is unknown and never resent.
+        Err(f)
+            if !f.emitted
+                || (f.from_page
+                    && (f.error.is(codes::ADAPTER_NOT_READY)
+                        || f.error.is(codes::HOST_UNSUPPORTED))) =>
+        {
+            return Err(f.error)
+        }
+        Err(_) => display::UiQuickReplyEditResultDto::write_unknown(),
+    };
+    Ok(if current {
+        outcome
+    } else {
+        outcome.after_generation_change()
+    })
 }
 
 fn recommend_products_args(
@@ -3683,5 +3768,207 @@ mod outbound_lookup_tests {
         let mut numeric = raw;
         numeric["items"][0]["message_id"] = serde_json::json!(9007199254740992_u64);
         assert!(serde_json::from_value::<OutboundLookupDto>(numeric).is_err());
+    }
+}
+
+#[cfg(test)]
+mod quick_reply_edit_tests {
+    use super::*;
+    use contracts::Environment;
+    use display::{QuickReplyEditKindDto as K, QuickReplyEditReasonDto as R};
+    use serde_json::json;
+
+    fn sent_without_reply() -> RequestFailure {
+        RequestFailure {
+            error: AppError::new(codes::ADAPTER_TIMEOUT, "timeout").retryable(),
+            emitted: true,
+            from_page: false,
+        }
+    }
+
+    fn as_json(r: &display::UiQuickReplyEditResultDto) -> Value {
+        serde_json::to_value(r).unwrap()
+    }
+
+    #[test]
+    fn missing_or_malformed_reply_after_emit_is_unknown_without_a_list() {
+        let missing = quick_reply_edit_outcome(Err(sent_without_reply()), true).unwrap();
+        assert_eq!(
+            as_json(&missing),
+            json!({"kind":"unknown","reason":"write_unknown"})
+        );
+        let dropped = quick_reply_edit_outcome(
+            Err(RequestFailure {
+                error: not_ready("page went away"),
+                emitted: true,
+                from_page: false,
+            }),
+            true,
+        )
+        .unwrap();
+        assert_eq!(dropped.kind, K::Unknown);
+        for v in [
+            json!(null),
+            json!({}),
+            json!({"kind":"applied","reason":"busy","categories":[]}),
+            json!({"kind":"confirmed","categories":[]}),
+            json!({"kind":"unknown","reason":"invalid","categories":[]}),
+            json!({"kind":"applied","categories":{"id":"1"}}),
+            json!({"kind":"applied","categories":[],"extra":1}),
+        ] {
+            let out = quick_reply_edit_outcome(Ok(v.clone()), true).unwrap();
+            assert_eq!(
+                as_json(&out),
+                json!({"kind":"unknown","reason":"write_unknown"}),
+                "{v}"
+            );
+        }
+    }
+
+    #[test]
+    fn unsent_requests_and_page_refusals_before_the_write_stay_errors() {
+        let before =
+            quick_reply_edit_outcome(Err(RequestFailure::before_emit(not_ready("closed"))), true);
+        assert_eq!(before.err().unwrap().code, codes::ADAPTER_NOT_READY);
+        for code in [codes::ADAPTER_NOT_READY, codes::HOST_UNSUPPORTED] {
+            let page = quick_reply_edit_outcome(
+                Err(RequestFailure {
+                    error: AppError::new(code, "refused before dispatch"),
+                    emitted: true,
+                    from_page: true,
+                }),
+                true,
+            );
+            assert_eq!(page.err().unwrap().code, code);
+        }
+    }
+
+    #[test]
+    fn page_errors_that_may_follow_the_write_are_unknown() {
+        // a handler crash after the write (ADAPTER_FAILED) must not read as "not submitted"
+        for code in [
+            codes::ADAPTER_FAILED,
+            codes::IM_PERMISSION_DENIED,
+            "x.other",
+        ] {
+            let out = quick_reply_edit_outcome(
+                Err(RequestFailure {
+                    error: AppError::new(code, "adapter error"),
+                    emitted: true,
+                    from_page: true,
+                }),
+                true,
+            )
+            .expect(code);
+            assert_eq!(
+                as_json(&out),
+                json!({"kind":"unknown","reason":"write_unknown"}),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn valid_replies_pass_through_with_their_list() {
+        let cats = json!([{"id":"1","name":"Synthetic","scripts":[],"sub_categories":[]}]);
+        for v in [
+            json!({"kind":"applied","categories":cats}),
+            json!({"kind":"rejected","reason":"not_leader","categories":cats}),
+            json!({"kind":"rejected","reason":"business","detail":"E1","categories":cats}),
+            json!({"kind":"unknown","reason":"unverified","categories":cats}),
+            json!({"kind":"rejected","reason":"busy"}),
+        ] {
+            let out = quick_reply_edit_outcome(Ok(v.clone()), true).unwrap();
+            assert_eq!(as_json(&out), v);
+        }
+    }
+
+    #[test]
+    fn generation_change_turns_every_outcome_into_unknown_without_a_list() {
+        let cats = json!([{"id":"1"}]);
+        for v in [
+            json!({"kind":"applied","categories":cats}),
+            json!({"kind":"rejected","reason":"stale","categories":cats}),
+            json!({"kind":"rejected","reason":"invalid"}),
+        ] {
+            let out = quick_reply_edit_outcome(Ok(v.clone()), false).unwrap();
+            assert_eq!(
+                as_json(&out),
+                json!({"kind":"unknown","reason":"write_unknown"}),
+                "{v}"
+            );
+        }
+        let unverified = quick_reply_edit_outcome(
+            Ok(json!({"kind":"unknown","reason":"unverified","categories":cats})),
+            false,
+        )
+        .unwrap();
+        assert_eq!(unverified.reason, Some(R::Unverified));
+        assert!(unverified.categories.is_none());
+        let missing = quick_reply_edit_outcome(Err(sent_without_reply()), false).unwrap();
+        assert_eq!(missing.kind, K::Unknown);
+        assert!(missing.categories.is_none());
+    }
+
+    fn command_body(source: &str, name: &str) -> String {
+        source
+            .split(&format!("pub async fn {name}("))
+            .nth(1)
+            .unwrap()
+            .split("\n}\n")
+            .next()
+            .unwrap()
+            .to_owned()
+    }
+
+    #[test]
+    fn quick_reply_commands_validate_the_account_without_moving_main_focus() {
+        let state = HostState::new(None, 1);
+        let login = |buid: &str| {
+            let mut cores = state.lock();
+            let attempt = cores.accounts.start_login(Environment::production());
+            cores
+                .accounts
+                .publish_identity(
+                    &attempt.attempt_id,
+                    core_account::UpstreamIdentity {
+                        buid: core_account::Buid::new(buid),
+                        uid: format!("synthetic-{buid}"),
+                        agent_id: None,
+                        environment: Environment::production(),
+                    },
+                )
+                .unwrap()
+                .ctx
+        };
+        let a = login("quick-a");
+        let b = login("quick-b");
+        let module = AdapterState::new(PinnedTable::default());
+        *lock(&module.focus) = Some(b.clone());
+        assert_eq!(read_account(&state, (&a).into()).unwrap(), a);
+        assert_eq!(*lock(&module.focus), Some(b.clone()));
+        let mut stale = AccountContextDto::from(&a);
+        stale.session_generation += 1;
+        assert!(read_account(&state, stale).is_err());
+        assert_eq!(*lock(&module.focus), Some(b));
+
+        // Tie the proof to the production commands, not a test-only copy.
+        let source = include_str!("adapter.rs");
+        for name in [
+            "im_quick_reply_categories",
+            "im_quick_reply_manage_info",
+            "im_quick_reply_edit",
+        ] {
+            let body = command_body(source, name);
+            assert!(body.contains(&format!("guard(&state, webview.label(), \"{name}\")?")));
+            assert!(body.contains("read_account(&state, account)?"), "{name}");
+            assert!(!body.contains("ui_account("), "{name}");
+            let after_reply = body.split(".await").nth(1).unwrap();
+            assert!(after_reply.contains("accounts.validate(&ctx)"), "{name}");
+        }
+        let edit = command_body(source, "im_quick_reply_edit");
+        let validated = edit.find("quick_reply_edit_request(").unwrap();
+        assert!(validated < edit.find("request_inner(").unwrap());
+        assert!(edit.contains("WRITE_TIMEOUT") && !edit.contains("peripheral_journal"));
     }
 }

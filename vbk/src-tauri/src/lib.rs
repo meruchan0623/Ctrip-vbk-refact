@@ -290,6 +290,8 @@ pub fn run() {
             adapter::im_set_mark,
             adapter::im_customer_scripts,
             adapter::im_quick_reply_categories,
+            adapter::im_quick_reply_manage_info,
+            adapter::im_quick_reply_edit,
             adapter::im_recommend_products,
             adapter::im_recommend_cities,
             adapter::im_send_product_card,

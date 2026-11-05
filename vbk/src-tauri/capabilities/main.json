@@ -53,6 +53,8 @@
     "allow-im-set-mark",
     "allow-im-customer-scripts",
     "allow-im-quick-reply-categories",
+    "allow-im-quick-reply-manage-info",
+    "allow-im-quick-reply-edit",
     "allow-im-recommend-products",
     "allow-im-recommend-cities",
     "allow-im-send-product-card",

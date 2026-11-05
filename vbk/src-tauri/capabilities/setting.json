@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "setting",
-  "description": "setting window: prefs, reminder settings, TSim login",
+  "description": "setting window: prefs, reminder settings, TSim login, quick-reply management",
   "windows": [
     "setting"
   ],
@@ -29,6 +29,9 @@
     "allow-assistant-tsim-status",
     "allow-assistant-tsim-login",
     "allow-assistant-tsim-logout",
+    "allow-im-quick-reply-categories",
+    "allow-im-quick-reply-manage-info",
+    "allow-im-quick-reply-edit",
     "allow-shell-read-clipboard-text",
     "allow-shell-write-clipboard-text",
     "allow-webview-recovery-status",

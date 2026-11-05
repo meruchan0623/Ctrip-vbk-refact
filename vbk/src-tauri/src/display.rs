@@ -2896,7 +2896,7 @@ pub enum CustomerScriptsKindDto {
     Empty,
     Unsupported,
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QuickReplyCategoryTypeDto {
     VAGENT,
     VSKILLGROUP,
@@ -2931,6 +2931,778 @@ pub struct UiPeripheralWriteDto {
     pub confirmed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+// ------------------------------------------------- quick-reply management (I-26)
+//
+// Bounds mirror `validateEdit` in `web-adapter/src/quick-reply-manage.ts`; both
+// sides count UTF-16 units so a value accepted here is accepted by the page.
+
+/// Category name cap after trimming (`CATEGORY_NAME_MAX`).
+pub const QUICK_REPLY_NAME_MAX: usize = 15;
+/// Script content cap, untrimmed (`SCRIPT_CONTENT_MAX`, same as the send cap).
+pub const QUICK_REPLY_CONTENT_MAX: usize = 5_000;
+/// Any ID list (`ID_LIST_MAX`).
+pub const QUICK_REPLY_ID_LIST_MAX: usize = 1_000;
+/// Skill groups in one manage-info reply (`parseSkillGroups` keeps 200).
+pub const QUICK_REPLY_SKILL_GROUPS_MAX: usize = 200;
+/// Skill group display name in a manage-info reply.
+pub const QUICK_REPLY_SKILL_GROUP_NAME_MAX: usize = 256;
+/// Top-level categories echoed with one edit result.
+pub const QUICK_REPLY_RESULT_CATEGORIES_MAX: usize = 1_000;
+/// Serialized size of the categories echoed with one edit result.
+pub const QUICK_REPLY_RESULT_MAX_BYTES: usize = 8 * 1024 * 1024;
+/// Server error code carried as `detail` of a business refusal.
+const QUICK_REPLY_DETAIL_MAX: usize = 64;
+
+/// One quick-reply write (`UiQuickReplyEdit`, client.ts): nine fixed shapes,
+/// nothing else. No `Debug`: script content is merchant text.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+pub enum QuickReplyEditDto {
+    CreateCategory {
+        name: String,
+        skill_group_ids: Vec<String>,
+    },
+    UpdateCategory {
+        category_id: String,
+        name: String,
+        skill_group_ids: Vec<String>,
+    },
+    DeleteCategory {
+        category_id: String,
+    },
+    SortCategories {
+        category_ids: Vec<String>,
+    },
+    AddScript {
+        category_id: String,
+        content: String,
+    },
+    UpdateScript {
+        script_id: String,
+        content: String,
+    },
+    MoveScript {
+        script_id: String,
+        target_category_id: String,
+    },
+    DeleteScript {
+        script_id: String,
+    },
+    SortScripts {
+        category_id: String,
+        script_ids: Vec<String>,
+    },
+}
+
+fn utf16_len(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
+/// `String.prototype.trim`: JS strips U+FEFF but not U+0085, Rust's `trim` the opposite.
+fn js_trim(s: &str) -> &str {
+    s.trim_matches(|c: char| (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}')
+}
+
+/// `^\d{1,19}$` with ASCII digits, the adapter's `ID_RE`.
+pub fn is_quick_reply_id(s: &str) -> bool {
+    (1..=19).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn quick_reply_ids_valid(ids: &[String]) -> bool {
+    ids.len() <= QUICK_REPLY_ID_LIST_MAX
+        && ids.iter().all(|id| is_quick_reply_id(id))
+        && ids.iter().collect::<BTreeSet<_>>().len() == ids.len()
+}
+
+impl QuickReplyEditDto {
+    /// Bounded check run before the adapter is contacted.
+    pub fn is_valid_for(&self, kind: QuickReplyCategoryTypeDto) -> bool {
+        let id = |s: &String| is_quick_reply_id(s);
+        let order = |ids: &Vec<String>| !ids.is_empty() && quick_reply_ids_valid(ids);
+        let name = |s: &String| {
+            let t = js_trim(s);
+            !t.is_empty() && utf16_len(t) <= QUICK_REPLY_NAME_MAX
+        };
+        let content =
+            |s: &String| !js_trim(s).is_empty() && utf16_len(s) <= QUICK_REPLY_CONTENT_MAX;
+        let groups = |ids: &Vec<String>| {
+            quick_reply_ids_valid(ids)
+                && match kind {
+                    QuickReplyCategoryTypeDto::VAGENT => ids.is_empty(),
+                    QuickReplyCategoryTypeDto::VSKILLGROUP => !ids.is_empty(),
+                }
+        };
+        match self {
+            Self::CreateCategory {
+                name: n,
+                skill_group_ids,
+            } => name(n) && groups(skill_group_ids),
+            Self::UpdateCategory {
+                category_id,
+                name: n,
+                skill_group_ids,
+            } => id(category_id) && name(n) && groups(skill_group_ids),
+            Self::DeleteCategory { category_id } => id(category_id),
+            Self::SortCategories { category_ids } => order(category_ids),
+            Self::AddScript {
+                category_id,
+                content: c,
+            } => id(category_id) && content(c),
+            Self::UpdateScript {
+                script_id,
+                content: c,
+            } => id(script_id) && content(c),
+            Self::MoveScript {
+                script_id,
+                target_category_id,
+            } => id(script_id) && id(target_category_id),
+            Self::DeleteScript { script_id } => id(script_id),
+            Self::SortScripts {
+                category_id,
+                script_ids,
+            } => id(category_id) && order(script_ids),
+        }
+    }
+}
+
+/// UI `{type, edit}` → typed request; `None` when either is not an allowed
+/// shape (answered `rejected/invalid`, the adapter is never contacted).
+pub fn quick_reply_edit_request(
+    r#type: serde_json::Value,
+    edit: serde_json::Value,
+) -> Option<(QuickReplyCategoryTypeDto, QuickReplyEditDto)> {
+    let kind: QuickReplyCategoryTypeDto = serde_json::from_value(r#type).ok()?;
+    let edit: QuickReplyEditDto = serde_json::from_value(edit).ok()?;
+    edit.is_valid_for(kind).then_some((kind, edit))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QuickReplyEditKindDto {
+    Applied,
+    Rejected,
+    Unknown,
+}
+
+/// `UiQuickReplyEditReason` (client.ts).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QuickReplyEditReasonDto {
+    Invalid,
+    Stale,
+    NotLeader,
+    Busy,
+    NotSubmitted,
+    Auth,
+    Business,
+    WriteUnknown,
+    ReadbackFailed,
+    Unverified,
+}
+
+/// `UiQuickReplyEditResult` (client.ts). `categories` is the page's read-back,
+/// passed through unparsed; a result the host synthesizes never carries one,
+/// so the UI reads the list again.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UiQuickReplyEditResultDto {
+    pub kind: QuickReplyEditKindDto,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<QuickReplyEditReasonDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub categories: Option<serde_json::Value>,
+}
+
+/// Counts serialized bytes without buffering them; fails past the budget.
+struct ByteBudget(usize);
+
+impl std::io::Write for ByteBudget {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 = self
+            .0
+            .checked_sub(buf.len())
+            .ok_or_else(|| std::io::Error::other("over budget"))?;
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The echoed list must be an array of objects; anything else is a malformed reply.
+fn quick_reply_categories_shaped(v: &serde_json::Value) -> bool {
+    v.as_array()
+        .is_some_and(|list| list.iter().all(serde_json::Value::is_object))
+}
+
+/// A well-shaped list that is too large to forward.
+fn quick_reply_categories_bounded(v: &serde_json::Value) -> bool {
+    v.as_array()
+        .is_some_and(|list| list.len() <= QUICK_REPLY_RESULT_CATEGORIES_MAX)
+        && serde_json::to_writer(ByteBudget(QUICK_REPLY_RESULT_MAX_BYTES), v).is_ok()
+}
+
+fn quick_reply_detail_bounded(d: &str) -> bool {
+    !d.is_empty()
+        && d.len() <= QUICK_REPLY_DETAIL_MAX
+        && d.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
+}
+
+impl UiQuickReplyEditResultDto {
+    fn bare(kind: QuickReplyEditKindDto, reason: QuickReplyEditReasonDto) -> Self {
+        Self {
+            kind,
+            reason: Some(reason),
+            detail: None,
+            categories: None,
+        }
+    }
+
+    /// Local validation failed; nothing was sent.
+    pub fn invalid() -> Self {
+        Self::bare(
+            QuickReplyEditKindDto::Rejected,
+            QuickReplyEditReasonDto::Invalid,
+        )
+    }
+
+    /// The request may have reached the page but no trustworthy answer came
+    /// back: read back, never resend.
+    pub fn write_unknown() -> Self {
+        Self::bare(
+            QuickReplyEditKindDto::Unknown,
+            QuickReplyEditReasonDto::WriteUnknown,
+        )
+    }
+
+    /// Accepts only the combinations `editQuickReplies` produces; `None` for
+    /// anything else. An out-of-bounds error code is dropped, not trusted.
+    pub fn from_reply(v: serde_json::Value) -> Option<Self> {
+        use QuickReplyEditKindDto as K;
+        use QuickReplyEditReasonDto as R;
+        let mut r: Self = serde_json::from_value(v).ok()?;
+        let combination = matches!(
+            (r.kind, r.reason),
+            (K::Applied, None)
+                | (
+                    K::Rejected,
+                    Some(
+                        R::Invalid
+                            | R::Stale
+                            | R::NotLeader
+                            | R::Busy
+                            | R::NotSubmitted
+                            | R::Auth
+                            | R::Business
+                    ),
+                )
+                | (
+                    K::Unknown,
+                    Some(R::WriteUnknown | R::ReadbackFailed | R::Unverified)
+                )
+        );
+        if !combination || (r.detail.is_some() && r.reason != Some(R::Business)) {
+            return None;
+        }
+        if r.categories
+            .as_ref()
+            .is_some_and(|c| !quick_reply_categories_shaped(c))
+        {
+            return None;
+        }
+        // An oversized list does not make the outcome untrustworthy: drop the list and
+        // let the UI read again.
+        if r.categories
+            .as_ref()
+            .is_some_and(|c| !quick_reply_categories_bounded(c))
+        {
+            r.categories = None;
+        }
+        if r.detail
+            .as_deref()
+            .is_some_and(|d| !quick_reply_detail_bounded(d))
+        {
+            r.detail = None;
+        }
+        Some(r)
+    }
+
+    /// The session generation changed while the request was out: the outcome
+    /// belongs to a session the UI no longer shows, so it is never final.
+    pub fn after_generation_change(self) -> Self {
+        match (self.kind, self.reason) {
+            (QuickReplyEditKindDto::Unknown, Some(reason)) => {
+                Self::bare(QuickReplyEditKindDto::Unknown, reason)
+            }
+            _ => Self::write_unknown(),
+        }
+    }
+}
+
+/// `UiQuickReplySkillGroup` (client.ts).
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiQuickReplySkillGroupDto {
+    pub id: String,
+    pub name: String,
+}
+
+/// `UiQuickReplyManageInfo` (client.ts).
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UiQuickReplyManageInfoDto {
+    pub can_edit: bool,
+    pub skill_groups: Vec<UiQuickReplySkillGroupDto>,
+}
+
+impl UiQuickReplyManageInfoDto {
+    /// Shape check of the page reply; `None` when it is not the bounded shape.
+    pub fn from_reply(v: serde_json::Value) -> Option<Self> {
+        let mut info: Self = serde_json::from_value(v).ok()?;
+        if info.skill_groups.len() > QUICK_REPLY_SKILL_GROUPS_MAX {
+            return None;
+        }
+        // One odd row must not lock the whole team form: drop it, keep the rest.
+        info.skill_groups.retain(|g| {
+            is_quick_reply_id(&g.id) && utf16_len(&g.name) <= QUICK_REPLY_SKILL_GROUP_NAME_MAX
+        });
+        Some(info)
+    }
+}
+
+#[cfg(test)]
+mod quick_reply_manage_tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    const P: QuickReplyCategoryTypeDto = QuickReplyCategoryTypeDto::VAGENT;
+    const T: QuickReplyCategoryTypeDto = QuickReplyCategoryTypeDto::VSKILLGROUP;
+
+    fn ok(kind: QuickReplyCategoryTypeDto, edit: Value) -> bool {
+        let tag = match kind {
+            QuickReplyCategoryTypeDto::VAGENT => json!("VAGENT"),
+            QuickReplyCategoryTypeDto::VSKILLGROUP => json!("VSKILLGROUP"),
+        };
+        quick_reply_edit_request(tag, edit).is_some()
+    }
+    fn ids(n: usize) -> Vec<String> {
+        (1..=n).map(|i| i.to_string()).collect()
+    }
+    fn valid_edits() -> Vec<(QuickReplyCategoryTypeDto, Value)> {
+        vec![
+            (
+                P,
+                json!({"op":"create_category","name":"Synthetic","skill_group_ids":[]}),
+            ),
+            (
+                T,
+                json!({"op":"create_category","name":"Synthetic","skill_group_ids":["11","12"]}),
+            ),
+            (
+                P,
+                json!({"op":"update_category","category_id":"1","name":"Synthetic","skill_group_ids":[]}),
+            ),
+            (
+                T,
+                json!({"op":"update_category","category_id":"1","name":"Synthetic","skill_group_ids":["11"]}),
+            ),
+            (
+                P,
+                json!({"op":"delete_category","category_id":"9223372036854775807"}),
+            ),
+            (
+                P,
+                json!({"op":"sort_categories","category_ids":["3","1","2"]}),
+            ),
+            (
+                P,
+                json!({"op":"add_script","category_id":"1","content":"Synthetic reply"}),
+            ),
+            (
+                P,
+                json!({"op":"update_script","script_id":"2","content":"Synthetic reply"}),
+            ),
+            (
+                P,
+                json!({"op":"move_script","script_id":"2","target_category_id":"3"}),
+            ),
+            (P, json!({"op":"delete_script","script_id":"2"})),
+            (
+                T,
+                json!({"op":"sort_scripts","category_id":"1","script_ids":["5","4"]}),
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_variant_accepts_its_exact_shape_and_round_trips() {
+        let mut ops = BTreeSet::new();
+        for (kind, edit) in valid_edits() {
+            let tag = if kind == P { "VAGENT" } else { "VSKILLGROUP" };
+            let (k, dto) = quick_reply_edit_request(json!(tag), edit.clone()).expect("valid edit");
+            assert!(k == kind);
+            assert_eq!(serde_json::to_value(dto).unwrap(), edit);
+            ops.insert(edit["op"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(ops.len(), 9, "all nine variants covered");
+    }
+
+    #[test]
+    fn unknown_op_extra_missing_or_mistyped_fields_are_invalid() {
+        for (kind, edit) in valid_edits() {
+            let mut extra = edit.clone();
+            extra["unexpected"] = json!("x");
+            assert!(!ok(kind, extra), "extra field: {edit}");
+            let Value::Object(map) = &edit else {
+                unreachable!()
+            };
+            for key in map.keys().filter(|k| *k != "op") {
+                let mut missing = edit.clone();
+                missing.as_object_mut().unwrap().remove(key);
+                assert!(!ok(kind, missing), "missing {key}: {edit}");
+                let mut mistyped = edit.clone();
+                mistyped[key] = json!(1);
+                assert!(!ok(kind, mistyped), "mistyped {key}: {edit}");
+            }
+        }
+        for edit in [
+            json!({"op":"rename_category","category_id":"1"}),
+            json!({"op":"CreateCategory","name":"Synthetic","skill_group_ids":[]}),
+            json!({"category_id":"1"}),
+            json!(null),
+            json!("delete_category"),
+            json!([{"op":"delete_category","category_id":"1"}]),
+        ] {
+            assert!(!ok(P, edit.clone()), "{edit}");
+        }
+    }
+
+    #[test]
+    fn type_is_only_personal_or_team() {
+        let edit = json!({"op":"delete_script","script_id":"2"});
+        for tag in [json!("VAGENT"), json!("VSKILLGROUP")] {
+            assert!(quick_reply_edit_request(tag, edit.clone()).is_some());
+        }
+        for tag in [
+            json!("vagent"),
+            json!("VSKILL"),
+            json!(""),
+            json!(null),
+            json!(1),
+            json!(["VAGENT"]),
+        ] {
+            assert!(
+                quick_reply_edit_request(tag.clone(), edit.clone()).is_none(),
+                "{tag}"
+            );
+        }
+    }
+
+    #[test]
+    fn ids_are_one_to_nineteen_ascii_digits() {
+        let delete = |id: &str| ok(P, json!({"op":"delete_script","script_id":id}));
+        assert!(delete("0") && delete("1") && delete(&"9".repeat(19)));
+        for bad in [
+            "",
+            &"9".repeat(20),
+            "12a",
+            "-1",
+            " 1",
+            "1 ",
+            "1.0",
+            "\u{ff11}",
+            "\u{0661}",
+            "1\n",
+        ] {
+            assert!(!delete(bad), "{bad:?}");
+        }
+        for (kind, edit) in valid_edits() {
+            for key in ["category_id", "script_id", "target_category_id"] {
+                if edit.get(key).is_some() {
+                    let mut bad = edit.clone();
+                    bad[key] = json!("x1");
+                    assert!(!ok(kind, bad), "{key}: {edit}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn names_trim_like_js_and_count_utf16_units() {
+        let create = |name: &str| {
+            ok(
+                P,
+                json!({"op":"create_category","name":name,"skill_group_ids":[]}),
+            )
+        };
+        let update = |name: &str| {
+            ok(
+                P,
+                json!({"op":"update_category","category_id":"1","name":name,"skill_group_ids":[]}),
+            )
+        };
+        let cjk15 = "\u{5206}".repeat(15);
+        for name in [cjk15.as_str(), "a", " \u{3000}Synthetic\t\n", "\u{85}"] {
+            assert!(create(name) && update(name), "{name:?}");
+        }
+        assert!(
+            create(&format!("  {cjk15}\u{feff} ")),
+            "surrounding whitespace is trimmed first"
+        );
+        // Seven astral characters (14 units) plus one BMP character is 15 units.
+        assert!(create(&format!("{}x", "\u{1f600}".repeat(7))));
+        for name in [
+            "\u{5206}".repeat(16),
+            "\u{1f600}".repeat(8),
+            String::new(),
+            " \t\n\u{3000}\u{a0}\u{2028}".into(),
+            "\u{feff}".into(),
+        ] {
+            assert!(!create(&name) && !update(&name), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn content_is_non_blank_and_at_most_5000_raw_units() {
+        let add = |content: &str| {
+            ok(
+                P,
+                json!({"op":"add_script","category_id":"1","content":content}),
+            )
+        };
+        let upd = |content: &str| {
+            ok(
+                P,
+                json!({"op":"update_script","script_id":"1","content":content}),
+            )
+        };
+        let max = "\u{8bdd}".repeat(QUICK_REPLY_CONTENT_MAX);
+        assert!(add(&max) && upd(&max) && add("x"));
+        assert!(add(&format!(
+            "{}\u{1f600}",
+            "x".repeat(QUICK_REPLY_CONTENT_MAX - 2)
+        )));
+        for content in [
+            "x".repeat(QUICK_REPLY_CONTENT_MAX + 1),
+            format!("{}\u{1f600}", "x".repeat(QUICK_REPLY_CONTENT_MAX - 1)),
+            // The raw length counts, not the trimmed one.
+            format!(" {}", "x".repeat(QUICK_REPLY_CONTENT_MAX)),
+            String::new(),
+            " \n\t\u{3000}".into(),
+            "\u{feff}".into(),
+        ] {
+            assert!(
+                !add(&content) && !upd(&content),
+                "{} units",
+                utf16_len(&content)
+            );
+        }
+    }
+
+    #[test]
+    fn sort_lists_are_non_empty_unique_and_bounded() {
+        let cats = |list: Vec<String>| ok(P, json!({"op":"sort_categories","category_ids":list}));
+        let scripts = |list: Vec<String>| {
+            ok(
+                P,
+                json!({"op":"sort_scripts","category_id":"1","script_ids":list}),
+            )
+        };
+        for check in [&cats as &dyn Fn(Vec<String>) -> bool, &scripts] {
+            assert!(check(ids(1)) && check(ids(QUICK_REPLY_ID_LIST_MAX)));
+            assert!(!check(Vec::new()));
+            assert!(!check(ids(QUICK_REPLY_ID_LIST_MAX + 1)));
+            assert!(!check(vec!["1".into(), "2".into(), "1".into()]));
+            assert!(!check(vec!["1".into(), "x".into()]));
+        }
+    }
+
+    #[test]
+    fn skill_groups_are_empty_for_personal_and_required_unique_for_team() {
+        for op in ["create", "update"] {
+            let edit = |groups: Vec<String>| {
+                let mut v = json!({"op":format!("{op}_category"),"name":"Synthetic","skill_group_ids":groups});
+                if op == "update" {
+                    v["category_id"] = json!("1");
+                }
+                v
+            };
+            assert!(ok(P, edit(Vec::new())));
+            assert!(
+                !ok(P, edit(ids(1))),
+                "{op}: personal categories carry no groups"
+            );
+            assert!(
+                !ok(T, edit(Vec::new())),
+                "{op}: team categories need a group"
+            );
+            assert!(ok(T, edit(ids(QUICK_REPLY_ID_LIST_MAX))));
+            assert!(!ok(T, edit(ids(QUICK_REPLY_ID_LIST_MAX + 1))));
+            assert!(!ok(T, edit(vec!["11".into(), "11".into()])));
+            assert!(!ok(T, edit(vec!["sg-1".into()])));
+        }
+    }
+
+    fn reply(v: Value) -> Option<UiQuickReplyEditResultDto> {
+        UiQuickReplyEditResultDto::from_reply(v)
+    }
+
+    #[test]
+    fn edit_results_accept_only_adapter_combinations() {
+        let cats = json!([{"id":"1","name":"Synthetic","scripts":[],"sub_categories":[]}]);
+        let applied = reply(json!({"kind":"applied","categories":cats})).expect("applied");
+        assert_eq!(applied.kind, QuickReplyEditKindDto::Applied);
+        assert_eq!(
+            serde_json::to_value(&applied).unwrap(),
+            json!({"kind":"applied","categories":cats})
+        );
+        for reason in [
+            "invalid",
+            "stale",
+            "not_leader",
+            "busy",
+            "not_submitted",
+            "auth",
+            "business",
+        ] {
+            let r = reply(json!({"kind":"rejected","reason":reason})).expect(reason);
+            assert_eq!(
+                serde_json::to_value(&r).unwrap(),
+                json!({"kind":"rejected","reason":reason})
+            );
+        }
+        for reason in ["write_unknown", "readback_failed", "unverified"] {
+            assert!(
+                reply(json!({"kind":"unknown","reason":reason})).is_some(),
+                "{reason}"
+            );
+            assert!(reply(json!({"kind":"unknown","reason":reason,"categories":cats})).is_some());
+        }
+        let business =
+            reply(json!({"kind":"rejected","reason":"business","detail":"ERR_SYNTHETIC-1"}))
+                .unwrap();
+        assert_eq!(business.detail.as_deref(), Some("ERR_SYNTHETIC-1"));
+        for detail in [
+            json!(""),
+            json!("x".repeat(65)),
+            json!("bad code"),
+            json!("\u{9519}"),
+        ] {
+            let r = reply(json!({"kind":"rejected","reason":"business","detail":detail}))
+                .expect("detail dropped");
+            assert!(r.detail.is_none(), "{detail}");
+        }
+        for bad in [
+            json!({"kind":"applied","reason":"business"}),
+            json!({"kind":"applied","detail":"E1"}),
+            json!({"kind":"rejected"}),
+            json!({"kind":"rejected","reason":"write_unknown"}),
+            json!({"kind":"rejected","reason":"stale","detail":"E1"}),
+            json!({"kind":"unknown"}),
+            json!({"kind":"unknown","reason":"invalid"}),
+            json!({"kind":"unknown","reason":"unverified","detail":"E1"}),
+            json!({"kind":"unknown","reason":"other"}),
+            json!({"kind":"confirmed"}),
+            json!({"kind":"applied","categories":cats,"extra":true}),
+            json!({"kind":"applied","categories":{"categories":cats}}),
+            json!({"kind":"applied","categories":["1"]}),
+            json!({"kind":"rejected","reason":"business","detail":7}),
+            json!({"categories":cats}),
+            json!(null),
+            json!("applied"),
+        ] {
+            assert!(reply(bad.clone()).is_none(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn echoed_categories_are_size_bounded() {
+        let many: Vec<Value> = (0..=QUICK_REPLY_RESULT_CATEGORIES_MAX)
+            .map(|i| json!({"id":i.to_string()}))
+            .collect();
+        assert!(reply(
+            json!({"kind":"applied","categories":many[..QUICK_REPLY_RESULT_CATEGORIES_MAX]})
+        )
+        .is_some());
+        // over the bound: the outcome stands, only the list is dropped (the UI reads again)
+        let over = reply(json!({"kind":"applied","categories":many})).expect("applied");
+        assert!(matches!(over.kind, QuickReplyEditKindDto::Applied) && over.categories.is_none());
+        let huge = json!([{"name":"x".repeat(QUICK_REPLY_RESULT_MAX_BYTES)}]);
+        let over = reply(json!({"kind":"unknown","reason":"unverified","categories":huge}))
+            .expect("unknown");
+        assert!(over.categories.is_none());
+        assert_eq!(over.reason, Some(QuickReplyEditReasonDto::Unverified));
+    }
+
+    #[test]
+    fn generation_change_never_leaves_a_final_outcome_or_a_list() {
+        let cats = json!([{"id":"1"}]);
+        for v in [
+            json!({"kind":"applied","categories":cats}),
+            json!({"kind":"rejected","reason":"busy"}),
+            json!({"kind":"rejected","reason":"business","detail":"E1","categories":cats}),
+        ] {
+            let r = reply(v).unwrap().after_generation_change();
+            assert_eq!(
+                serde_json::to_value(&r).unwrap(),
+                json!({"kind":"unknown","reason":"write_unknown"})
+            );
+        }
+        let r = reply(json!({"kind":"unknown","reason":"readback_failed","categories":cats}))
+            .unwrap()
+            .after_generation_change();
+        assert_eq!(
+            serde_json::to_value(&r).unwrap(),
+            json!({"kind":"unknown","reason":"readback_failed"})
+        );
+        assert_eq!(
+            serde_json::to_value(UiQuickReplyEditResultDto::invalid()).unwrap(),
+            json!({"kind":"rejected","reason":"invalid"})
+        );
+    }
+
+    #[test]
+    fn manage_info_reply_shape_is_bounded() {
+        let group = |i: usize| json!({"id": (i + 1).to_string(), "name": "Synthetic group"});
+        let value = json!({"can_edit": true, "skill_groups": [group(0)]});
+        let info = UiQuickReplyManageInfoDto::from_reply(value.clone()).expect("info");
+        assert_eq!(serde_json::to_value(info).unwrap(), value);
+        let full: Vec<Value> = (0..QUICK_REPLY_SKILL_GROUPS_MAX).map(group).collect();
+        assert!(UiQuickReplyManageInfoDto::from_reply(
+            json!({"can_edit": false, "skill_groups": full})
+        )
+        .is_some());
+        let over: Vec<Value> = (0..=QUICK_REPLY_SKILL_GROUPS_MAX).map(group).collect();
+        for bad in [
+            json!({"can_edit": true, "skill_groups": over}),
+            json!({"can_edit": "true", "skill_groups": []}),
+            json!({"can_edit": true}),
+            json!({"skill_groups": []}),
+            json!({"can_edit": true, "skill_groups": [{"id": 1, "name": "x"}]}),
+            json!({"can_edit": true, "skill_groups": [{"id": "1", "name": null}]}),
+            json!({"can_edit": true, "skill_groups": {}}),
+            json!(null),
+        ] {
+            assert!(
+                UiQuickReplyManageInfoDto::from_reply(bad.clone()).is_none(),
+                "{bad}"
+            );
+        }
+        // a well-typed but out-of-bounds row is dropped; the rest of the form stays usable
+        let mixed = json!({"can_edit": true, "skill_groups": [
+            {"id": "sg-1", "name": "x"},
+            {"id": "2", "name": "x".repeat(QUICK_REPLY_SKILL_GROUP_NAME_MAX + 1)},
+            group(2),
+        ]});
+        let kept = UiQuickReplyManageInfoDto::from_reply(mixed).expect("info");
+        assert_eq!(
+            serde_json::to_value(kept).unwrap(),
+            json!({"can_edit": true, "skill_groups": [group(2)]})
+        );
+    }
 }
 
 #[cfg(test)]

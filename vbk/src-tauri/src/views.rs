@@ -109,6 +109,8 @@ impl Role {
             "im_set_mark",
             "im_customer_scripts",
             "im_quick_reply_categories",
+            "im_quick_reply_manage_info",
+            "im_quick_reply_edit",
             "im_recommend_products",
             "im_recommend_cities",
             "im_send_product_card",
@@ -190,6 +192,9 @@ impl Role {
             "assistant_tsim_status",
             "assistant_tsim_login",
             "assistant_tsim_logout",
+            "im_quick_reply_categories",
+            "im_quick_reply_manage_info",
+            "im_quick_reply_edit",
         ];
         const DETAIL_CMDS: &[&str] = &[
             "shell_read_clipboard_text",
@@ -308,10 +313,63 @@ impl ViewRegistry {
 mod tests {
     use super::*;
 
+    fn granted(acl: &serde_json::Value, command: &str) -> bool {
+        let permission = format!("allow-{}", command.replace('_', "-"));
+        acl["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p.as_str() == Some(&permission))
+    }
+
     #[test]
-    fn quick_reply_and_product_card_commands_are_registered_main_only() {
-        let commands = [
+    fn quick_reply_management_is_shared_by_main_and_settings_only() {
+        let main_acl: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
+        let setting_acl: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/setting.json")).unwrap();
+        let detail = format!("{PACKAGE_DETAIL_PREFIX}{}", uuid::Uuid::new_v4());
+        for command in [
             "im_quick_reply_categories",
+            "im_quick_reply_manage_info",
+            "im_quick_reply_edit",
+        ] {
+            assert!(include_str!("../commands.txt")
+                .lines()
+                .any(|line| line == command));
+            assert!(granted(&main_acl, command), "main.json: {command}");
+            assert!(granted(&setting_acl, command), "setting.json: {command}");
+            let mut registry = ViewRegistry::default();
+            for label in [MAIN, SETTING] {
+                assert!(registry.authorize(label, command).is_err());
+                registry.register(label);
+                assert!(registry.authorize(label, command).is_ok(), "{label}");
+            }
+            for label in [
+                ALARM,
+                NOTICE,
+                UPDATE,
+                LOGIN,
+                MEDIA_VIEWER,
+                "acct-synthetic",
+                detail.as_str(),
+                "webview-1",
+            ] {
+                registry.register(label);
+                assert!(
+                    registry.authorize(label, command).is_err(),
+                    "{label}: {command}"
+                );
+            }
+            registry.unregister(SETTING);
+            assert!(registry.authorize(SETTING, command).is_err());
+            assert!(registry.authorize(MAIN, command).is_ok());
+        }
+    }
+
+    #[test]
+    fn product_card_commands_are_registered_main_only() {
+        let commands = [
             "im_recommend_products",
             "im_recommend_cities",
             "im_send_product_card",
@@ -327,12 +385,7 @@ mod tests {
             assert!(include_str!("../commands.txt")
                 .lines()
                 .any(|line| line == command));
-            let permission = format!("allow-{}", command.replace('_', "-"));
-            assert!(main_acl["permissions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|p| p.as_str() == Some(&permission)));
+            assert!(granted(&main_acl, command), "main.json: {command}");
             for label in [
                 ALARM,
                 SETTING,

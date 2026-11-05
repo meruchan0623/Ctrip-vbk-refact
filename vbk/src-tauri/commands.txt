@@ -58,6 +58,8 @@ im_set_top
 im_set_mark
 im_customer_scripts
 im_quick_reply_categories
+im_quick_reply_manage_info
+im_quick_reply_edit
 im_recommend_products
 im_recommend_cities
 im_send_product_card

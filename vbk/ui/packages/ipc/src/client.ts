@@ -162,6 +162,8 @@ export const UiCommands = {
   IM_MARK_READ: 'im_mark_read', // {account, gid, expected_message_id, expected_context_revision}
   IM_CUSTOMER_SCRIPTS: 'im_customer_scripts', // {account, content} → UiCustomerScripts
   IM_QUICK_REPLY_CATEGORIES: 'im_quick_reply_categories', // {account,type:'VAGENT'|'VSKILLGROUP'} → UiQuickReplyCategories
+  IM_QUICK_REPLY_MANAGE_INFO: 'im_quick_reply_manage_info', // {account,type} → UiQuickReplyManageInfo
+  IM_QUICK_REPLY_EDIT: 'im_quick_reply_edit', // {account,type,edit:UiQuickReplyEdit} → UiQuickReplyEditResult (never replayed)
   IM_RECOMMEND_PRODUCTS: 'im_recommend_products',
   IM_RECOMMEND_CITIES: 'im_recommend_cities',
   IM_SEND_PRODUCT_CARD: 'im_send_product_card',
