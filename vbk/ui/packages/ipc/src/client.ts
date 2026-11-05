@@ -212,6 +212,7 @@ export const UiCommands = {
   MEDIA_VIEWER_OPEN_MESSAGE: 'media_viewer_open_message', // {account,gid,message_id}; the host resolves the URL
   MEDIA_VIEWER_OPEN_EMOJI: 'media_viewer_open_emoji', // {account,id}
   MEDIA_VIEWER_CURRENT: 'media_viewer_current', // → UiViewerGallery; viewer window only
+  MEDIA_VIEWER_CONTEXT_MENU: 'media_viewer_context_menu', // {index}; viewer window only; host shows the native menu (copy file/video)
   MEDIA_VIEWER_OPEN_EXTERNAL: 'media_viewer_open_external', // {index}; viewer window only; opens an item of its bound gallery
   // {account, gid, order_id, context_revision, session_epoch} → UiTsimOperatorGrant;
   // scope-checked iframe handoff. Keep the credential outside stores, logs and URLs.
@@ -229,6 +230,7 @@ export const UiEvents = {
   WEBVIEW_RECOVERY: 'webview://recovery',
   PACKAGE_DETAIL_INVALIDATED: 'assistant://package-detail-invalidated',
   MEDIA_VIEWER_CHANGED: 'media-viewer://changed',
+  MEDIA_VIEWER_COPY: 'media-viewer://copy', // payload 'copying' | 'copied' | 'failed'
   TSIM_STATUS: 'assistant://tsim-status', // UiTsimStatus; local views only
   MEDIA_SEND_PROGRESS: 'media://send-progress',
   NET_STATUS: 'net://status', // UiNetStatus

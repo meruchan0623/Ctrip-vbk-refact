@@ -43,6 +43,10 @@ export interface ViewerHost {
   openExternal(index: number): Promise<unknown>;
   /** Native save dialog for the original of item `index`; resolves to whether a file was written. */
   save?(index: number): Promise<boolean>;
+  /** Native right-click menu (copy file / video) for item `index`; the host does the work and reports through `onCopy`. */
+  contextMenu?(index: number): Promise<unknown>;
+  /** Host notifications for the copy started from the menu. */
+  onCopy?(listener: (state: 'copying' | 'copied' | 'failed') => void): () => void;
   close(): void;
   /** Windows draws its own caption buttons; macOS keeps the traffic lights. */
   caption: HTMLElement | null;
@@ -75,6 +79,14 @@ export function renderViewer(gallery: UiViewerGallery, host: ViewerHost): Viewer
     header,
     stage, h('footer', { class: 'viewer-footer' }, status, tools));
   header.addEventListener('dblclick', e => { if (!(e.target as HTMLElement).closest('button, .wbtn')) host.close(); });
+  stage.addEventListener('contextmenu', e => {
+    const kind = attachmentInfo(items[index]!).kind;
+    if (kind !== 'image' && kind !== 'video') return;
+    e.preventDefault();
+    void host.contextMenu?.(index).catch(() => { status.textContent = S.copyFailed; });
+  });
+  const stopCopy = host.onCopy?.(state => { status.textContent = state === 'copying' ? S.copying : state === 'copied' ? S.copied : S.copyFailed; });
+  keys.signal.addEventListener('abort', () => stopCopy?.());
   function showHeading(): UiViewerAttachment {
     const attachment = items[index]!;
     const name = attachmentInfo(attachment).name;

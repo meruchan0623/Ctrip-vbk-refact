@@ -113,6 +113,7 @@ media_viewer_open_message
 media_viewer_open_emoji
 media_viewer_current
 media_viewer_open_external
+media_viewer_context_menu
 im_draft_attachment_save
 im_draft_attachment_restore
 webview_recovery_status

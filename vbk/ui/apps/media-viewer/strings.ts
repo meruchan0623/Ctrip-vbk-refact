@@ -28,6 +28,9 @@ export const MEDIA_VIEWER_STRINGS = {
   windowTitle: '附件查看器',
   expired: '附件预览已失效，请从会话重新打开。',
   close: '关闭',
+  copying: '正在复制…',
+  copied: '已复制到剪贴板。',
+  copyFailed: '复制失败，请稍后重试。',
   closeHint: '双击标题栏可关闭',
 } as const;
 

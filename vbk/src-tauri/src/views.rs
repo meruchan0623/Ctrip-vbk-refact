@@ -208,6 +208,7 @@ impl Role {
             "media_viewer_current",
             "media_viewer_open_external",
             "media_save_image",
+            "media_viewer_context_menu",
         ];
         const UPDATE_CMDS: &[&str] = &["contract_hello", "prefs_snapshot", "shell_window"];
         const LOGIN_CMDS: &[&str] = &[
@@ -515,6 +516,7 @@ mod tests {
             "media_viewer_current",
             "media_viewer_open_external",
             "media_save_image",
+            "media_viewer_context_menu",
             "shell_window",
         ] {
             assert!(

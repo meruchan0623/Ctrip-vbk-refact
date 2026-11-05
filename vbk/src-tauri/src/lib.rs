@@ -31,6 +31,7 @@ pub mod events;
 pub mod features;
 pub mod local_tz;
 pub mod login;
+mod media_copy;
 pub mod media_outbound;
 mod media_save;
 pub mod media_viewer;
@@ -100,6 +101,7 @@ pub fn run() {
                 deep_link_runtime::on_second_instance(app, args);
             }
         }))
+        .on_menu_event(media_copy::on_menu_event)
         .plugin(webview_recovery::plugin())
         .plugin(deep_link_runtime::plugin())
         .plugin(tauri_plugin_dialog::init())
@@ -311,6 +313,7 @@ pub fn run() {
             browser_tabs::browser_show,
             browser_tabs::browser_nav,
             browser_tabs::browser_close,
+            media_copy::media_viewer_context_menu,
             media_save::media_save_image,
             shell::media_pick,
             shell::media_accept_drop,

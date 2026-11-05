@@ -912,6 +912,7 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     },
     [UiCommands.MEDIA_ACCEPT_DROP]: async () => null,
     [UiCommands.MEDIA_SAVE_IMAGE]: async () => ({ saved: false }),
+    [UiCommands.MEDIA_VIEWER_CONTEXT_MENU]: async () => null,
     [UiCommands.MEDIA_RELEASE]: async (p) => {
       const args = p as {attachment_id?:string};
       if (args.attachment_id && mockImages.has(args.attachment_id)) { mockImage(p); mockImages.delete(args.attachment_id); }

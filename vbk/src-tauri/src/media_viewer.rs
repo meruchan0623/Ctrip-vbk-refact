@@ -274,7 +274,7 @@ fn bound(app: &AppHandle) -> Result<(AccountContext, ViewerGallery), AppError> {
     Ok((owner, gallery))
 }
 
-fn current(app: &AppHandle) -> Result<ViewerGallery, AppError> {
+pub(crate) fn current(app: &AppHandle) -> Result<ViewerGallery, AppError> {
     bound(app).map(|(_, gallery)| gallery)
 }
 

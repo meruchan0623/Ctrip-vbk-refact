@@ -30,7 +30,7 @@ pub struct SaveImageResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ImageKind {
+pub(crate) enum ImageKind {
     Png,
     Jpeg,
     Gif,
@@ -38,7 +38,7 @@ enum ImageKind {
     Bmp,
 }
 impl ImageKind {
-    fn extension(self) -> &'static str {
+    pub(crate) fn extension(self) -> &'static str {
         match self {
             Self::Png => "png",
             Self::Jpeg => "jpg",
@@ -64,7 +64,7 @@ impl ImageKind {
     }
 }
 
-fn image_url(raw: &str) -> Result<Url, AppError> {
+pub(crate) fn image_url(raw: &str) -> Result<Url, AppError> {
     if !raw.is_ascii() || raw.bytes().any(|b| b <= 0x20 || b == 0x7f || b == b'\\') {
         return Err(refused("图片地址不受支持"));
     }
@@ -141,7 +141,7 @@ fn validate_response(status: reqwest::StatusCode, length: Option<u64>) -> Result
     }
     Ok(())
 }
-async fn download(url: Url) -> Result<(Vec<u8>, ImageKind), AppError> {
+pub(crate) async fn download(url: Url) -> Result<(Vec<u8>, ImageKind), AppError> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))

@@ -15,6 +15,7 @@
     "allow-shell-write-clipboard-text",
     "allow-media-viewer-current",
     "allow-media-viewer-open-external",
-    "allow-media-save-image"
+    "allow-media-save-image",
+    "allow-media-viewer-context-menu"
   ]
 }
