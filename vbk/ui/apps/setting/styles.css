@@ -1,3 +1,4 @@
+@import '../_shared/quick-reply-manager.css';
 @import '../_shared/recovery.css';
 /* Settings window (prototype 02-main .fwin / .setnav / .setbody). */
 html, body { background: #fff; }
@@ -27,6 +28,9 @@ html[data-platform="macos"] .fwin-h { height: var(--titlebar-h); padding-left: v
 .set-sec + .set-sec { border-top: 1px solid var(--c-border); margin-top: 8px; }
 .set-sec-h { margin: 0; padding: 20px 0 2px; font-size: 16px; font-weight: 600; color: var(--c-text); }
 .set-sec-h + .set-h { padding-top: 10px; }
+/* quick_replies: the shared manager fills a fixed-height host and scrolls inside it */
+.set-qr-host { height: 460px; min-height: 0; padding: 12px 0; border-bottom: 1px solid var(--c-divider); }
+.set-row .sel[data-action="qr-account"] { min-width: 180px; }
 
 .shortcut-form { display: grid; grid-template-columns: minmax(150px, 1fr) auto; gap: 8px; max-width: 360px; }
 .shortcut-form > span { grid-column: 1 / -1; font-size: 12px; line-height: 1.5; }

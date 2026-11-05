@@ -22,7 +22,6 @@
     "allow-net-status",
     "allow-shell-window",
     "allow-shell-open-window",
-    "allow-shell-open-external",
     "allow-shell-open-webview",
     "allow-shell-export-diagnostics",
     "allow-shell-open-data-directory",

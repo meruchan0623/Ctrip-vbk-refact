@@ -185,7 +185,6 @@ impl Role {
             "net_status",
             "shell_window",
             "shell_open_window",
-            "shell_open_external",
             "shell_open_webview",
             "shell_export_diagnostics",
             "shell_open_data_directory",
@@ -365,6 +364,16 @@ mod tests {
             assert!(registry.authorize(SETTING, command).is_err());
             assert!(registry.authorize(MAIN, command).is_ok());
         }
+    }
+
+    #[test]
+    fn settings_cannot_open_external_urls() {
+        let setting_acl: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/setting.json")).unwrap();
+        assert!(!granted(&setting_acl, "shell_open_external"));
+        let mut registry = ViewRegistry::default();
+        registry.register(SETTING);
+        assert!(registry.authorize(SETTING, "shell_open_external").is_err());
     }
 
     #[test]

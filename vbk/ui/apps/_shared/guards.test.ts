@@ -62,6 +62,18 @@ test('main-window payload guards accept mock payloads and reject garbage', async
   ipc.dispose();
 });
 
+test('prefs snapshot guard follows the host sections: storage / privacy are gone, the rest stay required', async () => {
+  const ipc = createMockIpc('default', { tick: false, latency: 0 });
+  const snap = (await ipc.invoke(PrefsCommands.SNAPSHOT)) as Record<string, unknown>;
+  for (const gone of ['storage', 'privacy']) assert.equal(gone in snap, false, `mock snapshot must not carry ${gone}`);
+  assert.equal(isPrefsSnapshot(snap), true);
+  for (const k of ['reminder', 'general', 'display', 'keys', 'assistant', 'dnd', 'network']) {
+    const rest = Object.fromEntries(Object.entries(snap).filter(([key]) => key !== k));
+    assert.equal(isPrefsSnapshot(rest), false, `${k} is still required`);
+  }
+  ipc.dispose();
+});
+
 test('notice guards accept a missing preview and reject malformed cards', () => {
   const update = { account: { account_id: 'a', environment: 'test', session_generation: 1 }, gid: '1', title: '张三', preview: null };
   assert.equal(isNoticeUpdate(update), true);

@@ -923,12 +923,19 @@ async function testSetting(context, base) {
   await page.goto(`${base}/apps/setting/index.html`);
   await page.waitForSelector('[data-setting="reminder.enabled"]', { timeout: 8000 });
   const sections = await page.$$eval('.setnav [data-section]', (els) => els.map((e) => e.textContent?.trim()));
-  check(sections.join('/') === '通用/显示/通知与提醒/快捷键/商家助手 · TSim 登录/网络/存储/隐私/关于与更新', `sections (${sections.join('/')})`);
+  check(sections.join('/') === '快捷回复/通用/通知与提醒/快捷键/商家助手 · TSim 登录/关于与更新', `sections (${sections.join('/')})`);
+  const navGroups = await page.$$eval('.setnav [data-group]', (els) => els.map((e) => e.textContent?.trim()));
+  check(navGroups.join('/') === '账号业务/桌面偏好', `nav groups (${navGroups.join('/')})`);
+  for (const key of ['general.start_hidden', 'general.spell_check', 'display.gpu', 'storage.cache_days', 'storage.cache_mb', 'privacy.analytics', 'privacy.crash_upload']) {
+    check((await page.$(`[data-setting="${key}"]`)) === null, `removed setting ${key} absent`);
+  }
+  const settingText = (await text(page, '.setbody')) ?? '';
+  check(!['GPU', '不写入磁盘', '分析埋点', '崩溃报告'].some((s) => settingText.includes(s)), 'no stored-but-unused or read-only fact rows remain');
   const t1Options = await page.$$eval('[data-setting="reminder.t1_seconds"] option', (els) => els.map((e) => e.value));
   check(t1Options.join(',') === '30,60,90,120,180', `T1 options (${t1Options.join(',')})`);
   check((await page.getAttribute('[data-setting="reminder.continuous_l4"]', 'aria-checked')) === 'false', 'L4 default off');
   check((await text(page, 'body'))?.includes('默认关闭。开启后进入强提醒再过 60 秒'), 'L4 explanation');
-  for (const key of ['reminder.timeout_sound', 'reminder.position', 'reminder.alert_during_dnd', 'reminder.alert_during_fullscreen', 'reminder.tray_flash', 'reminder.taskbar_badge']) {
+  for (const key of ['reminder.timeout_sound', 'reminder.alarm_corner', 'reminder.alert_during_dnd', 'reminder.alert_during_fullscreen', 'reminder.tray_flash', 'reminder.taskbar_badge']) {
     check((await page.$(`[data-setting="${key}"]`)) !== null, `setting ${key} present`);
   }
   const rec = await recordInvokes(page);
@@ -990,12 +997,33 @@ async function testSetting(context, base) {
   check((await page.$('[data-setting="assistant.package_quick_view"]')) !== null, '套餐速览 toggle');
   await shot(page, 'setting-assistant.png');
   await hygiene(page, 'setting/assistant');
-  for (const sec of ['general', 'display', 'keys', 'network', 'storage', 'privacy']) {
+  for (const sec of ['general', 'notify', 'keys', 'about']) {
     await page.click(`[data-section="${sec}"]`);
     await page.waitForSelector('.set-h', { timeout: 3000 });
     check(!((await text(page, '.setbody'))?.includes('即将上线')), `section ${sec} has no 即将上线 placeholder`);
     await hygiene(page, `setting/${sec}`);
   }
+
+  // 快捷回复: the picker lists logged-in accounts only, the shared manager loads for the picked one,
+  // and the web personal-settings entry opens under it. Mock only: nothing here reaches a real account.
+  await page.click('[data-section="quick_replies"]');
+  await page.waitForSelector('[data-section="quick_replies"][aria-current]', { timeout: 5000 });
+  const qrOptions = await page.$$eval('[data-action="qr-account"] option', (els) => els.map((e) => e.value));
+  check(qrOptions.join(',') === 'production:acc-demo-a,production:acc-demo-b', `quick-reply picker lists logged-in accounts only (${qrOptions.join(',')})`);
+  await page.waitForSelector('.set-qr-host [data-qr="root"]', { timeout: 8000 });
+  check((await page.$('.set-qr-host [data-qr="no-account"]')) === null, 'quick-reply manager bound to the first logged-in account');
+  const qrHeight = await page.$eval('.set-qr-host', (el) => el.getBoundingClientRect().height);
+  check(qrHeight >= 400 && qrHeight <= 520, `quick-reply manager keeps a fixed height (${qrHeight})`);
+  await rec.reset();
+  await page.selectOption('[data-action="qr-account"]', 'production:acc-demo-b');
+  await page.waitForFunction(() => window.__calls.some((c) => c.cmd === 'im_quick_reply_categories' && c.payload?.account?.account_id === 'acc-demo-b'), null, { timeout: 5000 });
+  check(true, 'quick-reply manager re-reads for the picked account');
+  await page.click('[data-action="personal-settings"]');
+  await page.waitForFunction(() => window.__calls.some((c) => c.cmd === 'shell_open_webview'), null, { timeout: 5000 });
+  const web = (await rec.calls('shell_open_webview'))[0];
+  check(web?.payload?.account?.account_id === 'acc-demo-b' && web?.payload?.url === 'https://vbooking.ctrip.com/vbk/im/main', `personal settings open under the picked account (${web?.payload?.account?.account_id})`);
+  await shot(page, 'setting-quick-replies.png');
+  await hygiene(page, 'setting/quick_replies');
 
   for (const e of errors) check(false, `setting: ${e}`);
   await page.close();

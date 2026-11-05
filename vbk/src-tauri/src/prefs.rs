@@ -75,14 +75,14 @@ pub enum SendMode {
     SendDirect,
 }
 
+/// No `deny_unknown_fields`: `start_hidden` / `spell_check` (removed on
+/// 2026-11-05, never applied at runtime) in older files are dropped silently.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct GeneralPrefs {
     pub autostart: bool,
     pub close_action: CloseAction,
-    pub start_hidden: bool,
     pub show_msg_time: bool,
-    pub spell_check: bool,
 }
 
 impl Default for GeneralPrefs {
@@ -90,27 +90,23 @@ impl Default for GeneralPrefs {
         Self {
             autostart: false,
             close_action: CloseAction::Tray,
-            start_hidden: false,
             show_msg_time: true,
-            spell_check: true,
         }
     }
 }
 
+/// No `deny_unknown_fields`: the read-only `gpu` flag (removed on
+/// 2026-11-05) in older files is dropped silently.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct DisplayPrefs {
     /// One of 75 / 100 / 125 / 150.
     pub zoom: u32,
-    pub gpu: bool,
 }
 
 impl Default for DisplayPrefs {
     fn default() -> Self {
-        Self {
-            zoom: 100,
-            gpu: true,
-        }
+        Self { zoom: 100 }
     }
 }
 
@@ -174,30 +170,6 @@ impl Default for NetworkPrefs {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct StoragePrefs {
-    /// One of 30 / 90 / 180 / 365.
-    pub cache_days: u32,
-    pub cache_mb: u32,
-}
-
-impl Default for StoragePrefs {
-    fn default() -> Self {
-        Self {
-            cache_days: 90,
-            cache_mb: 1024,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct PrivacyPrefs {
-    pub analytics: bool,
-    pub crash_upload: bool,
-}
-
 /// Notice categories that use a banner, per `environment:account_id`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -206,6 +178,10 @@ pub struct NoticeBannerPrefs {
 }
 
 /// Host-owned sections (everything except `reminder`).
+///
+/// No `deny_unknown_fields`: the `storage` and `privacy` sections (removed
+/// on 2026-11-05, never applied at runtime) in older files are dropped
+/// silently instead of sending the file through salvage.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LocalPrefs {
@@ -215,8 +191,6 @@ pub struct LocalPrefs {
     pub assistant: AssistantPrefs,
     pub dnd: DndPrefs,
     pub network: NetworkPrefs,
-    pub storage: StoragePrefs,
-    pub privacy: PrivacyPrefs,
     pub notice_banner: NoticeBannerPrefs,
 }
 
@@ -314,9 +288,6 @@ pub fn apply_local(
     match (section, key) {
         ("display", "zoom") if ![75, 100, 125, 150].contains(&next.display.zoom) => {
             return Err(invalid(key, "zoom must be 75/100/125/150"));
-        }
-        ("storage", "cache_days") if ![30, 90, 180, 365].contains(&next.storage.cache_days) => {
-            return Err(invalid(key, "cache_days must be 30/90/180/365"));
         }
         ("keys", "toggle_main") if next.keys.toggle_main.trim().is_empty() => {
             return Err(invalid(key, "shortcut must not be empty"));
@@ -462,7 +433,6 @@ impl PrefsModule {
         value: Value,
         commit: impl FnOnce(&LocalPrefs, &Inner) -> Result<(), AppError>,
     ) -> Result<Option<LocalPrefs>, AppError> {
-        ensure_runtime_support(section, key)?;
         let mut inner = self.data();
         let next = apply_local(&inner.local, section, key, value)?;
         let system_setting = (section == "general" && key == "autostart")
@@ -551,21 +521,6 @@ fn salvage(bytes: &[u8]) -> Option<PrefsFile> {
         .and_then(|v| serde_json::from_value::<Option<ReminderSettingsDto>>(v.clone()).ok())
         .flatten();
     Some(PrefsFile { reminder, local })
-}
-
-/// Unsupported legacy values remain readable and mergeable, but cannot be
-/// acknowledged as a working preference by the live command.
-pub(crate) fn ensure_runtime_support(section: &str, key: &str) -> Result<(), AppError> {
-    if matches!(
-        (section, key),
-        ("display", "gpu") | ("storage", "cache_days") | ("storage", "cache_mb")
-    ) {
-        return Err(AppError::new(
-            contracts::codes::HOST_UNSUPPORTED,
-            "unsupported preference runtime",
-        ));
-    }
-    Ok(())
 }
 
 fn apply_core_reminder_patch(
@@ -757,7 +712,6 @@ pub fn prefs_set(
     value: Value,
 ) -> CmdResult<PrefsSnapshotDto> {
     guard(&state, &window, "prefs_set")?;
-    ensure_runtime_support(&section, &key)?;
     let m = module(&app).ok_or_else(|| {
         AppError::new(contracts::codes::HOST_UNSUPPORTED, "prefs not initialised")
     })?;
@@ -927,10 +881,11 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// The fields removed on 2026-11-05 are gone from the schema: setting one
+    /// is an unknown key, rejected before the commit step, file untouched.
     #[test]
-    fn unsupported_runtime_preferences_reject_before_local_transaction_but_legacy_values_load() {
-        let root =
-            std::env::temp_dir().join(format!("vbk-unsupported-prefs-{}", uuid::Uuid::new_v4()));
+    fn removed_preferences_are_unknown_keys_and_never_reach_commit() {
+        let root = std::env::temp_dir().join(format!("vbk-removed-prefs-{}", uuid::Uuid::new_v4()));
         let module = PrefsModule {
             path: Some(root.join("prefs.json")),
             inner: Mutex::new(Inner {
@@ -944,29 +899,22 @@ mod tests {
         let bytes = std::fs::read(root.join("prefs.json")).unwrap();
         let before = module.data().local.clone();
         for (section, key, value) in [
+            ("general", "start_hidden", json!(true)),
+            ("general", "spell_check", json!(false)),
             ("display", "gpu", json!(false)),
             ("storage", "cache_days", json!(90)),
             ("storage", "cache_mb", json!(500)),
+            ("privacy", "analytics", json!(true)),
+            ("privacy", "crash_upload", json!(true)),
         ] {
             let error = module
                 .set_local(section, key, value, |_, _| {
-                    panic!("unsupported preference reached commit")
+                    panic!("removed preference reached commit")
                 })
                 .unwrap_err();
-            assert_eq!(error.code, contracts::codes::HOST_UNSUPPORTED);
-            assert_eq!(error.message, "unsupported preference runtime");
-            assert!(!error.retryable);
+            assert_eq!(error.code, codes::UNKNOWN_KEY, "{section}.{key}");
             assert_eq!(module.data().local, before);
             assert_eq!(std::fs::read(root.join("prefs.json")).unwrap(), bytes);
-        }
-        for (section, key) in [
-            ("dnd", "schedule_enabled"),
-            ("dnd", "follow_system"),
-            ("display", "zoom"),
-            ("keys", "toggle_main"),
-            ("general", "autostart"),
-        ] {
-            ensure_runtime_support(section, key).unwrap();
         }
         assert!(module
             .set_local("display", "zoom", json!(125), |_, candidate| module
@@ -974,18 +922,14 @@ mod tests {
             .unwrap()
             .is_some());
         assert_eq!(load(&root.join("prefs.json")).local.display.zoom, 125);
-        // Retain old JSON shape and pure merger for migrations/salvage.
-        let legacy = apply_local(&before, "dnd", "follow_system", json!(false)).unwrap();
-        let legacy = apply_local(&legacy, "display", "gpu", json!(false)).unwrap();
-        let legacy = apply_local(&legacy, "storage", "cache_days", json!(180)).unwrap();
-        let legacy = apply_local(&legacy, "storage", "cache_mb", json!(500)).unwrap();
+        let next = apply_local(&before, "dnd", "follow_system", json!(true)).unwrap();
         module
             .save(&Inner {
-                local: legacy.clone(),
+                local: next.clone(),
                 reminder: None,
             })
             .unwrap();
-        assert_eq!(load(&root.join("prefs.json")).local, legacy);
+        assert_eq!(load(&root.join("prefs.json")).local, next);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1192,19 +1136,29 @@ mod tests {
             local: LocalPrefs::default(),
         };
         let v = serde_json::to_value(&snap).unwrap();
-        for section in [
-            "reminder",
-            "general",
-            "display",
-            "keys",
-            "assistant",
-            "dnd",
-            "network",
-            "storage",
-            "privacy",
-        ] {
-            assert!(v.get(section).is_some(), "missing {section}");
-        }
+        let keys = |value: &Value| {
+            let mut keys: Vec<String> = value.as_object().unwrap().keys().cloned().collect();
+            keys.sort();
+            keys
+        };
+        assert_eq!(
+            keys(&v),
+            [
+                "assistant",
+                "display",
+                "dnd",
+                "general",
+                "keys",
+                "network",
+                "notice_banner",
+                "reminder",
+            ]
+        );
+        assert_eq!(
+            keys(&v["general"]),
+            ["autostart", "close_action", "show_msg_time"]
+        );
+        assert_eq!(keys(&v["display"]), ["zoom"]);
         assert_eq!(v["general"]["close_action"], "tray");
         assert_eq!(v["keys"]["send_key"], "enter");
         assert_eq!(v["assistant"]["send_mode"], "replace_draft");
@@ -1226,7 +1180,7 @@ mod tests {
             codes::INVALID_VALUE
         );
         assert_eq!(
-            apply_local(&p, "display", "gpu", json!("yes"))
+            apply_local(&p, "general", "show_msg_time", json!("yes"))
                 .unwrap_err()
                 .code,
             codes::INVALID_VALUE
@@ -1238,11 +1192,26 @@ mod tests {
             codes::UNKNOWN_KEY
         );
         assert_eq!(
-            apply_local(&p, "nope", "gpu", json!(true))
+            apply_local(&p, "nope", "zoom", json!(100))
                 .unwrap_err()
                 .code,
             codes::UNKNOWN_KEY
         );
+        for (section, key) in [
+            ("general", "start_hidden"),
+            ("general", "spell_check"),
+            ("display", "gpu"),
+            ("storage", "cache_days"),
+            ("storage", "cache_mb"),
+            ("privacy", "analytics"),
+            ("privacy", "crash_upload"),
+        ] {
+            assert_eq!(
+                apply_local(&p, section, key, json!(true)).unwrap_err().code,
+                codes::UNKNOWN_KEY,
+                "{section}.{key}"
+            );
+        }
         assert_eq!(
             apply_local(&p, "assistant", "tsim_logged_in", json!(true))
                 .unwrap_err()
@@ -1322,20 +1291,111 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// The settings rework on 2026-11-05 removed `general.start_hidden`,
+    /// `general.spell_check`, `display.gpu` and the whole `storage` / `privacy`
+    /// sections. A prefs.json from an older build must parse strictly (no
+    /// salvage, no `.unreadable` copy), keep every other value, and lose the
+    /// removed keys on the next save.
     #[test]
-    fn invalid_legacy_zoom_and_cache_days_can_be_repaired_independently() {
-        let old: LocalPrefs = serde_json::from_value(json!({
-            "display": { "zoom": 110 }, "storage": { "cache_days": 60 }
+    fn legacy_removed_preferences_in_prefs_file_are_ignored() {
+        let root =
+            std::env::temp_dir().join(format!("vbk-legacy-removed-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join(FILE_NAME);
+        let reminder = ReminderSettingsDto::from(&ReminderSettings {
+            tray_flash: false,
+            ..ReminderSettings::default()
+        });
+        let bytes = serde_json::to_vec_pretty(&json!({
+            "reminder": reminder,
+            "general": {
+                "autostart": true,
+                "close_action": "quit",
+                "start_hidden": true,
+                "show_msg_time": false,
+                "spell_check": false
+            },
+            "display": { "zoom": 125, "gpu": false },
+            "keys": { "send_key": "ctrl_enter", "toggle_main": "Ctrl+Alt+M" },
+            "assistant": { "outbound_translation": false },
+            "dnd": { "schedule_enabled": true },
+            "network": { "system_proxy": false },
+            "storage": { "cache_days": 180, "cache_mb": 500 },
+            "privacy": { "analytics": true, "crash_upload": true },
+            "notice_banner": { "accounts": { "prod:a": ["1:2"] } }
         }))
         .unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(
+            serde_json::from_slice::<PrefsFile>(&bytes).is_ok(),
+            "removed keys must not fail the strict parse"
+        );
+        let loaded = load(&path);
+        let mut expected = LocalPrefs::default();
+        expected.general.autostart = true;
+        expected.general.close_action = CloseAction::Quit;
+        expected.general.show_msg_time = false;
+        expected.display.zoom = 125;
+        expected.keys.send_key = SendKey::CtrlEnter;
+        expected.keys.toggle_main = "Ctrl+Alt+M".into();
+        expected.assistant.outbound_translation = false;
+        expected.dnd.schedule_enabled = true;
+        expected.network.system_proxy = false;
+        expected
+            .notice_banner
+            .accounts
+            .insert("prod:a".into(), vec!["1:2".into()]);
+        assert_eq!(loaded.local, expected);
+        assert_eq!(loaded.reminder.as_ref(), Some(&reminder));
+        assert_eq!(
+            std::fs::read_dir(&root).unwrap().count(),
+            1,
+            "tolerated removed keys must not trigger the unreadable-file path"
+        );
+        let module = PrefsModule {
+            path: Some(path.clone()),
+            inner: Mutex::new(Inner {
+                local: loaded.local.clone(),
+                reminder: loaded.reminder.clone(),
+            }),
+            reminder_sync: Mutex::new(()),
+            pending: Mutex::new(Vec::new()),
+        };
+        module.save(&module.data()).unwrap();
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        for section in ["storage", "privacy"] {
+            assert!(saved.get(section).is_none(), "{section} survived the save");
+        }
+        for (section, key) in [
+            ("general", "start_hidden"),
+            ("general", "spell_check"),
+            ("display", "gpu"),
+        ] {
+            assert!(
+                saved[section].get(key).is_none(),
+                "{section}.{key} survived the save"
+            );
+        }
+        assert_eq!(saved["general"]["close_action"], "quit");
+        assert_eq!(saved["display"]["zoom"], 125);
+        assert_eq!(load(&path).local, expected);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_legacy_zoom_can_be_repaired_independently() {
+        let old: LocalPrefs = serde_json::from_value(json!({
+            "display": { "zoom": 110, "gpu": false }, "storage": { "cache_days": 60 }
+        }))
+        .unwrap();
+        assert_eq!(old.display.zoom, 110);
+        let other = apply_local(&old, "general", "show_msg_time", json!(false)).unwrap();
+        assert!(!other.general.show_msg_time);
+        assert_eq!(other.display.zoom, 110);
         let zoom = apply_local(&old, "display", "zoom", json!(125)).unwrap();
         assert_eq!(zoom.display.zoom, 125);
-        assert_eq!(zoom.storage.cache_days, 60);
-        let cache = apply_local(&old, "storage", "cache_days", json!(90)).unwrap();
-        assert_eq!(cache.storage.cache_days, 90);
-        assert_eq!(cache.display.zoom, 110);
         assert!(apply_local(&old, "display", "zoom", json!(110)).is_err());
-        assert!(apply_local(&old, "storage", "cache_days", json!(60)).is_err());
     }
 
     #[test]
@@ -1362,16 +1422,16 @@ mod tests {
         // I-20: never enable launch-at-login without an explicit user action.
         assert!(!GeneralPrefs::default().autostart);
         let f: PrefsFile =
-            serde_json::from_value(json!({ "general": { "start_hidden": true } })).unwrap();
+            serde_json::from_value(json!({ "general": { "close_action": "quit" } })).unwrap();
         assert!(!f.local.general.autostart);
     }
 
     #[test]
     fn cross_version_file_keeps_every_known_field() {
-        // 新版多写了字段、旧版删掉了字段或枚举出现新值：严格解析失败，
+        // 枚举出现新值、分区类型不对：严格解析失败，
         // 但其余设置必须保留，不能整份退回默认值。
         let text = serde_json::to_vec(&json!({
-            "general": { "start_hidden": true, "close_action": "minimize_to_moon", "future_flag": 1 },
+            "general": { "show_msg_time": false, "close_action": "minimize_to_moon", "future_flag": 1 },
             "keys": { "send_key": "ctrl_enter" },
             "display": "not-an-object",
             "future_section": { "x": 1 },
@@ -1379,7 +1439,7 @@ mod tests {
         .unwrap();
         assert!(serde_json::from_slice::<PrefsFile>(&text).is_err());
         let f = salvage(&text).expect("salvaged");
-        assert!(f.local.general.start_hidden);
+        assert!(!f.local.general.show_msg_time);
         assert_eq!(f.local.general.close_action, CloseAction::Tray);
         assert_eq!(f.local.keys.send_key, SendKey::CtrlEnter);
         assert_eq!(f.local.display, DisplayPrefs::default());
@@ -1390,8 +1450,8 @@ mod tests {
     #[test]
     fn file_roundtrip_tolerates_missing_fields() {
         let f: PrefsFile =
-            serde_json::from_value(json!({ "general": { "start_hidden": true } })).unwrap();
-        assert!(f.local.general.start_hidden);
+            serde_json::from_value(json!({ "general": { "autostart": true } })).unwrap();
+        assert!(f.local.general.autostart);
         assert!(f.local.general.show_msg_time);
         assert!(f.reminder.is_none());
     }

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { hasKey, t } from '../../packages/ui-kit/src/i18n.ts';
 import { SETTING_STRINGS } from './strings.ts';
-import { tsimErrorText } from './viewmodel.ts';
+import { SECTIONS, SECTION_GROUPS, tsimErrorText } from './viewmodel.ts';
 
 // Exact pre-migration zh-CN copy; changes here require an explicit copy review.
 const expected = {
@@ -36,25 +36,32 @@ const expected = {
   "malformedResponse": "返回的登录状态无法识别，请刷新状态后再操作。",
   "credentialStoreUnavailable": "系统凭据存储不可用，请检查系统权限后重试。",
   "operationUnconfirmed": "操作未完成，登录状态尚待核对。请先刷新 TSim 登录状态后再操作。",
-  "assistant": "商家助手 · TSim 登录",
-  "close": "关闭设置",
-  "about": "关于与更新",
-  "version": "当前版本",
-  "versionUnknown": "未知",
-  "checkUpdate": "检查更新",
-  "checkUpdateDesc": "在独立的更新窗口中检查",
   "shortcutFailed": "快捷键未保存：{message}。请检查格式或更换未被占用的组合。",
   "shortcutCurrent": "当前生效：{shortcut}",
   "errorCode": "{message}（{code}）"
 } as const;
+// Window-local copy (strings.ts); each entry has exactly one home, read as `S.name`.
+const expectedLocal = {
+  close: '关闭设置',
+  version: '当前版本',
+  versionUnknown: '未知',
+  account: '账号',
+  personalSettings: '其他个人设置（网页）',
+  open: '打开',
+  checkUpdate: '检查更新',
+  checkUpdateDesc: '在独立的更新窗口中检查',
+} as const;
+const catalogSource = readFileSync(new URL('../../packages/ui-kit/src/i18n.ts', import.meta.url), 'utf8');
+const catalogKeys = (prefix: string) => [...catalogSource.matchAll(/^\s*'(set\.[A-Za-z0-9_.]+)':/gm)].map(m => m[1]!).filter(k => k.startsWith(prefix));
 const { scanFile, expectNoCjkLiterals } = await import(new URL('../../../tools/gates/cjk-literals.mjs', import.meta.url).href);
 
 const placeholders: Record<string, readonly string[]> = {
   shortcutFailed: ['message'], shortcutCurrent: ['shortcut'], errorCode: ['code', 'message'],
 };
 
-test('all 38 settings entries preserve the reviewed Chinese text and placeholder contracts', () => {
-  assert.equal(Object.keys(expected).length, 38);
+test('all 31 settings runtime entries preserve the reviewed Chinese text and placeholder contracts', () => {
+  assert.equal(Object.keys(expected).length, 31);
+  assert.deepEqual(catalogKeys('set.runtime.').sort(), Object.keys(expected).map(name => `set.runtime.${name}`).sort(), 'the catalog holds exactly the reviewed runtime entries');
   for (const [name, value] of Object.entries(expected)) {
     const key = `set.runtime.${name}`;
     assert.ok(hasKey(key)); assert.equal(t(key), value, name);
@@ -62,15 +69,27 @@ test('all 38 settings entries preserve the reviewed Chinese text and placeholder
   }
 });
 
+test('window-local settings copy is reviewed, has no placeholders and is not duplicated in the shared catalog', () => {
+  assert.deepEqual(SETTING_STRINGS, expectedLocal);
+  for (const [name, value] of Object.entries(expectedLocal)) {
+    assert.equal(/\{\w+\}/.test(value), false, name);
+    assert.equal(hasKey(`set.runtime.${name}`), false, `${name} has one home only`);
+  }
+});
+
 test('settings production TS has no CJK copy outside the catalog and every new t reference is static, known and used', () => {
-  const references = new Set<string>();
+  const references = new Set<string>(), local = new Set<string>(), shared = new Set<string>();
   for (const path of ['./main.ts', './viewmodel.ts', './strings.ts']) {
     const text = readFileSync(new URL(path, import.meta.url), 'utf8');
     expectNoCjkLiterals(scanFile(`ui/apps/setting/${path.slice(2)}`, text), path);
     const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
     function inspect(node: ts.Node): void {
       // Legacy templates are read through SETTING_STRINGS (`S.name`), the same entry as `set.runtime.name`.
-      if (ts.isPropertyAccessExpression(node) && ['S', 'SETTING_STRINGS'].includes(node.expression.getText(source)) && node.name.text in expected && path !== './strings.ts') references.add(`set.runtime.${node.name.text}`);
+      if (ts.isPropertyAccessExpression(node) && ['S', 'SETTING_STRINGS'].includes(node.expression.getText(source)) && path !== './strings.ts') {
+        assert.ok(node.name.text in expectedLocal, `S.${node.name.text}`); local.add(node.name.text);
+      }
+      // Navigation labels are typed catalog keys in SECTIONS / SECTION_GROUPS, read via sectionLabel().
+      if (ts.isPropertyAssignment(node) && node.name.getText(source) === 'labelKey' && ts.isStringLiteral(node.initializer)) shared.add(node.initializer.text);
       if (ts.isCallExpression(node) && node.expression.getText(source) === 't') {
         const key = node.arguments[0];
         if (!key || !ts.isStringLiteral(key)) {
@@ -78,8 +97,10 @@ test('settings production TS has no CJK copy outside the catalog and every new t
           assert.equal(key?.getText(source), 'sec.labelKey');
           return;
         }
+        assert.ok(hasKey(key.text), key.text);
+        if (!key.text.startsWith('set.runtime.')) shared.add(key.text);
         if (key.text.startsWith('set.runtime.')) {
-          references.add(key.text); assert.ok(hasKey(key.text));
+          references.add(key.text);
           const name = key.text.slice('set.runtime.'.length), names = placeholders[name] ?? [];
           const vars = node.arguments[1];
           if (names.length) {
@@ -94,6 +115,10 @@ test('settings production TS has no CJK copy outside the catalog and every new t
   }
   const known = new Set(Object.keys(expected).map(key => `set.runtime.${key}`));
   assert.deepEqual([...references].sort(), [...known].sort(), 'every settings runtime entry is referenced and every reference is catalogued');
+  assert.deepEqual([...local].sort(), Object.keys(expectedLocal).sort(), 'every window-local entry is referenced');
+  const unused = catalogKeys('set.').filter(k => !k.startsWith('set.runtime.') && !shared.has(k));
+  assert.deepEqual(unused, [], 'every shared set.* entry is referenced by the settings window');
+  assert.deepEqual([...SECTIONS, ...SECTION_GROUPS].map(sec => sec.labelKey).filter(k => !shared.has(k)), []);
   const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
   assert.match(html, /<html lang="zh-CN">/);
   assert.equal(html.split('<title>')[1]?.split('</title>')[0], t('set.title'), 'static fallback title accurately remains zh-CN');

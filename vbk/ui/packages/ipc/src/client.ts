@@ -514,11 +514,9 @@ export interface PrefsSnapshot {
   readonly general: {
     readonly autostart: boolean;
     readonly close_action: 'tray' | 'quit';
-    readonly start_hidden: boolean;
     readonly show_msg_time: boolean;
-    readonly spell_check: boolean;
   };
-  readonly display: { readonly zoom: 75 | 100 | 125 | 150; readonly gpu: boolean };
+  readonly display: { readonly zoom: 75 | 100 | 125 | 150 };
   readonly keys: { readonly send_key: 'enter' | 'ctrl_enter'; readonly toggle_main: string };
   readonly assistant: {
     readonly enabled: boolean;
@@ -530,8 +528,6 @@ export interface PrefsSnapshot {
   };
   readonly dnd: { readonly schedule_enabled: boolean; readonly follow_system: boolean };
   readonly network: { readonly system_proxy: boolean };
-  readonly storage: { readonly cache_days: 30 | 90 | 180 | 365; readonly cache_mb: number };
-  readonly privacy: { readonly analytics: boolean; readonly crash_upload: boolean };
   /** Notice categories that use a banner, per `environment:account_id`. */
   readonly notice_banner: { readonly accounts: Readonly<Record<string, readonly string[]>> };
 }

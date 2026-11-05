@@ -461,7 +461,7 @@ const recovery = createRecovery({
     for (const row of next.rows) if (!prior.some((p) => p.label === row.label && p.incarnation === row.incarnation && p.revision === row.revision)) runtimeLog.record('recovery', row.phase === 'manual' || row.phase === 'restart_required' || row.phase === 'listener_failed' ? 'error' : 'warn', 'webview.' + row.phase, { window: recoveryKind(row.label), attempt: row.attempt });
     store.patch({ recovery: next });
   },
-  diagnostics: async () => { await ipc.invoke(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); return 'opened'; },
+  diagnostics: async () => { await ipc.invoke(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING, section: 'about' }); return 'opened'; },
 });
 void recovery.connect();
 const refreshRecovery = () => void recovery.refresh();

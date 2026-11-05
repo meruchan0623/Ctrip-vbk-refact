@@ -274,22 +274,16 @@ function seedAlarm(now: number): AlarmEntry[] {
   ];
 }
 
-// Kept readable for older snapshots; no runtime consumer can apply these keys.
-const UNSUPPORTED_RUNTIME_PREFS = [
-  ['display', 'gpu'], ['dnd', 'follow_system'], ['storage', 'cache_days'], ['storage', 'cache_mb'],
-] as const;
-
+// Same sections / keys / defaults as `src-tauri/src/prefs.rs` (the TSim fields are demo values).
 function defaultPrefs(): PrefsSnapshot {
   return {
     reminder: { ...DEFAULT_REMINDER_SETTINGS },
-    general: { autostart: false, close_action: 'tray', start_hidden: false, show_msg_time: true, spell_check: true },
-    display: { zoom: 100, gpu: true },
-    keys: { send_key: 'enter', toggle_main: 'Ctrl + Alt + V' },
+    general: { autostart: false, close_action: 'tray', show_msg_time: true },
+    display: { zoom: 100 },
+    keys: { send_key: 'enter', toggle_main: 'Ctrl+Alt+V' },
     assistant: { enabled: true, outbound_translation: true, send_mode: 'replace_draft', package_quick_view: true, tsim_logged_in: true, tsim_user: 'tsim-demo' },
-    dnd: { schedule_enabled: false, follow_system: true },
+    dnd: { schedule_enabled: false, follow_system: false },
     network: { system_proxy: true },
-    storage: { cache_days: 90, cache_mb: 236 },
-    privacy: { analytics: false, crash_upload: false },
     notice_banner: { accounts: {} },
   };
 }
@@ -950,7 +944,6 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     [PrefsCommands.SNAPSHOT]: async () => structuredClone(st.prefs),
     [UiCommands.PREFS_SET]: async (p) => {
       const { section, key, value } = p as { section: string; key: string; value: unknown };
-      if (UNSUPPORTED_RUNTIME_PREFS.some(([unsupportedSection, unsupportedKey]) => section === unsupportedSection && key === unsupportedKey)) throw appError('host.unsupported', 'unsupported preference runtime');
       // enabled / t1_seconds / timeout_sound are owned by the alarm core and only change through notify_set_*;
       // the remaining reminder fields (L4, position, DND, fullscreen, tray, badge) are plain prefs.
       if (section === 'reminder' && (key === 'enabled' || key === 't1_seconds' || key === 'timeout_sound')) throw appError('prefs.use_notify', '提醒设置请通过 notify_set_* 修改');

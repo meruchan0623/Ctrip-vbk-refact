@@ -1,10 +1,12 @@
 import { createRecovery, recoveryView, type RecoveryState } from '../_shared/recovery.ts';
 /**
- * Settings window (prototype 02-main `.fwin` 设置): 通用 / 显示 / 通知与提醒 /
- * 快捷键 / 商家助手 / 网络 / 存储 / 隐私 / 关于与更新.
+ * Settings window, one long page in two nav groups:
+ *  - 「账号业务」: 快捷回复 (the shared `_shared/quick-reply-manager.ts`, bound to a chosen
+ *    logged-in account) and the entry to the remaining web personal settings;
+ *  - 「桌面偏好」: 通用 / 通知与提醒 / 快捷键 / 商家助手 · TSim 登录 / 关于与更新.
  * 左侧是分类导航，右侧所有分类连成一个长页面（点导航滚到对应分类，滚动时 scroll-spy 高亮当前分类）。
  * Reminder fields go through `NotifyCommands.*`; everything else through prefs;
- * TSim through `assistant_tsim_*`.
+ * TSim through `assistant_tsim_*`; quick replies through `im_quick_reply_*` (inside the manager).
  *
  * Window chrome: macOS uses the overlay title bar (traffic lights in the left
  * 78px of a 40px drag strip, no close button); Windows draws the prototype's
@@ -17,7 +19,7 @@ const platform = applyPlatform();
 import type { AccountContext, AlarmCorner, ReminderSettings } from '../../packages/ipc/src/contracts.ts';
 import { ALLOWED_T1_SECONDS, isAppError } from '../../packages/ipc/src/contracts.ts';
 import { AccountCommands, Events, PrefsCommands, ShellCommands } from '../../packages/ipc/src/commands.ts';
-import type { PrefsSection, PrefsSnapshot, UiAccountSnapshot, UiNetStatus, UiTsimStatus } from '../../packages/ipc/src/client.ts';
+import type { PrefsSection, PrefsSnapshot, UiAccount, UiAccountSnapshot, UiNetStatus, UiTsimStatus } from '../../packages/ipc/src/client.ts';
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
 import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import type { Child } from '../../packages/ui-kit/src/h.ts';
@@ -30,7 +32,8 @@ import { IC } from '../_shared/icons.ts';
 import { installWindowChrome, windowControls } from '../_shared/window-controls.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isPrefsSnapshot, isUiAccountSnapshot } from '../_shared/guards.ts';
-import { EMPTY_TSIM_FORM, PERSONAL_SETTINGS_URL, SECTIONS, SPY_LOCK_MS, ZOOM_OPTIONS, isSectionId, isTsimStatus, pickActiveSection, prefsCommand, reminderCommand, sectionLabel, tsimErrorText, tsimFormValid, tsimStatusText } from './viewmodel.ts';
+import { mountQuickReplyManager } from '../_shared/quick-reply-manager.ts';
+import { EMPTY_TSIM_FORM, PERSONAL_SETTINGS_URL, SECTIONS, SECTION_GROUPS, SPY_LOCK_MS, ZOOM_OPTIONS, accountKey, accountOptionLabel, isSectionId, isTsimStatus, loggedInAccounts, pickActiveSection, pickQuickReplyAccount, prefsCommand, reminderCommand, sectionLabel, sectionNeedsPrefs, tsimErrorText, tsimFormValid, tsimStatusText } from './viewmodel.ts';
 import { SETTING_STRINGS as S } from './strings.ts';
 import type { SectionId, SpyLock, TsimForm } from './viewmodel.ts';
 
@@ -54,13 +57,19 @@ interface SettingState {
   readonly loadError: string | null;
   readonly net: UiNetStatus | null;
   readonly toast: string | null;
-  /** Active account; web personal settings open under its identity. */
-  readonly account: AccountContext | null;
+  /** Logged-in accounts, in snapshot order: the choices of the quick-reply account picker. */
+  readonly accounts: readonly UiAccount[];
+  /** `accountKey` of the account the user wants quick replies for (picked, or the first default); kept while it is offline. */
+  readonly qrPreferred: string | null;
+  /** The account quick replies and the web personal settings act for (current generation); `null` while the preferred one is offline. */
+  readonly qrAccount: AccountContext | null;
+  /** A quick-reply write is in flight: the account picker is locked until it settles. */
+  readonly qrBusy: boolean;
   readonly version: string | null;
 }
 
 const params = new URLSearchParams(location.search).get('section');
-const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'general', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, account: null, version: null });
+const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'quick_replies', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, accounts: [], qrPreferred: null, qrAccount: null, qrBusy: false, version: null });
 const sel = selectIpc();
 const ipc = sel.ipc;
 installWindowChrome((command, payload) => ipc.invoke(command, payload));
@@ -81,6 +90,14 @@ const refreshRecovery = () => void recovery.refresh();
 window.addEventListener('focus', refreshRecovery);
 window.addEventListener('pagehide', () => { recovery.dispose(); window.removeEventListener('focus', refreshRecovery); }, { once: true });
 
+/**
+ * The quick-reply manager owns this host's children. The settings page passes the same
+ * (connected) element on every paint, so the morph keeps it in place with its state.
+ */
+const qrHost = document.createElement('div');
+qrHost.className = 'set-qr-host';
+const quickReplies = mountQuickReplyManager(qrHost, { invoke: (command, payload) => ipc.invoke(command, payload), account: null, onBusyChange: (busy) => store.patch({ qrBusy: busy }) });
+window.addEventListener('pagehide', () => quickReplies.destroy(), { once: true });
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function toast(text: string): void {
@@ -243,6 +260,50 @@ async function refreshTsimStatus(): Promise<void> {
   }
 }
 
+// ---- quick replies: account binding
+
+/**
+ * Account list or generation changed: follow the preferred account (with its new generation)
+ * while it is logged in; while it is offline bind none and say so, never silently another one.
+ * This runs even while a quick-reply write is in flight: the old context is no longer valid.
+ * `setAccount` is a no-op for the same context, so an unrelated account change keeps the manager as is.
+ */
+function applyAccounts(snap: UiAccountSnapshot): void {
+  const accounts = loggedInAccounts(snap);
+  const { preferred, account } = pickQuickReplyAccount(accounts, store.get().qrPreferred);
+  store.patch({ accounts, qrPreferred: preferred, qrAccount: account });
+  quickReplies.setAccount(account);
+}
+
+/**
+ * Subscribe first and wait until the host has the listener, then read the snapshot; an account
+ * event that arrives before the reply is newer, so the reply is dropped.
+ */
+async function loadAccounts(): Promise<void> {
+  let events = 0;
+  const onChanged = guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, (snap) => { events++; applyAccounts(snap); });
+  try {
+    if (ipc.listenReady) await ipc.listenReady<unknown>(Events.ACCOUNT_CHANGED, onChanged);
+    else ipc.listen<unknown>(Events.ACCOUNT_CHANGED, onChanged);
+  } catch { /* no live updates; the snapshot below still fills the picker */ }
+  const seen = events;
+  try {
+    const snap = await ipc.invoke<unknown>(AccountCommands.SNAPSHOT);
+    if (events === seen && isUiAccountSnapshot(snap)) applyAccounts(snap);
+  } catch { /* the picker stays as it is */ }
+}
+
+/**
+ * A manual pick becomes the preference. While a quick-reply write is in flight the picker is
+ * disabled and a pick is ignored; the repaint puts the select back on the bound account.
+ */
+function pickQrAccount(key: string): void {
+  const picked = store.get().accounts.find((a) => accountKey(a.context) === key);
+  if (!picked || store.get().qrBusy || quickReplies.busy()) { store.patch({}); return; }
+  store.patch({ qrPreferred: key, qrAccount: picked.context });
+  quickReplies.setAccount(picked.context);
+}
+
 // ---- row helpers
 
 function head(label: string): HTMLElement {
@@ -267,22 +328,39 @@ function text(label: string, value: string, desc: string | null): HTMLElement {
 
 // ---- sections
 
-function generalSection(s: SettingState, p: PrefsSnapshot): Child[] {
+/**
+ * 账号业务 · 快捷回复: account picker, the shared manager (fixed height, scrolls inside), web personal settings.
+ * While the preferred account is offline the picker shows a placeholder for it and a hint, and binds nothing.
+ */
+function quickRepliesSection(s: SettingState): Child[] {
+  const current = s.qrAccount ? accountKey(s.qrAccount) : '';
+  const offline = s.qrPreferred !== null && !s.qrAccount;
+  const options = s.accounts.map((a) => h('option', { value: accountKey(a.context), selected: accountKey(a.context) === current }, accountOptionLabel(a)));
+  return [
+    row(
+      S.account,
+      t('set.qr.accountDesc'),
+      h(
+        'select',
+        { class: 'sel', 'aria-label': S.account, disabled: s.accounts.length === 0 || s.qrBusy, dataset: { action: 'qr-account' }, onchange: (e: Event) => pickQrAccount((e.target as HTMLSelectElement).value) },
+        offline ? h('option', { value: '', selected: true, disabled: true }, t('set.qr.preferredOffline')) : null,
+        options.length > 0 || offline ? options : h('option', { value: '' }, t('set.qr.noAccount')),
+      ),
+      offline ? h('div', { class: 'notice-box warn', role: 'status', dataset: { qrOffline: '1' } }, t('set.qr.preferredOfflineHint')) : null,
+    ),
+    qrHost,
+    row(S.personalSettings, t('set.webHint'), h('button', { class: 'btn sm', disabled: !s.qrAccount, dataset: { action: 'personal-settings' }, onclick: () => void ipc.invoke(UiCommands.SHELL_OPEN_WEBVIEW, { account: s.qrAccount, url: PERSONAL_SETTINGS_URL }).catch((e: unknown) => toast(msg(e))) }, S.open)),
+  ];
+}
+
+function generalSection(p: PrefsSnapshot): Child[] {
   return [
     head(t('set.general.startup')),
     toggle(t('set.general.autostart'), null, p.general.autostart, (v) => void setPref('general', 'autostart', v), 'general.autostart'),
     segment(t('set.general.closeAction'), null, [{ value: 'tray', label: t('set.general.closeTray') }, { value: 'quit', label: t('set.general.closeQuit') }], p.general.close_action, (v) => void setPref('general', 'close_action', v), 'general.close_action'),
-    head(t('set.general.chat')),
+    head(t('set.general.display')),
     toggle(t('set.general.msgTime'), null, p.general.show_msg_time, (v) => void setPref('general', 'show_msg_time', v), 'general.show_msg_time'),
-    head(S.account),
-    row(S.personalSettings, t('set.webHint'), h('button', { class: 'btn sm', disabled: !s.account, dataset: { action: 'personal-settings' }, onclick: () => void ipc.invoke(UiCommands.SHELL_OPEN_WEBVIEW, { account: s.account, url: PERSONAL_SETTINGS_URL }).catch((e: unknown) => toast(msg(e))) }, S.open)),
-  ];
-}
-
-function displaySection(p: PrefsSnapshot): Child[] {
-  return [
     segment(t('set.display.zoom'), t('set.display.zoomDesc'), ZOOM_OPTIONS.map((z) => ({ value: z, label: `${z}%` })), p.display.zoom, (v) => void setPref('display', 'zoom', v), 'display.zoom'),
-    text(t('set.display.gpu'), t('set.display.managed'), t('set.display.gpuDesc')),
   ];
 }
 
@@ -308,7 +386,6 @@ function notifySection(p: PrefsSnapshot): Child[] {
     toggle(t('set.notify.dndSchedule'), t('set.notify.dndScheduleDesc'), p.dnd.schedule_enabled, (v) => void setPref('dnd', 'schedule_enabled', v), 'dnd.schedule_enabled'),
     toggle(t('set.notify.dndFollow'), platform === 'macos' ? t('set.notify.dndFollowMac') : t('set.notify.dndFollowWin'), p.dnd.follow_system, (v) => void setPref('dnd', 'follow_system', v), 'dnd.follow_system'),
     toggle(t('set.notify.dndKeep'), t('set.notify.dndKeepDesc'), r.alert_during_dnd, (v) => void setReminder('alert_during_dnd', v), 'reminder.alert_during_dnd'),
-    head(t('set.notify.fullscreen')),
     toggle(t('set.notify.fullKeep'), null, r.alert_during_fullscreen, (v) => void setReminder('alert_during_fullscreen', v), 'reminder.alert_during_fullscreen'),
     head(t('set.notify.tray')),
     toggle(t('set.notify.trayFlash'), null, r.tray_flash, (v) => void setReminder('tray_flash', v), 'reminder.tray_flash'),
@@ -347,7 +424,7 @@ function shortcutRow(p: PrefsSnapshot, key: ShortcutKey, label: string): HTMLEle
   const s = store.get(), error = s.shortcutErrors?.[key], fid = `shortcut-${key}`;
   const stopKey = (e: KeyboardEvent) => e.stopPropagation();
   return row(label, t('set.runtime.shortcutCurrent', { shortcut: p.keys[key] }), h('form', { class: 'shortcut-form', onsubmit: (e: Event) => { e.preventDefault(); e.stopPropagation(); void saveShortcut(key); } },
-    h('input', { class: 'inp', type: 'text', value: s.shortcutDrafts?.[key] ?? p.keys[key], 'aria-label': label, 'aria-describedby': `${fid}-help`, 'aria-invalid': error ? 'true' : 'false', placeholder: t('set.runtime.shortcutPlaceholder'), autocomplete: 'off', spellcheck: false, dataset: { fid }, oninput: (e: Event) => editShortcut(key, (e.target as HTMLInputElement).value), onkeydown: stopKey, onkeyup: stopKey }),
+    h('input', { class: 'inp', type: 'text', value: s.shortcutDrafts?.[key] ?? p.keys[key], 'aria-label': label, 'aria-describedby': `${fid}-help`, 'aria-invalid': error ? 'true' : 'false', placeholder: t('set.runtime.shortcutPlaceholder'), autocomplete: 'off', spellcheck: false, dataset: { fid, setting: `keys.${key}` }, oninput: (e: Event) => editShortcut(key, (e.target as HTMLInputElement).value), onkeydown: stopKey, onkeyup: stopKey }),
     h('button', { class: 'btn sm', type: 'submit', disabled: !!s.shortcutBusy?.[key], dataset: { fid: `${fid}-save` } }, s.shortcutBusy?.[key] ? t('set.runtime.saving') : t('set.runtime.save')),
     h('span', { id: `${fid}-help`, class: error ? 'hint-bad' : 'muted', ...(error ? { role: 'alert' } : {}) }, error ?? t('set.runtime.shortcutHelp'))));
 }
@@ -385,64 +462,63 @@ function assistantSection(s: SettingState, p: PrefsSnapshot): Child[] {
   ];
 }
 
-function networkSection(s: SettingState, p: PrefsSnapshot): Child[] {
+/** 关于与更新: version / update, IM status and proxy, data directory and diagnostics. */
+function aboutSection(s: SettingState, p: PrefsSnapshot): Child[] {
   const net = s.net;
-  return [
-    toggle(t('set.net.proxy'), t('set.net.proxyDesc'), p.network.system_proxy, (v) => void setPref('network', 'system_proxy', v), 'network.system_proxy'),
-    text(t('set.net.status'), net ? (net.online ? `${t('bar.net.online')} · ${net.transport}` : t('bar.net.offline')) : t('app.loading'), null),
-  ];
-}
-
-function storageSection(): Child[] {
-  return [
-    text(t('set.storage.cacheDays'), t('set.storage.cacheNone'), t('set.storage.cacheNoneDesc')),
-    row(t('set.storage.openData'), null, h('button', { class: 'btn sm', onclick: () => void ipc.invoke(ShellCommands.OPEN_DATA_DIRECTORY).catch((e: unknown) => toast(msg(e))) }, t('set.storage.open'))),
-  ];
-}
-
-function privacySection(): Child[] {
-  return [
-    text(t('set.privacy.analytics'), t('set.privacy.notCollected'), t('set.privacy.analyticsDesc')),
-    text(t('set.privacy.crash'), t('set.privacy.notCollected'), t('set.privacy.crashDesc')),
-    row(t('set.privacy.diag'), t('set.privacy.diagDesc'), h('button', { class: 'btn sm', onclick: () => void ipc.invoke<boolean>(ShellCommands.EXPORT_DIAGNOSTICS).then((saved) => { if (saved) toast(t('set.runtime.diagnosticsExported')); }).catch((e: unknown) => toast(msg(e))) }, t('set.privacy.export'))),
-  ];
-}
-
-function aboutSection(s: SettingState): Child[] {
   return [
     text(S.version, s.version ?? S.versionUnknown, null),
     row(S.checkUpdate, S.checkUpdateDesc, h('button', { class: 'btn sm pri', dataset: { action: 'check-update' }, onclick: () => void ipc.invoke(UiCommands.SHELL_OPEN_WINDOW, { label: 'update' }).catch((e: unknown) => toast(msg(e))) }, S.checkUpdate)),
+    head(t('set.about.network')),
+    text(t('set.net.status'), net ? (net.online ? `${t('bar.net.online')} · ${net.transport}` : t('bar.net.offline')) : t('app.loading'), null),
+    toggle(t('set.net.proxy'), t('set.net.proxyDesc'), p.network.system_proxy, (v) => void setPref('network', 'system_proxy', v), 'network.system_proxy'),
+    head(t('set.about.data')),
+    row(t('set.about.dataDir'), null, h('button', { class: 'btn sm', dataset: { action: 'open-data-dir' }, onclick: () => void ipc.invoke(ShellCommands.OPEN_DATA_DIRECTORY).catch((e: unknown) => toast(msg(e))) }, S.open)),
+    row(t('set.about.diag'), t('set.about.diagDesc'), h('button', { class: 'btn sm', dataset: { action: 'export-diagnostics' }, onclick: () => void ipc.invoke<boolean>(ShellCommands.EXPORT_DIAGNOSTICS).then((saved) => { if (saved) toast(t('set.runtime.diagnosticsExported')); }).catch((e: unknown) => toast(msg(e))) }, t('set.about.export'))),
   ];
 }
 
-function sectionContent(id: SectionId, s: SettingState, p: PrefsSnapshot): Child[] {
+function sectionContent(id: SectionId, s: SettingState): Child[] {
+  if (id === 'quick_replies') return quickRepliesSection(s);
+  const p = s.prefs;
+  if (!p) return [];
   switch (id) {
     case 'general':
-      return generalSection(s, p);
-    case 'display':
-      return displaySection(p);
+      return generalSection(p);
     case 'notify':
       return notifySection(p);
     case 'keys':
       return keysSection(p);
     case 'assistant':
       return assistantSection(s, p);
-    case 'network':
-      return networkSection(s, p);
-    case 'storage':
-      return storageSection();
-    case 'privacy':
-      return privacySection();
     case 'about':
-      return aboutSection(s);
+      return aboutSection(s, p);
     default:
       return [];
   }
 }
 
-/** 全部分类依次排开；每个分类以大标题开头，小标题仍由各 section 自己给。 */
-function body(s: SettingState, p: PrefsSnapshot): Child[] {
-  return SECTIONS.map((sec) => h('section', { class: 'set-sec', dataset: { setSection: sec.id }, 'aria-labelledby': `set-sec-${sec.id}` }, h('h2', { class: 'set-sec-h', id: `set-sec-${sec.id}` }, sectionLabel(sec)), ...sectionContent(sec.id, s, p)));
+/**
+ * 全部分类依次排开；每个分类以大标题开头，小标题仍由各 section 自己给。
+ * 账号业务不依赖本机设置快照，总是渲染；桌面偏好等快照到达，在此之前由加载中或错误与重试占位。
+ */
+function body(s: SettingState): Child[] {
+  return [
+    ...SECTIONS.filter((sec) => s.prefs || !sectionNeedsPrefs(sec.id)).map((sec) => h('section', { class: 'set-sec', dataset: { setSection: sec.id }, 'aria-labelledby': `set-sec-${sec.id}` }, h('h2', { class: 'set-sec-h', id: `set-sec-${sec.id}` }, sectionLabel(sec)), ...sectionContent(sec.id, s))),
+    s.loadError ? h('div', { class: 'notice-box err', role: 'alert' }, s.loadError, h('button', { class: 'btn sm', dataset: { action: 'retry-settings' }, disabled: s.loading, onclick: () => void loadSettings() }, s.loading ? t('set.runtime.retrying') : t('set.runtime.retrySettings'))) : null,
+    !s.prefs && !s.loadError ? h('div', { class: 'muted', role: 'status' }, t('app.loading')) : null,
+  ];
+}
+
+/** 两组导航：组名 + 该组分类按钮，顺序与长页面一致。 */
+function nav(s: SettingState): HTMLElement {
+  return h(
+    'nav',
+    { class: 'setnav', 'aria-label': t('set.title') },
+    SECTION_GROUPS.flatMap((g) => [
+      h('div', { class: 'setnav-g', dataset: { group: g.id } }, sectionLabel(g)),
+      ...SECTIONS.filter((sec) => sec.group === g.id).map((sec) => h('button', { class: cx({ on: s.section === sec.id }), type: 'button', 'aria-current': s.section === sec.id ? 'true' : null, dataset: { section: sec.id }, onclick: () => void selectSection(sec.id) }, sectionLabel(sec))),
+    ]),
+  );
 }
 
 function closeWindow(): void {
@@ -468,8 +544,18 @@ function titleBar(s: SettingState): HTMLElement {
 /** 点击导航后短时间内不让 scroll-spy 改回高亮。 */
 let spyLock: SpyLock | null = null;
 let spyFrame = 0;
-/** 首次拿到设置内容后，把 URL 指定的分类滚到顶部（只做一次）。 */
+/**
+ * 还没能滚过去的分类：URL 指定的，或在它渲染出来之前（设置快照未到）经深链、导航选中的。
+ * 每次绘制后若它已渲染就滚到顶部，只做一次；之后的任何选择都会替换它。
+ */
 let pendingInitialScroll: SectionId | null = isSectionId(params) ? params : null;
+/** 深链指向商家助手：滚到之后还要露出 TSim 登录行；之后的任何选择都会取消它。 */
+let pendingTsimReveal = false;
+/** 用户每次点导航都 +1；深链结果到达前用户已自己选过，深链就不再改分类。 */
+let settingsNavigationVersion = 0;
+let takingDeepLinkSection = false;
+let deepLinkSectionIntent = settingsNavigationVersion;
+let deepLinkSectionSerial = 0;
 
 function sectionTops(scroller: HTMLElement): { id: SectionId; top: number }[] {
   const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
@@ -490,12 +576,18 @@ function scrollToSection(id: SectionId, instant: boolean): boolean {
   return true;
 }
 
-/** 导航点击：先锁住高亮再滚动。仅换分类，不碰 TSim 表单/导入凭据（它们只在提交与关窗时清除）。 */
-function selectSection(id: SectionId, fromUser = true): void {
+/**
+ * 导航点击或深链：先锁住高亮再滚动。仅换分类，不碰 TSim 表单/导入凭据（它们只在提交与关窗时清除）。
+ * 该分类还没渲染时记为待滚动，由 paint 补上；返回是否已经滚过去。
+ */
+function selectSection(id: SectionId, fromUser = true): boolean {
   if (fromUser) settingsNavigationVersion++; // a user choice supersedes a pending deep-link section
+  pendingTsimReveal = false;
   spyLock = { id, until: performance.now() + SPY_LOCK_MS };
   if (store.get().section !== id) store.patch({ section: id });
-  scrollToSection(id, false);
+  const scrolled = scrollToSection(id, false);
+  pendingInitialScroll = scrolled ? null : id;
+  return scrolled;
 }
 
 /** TSim 入口：滚到登录行中部；未登录时聚焦用户名。 */
@@ -505,6 +597,31 @@ function revealTsimLogin(): void {
   const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   row.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
   root?.querySelector<HTMLInputElement>('[data-fid="tsim-user"]')?.focus({ preventScroll: true });
+}
+
+/** 绘制之后：待滚动的分类已渲染就瞬时滚过去，并补上深链要求的 TSim 登录行定位。 */
+function flushPendingSection(): void {
+  const id = pendingInitialScroll;
+  if (!id || !scrollToSection(id, true)) return;
+  pendingInitialScroll = null;
+  spyLock = { id, until: performance.now() + SPY_LOCK_MS };
+  if (pendingTsimReveal) { pendingTsimReveal = false; revealTsimLogin(); }
+}
+
+/** 取走宿主暂存的深链分类；设置快照未到时先记下，由 paint 在分类渲染后滚动并定位 TSim。 */
+async function takeDeepLinkSection(): Promise<void> {
+  if (takingDeepLinkSection) return;
+  takingDeepLinkSection = true;
+  const previous = deepLinkSectionIntent;
+  const serial = deepLinkSectionSerial;
+  try {
+    const section = await ipc.invoke<unknown>(UiCommands.DEEP_LINK_SETTING_TAKE);
+    if (serial === deepLinkSectionSerial && typeof section === 'string' && isSectionId(section) && settingsNavigationVersion === previous) {
+      const scrolled = selectSection(section, false);
+      if (section === 'assistant') { if (scrolled) revealTsimLogin(); else pendingTsimReveal = true; }
+    }
+  } catch { /* The settings window can mount before the host contract is ready. */ }
+  finally { takingDeepLinkSection = false; if (serial !== deepLinkSectionSerial) void takeDeepLinkSection(); }
 }
 
 function onBodyScroll(e: Event): void {
@@ -528,40 +645,20 @@ function render(s: SettingState): Node {
     h(
       'div',
       { class: 'setbody-wrap' },
-      h('nav', { class: 'setnav', 'aria-label': t('set.group.desktop') }, h('div', { class: 'setnav-g' }, t('set.group.desktop')), SECTIONS.map((sec) => h('button', { class: cx({ on: s.section === sec.id }), type: 'button', 'aria-current': s.section === sec.id ? 'true' : null, dataset: { section: sec.id }, onclick: () => selectSection(sec.id) }, sectionLabel(sec)))),
-      h('div', { class: 'setbody', dataset: { keepScroll: 'set' }, onscroll: onBodyScroll }, s.loadError ? h('div', { class: 'notice-box err', role: 'alert' }, s.loadError, h('button', { class: 'btn sm', dataset: { action: 'retry-settings' }, disabled: s.loading, onclick: () => void loadSettings() }, s.loading ? t('set.runtime.retrying') : t('set.runtime.retrySettings'))) : null, s.prefs ? body(s, s.prefs) : !s.loadError ? h('div', { class: 'muted', role: 'status' }, t('app.loading')) : null),
+      nav(s),
+      h('div', { class: 'setbody', dataset: { keepScroll: 'set' }, onscroll: onBodyScroll }, body(s)),
     ),
     s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast) : null,
   );
 }
 
-function activeAccountPatch(snap: UiAccountSnapshot): Pick<SettingState, 'account'> {
-  const a = snap.accounts.find((x) => x.context.account_id === snap.active_account_id) ?? null;
-  return { account: a?.context ?? null };
-}
-
 // 增量 morph：滚动容器 .setbody 原地保留，滚动（含平滑滚动）不会被重渲染打断。
 function paint(s: SettingState): void {
   rerender(root!, () => render(s), { morph: true });
-  if (pendingInitialScroll && s.prefs && scrollToSection(pendingInitialScroll, true)) pendingInitialScroll = null;
+  flushPendingSection();
 }
 subscribeBatched(store, paint);
 paint(store.get());
-let settingsNavigationVersion = 0;
-let takingDeepLinkSection = false;
-let deepLinkSectionIntent = settingsNavigationVersion;
-let deepLinkSectionSerial = 0;
-async function takeDeepLinkSection(): Promise<void> {
-  if (takingDeepLinkSection) return;
-  takingDeepLinkSection = true;
-  const previous = deepLinkSectionIntent;
-  const serial = deepLinkSectionSerial;
-  try {
-    const section = await ipc.invoke<unknown>(UiCommands.DEEP_LINK_SETTING_TAKE);
-    if (serial === deepLinkSectionSerial && typeof section === 'string' && isSectionId(section) && settingsNavigationVersion === previous) { selectSection(section, false); if (section === 'assistant') revealTsimLogin(); }
-  } catch { /* The settings window can mount before the host contract is ready. */ }
-  finally { takingDeepLinkSection = false; if (serial !== deepLinkSectionSerial) void takeDeepLinkSection(); }
-}
 if (!sel.mock) {
   void ipc.listen('deeplink://setting-pending', () => { deepLinkSectionSerial++; deepLinkSectionIntent = settingsNavigationVersion; void takeDeepLinkSection(); });
   // The event above is the live path; the poll only covers a missed event, so a hidden page skips it.
@@ -574,13 +671,7 @@ if (!sel.mock) {
 
 
 ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, applySettingsSnapshot));
-ipc.listen<unknown>(Events.ACCOUNT_CHANGED, guarded(Events.ACCOUNT_CHANGED, isUiAccountSnapshot, (snap) => store.patch(activeAccountPatch(snap))));
-void ipc
-  .invoke<unknown>(AccountCommands.SNAPSHOT)
-  .then((snap) => {
-    if (isUiAccountSnapshot(snap)) store.patch(activeAccountPatch(snap));
-  })
-  .catch(() => undefined);
+void loadAccounts();
 // Tauri core `app` plugin (granted by core:default); the mock has no version.
 if (!sel.mock) {
   void ipc

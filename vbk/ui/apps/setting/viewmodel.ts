@@ -1,35 +1,54 @@
 /** Pure settings logic (no DOM): sections, validation, command mapping. */
 
-import type { AlarmCorner, ReminderSettings } from '../../packages/ipc/src/contracts.ts';
+import type { AccountContext, AlarmCorner, ReminderSettings } from '../../packages/ipc/src/contracts.ts';
 import { ALLOWED_T1_SECONDS } from '../../packages/ipc/src/contracts.ts';
 import { NotifyCommands } from '../../packages/ipc/src/commands.ts';
-import type { PrefsSection, PrefsSnapshot, UiTsimStatus } from '../../packages/ipc/src/client.ts';
+import type { PrefsSection, PrefsSnapshot, UiAccount, UiAccountSnapshot, UiTsimStatus } from '../../packages/ipc/src/client.ts';
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import type { I18nKey } from '../../packages/ui-kit/src/i18n.ts';
-import { SETTING_STRINGS } from './strings.ts';
 
-export type SectionId = 'general' | 'display' | 'notify' | 'keys' | 'assistant' | 'network' | 'storage' | 'privacy' | 'about';
+/** Mirrored by `SETTING_SECTIONS` in `crates/core-update/src/deeplink.rs` (checked by `sections-consistency.test.ts`). */
+export type SectionId = 'quick_replies' | 'general' | 'notify' | 'keys' | 'assistant' | 'about';
 
-/** Nav entries (prototype 「桌面偏好（本机）」 group); `label` is window-local copy where i18n has no key. */
-export const SECTIONS: readonly ({ id: SectionId; labelKey: I18nKey; label?: undefined } | { id: SectionId; labelKey?: undefined; label: string })[] = [
-  { id: 'general', labelKey: 'set.general' },
-  { id: 'display', labelKey: 'set.display' },
-  { id: 'notify', labelKey: 'set.notify' },
-  { id: 'keys', labelKey: 'set.keys' },
-  { id: 'assistant', label: SETTING_STRINGS.assistant },
-  { id: 'network', labelKey: 'set.network' },
-  { id: 'storage', labelKey: 'set.storage' },
-  { id: 'privacy', labelKey: 'set.privacy' },
-  { id: 'about', label: SETTING_STRINGS.about },
+/** Nav groups: `account` edits the chosen account's data on the official site, `desktop` only this machine. */
+export type SectionGroup = 'account' | 'desktop';
+
+export interface SectionEntry {
+  readonly id: SectionId;
+  readonly group: SectionGroup;
+  readonly labelKey: I18nKey;
+}
+
+/** Page and nav order; each group's entries are contiguous. */
+export const SECTIONS: readonly SectionEntry[] = [
+  { id: 'quick_replies', group: 'account', labelKey: 'set.quickReplies' },
+  { id: 'general', group: 'desktop', labelKey: 'set.general' },
+  { id: 'notify', group: 'desktop', labelKey: 'set.notify' },
+  { id: 'keys', group: 'desktop', labelKey: 'set.keys' },
+  { id: 'assistant', group: 'desktop', labelKey: 'set.assistant' },
+  { id: 'about', group: 'desktop', labelKey: 'set.about' },
 ];
 
-export function sectionLabel(sec: (typeof SECTIONS)[number]): string {
-  return sec.labelKey !== undefined ? t(sec.labelKey) : sec.label;
+export const SECTION_GROUPS: readonly { readonly id: SectionGroup; readonly labelKey: I18nKey }[] = [
+  { id: 'account', labelKey: 'set.group.account' },
+  { id: 'desktop', labelKey: 'set.group.desktop' },
+];
+
+export function sectionLabel(sec: { readonly labelKey: I18nKey }): string {
+  return t(sec.labelKey);
 }
 
 export function isSectionId(s: string | null): s is SectionId {
   return SECTIONS.some((x) => x.id === s);
+}
+
+/**
+ * Desktop sections render from the preferences snapshot and wait for it; account sections
+ * (quick replies) act on the chosen account and render without it.
+ */
+export function sectionNeedsPrefs(id: SectionId): boolean {
+  return SECTIONS.find((x) => x.id === id)?.group !== 'account';
 }
 
 export function isAllowedT1(n: number): n is (typeof ALLOWED_T1_SECONDS)[number] {
@@ -172,3 +191,41 @@ export const ZOOM_OPTIONS: readonly PrefsSnapshot['display']['zoom'][] = [75, 10
 
 /** Official IM page that hosts the web personal settings; opened in the main window's browser tabs. */
 export const PERSONAL_SETTINGS_URL = 'https://vbooking.ctrip.com/vbk/im/main';
+
+// ---- quick replies: account picker
+
+/** Accounts the quick-reply manager may act for: only logged-in (`online`) ones, in snapshot order. */
+export function loggedInAccounts(snap: UiAccountSnapshot): readonly UiAccount[] {
+  return snap.accounts.filter((a) => a.state === 'online');
+}
+
+/** Stable option value for an account (identity without the generation). */
+export function accountKey(ctx: AccountContext): string {
+  return `${ctx.environment}:${ctx.account_id}`;
+}
+
+/** Same naming as the main window's account tabs: remark first, else nick. */
+export function accountOptionLabel(a: UiAccount): string {
+  return a.remark && a.remark.trim() ? a.remark : a.nick;
+}
+
+/** The quick-reply account binding: whom the user wants, and the context the manager acts for now. */
+export interface QuickReplyBinding {
+  /** `accountKey` of the account the user picked (or the default adopted for them); `null` until there is one. */
+  readonly preferred: string | null;
+  /** The preferred account's current context while it is logged in; `null` while it is offline. */
+  readonly account: AccountContext | null;
+}
+
+/**
+ * Follows the preferred account: while it is logged in, its current context (a new
+ * `session_generation` included); while it is offline, none, never silently another account.
+ * Without a preference yet, the first logged-in account is adopted as the preference.
+ */
+export function pickQuickReplyAccount(online: readonly UiAccount[], preferred: string | null): QuickReplyBinding {
+  if (preferred === null) {
+    const first = online[0]?.context ?? null;
+    return { preferred: first ? accountKey(first) : null, account: first };
+  }
+  return { preferred, account: online.find((a) => accountKey(a.context) === preferred)?.context ?? null };
+}

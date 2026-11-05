@@ -26,17 +26,38 @@ pub const MAX_ARGS_SCANNED: usize = 16;
 
 /// Setting sections a deep link may open (mirrors `SECTIONS` in
 /// `ui/apps/setting/viewmodel.ts`).
-pub const SETTING_SECTIONS: [&str; 9] = [
+pub const SETTING_SECTIONS: [&str; 6] = [
+    "quick_replies",
     "general",
-    "display",
     "notify",
     "keys",
     "assistant",
-    "network",
-    "storage",
-    "privacy",
     "about",
 ];
+
+/// Section names from before the 2026-11-05 settings rework, and the
+/// section that now holds their content. Old links keep working.
+const LEGACY_SETTING_SECTIONS: [(&str, &str); 4] = [
+    ("display", "general"),
+    ("network", "about"),
+    ("storage", "about"),
+    ("privacy", "about"),
+];
+
+/// Canonical section for `name`: current names map to themselves, legacy
+/// names to the section that absorbed them, anything else is `None`.
+pub fn normalize_setting_section(name: &str) -> Option<&'static str> {
+    SETTING_SECTIONS
+        .iter()
+        .copied()
+        .find(|s| *s == name)
+        .or_else(|| {
+            LEGACY_SETTING_SECTIONS
+                .iter()
+                .find(|(old, _)| *old == name)
+                .map(|(_, new)| *new)
+        })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeepLinkAction {
@@ -197,9 +218,7 @@ pub fn parse(input: &str) -> Result<DeepLinkAction, DeepLinkError> {
     match (action, value) {
         ("open", None) => Ok(DeepLinkAction::FocusMain),
         ("conversation", Some(session_id)) => Ok(DeepLinkAction::OpenConversation { session_id }),
-        ("settings", Some(s)) => SETTING_SECTIONS
-            .iter()
-            .find(|x| **x == s)
+        ("settings", Some(s)) => normalize_setting_section(&s)
             .map(|section| DeepLinkAction::OpenSettings { section })
             .ok_or(DeepLinkError::BadValue),
         ("open", Some(_)) => Err(DeepLinkError::UnknownParam),
@@ -271,6 +290,69 @@ mod tests {
             parse("vbkdesk://settings?section=notify"),
             Ok(DeepLinkAction::OpenSettings { section: "notify" })
         );
+    }
+
+    #[test]
+    fn setting_sections_normalize_current_and_legacy_names() {
+        assert_eq!(
+            SETTING_SECTIONS,
+            [
+                "quick_replies",
+                "general",
+                "notify",
+                "keys",
+                "assistant",
+                "about"
+            ]
+        );
+        for section in SETTING_SECTIONS {
+            assert_eq!(normalize_setting_section(section), Some(section));
+            assert_eq!(
+                parse(&format!("vbkdesk://settings?section={section}")),
+                Ok(DeepLinkAction::OpenSettings { section })
+            );
+        }
+        for (old, new) in [
+            ("display", "general"),
+            ("network", "about"),
+            ("storage", "about"),
+            ("privacy", "about"),
+        ] {
+            assert_eq!(normalize_setting_section(old), Some(new), "{old}");
+            let action = DeepLinkAction::OpenSettings { section: new };
+            assert_eq!(
+                parse(&format!("vbkdesk://settings?section={old}")),
+                Ok(action.clone())
+            );
+            // The canonical link carries the new name, never the legacy one.
+            assert_eq!(
+                action.to_link(),
+                format!("vbkdesk://settings?section={new}")
+            );
+            assert!(action.is_within_whitelist());
+        }
+        for unknown in [
+            "",
+            "nonexistent",
+            "Display",
+            "GENERAL",
+            "quick-replies",
+            "quickReplies",
+            "general ",
+            "about/",
+            "gpu",
+            "cache_days",
+        ] {
+            assert_eq!(normalize_setting_section(unknown), None, "{unknown:?}");
+        }
+        for link in [
+            "vbkdesk://settings?section=nonexistent",
+            "vbkdesk://settings?section=Display",
+            "vbkdesk://settings?section=quick-replies",
+            "vbkdesk://settings?section=display&x=1",
+        ] {
+            assert!(parse(link).is_err(), "{link:?}");
+        }
     }
 
     #[test]

@@ -112,7 +112,7 @@ export function isUiMessage(x: unknown): x is UiMessage {
 
 export function isPrefsSnapshot(x: unknown): x is PrefsSnapshot {
   if (!rec(x)) return false;
-  for (const k of ['reminder', 'general', 'display', 'keys', 'assistant', 'dnd', 'network', 'storage', 'privacy']) if (!rec(x[k])) return false;
+  for (const k of ['reminder', 'general', 'display', 'keys', 'assistant', 'dnd', 'network']) if (!rec(x[k])) return false;
   const r = x['reminder'] as Rec;
   const a = x['assistant'] as Rec;
   return bool(r['enabled']) && num(r['t1_seconds']) && bool(a['enabled']) && str(a['send_mode']);
