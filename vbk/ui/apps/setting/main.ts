@@ -614,7 +614,10 @@ async function takeDeepLinkSection(): Promise<void> {
 }
 if (!sel.mock) {
   void ipc.listen('deeplink://setting-pending', () => { deepLinkSectionSerial++; deepLinkSectionIntent = settingsNavigationVersion; void takeDeepLinkSection(); });
-  const deepLinkTimer = setInterval(() => void takeDeepLinkSection(), 2000);
+  // The event above is the live path; the poll only covers a missed event, so a hidden page skips it.
+  const visible = (): boolean => document.visibilityState !== 'hidden';
+  const deepLinkTimer = setInterval(() => { if (visible()) void takeDeepLinkSection(); }, 2000);
+  document.addEventListener('visibilitychange', () => { if (visible()) void takeDeepLinkSection(); });
   window.addEventListener('pagehide', () => clearInterval(deepLinkTimer), { once: true });
   void takeDeepLinkSection();
 }

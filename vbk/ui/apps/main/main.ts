@@ -3510,7 +3510,9 @@ async function takeDeepLinks(): Promise<void> {
 }
 if (!sel.mock) {
   void ipc.listen('deeplink://pending', () => { deepLinkSerial++; store.patch({ navigationOperation: {} }); deepLinkIntent = S(); void takeDeepLinks(); });
-  const deepLinkTimer = setInterval(() => void takeDeepLinks(), 2000);
+  // The event above is the live path; the poll only covers a missed event, so a hidden page skips it.
+  const deepLinkTimer = setInterval(() => { if (!pageHidden()) void takeDeepLinks(); }, 2000);
+  document.addEventListener('visibilitychange', () => { if (!pageHidden()) void takeDeepLinks(); });
   window.addEventListener('pagehide', () => clearInterval(deepLinkTimer), { once: true });
   void takeDeepLinks();
 }
@@ -3569,7 +3571,8 @@ ipc.listen<unknown>(HostEvents.BANNER, guarded(HostEvents.BANNER, isBannerPayloa
 ipc.listen<unknown>(HostEvents.PLAY_SOUND, guarded(HostEvents.PLAY_SOUND, isSoundName, onPlaySound));
 ipc.listen<unknown>(HostEvents.STOP_SOUND, () => stopSound());
 
-setInterval(() => {
+function tickClockAndBanners(): void {
+  if (pageHidden()) return;
   const now = Date.now();
   if (clockEl) { const text = `${formatDate(now)} ${formatClock(now, true)}`; if (clockEl.textContent !== text) clockEl.textContent = text; }
   const s = S();
@@ -3583,7 +3586,9 @@ setInterval(() => {
   }
   const next = expireBanners(banners, now, hoverAt !== null);
   if (next !== s.banners || hoverAt !== s.bannerHoverAt) store.patch({ banners: next, bannerHoverAt: hoverAt });
-}, 500);
+}
+setInterval(tickClockAndBanners, 500);
+document.addEventListener('visibilitychange', tickClockAndBanners);
 setInterval(() => {
   if (document.visibilityState !== 'visible') return;
   const s = S(), now = Date.now();
