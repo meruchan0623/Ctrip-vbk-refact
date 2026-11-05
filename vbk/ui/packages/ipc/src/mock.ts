@@ -42,6 +42,14 @@ import type {
   UiOrderReissue,
   UiPackageDetail,
   UiTsimStatus,
+  UiQuickReplyCategories,
+  UiQuickReplyCategory,
+  UiQuickReplyEdit,
+  UiQuickReplyEditReason,
+  UiQuickReplyEditResult,
+  UiQuickReplyManageInfo,
+  UiQuickReplySkillGroup,
+  UiQuickReplyType,
 } from './client.ts';
 import { UiCommands, UiEvents } from './client.ts';
 
@@ -54,6 +62,8 @@ export interface MockOptions {
   /** Simulated latency in ms for commands (default 120; tests use 0). */
   readonly latency?: number;
   readonly now?: () => number;
+  /** Initial quick-reply switches (see `MockQuickReplyFaults`). */
+  readonly quickReplies?: MockQuickReplyFaults;
 }
 
 export interface MockIpc extends IpcClient {
@@ -61,6 +71,8 @@ export interface MockIpc extends IpcClient {
   dispose(): void;
   /** Test hook: advance the alarm clock and emit a snapshot. */
   tick(seconds?: number): void;
+  /** Test / smoke hook (`window.__vbkMock.quickReplyFaults({...})`): merge quick-reply switches. */
+  quickReplyFaults(faults: MockQuickReplyFaults): void;
   readonly scenario: MockScenario;
 }
 
@@ -447,6 +459,7 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
 
   const savedEmojis = new Map<string, {id:string;name:string;url:string;thumbnail:string|null;created_at_ms:number;rank:number}[]>();
   const forwarded = new Map<string, SendDisposition>();
+  const quickReplies = createMockQuickReplies(options.quickReplies);
   const handlers: Record<string, (payload: unknown) => Promise<unknown>> = {
     [ImCommands.DRAFT_LOAD]: async (p) => {
       const account=checkEvidenceAccount(p);
@@ -656,10 +669,23 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       return { kind: 'confirmed', confirmed: true, reason: '示例产品卡片已模拟发送' };
     },
     [UiCommands.IM_QUICK_REPLY_CATEGORIES]: async (p) => {
+      const account = checkAccount(p);
+      return quickReplies.categories(account, quickReplyType(p));
+    },
+    [UiCommands.IM_QUICK_REPLY_MANAGE_INFO]: async (p) => {
       checkAccount(p);
-      const type = (p as { type?: unknown }).type;
-      if (type !== 'VAGENT' && type !== 'VSKILLGROUP') throw appError(ErrorCodes.ADAPTER_FAILED, '无效的话术类型');
-      return { categories: [{ id: type === 'VAGENT' ? '1' : '2', name: type === 'VAGENT' ? '常用回复' : '团队话术', scripts: [{ id: `${type}-1`, content: type === 'VAGENT' ? '您好，请问有什么可以帮您？' : '您的需求已收到，我们正在核实。', short_cut: 'hi', type }], sub_categories: [] }] };
+      return quickReplies.info(quickReplyType(p));
+    },
+    [UiCommands.IM_QUICK_REPLY_EDIT]: async (p) => {
+      const account = checkEvidenceAccount(p);
+      const result = await quickReplies.edit(account, quickReplyType(p), (p as { edit?: unknown }).edit, () => delay(latency));
+      // Like the host (adapter.rs `quick_reply_edit_outcome`): once the write may have
+      // gone out, a generation change yields `unknown` without a list, never an error.
+      let current = true;
+      try { checkEvidenceAccount(p); } catch { current = false; }
+      if (current) return result;
+      const reason: UiQuickReplyEditReason = result.kind === 'unknown' && result.reason ? result.reason : 'write_unknown';
+      return { kind: 'unknown', reason } satisfies UiQuickReplyEditResult;
     },
     [UiCommands.IM_CUSTOMER_SCRIPTS]: async (p) => {
       checkAccount(p);
@@ -1133,6 +1159,7 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     },
     emit,
     tick,
+    quickReplyFaults: quickReplies.setFaults,
     dispose() {
       if (timer) clearInterval(timer);
       timer = null;
@@ -1146,4 +1173,198 @@ export function scenarioFromLocation(): MockScenario {
   if (typeof location === 'undefined') return 'default';
   const s = new URLSearchParams(location.search).get('scenario');
   return s === 'empty' || s === 'offline' || s === 'clock-untrusted' || s === 'reconciling' || s === 'no-accounts' || s === 'media-draft' ? s : 'default';
+}
+
+// ── Quick replies: personal (VAGENT) / team (VSKILLGROUP) ──────────────────
+// In-memory per account and type, mirroring web-adapter/src/quick-reply-manage.ts:
+// the same local validation (`invalid`), a missing target or skill group is
+// `stale`, a team write by a non-leader is `not_leader`, a sort must submit a
+// permutation of the current list, deleting a group deletes its scripts and a
+// second write on the same account while one is running is `busy`.
+// Text trigger (send convention): a name / content containing '拒绝' is
+// `rejected('business', 'MOCK_REFUSED')`.
+
+/** Switches for tests and smoke runs: `createMockIpc(s, { quickReplies })` or `mock.quickReplyFaults({...})`. */
+export interface MockQuickReplyFaults {
+  /** Team type: `manage_info.can_edit` is false and every team edit is `rejected('not_leader')`. */
+  readonly not_leader?: boolean;
+  /**
+   * The next edit that would be written (valid, leader, target present) answers `unknown`;
+   * consumed once. `applied`: the change took effect and the read-back shows it;
+   * `not_applied`: nothing changed, the read-back shows the old list; `no_readback`: the
+   * change took effect but the result carries no `categories` (the UI must re-read).
+   * `null` clears a pending injection.
+   */
+  readonly unknown_next?: 'applied' | 'not_applied' | 'no_readback' | null;
+}
+
+interface MockQrScript { readonly id: string; content: string; readonly short_cut: string }
+interface MockQrCategory { readonly id: string; name: string; readonly code: string; skill_group_ids: string[]; scripts: MockQrScript[] }
+
+const QR_SKILL_GROUPS: readonly UiQuickReplySkillGroup[] = [
+  { id: '7001', name: '售前咨询组' },
+  { id: '7002', name: '售后服务组' },
+  { id: '7003', name: '夜班值守组' },
+];
+const QR_ID_RE = /^\d{1,19}$/;
+const QR_NAME_MAX = 15;
+const QR_CONTENT_MAX = 5000;
+const QR_ID_LIST_MAX = 1000;
+
+function quickReplyType(p: unknown): UiQuickReplyType {
+  const type = (p as { type?: unknown }).type;
+  if (type !== 'VAGENT' && type !== 'VSKILLGROUP') throw appError(ErrorCodes.ADAPTER_FAILED, '无效的话术类型');
+  return type;
+}
+
+function seedQuickReplies(type: UiQuickReplyType): MockQrCategory[] {
+  const s = (id: string, content: string, short_cut = ''): MockQrScript => ({ id, content, short_cut });
+  const c = (id: string, name: string, skill_group_ids: string[], scripts: MockQrScript[]): MockQrCategory => ({ id, name, code: `QR${id}`, skill_group_ids, scripts });
+  return type === 'VAGENT'
+    ? [
+        c('1001', '常用回复', [], [s('1101', '您好，请问有什么可以帮您？', 'hi'), s('1102', '请稍等，我帮您查询一下订单信息。'), s('1103', '感谢您的耐心等待，祝您旅途愉快！')]),
+        c('1002', '订单与出行', [], [s('1201', '您的订单已确认，出行前一天导游会与您联系。'), s('1202', '集合时间与地点请以确认短信为准。')]),
+        c('1003', '待整理', [], []),
+      ]
+    : [
+        c('2001', '团队话术', ['7001'], [s('2101', '您的需求已收到，我们正在核实。'), s('2102', '已为您登记，稍后由专属客服跟进。')]),
+        c('2002', '退改政策', ['7001', '7002'], [s('2201', '出行前 7 天以上可免费取消，具体以产品页说明为准。')]),
+        c('2003', '夜班交接', ['7003'], [s('2301', '夜间值守中，紧急问题请直接留言，我们会尽快回复。')]),
+      ];
+}
+
+function isQuickReplyEdit(type: UiQuickReplyType, x: unknown): x is UiQuickReplyEdit {
+  if (!x || typeof x !== 'object') return false;
+  const e = x as Record<string, unknown>;
+  const id = (v: unknown) => typeof v === 'string' && QR_ID_RE.test(v);
+  const ids = (v: unknown) => Array.isArray(v) && v.length >= 1 && v.length <= QR_ID_LIST_MAX && v.every(id) && new Set(v).size === v.length;
+  const name = (v: unknown) => typeof v === 'string' && v.trim() !== '' && v.trim().length <= QR_NAME_MAX;
+  const content = (v: unknown) => typeof v === 'string' && v.trim() !== '' && v.length <= QR_CONTENT_MAX;
+  const groups = (v: unknown) => Array.isArray(v) && v.length <= QR_ID_LIST_MAX && v.every(id) && new Set(v).size === v.length && (type === 'VAGENT' ? v.length === 0 : v.length >= 1);
+  switch (e['op']) {
+    case 'create_category': return name(e['name']) && groups(e['skill_group_ids']);
+    case 'update_category': return id(e['category_id']) && name(e['name']) && groups(e['skill_group_ids']);
+    case 'delete_category': return id(e['category_id']);
+    case 'sort_categories': return ids(e['category_ids']);
+    case 'add_script': return id(e['category_id']) && content(e['content']);
+    case 'update_script': return id(e['script_id']) && content(e['content']);
+    case 'move_script': return id(e['script_id']) && id(e['target_category_id']);
+    case 'delete_script': return id(e['script_id']);
+    case 'sort_scripts': return id(e['category_id']) && ids(e['script_ids']);
+    default: return false;
+  }
+}
+
+function createMockQuickReplies(initial: MockQuickReplyFaults = {}) {
+  const stores = new Map<string, MockQrCategory[]>();
+  const writing = new Set<string>();
+  let notLeader = initial.not_leader ?? false;
+  let unknownNext: MockQuickReplyFaults['unknown_next'] = initial.unknown_next ?? null;
+  let seq = 9000;
+  const nextId = () => String(++seq);
+  function store(a: AccountContext, type: UiQuickReplyType): MockQrCategory[] {
+    const key = JSON.stringify([a.environment, a.account_id, type]);
+    let list = stores.get(key);
+    if (!list) { list = seedQuickReplies(type); stores.set(key, list); }
+    return list;
+  }
+  const toUi = (type: UiQuickReplyType, list: readonly MockQrCategory[]): UiQuickReplyCategory[] => list.map((c) => ({
+    id: c.id, name: c.name, code: c.code, owner_type: type === 'VAGENT' ? 1 : 2,
+    skill_groups: QR_SKILL_GROUPS.filter((g) => c.skill_group_ids.includes(g.id)).map((g) => ({ ...g })),
+    scripts: c.scripts.map((s, i) => ({ id: s.id, content: s.content, short_cut: s.short_cut, type, sort_no: i + 1 })),
+    sub_categories: [],
+  }));
+  const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && b.every((x) => a.includes(x));
+  const reorder = <T extends { readonly id: string }>(list: T[], order: readonly string[]) => {
+    const next = order.map((id) => list.find((x) => x.id === id)).filter((x): x is T => x !== undefined);
+    list.splice(0, list.length, ...next);
+  };
+  /** A missing target is `stale` (nothing written); otherwise the mutation to apply. */
+  function plan(type: UiQuickReplyType, list: MockQrCategory[], edit: UiQuickReplyEdit): UiQuickReplyEditReason | (() => void) {
+    const category = (id: string) => list.find((c) => c.id === id);
+    const script = (id: string) => {
+      for (const c of list) { const s = c.scripts.find((x) => x.id === id); if (s) return { c, s }; }
+      return null;
+    };
+    const groupsKnown = (ids: readonly string[]) => type === 'VAGENT' || ids.every((id) => QR_SKILL_GROUPS.some((g) => g.id === id));
+    switch (edit.op) {
+      case 'create_category':
+        if (!groupsKnown(edit.skill_group_ids)) return 'stale';
+        return () => { const id = nextId(); list.push({ id, name: edit.name.trim(), code: `QR${id}`, skill_group_ids: [...edit.skill_group_ids], scripts: [] }); };
+      case 'update_category': {
+        const c = category(edit.category_id);
+        if (!c || !groupsKnown(edit.skill_group_ids)) return 'stale';
+        return () => { c.name = edit.name.trim(); c.skill_group_ids = [...edit.skill_group_ids]; };
+      }
+      case 'delete_category': {
+        const c = category(edit.category_id);
+        if (!c) return 'stale';
+        return () => { list.splice(list.indexOf(c), 1); };
+      }
+      case 'sort_categories':
+        if (!sameSet(list.map((c) => c.id), edit.category_ids)) return 'stale';
+        return () => reorder(list, edit.category_ids);
+      case 'add_script': {
+        const c = category(edit.category_id);
+        if (!c) return 'stale';
+        return () => { c.scripts.push({ id: nextId(), content: edit.content, short_cut: '' }); };
+      }
+      case 'update_script': {
+        const found = script(edit.script_id);
+        if (!found) return 'stale';
+        return () => { found.s.content = edit.content; };
+      }
+      case 'move_script': {
+        const found = script(edit.script_id), target = category(edit.target_category_id);
+        if (!found || !target || found.c === target) return 'stale';
+        return () => { found.c.scripts.splice(found.c.scripts.indexOf(found.s), 1); target.scripts.push(found.s); };
+      }
+      case 'delete_script': {
+        const found = script(edit.script_id);
+        if (!found) return 'stale';
+        return () => { found.c.scripts.splice(found.c.scripts.indexOf(found.s), 1); };
+      }
+      case 'sort_scripts': {
+        const c = category(edit.category_id);
+        if (!c || !sameSet(c.scripts.map((s) => s.id), edit.script_ids)) return 'stale';
+        return () => reorder(c.scripts, edit.script_ids);
+      }
+    }
+  }
+  const refusedText = (edit: UiQuickReplyEdit) => ('name' in edit ? edit.name : 'content' in edit ? edit.content : '').includes('拒绝');
+  return {
+    categories(account: AccountContext, type: UiQuickReplyType): UiQuickReplyCategories {
+      return { categories: toUi(type, store(account, type)) };
+    },
+    info(type: UiQuickReplyType): UiQuickReplyManageInfo {
+      return type === 'VAGENT' ? { can_edit: true, skill_groups: [] } : { can_edit: !notLeader, skill_groups: QR_SKILL_GROUPS.map((g) => ({ ...g })) };
+    },
+    async edit(account: AccountContext, type: UiQuickReplyType, edit: unknown, wait: () => Promise<void>): Promise<UiQuickReplyEditResult> {
+      if (!isQuickReplyEdit(type, edit)) return { kind: 'rejected', reason: 'invalid' };
+      const lock = JSON.stringify([account.environment, account.account_id]);
+      if (writing.has(lock)) return { kind: 'rejected', reason: 'busy' };
+      writing.add(lock);
+      try {
+        await wait();
+        const list = store(account, type), before = toUi(type, list);
+        if (type === 'VSKILLGROUP' && notLeader) return { kind: 'rejected', reason: 'not_leader', categories: before };
+        const apply = plan(type, list, edit);
+        if (typeof apply === 'string') return { kind: 'rejected', reason: apply, categories: before };
+        if (refusedText(edit)) return { kind: 'rejected', reason: 'business', detail: 'MOCK_REFUSED', categories: before };
+        const injected = unknownNext;
+        unknownNext = null;
+        if (injected === 'not_applied') return { kind: 'unknown', reason: 'write_unknown', categories: before };
+        apply();
+        if (injected === 'no_readback') return { kind: 'unknown', reason: 'readback_failed' };
+        const after = toUi(type, list);
+        return injected === 'applied' ? { kind: 'unknown', reason: 'unverified', categories: after } : { kind: 'applied', categories: after };
+      } finally {
+        writing.delete(lock);
+      }
+    },
+    setFaults(faults: MockQuickReplyFaults): void {
+      if (faults.not_leader !== undefined) notLeader = faults.not_leader;
+      if (faults.unknown_next !== undefined) unknownNext = faults.unknown_next;
+    },
+  };
 }

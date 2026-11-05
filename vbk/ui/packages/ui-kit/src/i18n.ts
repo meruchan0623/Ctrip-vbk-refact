@@ -14,6 +14,7 @@ import { companionTabsStrings } from './companion-tabs/strings.ts';
 import { recommendPanelStrings } from './recommend-panel/strings.ts';
 import { mainTsStrings } from './main-ts/strings.ts';
 import { orderMiscStrings } from './order-misc/strings.ts';
+import { quickReplyManageStrings } from './quick-reply-manage/strings.ts';
 /**
  * zh-CN string table. Every piece of UI copy goes through `t()` so a second
  * locale can be added later without touching views. `{name}` placeholders
@@ -38,6 +39,7 @@ const zhCN = {
   ...recommendPanelStrings,
   ...mainTsStrings,
   ...orderMiscStrings,
+  ...quickReplyManageStrings,
   // settings runtime (also exposed via SETTING_STRINGS)
   'set.runtime.about': '关于与更新',
   'set.runtime.assistant': '商家助手 · TSim 登录',
