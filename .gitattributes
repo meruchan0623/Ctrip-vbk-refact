@@ -1,3 +1,5 @@
+# Keep LF on every platform: tests, gates and fixtures match on \n, and `core.autocrlf=true` would otherwise break them on Windows.
+* text=auto eol=lf
 
 # Preserve binary upload fixtures without text whitespace checks.
 tools/contracts/fixtures/*.pdf binary
