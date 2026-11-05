@@ -2220,6 +2220,7 @@ function richText(text: string): HTMLElement[] {
   const packageOwner = packageContext();
   const sourceMessages = packageOwner ? S().messages[packageOwner.conversation.gid] : undefined;
   const sourceKey = packageOwner ? JSON.stringify([packageOwner.account.environment, packageOwner.account.account_id, packageOwner.account.session_generation, packageOwner.conversation.gid, packageOwner.conversation.assistant_context_revision, packageOwner.identity.session_epoch]) : null;
+  const owner = activeConv(), ownerMessages = owner ? S().messages[owner.gid] : undefined, ownerKey = owner ? JSON.stringify([owner.account, owner.gid]) : null;
   return highlightParts(text).map((p) =>
     p.kind === 'plain'
       ? h('span', null, p.text)
@@ -2230,13 +2231,21 @@ function richText(text: string): HTMLElement[] {
             title: p.kind === 'iccid' ? t('side.iccidHint') : t('side.orderHint'),
             dataset: { hl: p.kind },
             onclick: () => {
+              // 点击总要有反应：先打开 TSim 查询窗（未登录/失败由 opener 提示），再同步侧栏。
+              const current = activeConv();
+              if (!owner || !current || JSON.stringify([current.account, current.gid]) !== ownerKey || S().messages[owner.gid] !== ownerMessages) return;
               if (p.kind === 'iccid') {
-                const current = packageContext();
-                if (!current || !sourceKey || JSON.stringify([current.account.environment, current.account.account_id, current.account.session_generation, current.conversation.gid, current.conversation.assistant_context_revision, current.identity.session_epoch]) !== sourceKey || S().messages[current.conversation.gid] !== sourceMessages || !findIccids(sourceMessages ?? []).includes(p.text)) return;
-                store.patch({ sideOpen: true, pkgOpen: true, pkgHot: true });
-                void queryPackage(p.text);
+                if (!findIccids(ownerMessages ?? []).includes(p.text)) return;
+                void tsimOrder.openIccid(owner.gid, p.text);
+                const pkg = packageContext();
+                if (pkg && sourceKey && JSON.stringify([pkg.account.environment, pkg.account.account_id, pkg.account.session_generation, pkg.conversation.gid, pkg.conversation.assistant_context_revision, pkg.identity.session_epoch]) === sourceKey && S().messages[pkg.conversation.gid] === sourceMessages) {
+                  store.patch({ sideOpen: true, pkgOpen: true, pkgHot: true });
+                  void queryPackage(p.text);
+                }
               } else {
                 store.patch({ sideOpen: true, hotOrder: true });
+                // 只有与当前会话订单一致的订单号才能走宿主的订单范围校验。
+                if (current.order?.order_id === p.text) void tsimOrder.open(owner.gid);
               }
             },
           },

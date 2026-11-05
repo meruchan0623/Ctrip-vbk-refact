@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createTsimOrderOpener, orderInfoRows, orderInfoSection, tsimOrderRequest, tsimQueryableOrder, type TsimOrderContext } from './order-info.ts';
+import { createTsimOrderOpener, orderInfoRows, orderInfoSection, tsimIccidRequest, tsimOrderRequest, tsimQueryableOrder, type TsimOrderContext } from './order-info.ts';
 import { UiCommands, type UiAccountSnapshot, type UiConversation, type UiOrderSummary, type UiTsimStatus } from '../../packages/ipc/src/client.ts';
 import { AccountCommands } from '../../packages/ipc/src/commands.ts';
 import { operatorGrant } from './operator-overlay.ts';
@@ -78,6 +78,18 @@ test('opener is single-flight, scoped to the active gid and maps login failures 
   assert.match(notices.at(-1)!, /未打开/);
   current = { account, conversation, identity: { logged_in: false, user: null, session_epoch: 8 } };
   await opener.open(conversation.gid); assert.equal(calls.length, 3, 'logged-out never reaches the host'); assert.equal(logins, 1);
+});
+
+test('ICCID 查询窗请求：只接受完整 ICCID，未登录不触达宿主，渲染层不带 URL', async () => {
+  const iccid = '8965012512295895417', ctx: TsimOrderContext = { account, conversation, identity };
+  const ok = tsimIccidRequest(ctx, iccid);
+  assert.ok(ok.ok && ok.payload.iccid === iccid && ok.payload.gid === conversation.gid && !JSON.stringify(ok.payload).includes('http'));
+  for (const bad of ['', '1965012512295895417', '896501251229589541', '8965012512295895417&x=1']) assert.deepEqual(tsimIccidRequest(ctx, bad), { ok: false, reason: 'order' }, bad);
+  assert.deepEqual(tsimIccidRequest({ ...ctx, identity: null }, iccid), { ok: false, reason: 'login' });
+  const calls: { command: string; payload: any }[] = [], notices: string[] = [];
+  const opener = createTsimOrderOpener({ current: () => ctx, notify: t => notices.push(t), login: () => {}, invoke: async (command, payload) => { calls.push({ command, payload }); return null; } });
+  await opener.openIccid(conversation.gid, iccid); await opener.openIccid(conversation.gid, 'bad');
+  assert.equal(calls.length, 1); assert.equal(calls[0]!.command, UiCommands.ASSIST_TSIM_ICCID_OPEN); assert.equal(notices.length, 1);
 });
 
 test('mock host enforces the same order binding contract as assistant_tsim_order_open', async () => {

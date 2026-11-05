@@ -1,13 +1,13 @@
 //! Scope-checked TSIM operator iframe grant. The local shell keeps the bearer
 //! only in its overlay closure and posts it to this request's fixed TSIM origin.
 //! The remote iframe receives no Tauri capability.
-use super::order_commands::{capture, validate};
+use super::order_commands::{capture, current, owner_is_current, validate};
 use super::service::orders::OrderScope;
 use super::{public_error::to_dto as public_error, require, CmdResult};
 use crate::{dto::AccountContextDto, state::HostState};
 use contracts::AppError;
 use serde::Serialize;
-use tauri::{AppHandle, State, Url, Window};
+use tauri::{AppHandle, Manager, State, Url, Window};
 
 pub const OPERATOR_HOST: &str = "csagent.tsim.tech";
 const OPERATOR_PATH: &str = "/embed/operator";
@@ -30,13 +30,37 @@ fn reject(message: &str) -> AppError {
 
 pub fn operator_url(order_id: &str, request_id: &uuid::Uuid) -> Result<Url, AppError> {
     let order_id = core_assistant::order::validate_order_id(order_id)?;
+    operator_identifier_url(order_id, "order_number", request_id)
+}
+
+/// ICCID is 19–20 digits starting with `89`; anything else never reaches the URL.
+pub fn validate_iccid(value: &str) -> Result<&str, AppError> {
+    if matches!(value.len(), 19 | 20)
+        && value.starts_with("89")
+        && value.bytes().all(|b| b.is_ascii_digit())
+    {
+        Ok(value)
+    } else {
+        Err(reject("iccid must be a complete 19 or 20 digit string"))
+    }
+}
+
+pub fn operator_iccid_url(iccid: &str, request_id: &uuid::Uuid) -> Result<Url, AppError> {
+    operator_identifier_url(validate_iccid(iccid)?, "iccid", request_id)
+}
+
+fn operator_identifier_url(
+    identifier: &str,
+    identifier_type: &str,
+    request_id: &uuid::Uuid,
+) -> Result<Url, AppError> {
     let mut url = Url::parse(&format!("https://{OPERATOR_HOST}{OPERATOR_PATH}"))
         .map_err(|_| reject("operator url"))?;
     url.query_pairs_mut()
         .append_pair("source", OPERATOR_SOURCE)
         .append_pair("session", "handoff")
-        .append_pair("identifier", order_id)
-        .append_pair("identifierType", "order_number")
+        .append_pair("identifier", identifier)
+        .append_pair("identifierType", identifier_type)
         .append_pair("requestId", &request_id.to_string());
     Ok(url)
 }
@@ -95,6 +119,53 @@ pub async fn assistant_tsim_order_open(
     })
 }
 
+#[tauri::command(rename_all = "snake_case")]
+pub async fn assistant_tsim_iccid_open(
+    app: AppHandle,
+    window: Window,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    gid: String,
+    iccid: String,
+    session_epoch: u64,
+) -> CmdResult<OperatorGrant> {
+    let view = capture(&state, &window, "assistant_tsim_iccid_open").map_err(public_error)?;
+    let request_id = uuid::Uuid::new_v4();
+    let url = operator_iccid_url(&iccid, &request_id).map_err(public_error)?;
+    let account: contracts::AccountContext = account.into();
+    // The ICCID comes from a message the user is looking at; the host only
+    // pins the view, the live account generation and the open conversation.
+    let local = |app: &AppHandle| -> Result<(), AppError> {
+        current(app, &view)?;
+        if !owner_is_current(&account, crate::login::active_context(app).as_ref()) {
+            return Err(super::order_commands::invalid());
+        }
+        app.state::<HostState>().lock().accounts.validate(&account)?;
+        Ok(())
+    };
+    local(&app).map_err(public_error)?;
+    if gid.is_empty() || gid.len() > 128 {
+        return Err(public_error(reject("conversation id")));
+    }
+    let service = require(&app)?;
+    let session = service
+        .operator_session(session_epoch)
+        .await
+        .map_err(public_error)?;
+    local(&app).map_err(public_error)?;
+    let session = service
+        .operator_session_current(session_epoch, &session.access_token)
+        .map_err(public_error)?;
+    Ok(OperatorGrant {
+        url: url.into(),
+        identifier: iccid,
+        request_id: request_id.to_string(),
+        session_epoch,
+        access_token: session.access_token.expose().to_string(),
+        session_ref: (!session.session_ref.is_empty()).then_some(session.session_ref),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,6 +183,19 @@ mod tests {
         );
         assert!(allowed_navigation(&url));
         assert!(operator_url("3051228766", &rid()).is_ok());
+    }
+
+    #[test]
+    fn operator_iccid_url_is_fixed_origin_with_validated_iccid() {
+        let url = operator_iccid_url("8965012512295895417", &rid()).unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://csagent.tsim.tech/embed/operator?source=travel-merchant-companion&session=handoff&identifier=8965012512295895417&identifierType=iccid&requestId=00000000-0000-4000-8000-000000000001"
+        );
+        assert!(allowed_navigation(&url));
+        for bad in ["", "1965012512295895417", "896501251229589541", "89650125122958954171x", "8965012512295895417&x=1", "89650125122958954171234"] {
+            assert!(operator_iccid_url(bad, &rid()).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

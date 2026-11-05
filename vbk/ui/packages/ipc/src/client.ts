@@ -217,6 +217,8 @@ export const UiCommands = {
   // {account, gid, order_id, context_revision, session_epoch} → UiTsimOperatorGrant;
   // scope-checked iframe handoff. Keep the credential outside stores, logs and URLs.
   ASSIST_TSIM_ORDER_OPEN: 'assistant_tsim_order_open',
+  // {account, gid, iccid, session_epoch} → UiTsimOperatorGrant; same iframe handoff, identifierType=iccid.
+  ASSIST_TSIM_ICCID_OPEN: 'assistant_tsim_iccid_open',
   ASSIST_PACKAGE: 'assistant_package_quick_view', // {iccid} → UiPackageInfo
 } as const;
 

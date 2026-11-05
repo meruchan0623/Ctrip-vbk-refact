@@ -55,7 +55,7 @@ pub(super) fn capture(
     state.authorize(window.label(), command)?;
     state.lock().views.authorize(window.label(), command)
 }
-fn current(app: &AppHandle, view: &ViewContext) -> Result<(), AppError> {
+pub(super) fn current(app: &AppHandle, view: &ViewContext) -> Result<(), AppError> {
     if app.get_webview_window(&view.webview_label).is_none()
         || app
             .state::<HostState>()
@@ -146,7 +146,7 @@ fn forget_if_current(app: &AppHandle, label: &str, view: &ViewContext) {
         .views
         .unregister_if_current(view);
 }
-fn owner_is_current(owner: &AccountContext, active: Option<&AccountContext>) -> bool {
+pub(super) fn owner_is_current(owner: &AccountContext, active: Option<&AccountContext>) -> bool {
     active == Some(owner)
 }
 fn invalidate_if(app: &AppHandle, stale: impl Fn(&BoundPlan) -> bool) {

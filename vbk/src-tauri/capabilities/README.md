@@ -15,4 +15,4 @@
 
 2026-10-31：`tauri.conf.json` 的 `freezePrototype` 改为 false。它会作用于所有 WebView，包括官方登录页和账号 IM 页；冻结 `Object.prototype` 后官方页面脚本启动即抛 “Attempted to assign to readonly property”，导致登录按钮、协议勾选和二维码全部失效。本地窗口仍靠严格 CSP、无远程内容和按窗口命令白名单约束。
 
-2026-11-03：新增 TSim 订单查询窗 `tsim-order-*`（`assistant_tsim_order_open`，见 `src/assistant/tsim_order.rs`）。它是远程页 `https://csagent.tsim.tech/embed/operator`，同样不出现在任何 capability 与 `views.rs` 里，没有 IPC；地址由宿主拼出（订单号仅 10/16 位纯数字，经 URL 编码），顶层导航只允许 `csagent.tsim.tech`，`window.open` 一律拒绝；Web 数据按 TSim 身份隔离，身份退出或代次变化时关闭。宿主的 TSim Bearer 不交给该页面。
+2026-11-03：新增 TSim 订单查询窗 `tsim-order-*`（`assistant_tsim_order_open`，见 `src/assistant/tsim_order.rs`）。它是远程页 `https://csagent.tsim.tech/embed/operator`，同样不出现在任何 capability 与 `views.rs` 里，没有 IPC；地址由宿主拼出（订单号仅 10/16 位纯数字，经 URL 编码），顶层导航只允许 `csagent.tsim.tech`，`window.open` 一律拒绝；Web 数据按 TSim 身份隔离，身份退出或代次变化时关闭。宿主的 TSim Bearer 不交给该页面。2026-11-05：消息里的 ICCID 也可打开同一查询窗（`assistant_tsim_iccid_open`，`identifierType=iccid`）；ICCID 仅接受 89 开头的 19/20 位纯数字，宿主只校验视图、活动账号代次与 TSim 身份，不做订单范围校验。

@@ -45,6 +45,10 @@ function fixture() {
 
 test('grant validation rejects wrong destinations, credentials in URL, extra/duplicate parameters and mismatched scope', () => {
   assert.ok(operatorGrant(grant));
+  const iccid = '8965012512295895417', iccidGrant = { ...grant, identifier: iccid, url: grant.url.replace('identifier=1234567890', `identifier=${iccid}`).replace('order_number', 'iccid') };
+  assert.ok(operatorGrant(iccidGrant), 'ICCID grant with identifierType=iccid');
+  assert.ok(!operatorGrant({ ...iccidGrant, url: iccidGrant.url.replace('iccid&', 'order_number&') }), 'type must match the identifier');
+  assert.ok(!operatorGrant({ ...grant, url: grant.url.replace('order_number', 'iccid') }), 'order number cannot masquerade as iccid');
   for (const invalid of [{ ...grant, url: grant.url.replace(OPERATOR_ORIGIN, 'https://evil.example') }, { ...grant, url: grant.url.replace('https://', 'https://user@') }, { ...grant, url: `${grant.url}&secret=bad` }, { ...grant, url: `${grant.url}&requestId=${request}` }, { ...grant, identifier: '9999999999' }, { ...grant, access_token: '' }]) assert.equal(operatorGrant(invalid), false);
 });
 test('the bearer is sent only to this exact frame, origin and V2 request', () => {

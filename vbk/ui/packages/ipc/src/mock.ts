@@ -1074,6 +1074,16 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       const request_id = '00000000-0000-4000-8000-000000000001';
       return { url: `https://csagent.tsim.tech/embed/operator?source=travel-merchant-companion&session=handoff&identifier=${order_id}&identifierType=order_number&requestId=${request_id}`, identifier: order_id, request_id, session_epoch, access_token: 'synthetic-demo-token-never-valid', session_ref: null };
     },
+    [UiCommands.ASSIST_TSIM_ICCID_OPEN]: async (p) => {
+      const account = checkAccount(p);
+      const { gid, iccid, session_epoch } = p as { gid: string; iccid: string; session_epoch: number };
+      if (typeof iccid !== 'string' || !/^89\d{17,18}$/.test(iccid)) throw appError('assistant.invalid_input', 'ICCID 无效');
+      convFor(account, gid);
+      if (!st.tsim.logged_in) throw appError('assistant.tsim_unauthenticated', 'TSim 未登录', false);
+      if (st.tsim.session_epoch !== session_epoch) throw appError('host.view_unauthorized', 'TSim 身份已变化');
+      const request_id = '00000000-0000-4000-8000-000000000001';
+      return { url: `https://csagent.tsim.tech/embed/operator?source=travel-merchant-companion&session=handoff&identifier=${iccid}&identifierType=iccid&requestId=${request_id}`, identifier: iccid, request_id, session_epoch, access_token: 'synthetic-demo-token-never-valid', session_ref: null };
+    },
     [UiCommands.ASSIST_PACKAGE_DETAIL]: async () => {
       if (!openedPackage) throw appError('host.view_unauthorized', '详情窗口尚未绑定套餐');
       const { summary, plan } = openedPackage; checkOrderBinding(summary);

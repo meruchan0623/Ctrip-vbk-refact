@@ -48,18 +48,29 @@ const NOTICE: Record<'order' | 'revision' | 'login' | 'failed', string> = {
   failed: t('orderInfo.notice.failed'),
 };
 
+/** 与宿主 `validate_iccid` 一致：89 开头的 19/20 位纯数字。 */
+export function tsimQueryableIccid(value: unknown): value is string { return typeof value === 'string' && /^89\d{17,18}$/.test(value); }
+
+export interface TsimIccidPayload { readonly account: AccountContext; readonly gid: string; readonly iccid: string; readonly session_epoch: number }
+export type TsimIccidRequest = { readonly ok: true; readonly payload: TsimIccidPayload } | { readonly ok: false; readonly reason: 'order' | 'login' };
+export function tsimIccidRequest(c: TsimOrderContext, iccid: string): TsimIccidRequest {
+  if (!tsimQueryableIccid(iccid)) return { ok: false, reason: 'order' };
+  if (!c.identity?.logged_in) return { ok: false, reason: 'login' };
+  return { ok: true, payload: { account: { ...c.account }, gid: c.conversation.gid, iccid, session_epoch: c.identity.session_epoch } };
+}
+
 /** 单飞：同一时刻只发一次打开请求；结果只提示，不自动重试。 */
 export function createTsimOrderOpener(deps: { current(): TsimOrderContext | null; invoke(command: string, payload: object): Promise<unknown>; notify(text: string): void; login(): void; show?(grant: unknown, current: () => boolean): void }) {
   let inFlight = false;
-  async function open(gid: string): Promise<void> {
+  async function run(gid: string, build: (c: TsimOrderContext) => TsimOrderRequest | TsimIccidRequest, command: string): Promise<void> {
     const c = deps.current();
     if (!c || c.conversation.gid !== gid || inFlight) return;
-    const request = tsimOrderRequest(c);
+    const request = build(c);
     if (!request.ok) { deps.notify(NOTICE[request.reason]); if (request.reason === 'login') deps.login(); return; }
     inFlight = true;
-    const applies = () => { const now = deps.current(); const next = now && tsimOrderRequest(now); return !!next?.ok && JSON.stringify(next.payload) === JSON.stringify(request.payload); };
+    const applies = () => { const now = deps.current(); const next = now && build(now); return !!next?.ok && JSON.stringify(next.payload) === JSON.stringify(request.payload); };
     try {
-      const grant = await deps.invoke(UiCommands.ASSIST_TSIM_ORDER_OPEN, request.payload);
+      const grant = await deps.invoke(command, request.payload);
       if (applies()) deps.show?.(grant, applies);
     }
     catch (error) {
@@ -67,7 +78,10 @@ export function createTsimOrderOpener(deps: { current(): TsimOrderContext | null
       if (applies()) deps.notify(code === 'assistant.tsim_unauthenticated' || code === 'assistant.session_cleared' ? NOTICE.login : NOTICE.failed);
     } finally { inFlight = false; }
   }
-  return { open };
+  return {
+    open: (gid: string) => run(gid, tsimOrderRequest, UiCommands.ASSIST_TSIM_ORDER_OPEN),
+    openIccid: (gid: string, iccid: string) => run(gid, c => tsimIccidRequest(c, iccid), UiCommands.ASSIST_TSIM_ICCID_OPEN),
+  };
 }
 
 export interface OrderInfoView {

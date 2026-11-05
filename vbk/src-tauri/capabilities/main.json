@@ -94,6 +94,7 @@
     "allow-media-viewer-open-message",
     "allow-media-viewer-open-emoji",
     "allow-assistant-tsim-order-open",
+    "allow-assistant-tsim-iccid-open",
     "allow-shell-read-clipboard-text",
     "allow-shell-write-clipboard-text",
     "allow-webview-recovery-status",

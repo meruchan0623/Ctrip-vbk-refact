@@ -148,6 +148,7 @@ impl Role {
             "assistant_order_summary",
             "assistant_package_detail_open",
             "assistant_tsim_order_open",
+            "assistant_tsim_iccid_open",
             "media_viewer_open_message",
             "media_viewer_open_emoji",
         ];

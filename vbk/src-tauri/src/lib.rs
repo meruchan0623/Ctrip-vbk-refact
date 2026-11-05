@@ -332,6 +332,7 @@ pub fn run() {
             assistant::order_commands::assistant_package_detail_open,
             assistant::order_commands::assistant_package_detail,
             assistant::tsim_order::assistant_tsim_order_open,
+            assistant::tsim_order::assistant_tsim_iccid_open,
             media_viewer::media_viewer_open_message,
             media_viewer::media_viewer_open_emoji,
             media_viewer::media_viewer_current,

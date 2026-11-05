@@ -12,7 +12,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 export function operatorGrant(value: unknown): value is UiTsimOperatorGrant {
   if (!value || typeof value !== 'object') return false;
   const v = value as Partial<UiTsimOperatorGrant>;
-  if (typeof v.identifier !== 'string' || !/^(?:\d{10}|\d{16})$/.test(v.identifier)
+  const kind = typeof v.identifier === 'string' && /^89\d{17,18}$/.test(v.identifier) ? 'iccid' : 'order_number';
+  if (typeof v.identifier !== 'string' || !(kind === 'iccid' || /^(?:\d{10}|\d{16})$/.test(v.identifier))
     || typeof v.request_id !== 'string' || !UUID.test(v.request_id)
     || typeof v.access_token !== 'string' || !v.access_token || v.access_token.length > 16384
     || !Number.isSafeInteger(v.session_epoch) || v.session_epoch! < 0
@@ -22,7 +23,7 @@ export function operatorGrant(value: unknown): value is UiTsimOperatorGrant {
     return url.origin === OPERATOR_ORIGIN && url.pathname === '/embed/operator' && !url.username && !url.password && !url.hash
       && url.searchParams.get('identifier') === v.identifier && url.searchParams.get('requestId') === v.request_id
       && url.searchParams.get('source') === 'travel-merchant-companion' && url.searchParams.get('session') === 'handoff'
-      && url.searchParams.get('identifierType') === 'order_number'
+      && url.searchParams.get('identifierType') === kind
       && [...url.searchParams.keys()].length === 5;
   } catch { return false; }
 }
