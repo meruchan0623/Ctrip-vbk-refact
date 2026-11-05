@@ -3544,9 +3544,13 @@ ipc.listen<unknown>(HostEvents.NOTICE_NEW, guarded(HostEvents.NOTICE_NEW, isNoti
   void noticeQuery.categories(s.view === 'notifications' && s.noticeCat === p.category_id);
 }));
 ipc.listen<unknown>(Events.PREFS_CHANGED, guarded(Events.PREFS_CHANGED, isPrefsSnapshot, (p) => store.patch({ prefs: p })));
-ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => store.patch({ clockTrusted: c.quality.kind === 'anchored' })));
-// Anchored server time for feature windows (recall); anything but `anchored` clears it.
-ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => { featureClock = c.quality.kind === 'anchored' ? { serverMs: c.server_now_ms, perfMs: performance.now() } : null; }));
+// The host publishes the clock every second; only a changed trust level is a state update.
+ipc.listen<unknown>(Events.NET_CLOCK, guarded(Events.NET_CLOCK, isClockReading, (c) => {
+  const anchored = c.quality.kind === 'anchored';
+  // Anchored server time for feature windows (recall); anything but `anchored` clears it.
+  featureClock = anchored ? { serverMs: c.server_now_ms, perfMs: performance.now() } : null;
+  if (S().clockTrusted !== anchored) store.patch({ clockTrusted: anchored });
+}));
 ipc.listen<unknown>(FeatureEvents.FACT, (fact) => featureRuntime.onFact(fact));
 ipc.listen<unknown>(
   Events.ALARM_SNAPSHOT,
