@@ -43,6 +43,16 @@ export const Endpoints = {
   AGENT_WORKING_SCHEDULE: endpoint('getAgentWorkingSchedule', M, '16037/getAgentWorkingSchedule', 'read'),
   VEN_AGENT_BY_UID: endpoint('getVenAgentByUid', M, '16037/getVenAgentByUid', 'read'),
   CUSTOMER_SCRIPTS: endpoint('getCustomerScripts', M, '16037/getCustomerScripts', 'read'),
+  // quick reply management (official personal-settings dialog; static call sites, read back with getCategories)
+  SKILL_GROUP_INFO_BY_VEN_AGENT: endpoint('getSkillGroupInfoByVenAgent', M, '16037/getSkillGroupInfoByVenAgent', 'read'),
+  CREATE_ROOT_CATEGORY: endpoint('createRootCategory', M, '16037/createRootCategory', 'write'),
+  UPDATE_CATEGORY: endpoint('updateCategory', M, '16037/updateCategory', 'write'),
+  DELETE_CATEGORY: endpoint('deleteCategory', M, '16037/deleteCategory', 'write'),
+  UPDATE_CATEGORY_SORT_NO: endpoint('updateCategorySortNo', M, '16037/updateCategorySortNo', 'write'),
+  ADD_CUSTOMER_SCRIPT: endpoint('addCustomerScript', M, '16037/addCustomerScript', 'write'),
+  UPDATE_CUSTOMER_SCRIPT: endpoint('updateCustomerScript', M, '16037/updateCustomerScript', 'write'),
+  DELETE_CUSTOMER_SCRIPT: endpoint('deleteCustomerScript', M, '16037/deleteCustomerScript', 'write'),
+  UPDATE_CUSTOMER_SCRIPT_SORT: endpoint('updateCustomerScriptSort', M, '16037/updateCustomerScriptSort', 'write'),
   // agent work status (static call chain: {head, agentStatus}; read back via getConversationList.currentStatus)
   SET_VEN_AGENT_STATUS: endpoint('setVenAgentStatus', M, '16037/setVenAgentStatus', 'write'),
   // notice centre (IQ); getIQConversations has a live sample, the other two are static call sites only

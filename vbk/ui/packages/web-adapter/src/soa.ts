@@ -67,6 +67,12 @@ export interface PostOptions {
   readonly timeoutMs?: number;
   /** Extra HTTP headers (never cookies/authorization). */
   readonly headers?: Readonly<Record<string, string>>;
+  /**
+   * Called once per attempt with a promise that settles when the HTTP exchange
+   * itself ends. A timed-out post returns before that (the fetch is not
+   * aborted), so a writer can keep its lock until the request is really over.
+   */
+  readonly onExchange?: (settled: Promise<void>) => void;
 }
 
 export const AUTH_INVALID_ERROR_CODE = 'AccountsMobileRequestFilterException';
@@ -222,6 +228,7 @@ export class SoaClient {
       const text = await res.text();
       return { status: res.status, text };
     })();
+    opts.onExchange?.(exchange.then(() => undefined, () => undefined));
 
     const raced = await raceTimeout(deps, exchange, timeoutMs);
     if (raced.timedOut) return { kind: 'timeout' };

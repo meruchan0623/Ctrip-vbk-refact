@@ -570,10 +570,48 @@ export interface UiTsimStatus {
   readonly user: string | null;
 }
 
-export interface UiQuickReplyScript { readonly id: string; readonly content: string; readonly short_cut: string; readonly type: string }
+/** `sort_no` comes with category reads; the suggestion path (`im_customer_scripts`) drops it. */
+export interface UiQuickReplyScript { readonly id: string; readonly content: string; readonly short_cut: string; readonly type: string; readonly sort_no?: number }
 export type UiCustomerScripts = { readonly kind: 'ready'; readonly raw_count: number; readonly items: readonly UiQuickReplyScript[] } | { readonly kind: 'empty' | 'unsupported'; readonly raw_count: number; readonly items?: readonly UiQuickReplyScript[]; readonly reason?: string };
-export interface UiQuickReplyCategory { readonly id: string; readonly name: string; readonly scripts: readonly UiQuickReplyScript[]; readonly sub_categories: readonly UiQuickReplyCategory[] }
+export interface UiQuickReplySkillGroup { readonly id: string; readonly name: string }
+export interface UiQuickReplyCategory {
+  readonly id: string; readonly name: string;
+  /** Category code / numeric owner type as read; writes re-read them in the adapter and never trust this copy. */
+  readonly code?: string | null; readonly owner_type?: number | null;
+  /** Team categories: the skill groups the category applies to (official "scope" field). */
+  readonly skill_groups?: readonly UiQuickReplySkillGroup[];
+  readonly scripts: readonly UiQuickReplyScript[]; readonly sub_categories: readonly UiQuickReplyCategory[];
+  /** Server rows under this category and its sub-categories (blank and over-budget rows included); `scripts` may list fewer. */
+  readonly script_total?: number;
+}
 export interface UiQuickReplyCategories { readonly categories: readonly UiQuickReplyCategory[] }
+export type UiQuickReplyType = 'VAGENT' | 'VSKILLGROUP';
+/** Personal: always editable, no skill groups. Team: only `jobPosition == LEADER` may edit. */
+export interface UiQuickReplyManageInfo { readonly can_edit: boolean; readonly skill_groups: readonly UiQuickReplySkillGroup[] }
+/** The nine official quick-reply writes (personal-settings dialog). IDs are decimal strings. */
+export type UiQuickReplyEdit =
+  | { readonly op: 'create_category'; readonly name: string; readonly skill_group_ids: readonly string[] }
+  | { readonly op: 'update_category'; readonly category_id: string; readonly name: string; readonly skill_group_ids: readonly string[] }
+  | { readonly op: 'delete_category'; readonly category_id: string }
+  | { readonly op: 'sort_categories'; readonly category_ids: readonly string[] }
+  | { readonly op: 'add_script'; readonly category_id: string; readonly content: string }
+  | { readonly op: 'update_script'; readonly script_id: string; readonly content: string }
+  | { readonly op: 'move_script'; readonly script_id: string; readonly target_category_id: string }
+  | { readonly op: 'delete_script'; readonly script_id: string }
+  | { readonly op: 'sort_scripts'; readonly category_id: string; readonly script_ids: readonly string[] };
+export type UiQuickReplyEditReason = 'invalid' | 'stale' | 'not_leader' | 'busy' | 'not_submitted' | 'auth' | 'business' | 'write_unknown' | 'readback_failed' | 'unverified';
+/**
+ * `applied` only after a matching read-back; `rejected` means nothing changed
+ * (nothing sent, or the server refused); `unknown` must be checked by the user
+ * against the fresh list and is never resubmitted. `categories` is the latest
+ * read (absent when the host synthesised the outcome; the UI then re-reads).
+ */
+export interface UiQuickReplyEditResult {
+  readonly kind: 'applied' | 'rejected' | 'unknown';
+  readonly reason?: UiQuickReplyEditReason;
+  readonly detail?: string;
+  readonly categories?: readonly UiQuickReplyCategory[];
+}
 export type UiMemberRole = 'master' | 'agent' | 'customer' | 'robot' | 'company' | 'other';
 export interface UiMember {
   readonly avatar?: string | null; readonly uid: string; readonly nickname: string | null; readonly status: string; readonly roles: readonly number[];

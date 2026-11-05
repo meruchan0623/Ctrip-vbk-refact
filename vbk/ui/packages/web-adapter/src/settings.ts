@@ -132,7 +132,7 @@ export async function getCustomerScripts(deps: AdapterDeps, soa: SoaClient, cont
 /**
  * `16037/getCategories {head, typeList, categoryType:"CUSTOMSCRIPT", status:"ACTIVE"}`
  * (evidence 65-quick-replies-read; the observed `typeList` is `["VAGENT"]`).
- * Read only: create/edit/delete of quick replies belongs to I-26.
+ * Writes (I-26) live in `quick-reply-manage.ts` and always read back through this endpoint.
  * Response `categories[]`: `{id:number, name, code, subCategories[], customerScripts[{id:number, shortCut, content, type, sortNo}]}`.
  */
 export const GET_CATEGORIES = endpoint('getCategories', M, '16037/getCategories', 'read');
@@ -153,15 +153,30 @@ export interface QuickReplyScript {
   readonly sortNo: number;
 }
 
+export interface QuickReplySkillGroup {
+  readonly id: string;
+  readonly name: string;
+}
+
 export interface QuickReplyCategory {
   readonly id: string;
   readonly name: string;
   readonly code: string | null;
+  /** Numeric owner type echoed by `getCategories`; the write path re-reads it rather than trusting this copy. */
+  readonly ownerType: number | null;
+  /** Team categories only: `vSkillGroups[]{skillGroupId, skillGroupName}` (the official "适用范围"). */
+  readonly skillGroups: readonly QuickReplySkillGroup[];
   readonly scripts: readonly QuickReplyScript[];
   readonly subCategories: readonly QuickReplyCategory[];
+  /**
+   * Every script row the server listed under this category and its sub-categories,
+   * blank or past the display budget included: what a category delete removes.
+   * `scripts` may be shorter (blank rows dropped, {@link QUICK_REPLY_MAX_SCRIPTS} budget).
+   */
+  readonly scriptTotal: number;
 }
 
-function idText(x: unknown): string | null {
+export function idText(x: unknown): string | null {
   if (typeof x === 'number' && Number.isSafeInteger(x) && x >= 0) return String(x);
   if (typeof x === 'string' && /^\d{1,19}$/.test(x)) return x;
   return null;
@@ -196,6 +211,28 @@ export function parseScriptSuggestion(row: unknown, index: number): QuickReplySc
   };
 }
 
+/** Depth / node bounds for {@link rawScriptTotal}; past them the total is a lower bound. */
+const RAW_TOTAL_MAX_DEPTH = 8;
+const RAW_TOTAL_MAX_NODES = 5000;
+
+/** Raw `customerScripts` rows under one category row, sub-categories included (bounded walk). */
+export function rawScriptTotal(row: Readonly<Record<string, unknown>>): number {
+  let total = 0;
+  let nodes = 0;
+  const stack: { r: Readonly<Record<string, unknown>>; depth: number }[] = [{ r: row, depth: 0 }];
+  while (stack.length > 0 && nodes++ < RAW_TOTAL_MAX_NODES) {
+    const { r, depth } = stack.pop()!;
+    if (Array.isArray(r['customerScripts'])) total += r['customerScripts'].length;
+    const subs = r['subCategories'];
+    if (!Array.isArray(subs) || depth >= RAW_TOTAL_MAX_DEPTH) continue;
+    for (const sub of subs) {
+      const sr = recordOrNull(sub);
+      if (sr) stack.push({ r: sr, depth: depth + 1 });
+    }
+  }
+  return total;
+}
+
 export function parseQuickReplyCategories(list: unknown, depth = 0, budget: { left: number } = { left: QUICK_REPLY_MAX_SCRIPTS }): QuickReplyCategory[] {
   if (!Array.isArray(list) || depth >= QUICK_REPLY_MAX_DEPTH) return [];
   const out: QuickReplyCategory[] = [];
@@ -219,9 +256,25 @@ export function parseQuickReplyCategories(list: unknown, depth = 0, budget: { le
       id,
       name: r['name'] as string,
       code: typeof r['code'] === 'string' && r['code'] !== '' ? (r['code'] as string) : null,
+      ownerType: typeof r['ownerType'] === 'number' && Number.isSafeInteger(r['ownerType']) ? (r['ownerType'] as number) : null,
+      skillGroups: parseSkillGroups(r['vSkillGroups']),
       scripts,
       subCategories: parseQuickReplyCategories(r['subCategories'], depth + 1, budget),
+      scriptTotal: rawScriptTotal(r),
     });
+  }
+  return out;
+}
+
+/** `vSkillGroups[]` / `vskillGroupInfos[]` rows `{skillGroupId, skillGroupName}`; rows without an ID are dropped. */
+export function parseSkillGroups(list: unknown): QuickReplySkillGroup[] {
+  if (!Array.isArray(list)) return [];
+  const out: QuickReplySkillGroup[] = [];
+  for (const item of list.slice(0, 200)) {
+    const r = recordOrNull(item);
+    const id = idText(r?.['skillGroupId']);
+    if (!r || id === null) continue;
+    out.push({ id, name: typeof r['skillGroupName'] === 'string' ? (r['skillGroupName'] as string) : id });
   }
   return out;
 }

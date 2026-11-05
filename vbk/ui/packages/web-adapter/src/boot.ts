@@ -456,6 +456,7 @@ export async function boot(win: BootWindow, opts: BootOptions = {}): Promise<Boo
     account,
     productNameCache: createProductNameCache(productStorage, `vbk.product-names.v1:${JSON.stringify([account.environment, account.account_id])}`),
     selfUid: identity.identity.uid,
+    buid: identity.identity.buid,
     selfProfile: identity.selfProfile,
     beginMsgTime: ack.begin_msg_time,
     initialEpoch: ack.initial_epoch,

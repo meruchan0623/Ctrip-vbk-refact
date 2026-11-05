@@ -44,6 +44,8 @@ export interface PageSessionOptions {
   readonly bridgeCapacity?: number;
   readonly account: AccountContext;
   readonly selfUid: string;
+  /** Platform buid; only the quick-reply skill-group read uses it. */
+  readonly buid?: string;
   readonly productNameCache?: ProductNameCache;
   readonly selfProfile?: IdentityProfile;
   readonly beginMsgTime: number;
@@ -796,6 +798,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     pushFact,
     pushDisplay,
     agent: agentBox,
+    buid: opts.buid ?? null,
     ensureOrderConversation,
     captureReadAcknowledgment: readAdmission,
     onReadReceiptConfirmed: gid => { if (running) scheduleUnread([gid]); },

@@ -36,6 +36,7 @@ import { is13DigitMs, normalizeTimeMs, jidLocal } from './facts.ts';
 import { createSendIntent, submitIntent, type SendIntent } from './send.ts';
 import { markRead } from './markRead.ts';
 import { getQuickReplyCategories, parseScriptSuggestion, type QuickReplyScript, type QuickReplyCategory } from './settings.ts';
+import { editQuickReplies, parseEdit, quickReplyManageInfo, type ManageDeps, type QuickReplyEditOutcome } from './quick-reply-manage.ts';
 import { createRecommendRpc, RecommendRpcError } from './recommend.ts';
 import { createMediaRpc } from './media.ts';
 import { workSheetStarRequest, setWorkSheetStar } from './worksheetStar.ts';
@@ -68,6 +69,8 @@ export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
   'im.recommend_cities': 'official desktop city search read',
   'im.send_product_card': 'official desktop type-46 card through SDK with explicit selection token',
   'im.quick_reply_categories': 'getCategories personal/team categories; official desktop Aht/K4e draft insertion',
+  'im.quick_reply_manage_info': 'getVenAgentByUid jobPosition LEADER gate + getSkillGroupInfoByVenAgent {agentUid: buid}; official personal-settings dialog (static)',
+  'im.quick_reply_edit': 'official personal-settings dialog category/script writes (static call sites); pre-read, one write, getCategories read-back, never replayed',
   'im.members': 'checkMemberStatus (evidence 55), current status and roles',
   'im.invite_candidates': 'getInviteMemberListBySkillGroup (evidence 24)',
   'im.invite': 'inviteVenAgent (evidence 29), independent membership read-back',
@@ -125,6 +128,8 @@ export interface RpcContext {
   /** Captures the current lifecycle generation; old awaited work must never write. */
   readonly captureWriteGuard?: () => (() => boolean);
   readonly receiveDiagnostics?: () => import('../../ipc/src/client.ts').UiPageReceiveDiagnostics;
+  /** Platform buid (`getCurrentUserInfo`), used only as the official `agentUid` of the skill-group read; not the IM uid. */
+  readonly buid?: string | null;
   /**
    * Feature ops (`typing.*`, `recall.*`, `queue.*`; plan I-30). Defaults to
    * `createAdapterFeatures()` built fresh for this rpc instance. Tests inject
@@ -262,6 +267,8 @@ interface RpcState {
   readonly selectionNamespace: string;
   agentWritePending?: boolean;
   orderCreates?: Map<string, { readonly current: () => boolean; readonly result: Promise<string> }>;
+  /** One quick-reply write per account page at a time; a second one is refused as `busy`. */
+  quickReplyWriting?: boolean;
 }
 
 /** Isolated latest-page evidence read. No shared role/store mutation or UI/fact publication. */
@@ -783,12 +790,81 @@ const imCustomerScripts: Handler<'im.customer_scripts'> = async (ctx, args) => {
   const items = r.items.map(parseScriptSuggestion).filter((s): s is QuickReplyScript => s !== null).map(scriptToUi);
   return { kind: items.length ? 'ready' : r.items.length ? 'unsupported' : 'empty', raw_count: r.items.length, items };
 };
-const scriptToUi = (s: QuickReplyScript) => ({ id: s.id, content: s.content, short_cut: s.shortCut, type: s.type });
-const categoryToUi = (c: QuickReplyCategory): import('../../ipc/src/client.ts').UiQuickReplyCategory => ({ id: c.id, name: c.name, scripts: c.scripts.map(scriptToUi), sub_categories: c.subCategories.map(categoryToUi) });
-const imQuickReplyCategories: Handler<'im.quick_reply_categories'> = async (ctx, args) => {
-  const current = ctx.captureWriteGuard?.() ?? (() => true);
+const scriptToUi = (s: QuickReplyScript) => ({ id: s.id, content: s.content, short_cut: s.shortCut, type: s.type, sort_no: s.sortNo });
+const categoryToUi = (c: QuickReplyCategory): import('../../ipc/src/client.ts').UiQuickReplyCategory => ({
+  id: c.id, name: c.name, code: c.code, owner_type: c.ownerType,
+  skill_groups: c.skillGroups.map((g) => ({ id: g.id, name: g.name })),
+  scripts: c.scripts.map(scriptToUi), sub_categories: c.subCategories.map(categoryToUi),
+  script_total: c.scriptTotal,
+});
+function quickReplyType(args: unknown): 'VAGENT' | 'VSKILLGROUP' {
   const type = recordOrNull(args)?.['type'];
   if (type !== 'VAGENT' && type !== 'VSKILLGROUP') fail(ErrorCodes.ADAPTER_FAILED, adapterStrings['rpc.invalidArgumentType']);
+  return type;
+}
+function manageDeps(ctx: RpcContext, current: () => boolean): ManageDeps {
+  return { deps: ctx.deps, soa: ctx.soa, buid: ctx.buid ?? null, current };
+}
+function editToUi(out: QuickReplyEditOutcome): import('../../ipc/src/client.ts').UiQuickReplyEditResult {
+  return {
+    kind: out.kind,
+    ...(out.reason ? { reason: out.reason } : {}),
+    ...(out.detail ? { detail: out.detail } : {}),
+    ...(out.categories ? { categories: out.categories.map(categoryToUi) } : {}),
+  };
+}
+const imQuickReplyManageInfo: Handler<'im.quick_reply_manage_info'> = async (ctx, args) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  const type = quickReplyType(args);
+  const info = await quickReplyManageInfo(manageDeps(ctx, current), type);
+  ensureCurrent(current);
+  if ('kind' in info) throw new RpcError(outcomeError(info.outcome, adapterStrings['rpc.quickReplies']));
+  return { can_edit: info.can_edit, skill_groups: info.skill_groups.map((g) => ({ id: g.id, name: g.name })) };
+};
+/** Longest a timed-out quick-reply write keeps the page's write lock while its request is still out. */
+export const QUICK_REPLY_WRITE_HOLD_MAX_MS = 60_000;
+/** Frees the write lock once the write's exchange has settled (bounded), never while it may still land. */
+function releaseQuickReplyLock(ctx: RpcContext, state: RpcState, exchange: Promise<void> | null): void {
+  if (!exchange) {
+    state.quickReplyWriting = false;
+    return;
+  }
+  let done = false;
+  const release = (): void => {
+    if (done) return;
+    done = true;
+    ctx.deps.clearTimeout(timer);
+    state.quickReplyWriting = false;
+  };
+  const timer = ctx.deps.setTimeout(release, QUICK_REPLY_WRITE_HOLD_MAX_MS);
+  void exchange.then(release);
+}
+/**
+ * Never throws: every path returns applied / rejected / unknown, and a failure
+ * once the write may have been sent is `unknown` (the host would otherwise read
+ * a page error as "not submitted").
+ */
+const imQuickReplyEdit: Handler<'im.quick_reply_edit'> = async (ctx, args, state) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  const type = recordOrNull(args)?.['type'];
+  const edit = parseEdit(recordOrNull(args)?.['edit']);
+  if ((type !== 'VAGENT' && type !== 'VSKILLGROUP') || !edit) return { kind: 'rejected', reason: 'invalid' };
+  if (!current()) return { kind: 'rejected', reason: 'not_submitted' };
+  if (state.quickReplyWriting) return { kind: 'rejected', reason: 'busy' };
+  state.quickReplyWriting = true;
+  let exchange: Promise<void> | null = null;
+  try {
+    const deps: ManageDeps = { ...manageDeps(ctx, current), onWriteInFlight: (p) => { exchange = p; } };
+    return editToUi(await editQuickReplies(deps, type, edit));
+  } catch {
+    return { kind: 'unknown', reason: 'write_unknown' };
+  } finally {
+    releaseQuickReplyLock(ctx, state, exchange);
+  }
+};
+const imQuickReplyCategories: Handler<'im.quick_reply_categories'> = async (ctx, args) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  const type = quickReplyType(args);
   const result = await getQuickReplyCategories(ctx.deps, ctx.soa, [type]);
   ensureCurrent(current);
   if (result.kind === 'failed') throw new RpcError(outcomeError(result.outcome, adapterStrings['rpc.quickReplies']));
@@ -962,6 +1038,8 @@ const HANDLERS: { readonly [K in AdapterOp]: Handler<K> } = {
   },
   'im.customer_scripts': imCustomerScripts,
   'im.quick_reply_categories': imQuickReplyCategories,
+  'im.quick_reply_manage_info': imQuickReplyManageInfo,
+  'im.quick_reply_edit': imQuickReplyEdit,
   'im.recommend_products': (ctx, args, state) => (state.recommend ??= createRecommendRpc(ctx)).query(args),
   'im.recommend_cities': (ctx, args, state) => (state.recommend ??= createRecommendRpc(ctx)).cities(args),
   'im.send_product_card': (ctx, args, state) => (state.recommend ??= createRecommendRpc(ctx)).send(args),

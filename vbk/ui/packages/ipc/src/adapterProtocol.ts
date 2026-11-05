@@ -15,7 +15,7 @@
  */
 
 import type { AccountContext, AdapterFactEnvelope, AppError, SendDisposition, TransportState } from './contracts.ts';
-import type { AgentStatus, MarkAction, OrderSearchResult, UiConversation, UiMessage, UiMessagePage, UiMessageTranslations, UiNotice, UiNoticeCategory, UiCustomerScripts, UiQuickReplyCategories, UiMembers, UiInviteCandidates, UiPeripheralWrite } from './client.ts';
+import type { AgentStatus, MarkAction, OrderSearchResult, UiConversation, UiMessage, UiMessagePage, UiMessageTranslations, UiNotice, UiNoticeCategory, UiCustomerScripts, UiQuickReplyCategories, UiQuickReplyEdit, UiQuickReplyEditResult, UiQuickReplyManageInfo, UiQuickReplyType, UiMembers, UiInviteCandidates, UiPeripheralWrite } from './client.ts';
 
 export interface MediaTarget { readonly target_token: string; readonly identity_sha256: string; readonly sender_id: string }
 export interface MediaUploadReply {
@@ -118,7 +118,9 @@ export type AdapterRequest =
   | { readonly req_id: string; readonly op: 'im.send_saved_image'; readonly args: { readonly gid: string; readonly local_id: string; readonly url: string; readonly thumbnail?: string | null; readonly target_context_revision?: string } }
   | { readonly req_id: string; readonly op: 'im.send_text'; readonly args: { readonly gid: string; readonly local_id: string; readonly text: string; readonly original: string | null; readonly quote_id: string | null } }
   | { readonly req_id: string; readonly op: 'im.customer_scripts'; readonly args: { readonly content: string } }
-  | { readonly req_id: string; readonly op: 'im.quick_reply_categories'; readonly args: { readonly type: 'VAGENT' | 'VSKILLGROUP' } }
+  | { readonly req_id: string; readonly op: 'im.quick_reply_categories'; readonly args: { readonly type: UiQuickReplyType } }
+  | { readonly req_id: string; readonly op: 'im.quick_reply_manage_info'; readonly args: { readonly type: UiQuickReplyType } }
+  | { readonly req_id: string; readonly op: 'im.quick_reply_edit'; readonly args: { readonly type: UiQuickReplyType; readonly edit: UiQuickReplyEdit } }
   | { readonly req_id: string; readonly op: 'im.recommend_products'; readonly args: { readonly gid: string; readonly query: string; readonly departure_city_id?: number; readonly destination_city_id?: number; readonly page_index: number } }
   | { readonly req_id: string; readonly op: 'im.recommend_cities'; readonly args: { readonly query: string } }
   | { readonly req_id: string; readonly op: 'im.send_product_card'; readonly args: { readonly gid: string; readonly selection_token: string; readonly product_id: string } }
@@ -164,6 +166,8 @@ export interface AdapterResultMap {
   'im.mark_read': null;
   'im.customer_scripts': UiCustomerScripts;
   'im.quick_reply_categories': UiQuickReplyCategories;
+  'im.quick_reply_manage_info': UiQuickReplyManageInfo;
+  'im.quick_reply_edit': UiQuickReplyEditResult;
   'im.recommend_products': import('./recommend.ts').UiRecommendProducts;
   'im.recommend_cities': import('./recommend.ts').UiRecommendCities;
   'im.send_product_card': import('./recommend.ts').UiRecommendSend;
