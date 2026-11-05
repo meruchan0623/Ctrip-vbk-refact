@@ -91,10 +91,6 @@ html[data-platform="macos"] .tb-logo .logo { display: none; }
 @keyframes wait-pulse { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .wait { transition: none; } .wait-urgent::after, .wait-overdue::after { animation: none; opacity: 1; } }
 .wait.pending { border-style: dashed; border-color: currentColor; }
-/* 常驻 display:flex（绝对定位、不占布局），hover/focus 只切 visibility，避免每次悬停触发子树重排。 */
-.cmore { position: absolute; right: 8px; top: 8px; display: flex; visibility: hidden; width: 24px; height: 24px; background: #fff; }
-.cmore:hover { background: #fff; }
-.conv:hover .cmore, .conv:focus-within .cmore { visibility: visible; }
 .cmark { position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px; border-radius: 0 3px 3px 0; }
 .ctx-menu { position: fixed; width: 176px; border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); padding: 4px; }
 .mk-row { display: flex; gap: 6px; padding: 4px 10px 6px; }

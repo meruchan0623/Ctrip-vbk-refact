@@ -2132,7 +2132,6 @@ function conversationList(s: MainState): HTMLElement {
           c.is_top ? icon(IC.pin, 12, { style: 'color: var(--c-text-faint)', 'aria-label': t('list.pinned') }) : null,
         ),
       ),
-      h('button', { class: 'ibtn cmore', 'aria-label': t('list.more'), onclick: (e: MouseEvent) => { e.stopPropagation(); store.patch({ ctxMenu: { gid: c.gid, x: e.clientX, y: e.clientY } }); } }, icon(IC.more, 14)),
     );
     nextRows.set(c.gid, { deps, node });
     return node;
