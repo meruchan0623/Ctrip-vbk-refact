@@ -27,9 +27,6 @@ const expected = {
   "fromChrome": "从 Chrome 登录",
   "browserDescription": "直接使用 Chrome 中已登录的 TSim 账号；多个浏览器配置时选择要连接的账号。断开不会退出浏览器。",
   "diagnosticsExported": "诊断信息已导出",
-  "recoveryTitle": "页面恢复状态",
-  "recoveryDescription": "重新读取本机页面故障记录",
-  "recoveryRefresh": "重新读取",
   "retrying": "正在重试…",
   "retrySettings": "重新读取设置",
   "importExpired": "已有 TSim 会话无效或已过期，请重新取得会话或使用账号密码登录。",
@@ -65,8 +62,8 @@ const placeholders: Record<string, readonly string[]> = {
   shortcutFailed: ['message'], shortcutCurrent: ['shortcut'], connectProfile: ['label'], errorCode: ['code', 'message'],
 };
 
-test('all 50 settings entries preserve the reviewed Chinese text and placeholder contracts', () => {
-  assert.equal(Object.keys(expected).length, 50);
+test('all 47 settings entries preserve the reviewed Chinese text and placeholder contracts', () => {
+  assert.equal(Object.keys(expected).length, 47);
   for (const [name, value] of Object.entries(expected)) {
     const key = `set.runtime.${name}`;
     assert.ok(hasKey(key)); assert.equal(t(key), value, name);

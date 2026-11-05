@@ -7,7 +7,7 @@ import { browserStage, createBrowserTabs, webTabView } from './browser-tabs.ts';
 import { voiceBubble } from './voice-bubble.ts';
 import { voicePlayerOf } from './features/voice-player.ts';
 import { createAttachmentDraftBook, unavailableAttachment, type UnavailableAttachment } from './attachment-draft-book.ts';
-import { createRecovery, recoveryView, type RecoveryState } from '../_shared/recovery.ts';
+import { createRecovery, recoveryRowText, recoveryView, type RecoveryState } from '../_shared/recovery.ts';
 import { createAccountNavigation } from './account-navigation.ts';
 import { bannerKey, loadIgnored, saveIgnored, splitCategories, toggleIgnored, withBannerCategory } from './notice-ignore.ts';
 import { createNoticeQuery, EMPTY_NOTICE_QUERY, type NoticeQueryState } from './notice-query.ts';
@@ -109,6 +109,7 @@ import { settleAccountSend } from './sendScope.ts';
 import { messageAlignment } from './message-alignment.ts';
 import { mergeMessageProfile, renderMessageAvatar } from './message-profile.ts';
 import { createUnknownOutbound, type UnknownOutboundView } from './unknown-outbound.ts';
+import { buildReport, createRuntimeLog, recoveryKind } from './runtime-log.ts';
 import { createReceiveCounters, createReceiveDiagnostics, receiveDiagnosticsJson, type ReceiveDiagnosticsView } from './receive-diagnostics.ts';
 import { sendComposer, attachmentSendUnavailable, isRegisteredMediaAttachment, attachmentBlockReason, ATTACHMENT_SEND_UNAVAILABLE } from './sendComposer.ts';
 import { createTsimOrderOpener, orderInfoSection } from './order-info.ts';
@@ -305,6 +306,7 @@ interface MainState {
   readonly recommendations: RecommendState | null;
   readonly receiveDiagnostics: ReceiveDiagnosticsView | null;
   readonly unknownOutbound: UnknownOutboundView | null;
+  readonly runtimeLog: boolean;
   readonly scriptsQuery: string;
   readonly inviteQuery: string;
   readonly meMenu: false | 'status';
@@ -380,6 +382,7 @@ const initial: MainState = {
   recommendations: null,
   receiveDiagnostics: null,
   unknownOutbound: null,
+  runtimeLog: false,
   scriptsQuery: '',
   inviteQuery: '',
   meMenu: false,
@@ -443,10 +446,15 @@ const accountNavigation = createAccountNavigation({
 const root = document.getElementById('app');
 if (!root) throw new Error('#app missing');
 const attachmentDraftBook = createAttachmentDraftBook({ invoke: (command, payload) => ipc.invoke(command, payload), release: releaseAttachment });
+const runtimeLog = createRuntimeLog({ now: Date.now });
 const recovery = createRecovery({
   invoke: (command, payload) => ipc.invoke(command, payload),
   listenReady: ipc.listenReady?.bind(ipc),
-  publish: (recovery) => store.patch({ recovery }),
+  publish: (next) => {
+    const prior = S().recovery?.rows ?? [];
+    for (const row of next.rows) if (!prior.some((p) => p.label === row.label && p.incarnation === row.incarnation && p.revision === row.revision)) runtimeLog.record('recovery', row.phase === 'manual' || row.phase === 'restart_required' || row.phase === 'listener_failed' ? 'error' : 'warn', 'webview.' + row.phase, { window: recoveryKind(row.label), attempt: row.attempt });
+    store.patch({ recovery: next });
+  },
   diagnostics: async () => { await ipc.invoke(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); return 'opened'; },
 });
 void recovery.connect();
@@ -539,27 +547,42 @@ const receiveDiagnostics = createReceiveDiagnostics({
   invoke: (payload) => ipc.invoke(UiCommands.NET_STATUS, payload),
   counters: receiveCounters,
   now: Date.now,
-  publish: (view) => {
-    const opening = view !== null && S().receiveDiagnostics === null;
-    store.patch({ receiveDiagnostics: view });
-    if (opening) queueMicrotask(() => document.querySelector<HTMLElement>('[data-receive-diagnostics]')?.focus());
-  },
+  publish: (view) => store.patch({ receiveDiagnostics: view }),
 });
 
 const unknownOutbound = createUnknownOutbound({
   current: () => activeAccount()?.context ?? null,
   invoke: (command, payload) => ipc.invoke(command, payload),
   publish: (view) => {
-    const opening = view !== null && S().unknownOutbound === null;
+    const prior = S().unknownOutbound?.result ?? null;
     store.patch({ unknownOutbound: view });
-    if (opening) queueMicrotask(() => document.querySelector<HTMLElement>('[data-unknown-outbound]')?.focus());
+    if (view?.result && view.result !== prior) runtimeLog.record('send', view.result.kind === 'found' ? 'info' : 'warn', 'verify.' + view.result.kind, { server_id_present: view.result.server_id !== null });
   },
 });
 
-function openUnknownOutbound(): void {
+/** One entry point for unknown-send verification, receive diagnostics and recovery state. */
+function openRuntimeLog(): void {
   peripheral.close();
+  store.patch({ runtimeLog: true });
+  queueMicrotask(() => document.querySelector<HTMLElement>('[data-runtime-log]')?.focus());
+  void refreshRuntimeLog();
+}
+async function refreshRuntimeLog(): Promise<void> {
+  await Promise.all([unknownOutbound.open(), receiveDiagnostics.open(), recovery.refresh()]);
+}
+function closeRuntimeLog(): void {
+  unknownOutbound.close();
   receiveDiagnostics.close();
-  void unknownOutbound.open();
+  if (S().runtimeLog) store.patch({ runtimeLog: false });
+}
+function runtimeLogReport(): string {
+  const s = S();
+  return buildReport({
+    generated_at_ms: Date.now(), version: null, environment: activeAccount()?.context.environment ?? null,
+    unknown_send: s.unknownOutbound ? s.unknownOutbound.records : null,
+    unknown_send_result: s.unknownOutbound?.result ? { kind: s.unknownOutbound.result.kind, server_id_present: s.unknownOutbound.result.server_id !== null } : null,
+    receive: s.receiveDiagnostics?.snapshot ?? null, recovery: s.recovery, scroll: historyDiagnostics.snapshot(), log: runtimeLog,
+  });
 }
 
 function openPeripheral(kind: PeripheralKind): void {
@@ -855,7 +878,7 @@ function applyAccountSnapshot(snap: UiAccountSnapshot): void {
   snap = accountNavigation.project(snap);
   const prev = S().accounts?.active_account_id ?? null;
   const nextAccount = snap.accounts.find((a) => a.context.account_id === snap.active_account_id);
-  if (nextAccount?.state !== 'online') { closeCommerce(); peripheral.close(); receiveDiagnostics.close(); unknownOutbound.close(); }
+  if (nextAccount?.state !== 'online') { closeCommerce(); peripheral.close(); closeRuntimeLog(); }
   const attempt = S().loginAttempt;
   // The login attempt is over once no account is logging in any more.
   const loginAttempt = attempt && snap.accounts.some((a) => a.state === 'logging_in') ? attempt : null;
@@ -863,8 +886,7 @@ function applyAccountSnapshot(snap: UiAccountSnapshot): void {
     if (S().attachment) void releaseAttachment(S().attachment);
     closeCommerce();
     peripheral.close();
-    receiveDiagnostics.close();
-    unknownOutbound.close();
+    closeRuntimeLog();
     noticeQuery.reset();
     const navigation = S().navigationOperation;
     const transfer = navigation?.targetAccount && !navigation.transferred && navigation.fromVisit === S().accountVisit
@@ -1119,11 +1141,11 @@ function receiveMainMessage(payload: unknown): void {
   receiveCounters.count(scope, 'received');
   guarded(Events.IM_MESSAGE_NEW, (value): value is UiMessage => {
     const accepted = isUiMessage(value);
-    if (!accepted) receiveCounters.count(scope, 'guard_rejected');
+    if (!accepted) { receiveCounters.count(scope, 'guard_rejected'); runtimeLog.record('receive', 'warn', 'message.guard_rejected'); }
     return accepted;
   }, (m) => {
     const owner = messageAccount(m);
-    if (owner && !stillActive(owner)) { receiveCounters.count(scope, 'account_dropped'); return; }
+    if (owner && !stillActive(owner)) { receiveCounters.count(scope, 'account_dropped'); runtimeLog.record('receive', 'warn', 'message.account_dropped'); return; }
     if (upsertMessage(m)) receiveCounters.count(scope, 'upserted');
   })(payload);
 }
@@ -1590,7 +1612,7 @@ async function refreshPackages(): Promise<void> {
 
 // Native pages sit above all HTML, so they step aside while a menu or dialog overlaps them.
 function webCovered(s: MainState): boolean {
-  return !!(s.meMenu || s.ctxMenu || s.logoutDialog || s.peripheral || s.receiveDiagnostics || s.unknownOutbound || s.quickReplies?.mode === 'categories' || s.recommendations);
+  return !!(s.meMenu || s.ctxMenu || s.logoutDialog || s.peripheral || s.runtimeLog || s.quickReplies?.mode === 'categories' || s.recommendations);
 }
 const browserTabs = createBrowserTabs({
   invoke: (command, payload) => ipc.invoke(command, payload),
@@ -2627,7 +2649,7 @@ function composer(s: MainState, conv: UiConversation): HTMLElement {
     ),
     quote ? h('div', { class: 'quote-bar' }, h('span', { style: { flex: '1', overflow: 'hidden', 'white-space': 'nowrap', 'text-overflow': 'ellipsis' } }, t('chat.quotePrefix'), quote.text), h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('chat.cancelQuote'), onclick: () => store.patch({ quote: null }) }, icon(IC.close, 12))) : null,
     (s.attachmentDraftError || (s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable !== 'loading' && s.attachment.unavailable !== 'pending')) ? h('div', { class: 'hint-bad', role: 'alert' }, s.attachmentDraftError ?? attachmentBlockReason(s.attachment), h('button', { class: 'btn sm', type: 'button', disabled: !!s.attachmentSelection || !!s.attachmentRestore, dataset: { action: 'retry-attachment-draft', fid: 'retry-attachment-draft' }, onclick: () => void retryAttachmentDraft() }, t('attachment.retryRead'))) : null,
-    s.attachment ? h('div', { class: 'attach', title: mediaLabel, dataset: { mediaStatus: operation?.status ?? (media ? 'ready' : 'unsupported') } }, operation?.status === 'busy' ? h('span', { class: 'spin' }) : null, h('span', { style: { 'font-size': '12px' }, role: 'status', 'aria-live': 'polite' }, t('attachment.summary', { name: s.attachment.name, status: mediaLabel })), isRegisteredMediaAttachment(s.attachment) && s.attachment.lease_id ? h('button', { class: 'btn sm', type: 'button', disabled: mediaLocked, title: t('attachment.reloadTitle'), dataset: { action: 'reload-attachment', fid: 'reload-attachment' }, onclick: () => void retryAttachmentDraft() }, t('attachment.reload')) : null, s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable === 'pending' ? h('button', { class: 'btn sm', type: 'button', dataset: { action: 'verify-pending-attachment', fid: 'verify-pending-attachment' }, onclick: openUnknownOutbound }, t('attachment.verify')) : null, h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), title: operation && operation.status !== 'not_submitted' ? t('attachment.removeSelection') : t('attachment.removeLocal'), disabled: operation?.status === 'busy', onclick: () => void removeAttachment(s.attachment!) }, icon(IC.close, 12))) : null,
+    s.attachment ? h('div', { class: 'attach', title: mediaLabel, dataset: { mediaStatus: operation?.status ?? (media ? 'ready' : 'unsupported') } }, operation?.status === 'busy' ? h('span', { class: 'spin' }) : null, h('span', { style: { 'font-size': '12px' }, role: 'status', 'aria-live': 'polite' }, t('attachment.summary', { name: s.attachment.name, status: mediaLabel })), isRegisteredMediaAttachment(s.attachment) && s.attachment.lease_id ? h('button', { class: 'btn sm', type: 'button', disabled: mediaLocked, title: t('attachment.reloadTitle'), dataset: { action: 'reload-attachment', fid: 'reload-attachment' }, onclick: () => void retryAttachmentDraft() }, t('attachment.reload')) : null, s.attachment && 'unavailable' in s.attachment && s.attachment.unavailable === 'pending' ? h('button', { class: 'btn sm', type: 'button', dataset: { action: 'verify-pending-attachment', fid: 'verify-pending-attachment' }, onclick: openRuntimeLog }, t('attachment.verify')) : null, h('button', { class: 'ibtn', style: { width: '22px', height: '22px' }, 'aria-label': t('composer.removeAttach'), title: operation && operation.status !== 'not_submitted' ? t('attachment.removeSelection') : t('attachment.removeLocal'), disabled: operation?.status === 'busy', onclick: () => void removeAttachment(s.attachment!) }, icon(IC.close, 12))) : null,
     h('textarea', {
       class: 'ta',
       placeholder: locked ? t('composer.placeholderLocked') : finished ? t('composer.placeholderFinished') : t('composer.placeholder'),
@@ -2972,23 +2994,18 @@ function bannerStack(s: MainState): HTMLElement | null {
 
 let clockEl: HTMLElement | null = null;
 function statusBar(s: MainState): HTMLElement {
-  const av = agentView(s.agent);
   const nv = netView(s.net, s.netOfflineConfirmed);
   const pf = persistFailedView(s.accounts);
-  const hasAccount = !!activeAccount(s);
   // morph 下新建的 span 可能被折叠进页面上的旧 span：经 ref 拿到真正留在页面上的那个给时钟定时器用。
   const clock = h('span', { class: 'sb-clock', ref: (el: Element) => { clockEl = el as HTMLElement; } }, `${formatDate(s.now)} ${formatClock(s.now, true)}`);
   return h(
     'div',
     { class: 'statusbar', role: 'status' },
-    hasAccount ? h('span', { class: 'sb-item', dataset: { sb: 'agent', known: String(av.known) } }, h('span', { class: 'dot', style: { background: `var(${av.colorVar})` } }), av.label, av.known ? h('span', { class: 'muted' }, ` · ${t('status.readback')}`) : null) : null,
     h('span', { class: cx('sb-item', { 'sb-bad': nv.offline, 'sb-muted': !nv.ok && !nv.offline }), dataset: { sb: 'net' } }, icon(nv.ok ? IC.wifi : IC.wifiOff, 13), nv.label),
     s.alarmCount > 0 ? h('span', { class: 'sb-item sb-alarm', dataset: { sb: 'alarm' } }, icon(IC.clock, 13), t('bar.alarmCount', { n: s.alarmCount })) : null,
     // Send barrier (I-04a): host-reported, cleared by the host when a retry lands.
     pf ? h('span', { class: 'sb-item sb-bad', role: 'alert', title: pf.title, dataset: { sb: 'persist-failed' } }, icon(IC.alert, 13), pf.label) : null,
-    h('button', { class: 'link sb-diagnostics', disabled: !hasAccount, dataset: { action: 'unknown-outbound' }, onclick: openUnknownOutbound }, t("main.statusBar.unknownSendVerification")),
-    h('button', { class: 'link sb-diagnostics', dataset: { action: 'receive-diagnostics' }, onclick: () => void receiveDiagnostics.open() }, t("main.statusBar.receiveDiagnostics")),
-    h('button', { class: 'link sb-diagnostics', dataset: { action: 'recovery-status', fid: 'recovery-status' }, onclick: () => void recovery.refresh() }, t("set.runtime.recoveryTitle")),
+    h('button', { class: 'link sb-diagnostics', dataset: { action: 'runtime-log', fid: 'runtime-log' }, onclick: openRuntimeLog }, t('main.statusBar.runtimeLog')),
     h('span', { class: 'sp' }),
     sel.mock ? h('span', { class: 'sb-item muted' }, t('app.mockMode')) : null,
     s.clockTrusted ? null : h('span', { class: 'sb-item sb-warn', title: t('bar.clockUntrustedTitle'), dataset: { sb: 'clock-untrusted' } }, icon(IC.alert, 13), t('bar.clockUntrusted')),
@@ -2996,54 +3013,46 @@ function statusBar(s: MainState): HTMLElement {
   );
 }
 
-/** Metadata and one manually requested latest page only; no journal settlement or send actions. */
-function unknownOutboundDialog(s: MainState): HTMLElement | null {
-  const view = s.unknownOutbound;
-  if (!view || !stillActive(view.scope)) return null;
-  return h('div', { class: 'shade', onclick: () => unknownOutbound.close() },
-    h('div', { class: 'dlg peripheral-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'unknown-outbound-title', tabindex: '-1', dataset: { unknownOutbound: '1' }, onclick: (e: Event) => e.stopPropagation() },
-      h('div', { class: 'dlg-h' }, h('span', { id: 'unknown-outbound-title' }, t("main.unknownOutboundDialog.readonlyUnknownSend")), h('button', { class: 'ibtn', 'aria-label': t("main.unknownOutboundDialog.closeUnknownSend"), onclick: () => unknownOutbound.close() }, icon(IC.close, 16))),
-      h('div', { class: 'peripheral-body' },
-        h('p', null, t("main.unknownOutboundDialog.unknownSendDescription")),
-        view.notice ? h('p', { class: 'notice-box', role: 'status' }, view.notice) : null,
-        view.busy ? h('p', { role: 'status' }, t("main.unknownOutboundDialog.readonlyQuery")) : null,
-        !view.busy && !view.records.length ? h('p', null, t("main.unknownOutboundDialog.noUnknownSends")) : null,
-        h('div', { class: 'peripheral-list', role: 'radiogroup', 'aria-label': t("main.unknownOutboundDialog.unknownSendRecords") }, view.records.map((row) => h('label', { class: 'peripheral-member' },
-          h('input', { type: 'radio', name: 'unknown-outbound-record', checked: view.selected?.gid === row.gid && view.selected?.local_id === row.local_id, disabled: view.busy || !row.write_started, onchange: () => unknownOutbound.select(row.gid, row.local_id) }),
-          h('span', null, h('b', null, t("main.unknownOutboundDialog.localId", { id: row.local_id })), h('span', { class: 'peripheral-id' }, t("main.unknownOutboundDialog.conversationId", { gid: row.gid })), h('span', { class: 'peripheral-id' }, t("main.unknownOutboundDialog.intentMetadata", { date: formatDate(row.created_at_ms), time: formatClock(row.created_at_ms, true), generation: row.creation_generation, phase: row.write_started ? row.phase === 'write_started' ? t("main.unknownOutboundDialog.submissionStartedUnknown") : t("main.unknownOutboundDialog.submissionUnknown") : row.phase === 'uploaded' ? t("main.unknownOutboundDialog.uploadedNotSubmitted") : t("main.unknownOutboundDialog.uploadStartedUnverified") })))))),
-        view.result ? h('div', { class: 'notice-box', role: 'status' }, view.result.message, view.result.server_id ? h('div', { class: 'mono' }, t("main.unknownOutboundDialog.serverId", { id: view.result.server_id })) : null) : null),
-      h('div', { class: 'dlg-f' },
-        h('button', { class: 'btn', disabled: view.busy, onclick: () => void unknownOutbound.refresh() }, t("main.unknownOutboundDialog.readonlyRefreshList")),
-        h('button', { class: 'btn pri', disabled: view.busy || !view.selected || !view.records.some(row => row.gid === view.selected?.gid && row.local_id === view.selected?.local_id && row.write_started), onclick: () => void unknownOutbound.verify() }, t("main.unknownOutboundDialog.readSelectedLatest")),
-        h('button', { class: 'btn', onclick: () => unknownOutbound.close() }, t("win.close")))));
-}
-
-function receiveDiagnosticsDialog(s: MainState): HTMLElement | null {
-  const view = s.receiveDiagnostics;
-  if (!view) return null;
-  const snapshot = view.snapshot;
+/** Unified log: read-only sources, one copyable report. Verification never settles or resends. */
+function runtimeLogDialog(s: MainState): HTMLElement | null {
+  if (!s.runtimeLog) return null;
+  const unknown = s.unknownOutbound, receive = s.receiveDiagnostics, snapshot = receive?.snapshot ?? null;
+  const busy = !!(unknown?.busy || receive?.busy);
+  const faults = s.recovery?.rows ?? [];
   const labels = { ready: t("main.receiveDiagnosticsDialog.received"), no_account: t("main.receiveDiagnosticsDialog.noAccount"), timeout: t("main.receiveDiagnosticsDialog.pageDiagnosticsTimeout"), unavailable: t("main.receiveDiagnosticsDialog.unavailable"), invalid: t("main.receiveDiagnosticsDialog.invalidDiagnostics") };
-  return h('div', { class: 'shade', onclick: () => receiveDiagnostics.close() },
-    h('div', { class: 'dlg receive-diagnostics', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'receive-diagnostics-title', tabindex: '-1', dataset: { receiveDiagnostics: '1' }, onclick: (e: Event) => e.stopPropagation() },
-      h('div', { class: 'dlg-h' }, h('span', { id: 'receive-diagnostics-title' }, t("main.statusBar.receiveDiagnostics")), h('button', { class: 'ibtn', 'aria-label': t("main.receiveDiagnosticsDialog.closeReceiveDiagnostics"), onclick: () => receiveDiagnostics.close() }, icon(IC.close, 16))),
-      h('div', { class: 'receive-diagnostics-body' },
-        h('p', { class: 'muted' }, t("main.receiveDiagnosticsDialog.diagnosticsDescription")),
-        view.busy ? h('p', { role: 'status' }, t("main.receiveDiagnosticsDialog.readingReceiveChain")) : null,
-        snapshot ? h('div', { class: 'receive-diagnostics-summary', role: 'status' },
-          h('p', null, `${labels[snapshot.availability]} · ${formatClock(snapshot.captured_at_ms, true)}`),
-          h('p', null, t("main.receiveDiagnosticsDialog.receiveSummary", { sdk: snapshot.page?.sdk?.binding.listener_health ?? t("main.receiveDiagnosticsDialog.noData"), page: snapshot.page?.session.received ?? '—', host: snapshot.host?.changed_messages ?? '—' })),
-          h('p', null, t("main.receiveDiagnosticsDialog.mainSummary", { received: snapshot.main.received, rejected: snapshot.main.guard_rejected, dropped: snapshot.main.account_dropped, upserted: snapshot.main.upserted }))) : null,
-        snapshot ? h('pre', { class: 'receive-diagnostics-json', tabindex: '0', 'aria-label': t("main.receiveDiagnosticsDialog.safeReceiveJson") }, receiveDiagnosticsJson(snapshot)) : null,
-        h('p', { class: 'muted' }, t("main.receiveDiagnosticsDialog.scrollSummary", { status: historyDiagnostics.active() ? t("main.receiveDiagnosticsDialog.recording") : t("main.receiveDiagnosticsDialog.stopped") })),
+  return h('div', { class: 'shade', onclick: closeRuntimeLog },
+    h('div', { class: 'dlg runtime-log', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'runtime-log-title', tabindex: '-1', dataset: { runtimeLog: '1' }, onclick: (e: Event) => e.stopPropagation() },
+      h('div', { class: 'dlg-h' }, h('span', { id: 'runtime-log-title' }, t('main.runtimeLog.title')), h('button', { class: 'ibtn', 'aria-label': t('main.runtimeLog.close'), onclick: closeRuntimeLog }, icon(IC.close, 16))),
+      h('div', { class: 'runtime-log-body' },
+        h('p', { class: 'muted' }, t('main.runtimeLog.description')),
+        busy ? h('p', { role: 'status' }, t("main.receiveDiagnosticsDialog.readingReceiveChain")) : null,
+        h('h4', null, t('main.runtimeLog.sendSection')),
+        h('p', { class: 'muted' }, t("main.unknownOutboundDialog.unknownSendDescription")),
+        unknown?.notice ? h('p', { role: 'status' }, unknown.notice) : null,
+        unknown && !unknown.busy && !unknown.records.length ? h('p', null, t("main.unknownOutboundDialog.noUnknownSends")) : null,
+        unknown ? h('div', { class: 'peripheral-list', role: 'radiogroup', 'aria-label': t("main.unknownOutboundDialog.unknownSendRecords") }, unknown.records.map((row) => h('label', { class: 'peripheral-member' },
+          h('input', { type: 'radio', name: 'unknown-outbound-record', checked: unknown.selected?.gid === row.gid && unknown.selected?.local_id === row.local_id, disabled: unknown.busy || !row.write_started, onchange: () => unknownOutbound.select(row.gid, row.local_id) }),
+          h('span', null, h('b', null, t("main.unknownOutboundDialog.localId", { id: row.local_id })), h('span', { class: 'peripheral-id' }, t("main.unknownOutboundDialog.intentMetadata", { date: formatDate(row.created_at_ms), time: formatClock(row.created_at_ms, true), generation: row.creation_generation, phase: row.write_started ? row.phase === 'write_started' ? t("main.unknownOutboundDialog.submissionStartedUnknown") : t("main.unknownOutboundDialog.submissionUnknown") : row.phase === 'uploaded' ? t("main.unknownOutboundDialog.uploadedNotSubmitted") : t("main.unknownOutboundDialog.uploadStartedUnverified") }))))) ) : null,
+        unknown?.result ? h('div', { class: 'notice-box', role: 'status' }, unknown.result.message, unknown.result.server_id ? h('div', { class: 'mono' }, t("main.unknownOutboundDialog.serverId", { id: unknown.result.server_id })) : null) : null,
+        h('button', { class: 'btn', disabled: !unknown || unknown.busy || !unknown.selected || !unknown.records.some(row => row.gid === unknown.selected?.gid && row.local_id === unknown.selected?.local_id && row.write_started), onclick: () => void unknownOutbound.verify() }, t("main.unknownOutboundDialog.readSelectedLatest")),
+        h('h4', null, t('main.runtimeLog.receiveSection')),
+        snapshot ? h('p', { class: 'receive-diagnostics-summary' }, labels[snapshot.availability]) : null,
+        snapshot ? h('p', null, t("main.receiveDiagnosticsDialog.receiveSummary", { sdk: snapshot.page?.sdk?.binding.listener_health ?? t("main.receiveDiagnosticsDialog.noData"), page: snapshot.page?.session.received ?? '—', host: snapshot.host?.changed_messages ?? '—' })) : null,
+        snapshot ? h('p', null, t("main.receiveDiagnosticsDialog.mainSummary", { received: snapshot.main.received, rejected: snapshot.main.guard_rejected, dropped: snapshot.main.account_dropped, upserted: snapshot.main.upserted })) : null,
+        h('h4', null, t('main.runtimeLog.recoverySection')),
+        faults.length ? faults.map((row) => h('p', { key: row.label, role: 'status' }, recoveryRowText(row))) : h('p', null, t('main.runtimeLog.recoveryOk')),
+        h('h4', null, t('main.runtimeLog.scrollSection')),
+        h('p', { class: 'muted' }, t('main.runtimeLog.scrollState', { status: historyDiagnostics.active() ? t("main.receiveDiagnosticsDialog.recording") : t("main.receiveDiagnosticsDialog.stopped") })),
         h('button', { class: 'btn', dataset: { historyDiagnostic: 'start' }, onclick: () => { historyDiagnostics.start(); store.patch({}); } }, t("main.receiveDiagnosticsDialog.startScrollDiagnostics")),
         h('button', { class: 'btn', dataset: { historyDiagnostic: 'stop' }, onclick: () => { historyDiagnostics.stop(); store.patch({}); } }, t("main.receiveDiagnosticsDialog.stopScrollDiagnostics")),
         h('button', { class: 'btn', dataset: { historyDiagnostic: 'clear' }, onclick: () => { historyDiagnostics.clear(); store.patch({}); } }, t("main.receiveDiagnosticsDialog.clearScrollDiagnostics")),
-        h('button', { class: 'btn', dataset: { historyDiagnostic: 'copy' }, onclick: () => copyText(JSON.stringify(historyDiagnostics.snapshot(), null, 2)) }, t("main.receiveDiagnosticsDialog.copyScrollDiagnostics")),
-        h('pre', { class: 'receive-diagnostics-json', tabindex: '0', 'aria-label': t("main.receiveDiagnosticsDialog.safeScrollJson") }, JSON.stringify(historyDiagnostics.snapshot(), null, 2))),
+        h('h4', null, t('main.runtimeLog.reportLabel')),
+        h('pre', { class: 'receive-diagnostics-json', tabindex: '0', 'aria-label': t('main.runtimeLog.reportLabel') }, runtimeLogReport())),
       h('div', { class: 'dlg-f' },
-        h('button', { class: 'btn', disabled: view.busy, onclick: () => void receiveDiagnostics.refresh() }, t("main.receiveDiagnosticsDialog.readonlyRefresh")),
-        h('button', { class: 'btn', disabled: view.busy || !snapshot, onclick: () => { if (snapshot) copyText(receiveDiagnosticsJson(snapshot)); } }, t("main.receiveDiagnosticsDialog.copySafeJson")),
-        h('button', { class: 'btn', onclick: () => receiveDiagnostics.close() }, t("win.close")))));
+        h('button', { class: 'btn', disabled: busy, onclick: () => void refreshRuntimeLog() }, t('main.runtimeLog.refresh')),
+        h('button', { class: 'btn pri', dataset: { action: 'copy-runtime-log' }, onclick: () => copyText(runtimeLogReport(), t('main.runtimeLog.copied')) }, t('main.runtimeLog.copyAll')),
+        h('button', { class: 'btn', onclick: () => { runtimeLog.clear(); store.patch({}); } }, t('main.runtimeLog.clearEvents')),
+        h('button', { class: 'btn', onclick: closeRuntimeLog }, t("win.close")))));
 }
 
 function logoutDialog(s: MainState): HTMLElement | null {
@@ -3247,8 +3256,7 @@ function render(s: MainState): Node {
     part('peripheralDialog', () => peripheralDialog(s)),
     part('quickReplies', () => s.quickReplies?.mode === 'categories' ? quickRepliesView(s.quickReplies, replyContext(), quickReplies) : null),
     part('recommend', () => recommendView(s.recommendations, replyContext(), productCanSend(), recommendations)),
-    part('receiveDiagnostics', () => receiveDiagnosticsDialog(s)),
-    part('unknownOutbound', () => unknownOutboundDialog(s)),
+    part('runtimeLog', () => runtimeLogDialog(s)),
     s.fileDrag && !s.activeWeb && composerInputContext(s) ? h('div', { class: 'drop-overlay', 'aria-hidden': 'true' }, h('div', null, icon(IC.file, 28), t('composer.dropHint'))) : null,
     part('banners', () => bannerStack(s)),
     s.toast ? h('div', { class: 'toast', role: 'status' }, s.toast, s.toastAction ? h('button', { class: 'link', type: 'button', dataset: { action: 'draft-sync-retry' }, onclick: () => runToastAction(s.toastAction!) }, s.toastAction.label) : null) : null,
@@ -3264,7 +3272,7 @@ const visibleReads = createVisibleRead({
       messages: conversation ? s.messages[conversation.gid] ?? [] : [],
       firstPage: conversation ? s.history[conversation.gid]?.firstPage : undefined,
       readContextRevision: conversation ? s.history[conversation.gid]?.readContextRevision : undefined,
-      view: s.view, blocked: !!(s.activeWeb || s.logoutDialog || s.peripheral || s.receiveDiagnostics || s.unknownOutbound || s.quickReplies?.mode === 'categories' || s.recommendations) };
+      view: s.view, blocked: !!(s.activeWeb || s.logoutDialog || s.peripheral || s.runtimeLog || s.quickReplies?.mode === 'categories' || s.recommendations) };
   },
   pane: () => root.querySelector<HTMLElement>('[data-keep-scroll="msgs"]'),
   visible: () => document.visibilityState === 'visible' && document.hasFocus(),
@@ -3403,8 +3411,8 @@ document.addEventListener('mousedown', () => {
   if (s.ctxMenu || s.meMenu || s.emoOpen || s.composerMore) store.patch({ ctxMenu: null, meMenu: false, emoOpen: false, composerMore: false });
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Tab' && (S().peripheral || S().receiveDiagnostics || S().unknownOutbound || S().quickReplies?.mode === 'categories' || S().recommendations)) {
-    const dialog = document.querySelector<HTMLElement>((S().quickReplies?.mode === 'categories' || S().recommendations) ? '[data-commerce-dialog]' : S().unknownOutbound ? '[data-unknown-outbound]' : S().receiveDiagnostics ? '[data-receive-diagnostics]' : '[data-peripheral-dialog]');
+  if (e.key === 'Tab' && (S().peripheral || S().runtimeLog || S().quickReplies?.mode === 'categories' || S().recommendations)) {
+    const dialog = document.querySelector<HTMLElement>((S().quickReplies?.mode === 'categories' || S().recommendations) ? '[data-commerce-dialog]' : S().runtimeLog ? '[data-runtime-log]' : '[data-peripheral-dialog]');
     const controls = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')] : [];
     const first = controls[0];
     const last = controls[controls.length - 1];
@@ -3416,8 +3424,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeCommerce();
     if (S().peripheral) peripheral.close();
-    if (S().receiveDiagnostics) receiveDiagnostics.close();
-    if (S().unknownOutbound) unknownOutbound.close();
+    if (S().runtimeLog) closeRuntimeLog();
     const s = S();
     if (s.ctxMenu || s.meMenu || s.logoutDialog || s.emoOpen || s.composerMore) store.patch({ ctxMenu: null, meMenu: false, logoutDialog: null, emoOpen: false, composerMore: false });
   }

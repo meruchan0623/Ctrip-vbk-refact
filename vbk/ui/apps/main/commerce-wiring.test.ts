@@ -14,7 +14,7 @@ test('actual visible-read wiring blocks commerce dialogs and permits nonmodal re
   const env = { S: () => state, activeConv: () => conversation, activeAccount: () => ({ context: account }), createVisibleRead: (deps: { current: typeof current }) => { current = deps.current; }, root: {}, document: {}, ipc: {}, UiCommands: {} };
   new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)))(...Object.values(env));
   assert.equal(current().blocked, false); assert.equal(current().account, account); assert.equal(current().conversation, conversation); assert.equal(current().readContextRevision, 'visit-1');
-  for (const patch of [{ quickReplies: { mode: 'categories' } }, { recommendations: {} }, { logoutDialog: {} }, { peripheral: {} }, { receiveDiagnostics: {} }, { unknownOutbound: {} }]) {
+  for (const patch of [{ quickReplies: { mode: 'categories' } }, { recommendations: {} }, { logoutDialog: {} }, { peripheral: {} }, { runtimeLog: true }]) {
     const base = state; state = { ...base, ...patch }; assert.equal(current().blocked, true, JSON.stringify(patch)); state = base;
   }
   state = { ...state, quickReplies: { mode: 'suggestions' } }; assert.equal(current().blocked, false);

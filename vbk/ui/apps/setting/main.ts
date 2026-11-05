@@ -467,7 +467,6 @@ function privacySection(): Child[] {
 function aboutSection(s: SettingState): Child[] {
   return [
     text(S.version, s.version ?? S.versionUnknown, null),
-    row(t('set.runtime.recoveryTitle'), t('set.runtime.recoveryDescription'), h('button', { class: 'btn sm', type: 'button', onclick: () => void recovery.refresh() }, t('set.runtime.recoveryRefresh'))),
     row(S.checkUpdate, S.checkUpdateDesc, h('button', { class: 'btn sm pri', dataset: { action: 'check-update' }, onclick: () => void ipc.invoke(UiCommands.SHELL_OPEN_WINDOW, { label: 'update' }).catch((e: unknown) => toast(msg(e))) }, S.checkUpdate)),
   ];
 }

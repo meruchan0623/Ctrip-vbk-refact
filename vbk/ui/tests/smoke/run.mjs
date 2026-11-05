@@ -291,7 +291,14 @@ async function testMain(context, base) {
   check((await text(page, '.hl[data-hl="order"]')) === '3051228766', 'order number inside a message is clickable');
   check((await page.$('.side .source-info')) !== null && ((await page.$$eval('.side .info-grid .iv', (els) => els.map((e) => e.textContent))) ?? []).includes('3051228766'), 'right panel 咨询来源 card with order');
   check((await text(page, '.side .companion-card .title')) === '套餐速览', 'package quick-view card');
-  check((await text(page, '[data-sb="agent"]'))?.includes('在线'), 'status bar agent status read-back');
+  check((await text(page, '.stat-pill'))?.includes('在线'), 'status pill agent status read-back');
+  check((await page.$('[data-sb="agent"]')) === null, 'status bar no longer duplicates the agent status');
+  await page.click('[data-action="runtime-log"]');
+  await page.waitForSelector('[data-runtime-log] pre', { timeout: 5000 });
+  const runtimeReport = JSON.parse(await text(page, '[data-runtime-log] pre'));
+  check(runtimeReport.schema === 'vbk-runtime-log-v1' && Array.isArray(runtimeReport.events.items), 'runtime log renders one parseable report');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('[data-runtime-log]', { state: 'detached', timeout: 3000 });
   check((await text(page, '[data-sb="net"]'))?.includes('已连接'), 'status bar network read-back');
   await page.waitForSelector('[data-sb="alarm"]', { timeout: 5000 });
   check((await text(page, '[data-sb="alarm"]'))?.includes('超时提醒 3'), 'status bar alarm count from snapshot event');
@@ -380,7 +387,7 @@ async function testMain(context, base) {
   await page.waitForSelector('.stat-pill[data-agent="hangup"]', { timeout: 5000 });
   const st = await rec.calls('account_set_agent_status');
   check(st.length === 1 && st[0].payload.status === 'hangup' && st[0].payload.account?.account_id === 'acc-demo-a', `account_set_agent_status {account, status} (${JSON.stringify(st[0]?.payload)})`);
-  check((await text(page, '[data-sb="agent"]'))?.includes('挂起'), 'status bar shows the read-back status');
+  check((await text(page, '.stat-pill'))?.includes('挂起'), 'status pill shows the read-back status');
   await page.evaluate(async () => {
     const m = window.__vbkMock;
     const snap = await m.invoke('account_snapshot');
@@ -667,7 +674,7 @@ async function testMainWelcome(context, base) {
   check((await text(page, '.welcome-title')) === '旅游商家IM', 'welcome shows the product name');
   check((await text(page, '[data-action="welcome-add"]')) === '添加账号', 'welcome primary button 添加账号');
   check((await page.$('.clist')) === null && (await page.$('.conv')) === null, 'no empty conversation list without an account');
-  check((await page.$('[data-sb="agent"]')) === null, 'no agent status without an account');
+  check((await page.$('.stat-pill')) === null, 'no agent status without an account');
   check(!/在线/.test((await text(page, '.statusbar')) ?? ''), 'status bar shows no 在线 without an account');
   await hygiene(page, 'main/welcome');
   await shot(page, 'main-welcome.png');

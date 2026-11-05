@@ -39,7 +39,7 @@ test('main catalog references are static and every named interpolation matches i
 test('reviewed 133-entry copy snapshot retains original Chinese, spaces, punctuation and placeholder names', () => {
   assert.equal(Object.keys(mainStrings).length, 133);
   const hash = createHash('sha256').update(JSON.stringify(Object.entries(mainStrings).sort())).digest('hex');
-  assert.equal(hash, '6dae02c712f3cdbc39958abe430ebf78dfd4a11ef76142b538f4599c918ec51d');
+  assert.equal(hash, '753b5b6f06d2a695fc8ff59bee7c31568c4d67627c415a081a6b7166cb85fef5');
   for (const key of Object.keys(mainStrings) as (keyof typeof mainStrings)[]) assert.equal(t(key), mainStrings[key]);
 });
 

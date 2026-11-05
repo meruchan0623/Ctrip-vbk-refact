@@ -25,7 +25,7 @@ test('actual main message entry counts received, malformed, account drop and app
   const upsertEnd = source.indexOf('\nfunction upsertConversation(', upsertStart);
   assert.ok(upsertStart >= 0 && upsertEnd > upsertStart);
   const upsertMessage = new Function('S', 'store', 'mergeHistoryIncremental', 'selectedQuoteReference', stripTypeScriptTypes(source.slice(upsertStart, upsertEnd)) + '\nreturn upsertMessage;')(() => state, { patch: (patch: object) => Object.assign(state, patch) }, mergeHistoryIncremental, selectedQuoteReference);
-  const env = { receiveCounters: counters, activeAccount: () => ({ context: current }), guarded, isUiMessage, messageAccount, Events: { IM_MESSAGE_NEW: 'im://message-new' }, stillActive: (owner: AccountContext) => owner.account_id === current.account_id && owner.environment === current.environment && owner.session_generation === current.session_generation, upsertMessage };
+  const env = { runtimeLog: { record() {} }, receiveCounters: counters, activeAccount: () => ({ context: current }), guarded, isUiMessage, messageAccount, Events: { IM_MESSAGE_NEW: 'im://message-new' }, stillActive: (owner: AccountContext) => owner.account_id === current.account_id && owner.environment === current.environment && owner.session_generation === current.session_generation, upsertMessage };
   const receive = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)) + '\nreturn receiveMainMessage;')(...Object.values(env)) as (payload: unknown) => void;
   const message = { account, gid: 'synthetic-room', message_id: 'synthetic-message', local_id: null, sender_role: 'customer', kind: 'text', text: 'SYNTHETIC NEVER IN DIAGNOSTICS', create_time_ms: 100, translation: null, original: null, quote: null, order_id: null, disposition: null };
   receive(message);
@@ -98,39 +98,29 @@ test('full SDK/session/compensation diagnostics remain typed aggregates after sa
   assert.equal(safeReceiveDiagnostics({ ...fullDiagnostics, page: { ...fullDiagnostics.page, sdk: { ...fullDiagnostics.page.sdk, counters: { ...fullDiagnostics.page.sdk.counters, callbacks: 'SYNTHETIC PRIVATE' } } } }, 100).availability, 'invalid');
 });
 
-test('actual visible diagnostics dialog copies only safe JSON and performs no implicit refresh', () => {
+test('actual runtime log dialog summarises receive state, copies the report and performs no implicit refresh', () => {
   const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
-  const start = source.indexOf('function receiveDiagnosticsDialog(');
+  const start = source.indexOf('function runtimeLogDialog(');
   const end = source.indexOf('\nfunction logoutDialog(', start);
   assert.ok(start >= 0 && end > start);
   interface Node { tag: string; props: Record<string, unknown>; children: unknown[] }
   const walk = (tree: unknown): Node[] => Array.isArray(tree) ? tree.flatMap(walk) : tree && typeof tree === 'object' ? [tree as Node, ...walk((tree as Node).children ?? [])] : [];
   const copies: string[] = []; let refreshes = 0;
-  const env = { t: translateUi, historyDiagnostics, store: { patch() {} }, receiveDiagnostics: { close() {}, refresh() { refreshes++; } }, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, formatClock: () => 'synthetic-time', receiveDiagnosticsJson, copyText: (text: string) => { copies.push(text); } };
-  const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)) + '\nreturn receiveDiagnosticsDialog;')(...Object.values(env));
+  const env = { t: translateUi, historyDiagnostics, store: { patch() {} }, closeRuntimeLog() {}, refreshRuntimeLog() { refreshes++; }, runtimeLogReport: () => 'REPORT', runtimeLog: { clear() {} }, unknownOutbound: {}, formatDate: () => '', formatClock: () => '', icon: () => null, IC: {}, copyText: (value: string) => copies.push(value), h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }) };
+  const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)) + '\nreturn runtimeLogDialog;')(...Object.values(env));
+  assert.equal(render({ runtimeLog: false }), null);
   const snapshot = { ...safeReceiveDiagnostics(fullDiagnostics, 100), main: { received: 1, guard_rejected: 0, account_dropped: 0, upserted: 1 } };
-  const tree = walk(render({ receiveDiagnostics: { busy: false, snapshot } }));
+  const tree = walk(render({ runtimeLog: true, unknownOutbound: null, receiveDiagnostics: { busy: false, snapshot }, recovery: undefined }));
   assert.ok(tree.some((node) => node.props['role'] === 'dialog'));
-  const pre = tree.find((node) => node.tag === 'pre');
-  assert.ok(pre);
-  assert.equal(JSON.parse(pre.children[0] as string).main.upserted, 1);
-  const copy = tree.find((node) => node.tag === 'button' && node.children.includes('复制安全JSON'));
+  assert.equal(tree.find((node) => node.tag === 'pre')?.children[0], 'REPORT');
+  assert.equal(refreshes, 0);
+  const copy = tree.find((node) => node.tag === 'button' && node.children.includes('复制全部日志'));
   assert.ok(copy);
   (copy.props['onclick'] as () => void)();
-  assert.equal(copies[0], pre.children[0]);
-  assert.equal(copies[0]?.includes('PRIVATE'), false);
+  assert.deepEqual(copies, ['REPORT']);
   assert.equal(refreshes, 0);
-  const refresh = tree.find((node) => node.tag === 'button' && node.children.includes('只读刷新'));
+  const refresh = tree.find((node) => node.tag === 'button' && node.children.includes('刷新'));
   assert.ok(refresh);
   (refresh.props['onclick'] as () => void)();
   assert.equal(refreshes, 1);
-  const geometry = (action: string) => {
-    const button = tree.find(node => (node.props['dataset'] as Record<string, string> | undefined)?.['historyDiagnostic'] === action);
-    assert.ok(button); (button.props['onclick'] as () => void)();
-  };
-  historyDiagnostics.clear(); assert.equal(historyDiagnostics.active(), false);
-  geometry('start'); historyDiagnostics.record('capture', { rows: 2 }); geometry('stop'); geometry('copy');
-  assert.equal(historyDiagnostics.active(), false); assert.equal(JSON.parse(copies[1]!).events.length, 1);
-  geometry('clear'); assert.equal(historyDiagnostics.snapshot().events.length, 0);
-  assert.equal(refreshes, 1, 'geometry controls perform no host reads or history requests');
 });

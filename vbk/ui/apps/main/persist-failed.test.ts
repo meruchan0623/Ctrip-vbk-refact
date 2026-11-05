@@ -96,8 +96,8 @@ test('actual handleSend: refuses with a toast while persist_failed, without call
 });
 
 test('actual statusBar: shows the persist_failed notice as an alert only while the flag is set', () => {
-  const env: Record<string, any> = { cx, h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, formatDate: () => 'd', formatClock: () => 'c', agentView: () => ({ known: false }), netView: () => ({ ok: true }), persistFailedView: vm.persistFailedView, activeAccount: () => ({ context: account }), sel: { mock: false }, clockEl: null, openUnknownOutbound() {}, receiveDiagnostics: { open() {} } };
-  const statusBar = new Function(...Object.keys(env), slice('statusBar', 'function unknownOutboundDialog(') + '\nreturn statusBar;')(...Object.values(env));
+  const env: Record<string, any> = { openRuntimeLog() {}, cx, h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, t: (key: string) => key, formatDate: () => 'd', formatClock: () => 'c', agentView: () => ({ known: false }), netView: () => ({ ok: true }), persistFailedView: vm.persistFailedView, activeAccount: () => ({ context: account }), sel: { mock: false }, clockEl: null, openUnknownOutbound() {}, receiveDiagnostics: { open() {} } };
+  const statusBar = new Function(...Object.keys(env), slice('statusBar', 'function runtimeLogDialog(') + '\nreturn statusBar;')(...Object.values(env));
   const item = (s: unknown) => nodes(statusBar(s)).find((n) => n.props.dataset?.sb === 'persist-failed');
   const shown = item({ now: 1, alarmCount: 0, clockTrusted: true, accounts: { persist_failed: true } });
   assert.ok(shown);

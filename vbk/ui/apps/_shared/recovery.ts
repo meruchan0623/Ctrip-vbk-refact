@@ -129,18 +129,23 @@ export function createRecovery(deps: {
     dispose() { if (disposed) return; disposed = true; ++connection; ++read; ++mutation; ++exporting; stop?.(); stop = null; rows.clear(); observed.clear(); changes.clear(); dismissed.clear(); },
   };
 }
+function recoveryLabel(value: string): string {
+  return ({ main: t('recoveryRuntime.main'), setting: t('recoveryRuntime.setting'), alarm: t('recoveryRuntime.alarm'), update: t('recoveryRuntime.update'), 'package-detail': t('recoveryRuntime.packageDetail') } as Record<string, string>)[value] ?? (value.startsWith('login') ? t('recoveryRuntime.login') : t('recoveryRuntime.business'));
+}
+export function recoveryRowText(row: RecoveryStatus): string {
+  const message = row.phase === 'listener_failed' ? t('recoveryRuntime.listenerFailed') : row.phase === 'listener_retrying' ? t('recoveryRuntime.listenerRetrying') : row.phase === 'manual' ? t('recoveryRuntime.manual') : row.phase === 'restart_required' ? t('recoveryRuntime.restartRequired') : row.phase === 'retrying' ? t('recoveryRuntime.retrying', { attempt: row.attempt }) : t('recoveryRuntime.reloaded');
+  return t('recoveryRuntime.row', { label: recoveryLabel(row.label), message });
+}
 export function recoveryView(state: RecoveryState | undefined, controller: ReturnType<typeof createRecovery>): HTMLElement | null {
   if (!state || (!state.rows.length && !state.error && !state.connectionError && !state.notice)) return null;
-  const label = (value: string) => ({ main: t('recoveryRuntime.main'), setting: t('recoveryRuntime.setting'), alarm: t('recoveryRuntime.alarm'), update: t('recoveryRuntime.update'), 'package-detail': t('recoveryRuntime.packageDetail') })[value] ?? (value.startsWith('login') ? t('recoveryRuntime.login') : t('recoveryRuntime.business'));
-  const message = (row: RecoveryStatus) => row.phase === 'listener_failed' ? t('recoveryRuntime.listenerFailed') : row.phase === 'listener_retrying' ? t('recoveryRuntime.listenerRetrying') : row.phase === 'manual' ? t('recoveryRuntime.manual') : row.phase === 'restart_required' ? t('recoveryRuntime.restartRequired') : row.phase === 'retrying' ? t('recoveryRuntime.retrying', { attempt: row.attempt }) : t('recoveryRuntime.reloaded');
   return h('aside', { class: 'recovery-panel', 'aria-label': t('recoveryRuntime.label'), dataset: { recoveryPanel: '1' } },
     state.rows.map(row => h('div', { class: 'recovery-row', dataset: { key: `${row.label}:${row.incarnation}:${row.revision}` } },
-      h('span', { class: 'recovery-message', role: row.phase === 'manual' || row.phase === 'restart_required' || row.phase === 'listener_failed' ? 'alert' : 'status' }, t('recoveryRuntime.row', { label: label(row.label), message: message(row) })),
+      h('span', { class: 'recovery-message', role: row.phase === 'manual' || row.phase === 'restart_required' || row.phase === 'listener_failed' ? 'alert' : 'status' }, recoveryRowText(row)),
       row.listener_error && !['listener_failed', 'listener_retrying'].includes(row.phase) ? h('span', { role: 'alert' }, t('recoveryRuntime.listenerFailed')) : null,
       row.phase === 'manual' || row.phase === 'listener_failed' ? h('button', { class: 'btn sm', type: 'button', disabled: !!state.pending, dataset: { fid: `recovery-retry-${row.label}` }, onclick: () => controller.requestRetry(row) }, state.pending === row.label ? t('recoveryRuntime.requesting') : row.phase === 'listener_failed' ? t('recoveryRuntime.enableListener') : t('recoveryRuntime.reload')) : null,
       row.phase === 'reloaded' ? h('button', { class: 'btn sm', type: 'button', 'aria-label': t('recoveryRuntime.dismissLabel'), onclick: () => controller.dismiss(row) }, t('recoveryRuntime.dismiss')) : null)),
     state.confirming ? h('div', { class: 'recovery-confirm', role: 'alert' },
-      h('span', null, t('recoveryRuntime.warning', { label: label(state.confirming.label) })),
+      h('span', null, t('recoveryRuntime.warning', { label: recoveryLabel(state.confirming.label) })),
       h('button', { class: 'btn sm', type: 'button', dataset: { fid: 'recovery-confirm' }, onclick: () => void controller.confirmRetry(state.confirming!) }, t('recoveryRuntime.confirm')),
       h('button', { class: 'btn sm', type: 'button', onclick: controller.cancelRetry }, t('recoveryRuntime.cancel'))) : null,
     state.connectionError ? h('p', { role: 'alert' }, state.connectionError) : null,

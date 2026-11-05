@@ -91,36 +91,39 @@ import { cx } from '../../packages/ui-kit/src/h.ts';
 interface RenderNode { tag: string; props: Record<string, unknown>; children: unknown[] }
 function allNodes(tree: unknown): RenderNode[] { if (Array.isArray(tree)) return tree.flatMap(allNodes); if (!tree || typeof tree !== 'object') return []; const node = tree as RenderNode; return [node, ...allNodes(node.children ?? [])]; }
 
-test('actual upload-stage dialog displays stage evidence and disables message-page lookup', async () => {
+const dialogEnv = (panel: unknown) => ({ t: translateUi, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), unknownOutbound: panel, formatDate: () => 'date', formatClock: () => 'time', icon: () => null, IC: {}, store: { patch() {} }, historyDiagnostics: { active: () => false }, closeRuntimeLog() {}, refreshRuntimeLog() {}, runtimeLogReport: () => '', runtimeLog: { clear() {} }, copyText() {} });
+function runtimeDialog(panel: unknown) {
+  const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+  const a = source.indexOf('function runtimeLogDialog('), b = source.indexOf('\nfunction logoutDialog(', a); assert.ok(a >= 0 && b > a);
+  const env = dialogEnv(panel);
+  const dialog = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn runtimeLogDialog;')(...Object.values(env));
+  return (view: unknown) => dialog({ runtimeLog: true, unknownOutbound: view, receiveDiagnostics: null, recovery: undefined });
+}
+test('actual upload-stage log section displays stage evidence and disables message-page lookup', async () => {
   for (const phase of ['upload_started', 'uploaded']) {
     const f = fixture(); f.list([{ ...meta, phase, write_started: false }]); await f.panel.open();
-    const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
-    const env = { t: translateUi, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), stillActive: () => true, unknownOutbound: f.panel, formatDate: () => 'date', formatClock: () => 'time', icon: () => null, IC: {} };
-    const a = source.indexOf('function unknownOutboundDialog('), b = source.indexOf('\nfunction receiveDiagnosticsDialog(', a);
-    const dialog = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn unknownOutboundDialog;')(...Object.values(env));
-    const tree = dialog({ unknownOutbound: f.view() }), rendered = JSON.stringify(tree);
+    const tree = runtimeDialog(f.panel)(f.view()), rendered = JSON.stringify(tree);
     assert.ok(rendered.includes(phase === 'uploaded' ? '附件已上传，消息尚未提交' : '附件上传已开始，上传结果待核对；消息尚未提交'));
     const radio = allNodes(tree).find(n => n.tag === 'input'); assert.equal(radio?.props['disabled'], true);
     const read = allNodes(tree).find(n => n.tag === 'button' && n.children.includes('读取所选会话最新页')); assert.equal(read?.props['disabled'], true);
-    (radio!.props['onchange'] as () => void)(); (read!.props['onclick'] as () => void)(); await Promise.resolve(); assert.equal(f.calls.length, 1); f.noWrites();
+    (radio!.props['onchange'] as () => void)(); await Promise.resolve(); assert.equal(f.calls.length, 1); f.noWrites();
   }
 });
-test('actual status-bar -> dialog -> selected latest-page click uses only metadata/page commands and displays no body', async () => {
+test('actual status-bar -> runtime log -> selected latest-page click uses only metadata/page commands and displays no body', async () => {
   const f = fixture();
   const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
-  const env: Record<string, unknown> = { cx, h: (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), stillActive: () => true, unknownOutbound: f.panel, peripheral: { close() {} }, receiveDiagnostics: { close() {} }, formatDate: () => 'synthetic-date', formatClock: () => 'synthetic-time', icon: () => null, IC: {}, t: translateUi, agentView: () => ({ known: false }), netView: () => ({ ok: true }), persistFailedView: () => null, activeAccount: () => ({ context: account }), sel: { mock: false }, clockEl: null };
-  function actual(name: string, next: string) { const a = source.indexOf(`function ${name}(`), b = source.indexOf(`\nfunction ${next}(`, a); assert.ok(a >= 0 && b > a); return new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + `\nreturn ${name};`)(...Object.values(env)); }
-  env['openUnknownOutbound'] = actual('openUnknownOutbound', 'openPeripheral');
-  const bar = actual('statusBar', 'unknownOutboundDialog')({ now: 100, alarmCount: 0, clockTrusted: true });
-  const entry = allNodes(bar).find(node => (node.props['dataset'] as Record<string, string> | undefined)?.['action'] === 'unknown-outbound'); assert.ok(entry);
+  const a = source.indexOf('function statusBar('), b = source.indexOf('function runtimeLogDialog(', a); assert.ok(a >= 0 && b > a);
+  assert.match(source.slice(source.indexOf('async function refreshRuntimeLog('), source.indexOf('function closeRuntimeLog(')), /unknownOutbound\.open\(\)/);
+  const env: Record<string, unknown> = { cx, h: dialogEnv(f.panel).h, icon: () => null, IC: {}, t: translateUi, formatDate: () => '', formatClock: () => '', S: () => ({}), activeAccount: () => null, netView: () => ({ ok: true, offline: false, label: '' }), persistFailedView: () => null, sel: { mock: false }, openRuntimeLog: () => void f.panel.open() };
+  const bar = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn statusBar;')(...Object.values(env))({ now: 100, alarmCount: 0, clockTrusted: true });
+  const entry = allNodes(bar).find(node => (node.props['dataset'] as Record<string, string> | undefined)?.['action'] === 'runtime-log'); assert.ok(entry);
   (entry.props['onclick'] as () => void)(); await Promise.resolve(); await Promise.resolve();
   assert.equal(f.calls.length, 1);
-  const dialog = actual('unknownOutboundDialog', 'receiveDiagnosticsDialog');
-  const before = dialog({ unknownOutbound: f.view() });
+  const dialog = runtimeDialog(f.panel);
+  const before = dialog(f.view());
   const readBefore = allNodes(before).find(node => node.tag === 'button' && node.children.includes('读取所选会话最新页')); assert.equal(readBefore?.props['disabled'], true);
   const radio = allNodes(before).find(node => node.tag === 'input'); assert.ok(radio); (radio.props['onchange'] as () => void)();
-  const selected = dialog({ unknownOutbound: f.view() });
-  const read = allNodes(selected).find(node => node.tag === 'button' && node.children.includes('读取所选会话最新页')); assert.ok(read); (read.props['onclick'] as () => void)(); await Promise.resolve(); await Promise.resolve();
-  const result = JSON.stringify(dialog({ unknownOutbound: f.view() }));
+  const read = allNodes(dialog(f.view())).find(node => node.tag === 'button' && node.children.includes('读取所选会话最新页')); assert.ok(read); (read.props['onclick'] as () => void)(); await Promise.resolve(); await Promise.resolve();
+  const result = JSON.stringify(dialog(f.view()));
   assert.equal(f.calls.length, 2); assert.ok(result.includes(serverId)); assert.ok(result.includes('账本仍保留未知')); assert.equal(result.includes('PRIVATE'), false); f.noWrites();
 });
