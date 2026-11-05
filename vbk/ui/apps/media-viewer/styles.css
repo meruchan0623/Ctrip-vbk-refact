@@ -49,3 +49,4 @@ html[data-platform="macos"] .viewer-bar { height: 40px; padding-left: 82px; padd
 .viewer-file-icon { min-width: 88px; height: 104px; display: grid; place-items: center; padding: 12px; border: 1px solid #7493b65e; border-radius: 8px; background: #ffffff09; color: #8ac8ff; font-weight: 600; }
 .viewer-file h2 { font-size: 18px; overflow-wrap: anywhere; margin: 0; }
 .viewer-file p { color: #bcc5d2; font-size: 13px; line-height: 1.7; margin: 0; }
+.viewer-hint { flex: none; color: #a8b1bf; font-size: 12px; }

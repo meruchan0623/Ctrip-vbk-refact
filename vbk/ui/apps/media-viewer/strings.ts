@@ -28,6 +28,7 @@ export const MEDIA_VIEWER_STRINGS = {
   windowTitle: '附件查看器',
   expired: '附件预览已失效，请从会话重新打开。',
   close: '关闭',
+  closeHint: '双击标题栏可关闭',
 } as const;
 
 export function fmt(s: string, vars: Readonly<Record<string, string | number>>): string {

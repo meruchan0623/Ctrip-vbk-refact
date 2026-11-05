@@ -67,11 +67,14 @@ export function renderViewer(gallery: UiViewerGallery, host: ViewerHost): Viewer
     status.textContent = '';
     void host.save?.(at).then(saved => { if (index === at && saved) status.textContent = S.saved; }).catch(() => { status.textContent = S.saveFailed; });
   });
+  const header = h('header', { class: 'viewer-bar', 'data-tauri-drag-region': 'deep' });
+  header.append(h('div', { class: 'viewer-heading' }, title, origin),
+      h('span', { class: 'viewer-hint' }, S.closeHint),
+      saveButton, button(S.openExternal, S.openExternalShort, openExternal), ...(host.caption ? [host.caption] : []));
   const element = h('div', { class: 'viewer' },
-    h('header', { class: 'viewer-bar', 'data-tauri-drag-region': 'deep' },
-      h('div', { class: 'viewer-heading' }, title, origin),
-      saveButton, button(S.openExternal, S.openExternalShort, openExternal), host.caption),
+    header,
     stage, h('footer', { class: 'viewer-footer' }, status, tools));
+  header.addEventListener('dblclick', e => { if (!(e.target as HTMLElement).closest('button, .wbtn')) host.close(); });
   function showHeading(): UiViewerAttachment {
     const attachment = items[index]!;
     const name = attachmentInfo(attachment).name;
