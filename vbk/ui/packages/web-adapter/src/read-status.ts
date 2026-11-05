@@ -11,12 +11,19 @@ import { roomJidFromMessage, type ConversationStore, type RoleBook } from './sto
 /** 1023 is OtherHasRead in the official desktop enum. It is a notification,
  * not a documented message cursor: ask the server which exact rows are read.
  * Never infer a frontier from notification time, notify_ack, or send_result. */
+/** The adapter page lives for the whole login: tracked metadata must not grow with every room ever read. */
+export const READ_STATUS_MAX_THREADS = 64;
+export const READ_STATUS_MAX_ROWS = 2000;
+
 export function createReadStatusSync(options: {
   deps: AdapterDeps; soa: SoaClient; store: ConversationStore; roles: RoleBook;
   context(gid: string): string | null;
   captureCurrent(): () => boolean;
   publish(payload: AdapterDisplayPayload): Promise<boolean>;
+  maxThreads?: number;
+  maxRowsPerThread?: number;
 }) {
+  const maxThreads = options.maxThreads ?? READ_STATUS_MAX_THREADS, maxRows = options.maxRowsPerThread ?? READ_STATUS_MAX_ROWS;
   type TrackedMessage = Pick<UiMessage, 'gid' | 'message_id' | 'sender_id' | 'sender_role' | 'create_time_ms' | 'read_status'>;
   type Thread = { context: string; rows: Map<string, TrackedMessage> };
   const threads = new Map<string, Thread>();
@@ -28,18 +35,26 @@ export function createReadStatusSync(options: {
     const context = options.context(payload.gid);
     if (!context) return;
     let thread = threads.get(payload.gid);
-    if (!thread || thread.context !== context) {
-      thread = { context, rows: new Map() };
-      threads.delete(payload.gid); threads.set(payload.gid, thread);
-    }
+    if (!thread || thread.context !== context) thread = { context, rows: new Map() };
+    // Most recently displayed last. The same object is re-inserted, so an in-flight refresh stays valid.
+    threads.delete(payload.gid); threads.set(payload.gid, thread);
     for (const m of payload.items) {
       if (!m.message_id || m.gid !== payload.gid || !m.sender_id?.trim()) continue;
       const old = thread.rows.get(m.message_id);
+      thread.rows.delete(m.message_id);
       // Keep only identity/status metadata for the UI's loaded history, never
       // message bodies. Host cache eviction must not forget visible old rows.
       thread.rows.set(m.message_id, { gid: m.gid, message_id: m.message_id, sender_id: m.sender_id, sender_role: m.sender_role, create_time_ms: m.create_time_ms,
         ...(old?.sender_id === m.sender_id && old.read_status === 'read' ? { read_status: 'read' } : m.read_status ? { read_status: m.read_status } : {}),
       });
+    }
+    // Least recently displayed rows and rooms go first. A dropped row merely
+    // stops receiving read-status patches until the UI loads it again; the
+    // status itself is server-owned and re-read with the page.
+    for (const id of thread.rows.keys()) { if (thread.rows.size <= maxRows) break; thread.rows.delete(id); }
+    for (const gid of threads.keys()) {
+      if (threads.size <= maxThreads) break;
+      if (gid !== payload.gid && !flights.has(gid) && !queued.has(gid)) threads.delete(gid);
     }
   }
   async function publish(gid: string, items: MessageReadStatusPatch[]): Promise<void> {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { AdapterDisplayPayload } from '../../ipc/src/adapterProtocol.ts';
 import type { UiMessage } from '../../ipc/src/client.ts';
 import { createPageSession } from './session.ts';
+import { createReadStatusSync } from './read-status.ts';
 import { stanzaToEvent } from './sdkGlue.ts';
 import { FakePageSdk, OK_STATUS, jsonResponse, makeDeps, sampleRow, flush } from './testing.ts';
 import { mergeHistory } from '../../../apps/main/viewmodel.ts';
@@ -161,4 +162,31 @@ test('repeated successful acknowledgments coalesce customer history refreshes in
     await flush(); await flush();
     assert.equal(f.historyCalls().length, before + 1, 'already read targets need no follow-up HTTP query');
   } finally { f.session.stop(); }
+});
+
+test('tracked read-status metadata is bounded by least recently displayed rooms and rows', async () => {
+  const published: AdapterDisplayPayload[] = [];
+  type Options = Parameters<typeof createReadStatusSync>[0];
+  const sync = createReadStatusSync({
+    deps: {} as Options['deps'], soa: {} as Options['soa'], roles: {} as Options['roles'],
+    store: { view: () => null } as unknown as Options['store'],
+    context: gid => `ctx-${gid}`, captureCurrent: () => () => true,
+    publish: async payload => { published.push(payload); return true; },
+    maxThreads: 2, maxRowsPerThread: 3,
+  });
+  const message = (gid: string, id: string): UiMessage => ({ gid, message_id: id, sender_id: 'customer-1', sender_role: 'customer', create_time_ms: time } as UiMessage);
+  const show = (gid: string, ids: readonly string[]) => sync.observe({ kind: 'messages', gid, replace: false, items: ids.map(id => message(gid, id)) });
+  const acknowledged = async (gid: string, id: string) => { const before = published.length; await sync.acknowledged(gid, id); return published.length > before; };
+
+  show('a', ['a1']); show('b', ['b1']); show('a', ['a2']); show('c', ['c1']);
+  // `b` was displayed least recently; `a` was refreshed and survives.
+  assert.equal(await acknowledged('b', 'b1'), false);
+  assert.equal(await acknowledged('a', 'a1'), true);
+  assert.equal(await acknowledged('c', 'c1'), true);
+
+  show('c', ['c2', 'c3']); show('c', ['c1']); show('c', ['c4']);
+  // Three rows per room: `c2` is the least recently displayed row of `c`.
+  assert.equal(await acknowledged('c', 'c2'), false);
+  assert.equal(await acknowledged('c', 'c1'), true);
+  assert.equal(await acknowledged('c', 'c4'), true);
 });
