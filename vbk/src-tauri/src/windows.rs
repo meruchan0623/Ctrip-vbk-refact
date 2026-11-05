@@ -155,14 +155,35 @@ pub fn show_alarm(app: &AppHandle, corner: Corner, raise: bool) -> tauri::Result
     };
     fit_alarm(app, &win, corner)?;
     if !win.is_visible().unwrap_or(false) {
-        // `show` on a window built with `focused(false)` does not activate it
-        // on Windows; we never call `set_focus` here.
-        win.show()?;
+        show_without_activating(&win)?;
     }
     if raise {
         win.set_always_on_top(true)?;
     }
     Ok(())
+}
+
+/// tao clears its don't-focus marker once the window exists, so its own `show`
+/// is a plain SW_SHOW on Windows and would take the keyboard from the user.
+fn show_without_activating(win: &WebviewWindow) -> tauri::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::{
+            Foundation::HWND,
+            UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE},
+        };
+        let raw = win.hwnd()?.0 as isize;
+        let shown = win.clone();
+        win.run_on_main_thread(move || {
+            // SAFETY: `raw` belongs to a live window of this thread.
+            let _ = unsafe { ShowWindow(HWND(raw as *mut _), SW_SHOWNOACTIVATE) };
+            // Already visible, so this only records the state in tao, whose
+            // next flag change would otherwise hide the window again.
+            let _ = shown.show();
+        })
+    }
+    #[cfg(not(target_os = "windows"))]
+    win.show()
 }
 
 /// Windows rescales a window that lands on a monitor with another DPI
