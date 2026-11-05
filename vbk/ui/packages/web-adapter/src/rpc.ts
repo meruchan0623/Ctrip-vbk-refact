@@ -377,17 +377,17 @@ const imTranslateMessages: Handler<'im.translate_messages'> = async (ctx, args) 
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_TRANSLATE_IDS || raw.some(id => typeof id !== 'string' || !id)) fail(ErrorCodes.ADAPTER_FAILED, 'invalid argument: message_ids');
   const view = requireConversation(ctx, gid);
   const bizType = Number(view.serviceType);
-  if (!view.sessionId || !Number.isSafeInteger(bizType) || bizType <= 0) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation has no translation session yet', true);
+  if (!Number.isSafeInteger(bizType) || bizType <= 0) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation has no translation business type yet', true);
   const chatType = recordOrNull(ctx.store.row(gid))?.['chatType'];
   const result = await translateForDisplay(ctx.deps, ctx.soa, {
-    gid, sessionId: view.sessionId, serviceType: view.serviceType,
+    gid, sessionId: view.sessionId ?? '', serviceType: view.serviceType,
     ...(typeof chatType === 'string' && chatType ? { chatType } : {}),
   }, [...new Set(raw as string[])]);
   ensureCurrent(current);
   const live = requireConversation(ctx, gid);
   if (live.sessionId !== view.sessionId || live.serviceType !== view.serviceType) fail(ErrorCodes.ADAPTER_NOT_READY, 'conversation changed during translation', true);
   if ('failed' in result) throw outcomeError(result.failed, 'translation');
-  return { ...result, session_tag: md5HexOfString(view.sessionId).slice(0, 8) };
+  return { ...result, session_tag: md5HexOfString(view.sessionId ?? '').slice(0, 8) };
 };
 
 /** 同一页面、同一会话并发发送只共用一次重开（键为会话缓存实例，换会话缓存即失效）。 */

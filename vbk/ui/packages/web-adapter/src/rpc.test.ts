@@ -939,3 +939,16 @@ test('finished conversation mark matches official numeric wire IDs while retaini
     if (rounded !== gid) assert.equal(f.store.row(rounded)?.star, 5);
   }
 });
+
+test('translation of the first message does not wait for a reception session; history is looked up across sessions', async () => {
+  const f = setup(call => call.url.includes('batchTranslateByMsgIds')
+    ? jsonResponse({ ResponseStatus: OK_STATUS, translateMessageList: [{ msgId: 'first', msgtype: 7, messageBody: JSON.stringify({ title: '二维码已失效' }) }] })
+    : jsonResponse({ ResponseStatus: OK_STATUS }));
+  for (const sessionId of [undefined, 'new-service-session']) {
+    f.store.update([{ ...sampleRow(GID), sessionId }]);
+    const result = ok(await f.rpc.handle({ req_id: 'tr', op: 'im.translate_messages', args: { gid: GID, message_ids: ['first'] } })) as { items: { translation: string; source_kind: string }[] };
+    assert.equal(result.items[0]?.translation, '二维码已失效');
+    const sent = f.base.fakeFetch.calls.filter(c => c.url.includes('batchTranslateByMsgIds')).at(-1)!;
+    assert.equal((sent.bodyJson as Record<string, unknown>).sessionId, '');
+  }
+});

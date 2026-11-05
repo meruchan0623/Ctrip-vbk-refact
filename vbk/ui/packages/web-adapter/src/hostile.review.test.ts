@@ -76,7 +76,7 @@ test('review/hostile: translation, settings, worksheet star, search, mark-read t
   if (t.kind === 'translated') {
     assert.deepEqual([...t.byMsgId.keys()], ['b']);
     assert.deepEqual(t.missing, ['a', 'c']);
-    assert.equal(t.byMsgId.get('b')?.msgtype, null);
+    assert.equal(t.byMsgId.get('b')?.msgtype, 0, 'numeric string wire types are normalized');
   }
   const n = await listNoticeReceiveConfig(deps, soa);
   assert.equal(n.kind, 'ok');

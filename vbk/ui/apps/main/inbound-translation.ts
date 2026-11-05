@@ -1,17 +1,8 @@
 /**
- * Platform translation of messages already on screen, driven per message.
- * Mirrors the official client: unresolved IDs of the current thread go out in
- * batches of 20; a row never shows anything until a translation exists, unless
- * the user asked for it or every bounded attempt ended without a result.
- * Rows the platform marks as not needing translation stay silent and are not
- * asked again, unless the row is new and foreign: the platform can answer that
- * before it has translated, so such a row keeps its retries, and any later
- * message asks about it again. A superseded scope can never publish a late result.
- *
- * Backfill: a foreign row without a translation is never believed "not needed"
- * on the first answer, whatever its age (history, a freshly opened thread, rows
- * the backend pulled late). Such rows end silently, are forgotten when the thread
- * is left, and are asked again by a new row or by `recheck()` after a cooldown.
+ * Fetch platform translations for every eligible row in the open thread.
+ * Fast retries cover indexing delays; unanswered text stays on a capped slow
+ * backfill schedule, including history, without needing focus or another message.
+ * Account/scope changes discard late results. Requests stay batched and bounded.
  */
 import type { UiMessage, UiMessageTranslations } from '../../packages/ipc/src/client.ts';
 import type { AccountContext } from '../../packages/ipc/src/contracts.ts';
@@ -34,6 +25,7 @@ type Status = 'queued' | 'inflight' | 'waiting' | 'not_needed' | 'unsupported' |
 interface Entry {
   status: Status;
   attempts: number;
+  backfills: number;
   dueAt: number;
   manual: boolean;
   /** Ended without a result although the row looks foreign: asked again on the next trigger. */
@@ -51,6 +43,8 @@ export interface InboundTranslationDeps {
   readonly apply: (scope: InboundTranslationScope, messageId: string, translation: string) => void;
   readonly changed: () => void;
   readonly describeError: (error: unknown) => string;
+  /** Counts only: never include bodies, IDs or credentials in diagnostics. */
+  readonly report?: (event: 'request' | 'response' | 'failed', counts: Record<string, number>) => void;
 }
 
 export const TRANSLATE_COMMAND = 'im_translate_messages';
@@ -61,8 +55,9 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const RETRY_DELAYS_MS = [1_000, 3_000, 8_000] as const;
 /** A just-delivered row may lag further: the first message of a new session has stayed untranslated past the base schedule. */
 const RECENT_RETRY_DELAYS_MS = [...RETRY_DELAYS_MS, 15_000, 30_000, 60_000, 120_000] as const;
-/** Rows that ended without a result are only reopened by a trigger once this long after they ended (new rows bypass it for recent rows). */
+/** All external triggers honour this cooldown as well as the backfill due time. */
 const REOPEN_COOLDOWN_MS = 30_000;
+const BACKFILL_DELAYS_MS = [30_000, 60_000, 120_000, 300_000] as const;
 const RECENT_MS = 10 * 60_000;
 const MAX_ENTRIES = 5_000;
 const MAX_SUPPLIERS = 500;
@@ -85,7 +80,7 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
   const suppliers = new Map<string, string>();
   const entryKey = (id: string) => `${scope?.key ?? ''}\0${id}`;
 
-  const fresh = (): Entry => ({ status: 'queued', attempts: 0, dueAt: 0, manual: false, reask: false, settledAt: 0, error: '', waiters: [] });
+  const fresh = (): Entry => ({ status: 'queued', attempts: 0, backfills: 0, dueAt: 0, manual: false, reask: false, settledAt: 0, error: '', waiters: [] });
   const settle = (key: string, entry: Entry, outcome: InboundTranslationOutcome): void => {
     const waiters = entry.waiters;
     entry.waiters = [];
@@ -99,7 +94,7 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     if (entries.size <= MAX_ENTRIES) return;
     for (const [key, entry] of entries) {
       if (entries.size <= MAX_ENTRIES) return;
-      if (!entry.waiters.length && entry.status !== 'inflight' && entry.status !== 'queued') entries.delete(key);
+      if (!entry.waiters.length && !known.has(key.slice(key.lastIndexOf('\0') + 1)) && entry.status !== 'inflight' && entry.status !== 'queued') entries.delete(key);
     }
   }
 
@@ -108,7 +103,7 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     let due = Infinity;
     for (const id of known.keys()) {
       const entry = entries.get(entryKey(id));
-      if (entry?.status === 'waiting') due = Math.min(due, entry.dueAt);
+      if (entry && (entry.status === 'waiting' || (entry.reask && entry.status !== 'queued' && entry.status !== 'inflight'))) due = Math.min(due, entry.dueAt);
     }
     if (due === Infinity) return;
     timer = deps.setTimeout(() => { timer = null; wake(); }, Math.max(0, due - deps.now()));
@@ -118,18 +113,18 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     const now = deps.now();
     for (const id of known.keys()) {
       const entry = entries.get(entryKey(id));
-      if (entry?.status === 'waiting' && entry.dueAt <= now) { entry.status = 'queued'; queue.push(id); }
+      if (entry && (entry.status === 'waiting' || entry.reask) && entry.status !== 'queued' && entry.status !== 'inflight' && entry.dueAt <= now) { entry.status = 'queued'; queue.push(id); }
     }
     pump();
     arm();
   }
 
   const isRecent = (m: UiMessage): boolean => Math.abs(deps.now() - m.create_time_ms) < RECENT_MS;
-  /** "Nothing to show" is only believed at once for text already in the display language, or for old rows with no language evidence. */
+  /** "Nothing to show" is only believed at once for Chinese text or nonlinguistic content; short and unrecognized scripts still retry. */
   const mayStillTranslate = (m: UiMessage): boolean => {
     if (m.kind !== 'text') return false;
     const lang = suggestLanguage(m.text);
-    return lang !== 'zh' && (isRecent(m) || lang !== null);
+    return lang !== 'zh' && /\p{L}/u.test(m.text.replace(/https?:\/\/\S+|\b[\w.+-]+@[\w.-]+\.[A-Za-z]+/g, ''));
   };
 
   /** Records one unanswered attempt and schedules the next, or ends visibly when attempts run out. */
@@ -149,29 +144,33 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     }
     entry.status = outcome;
     entry.error = error;
-    entry.reask = outcome === 'not_needed' || outcome === 'unsupported';
+    entry.reask = outcome === 'missing' || outcome === 'failed' || !!(message && mayStillTranslate(message));
     settle(key, entry, outcome);
+    if (entry.reask) {
+      entry.dueAt = deps.now() + BACKFILL_DELAYS_MS[Math.min(entry.backfills++, BACKFILL_DELAYS_MS.length - 1)]!;
+    }
     return true;
   }
 
   /** A foreign row that never gets a translation ends with the visible retry offer rather than in silence. */
   function answerNothing(id: string, key: string, entry: Entry, message: UiMessage | undefined): boolean {
     const wasManual = entry.manual;
-    // Only a recent foreign row ends with the visible retry offer; old rows end silently (and are asked again later).
-    if (!wasManual && message && mayStillTranslate(message)) return retryOrEnd(id, isRecent(message) && suggestLanguage(message.text) ? 'missing' : 'not_needed', '');
+    // Age and a manual request cannot turn untranslated foreign text into a terminal success.
+    if (message && mayStillTranslate(message)) return retryOrEnd(id, 'missing', '');
     entry.status = 'not_needed';
+    entry.reask = false;
     settle(key, entry, 'not_needed');
     return wasManual;
   }
 
   function accept(ids: readonly string[], result: UiMessageTranslations, owner: InboundTranslationScope): boolean {
-    let visible = false;
+    let visible = false, applied = 0, echoes = 0;
     const answered = new Map(result.items.map(item => [item.message_id, item]));
     for (const id of ids) {
       const key = entryKey(id), entry = entries.get(key), message = known.get(id), item = answered.get(id);
       if (!entry) continue;
       const wasManual = entry.manual;
-      if (!message) {
+      if (!message || message.translation) {
         // The row left the list while this was in flight; forget it so its return asks again.
         settle(key, entry, 'failed');
         entries.delete(key);
@@ -187,26 +186,35 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
             suppliers.set(key, result.supplier);
           }
           settle(key, entry, 'translated');
+          applied++;
           deps.apply(owner, id, item.translation!);
           visible = visible || wasManual;
           continue;
         }
+        if (text === message.text.trim()) echoes++;
         visible = answerNothing(id, key, entry, message) || visible;
       } else if (item?.status === 'not_needed') {
         visible = answerNothing(id, key, entry, message) || visible;
       } else if (item?.status === 'unsupported') {
         // Judged from the conversation row, which a new session's first message can outrun.
-        if (!wasManual && isRecent(message) && mayStillTranslate(message)) {
-          retryOrEnd(id, 'unsupported', '');
+        if (mayStillTranslate(message)) {
+          visible = retryOrEnd(id, 'missing', '') || visible;
           continue;
         }
         entry.status = item.status;
+        entry.reask = false;
         settle(key, entry, item.status);
         visible = visible || wasManual;
       } else {
         visible = retryOrEnd(id, 'missing', '') || visible;
       }
     }
+    deps.report?.('response', { requested: ids.length, applied, echoes,
+      not_needed: result.items.filter(item => item.status === 'not_needed').length,
+      unsupported: result.items.filter(item => item.status === 'unsupported').length,
+      missing: ids.filter(id => !answered.has(id) || answered.get(id)?.status === 'missing').length,
+      card: result.items.filter(item => item.reason === 'card').length,
+    });
     return visible;
   }
 
@@ -217,7 +225,7 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
       const ids: string[] = [];
       while (ids.length < TRANSLATE_BATCH && queue.length) {
         const id = queue.shift()!, entry = entries.get(entryKey(id));
-        if (entry?.status === 'queued' && !ids.includes(id)) { entry.status = 'inflight'; ids.push(id); }
+        if (known.has(id) && entry?.status === 'queued' && !ids.includes(id)) { entry.status = 'inflight'; ids.push(id); }
       }
       if (!ids.length) continue;
       inflight++;
@@ -230,6 +238,7 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     let result: UiMessageTranslations | null = null;
     let failure: unknown = null;
     try {
+      deps.report?.('request', { requested: ids.length, history: ids.filter(id => { const m = known.get(id); return m && !isRecent(m); }).length });
       result = await Promise.race([
         deps.invoke(TRANSLATE_COMMAND, { account: owner.account, gid: owner.gid, message_ids: ids }) as Promise<UiMessageTranslations>,
         new Promise<never>((_, reject) => { handle = deps.setTimeout(() => reject(new Error(t('orderMisc.translate.requestTimeout'))), REQUEST_TIMEOUT_MS); }),
@@ -246,6 +255,7 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     if (result) {
       visible = accept(ids, result, owner);
     } else {
+      deps.report?.('failed', { requested: ids.length });
       const error = deps.describeError(failure);
       visible = false;
       for (const id of ids) visible = retryOrEnd(id, 'failed', error) || visible;
@@ -257,9 +267,9 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
 
   /**
    * Like the official client, a new row is also the moment to ask again about rows that ended without a result:
-   * recent ones at once, older foreign ones (and failures) once their cooldown has passed. `recheck` honours the cooldown for all.
+   * only after their scheduled backfill time and cooldown, so frequent messages cannot create a retry storm.
    */
-  function reopenEnded(recentBypassesCooldown: boolean): boolean {
+  function reopenEnded(): boolean {
     let visible = false;
     const now = deps.now();
     for (const [id, message] of known) {
@@ -273,9 +283,8 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
         ? shown || mayStillTranslate(message)
         : shown || (entry.reask && mayStillTranslate(message));
       if (!wanted) continue;
-      if (!(recent && recentBypassesCooldown) && now - entry.settledAt < REOPEN_COOLDOWN_MS) continue;
+      if (now < Math.max(entry.dueAt, entry.settledAt + REOPEN_COOLDOWN_MS)) continue;
       entry.status = 'queued';
-      entry.attempts = 0;
       entry.error = '';
       entry.reask = false;
       queue.push(id);
@@ -290,15 +299,26 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     for (const m of list) {
       const id = m.message_id;
       if (!id) continue;
-      if (m.translation) { entries.delete(entryKey(id)); continue; }
+      if (m.translation) {
+        const key = entryKey(id), entry = entries.get(key);
+        if (entry) settle(key, entry, 'translated');
+        continue;
+      }
       if (!isTranslatableMessage(m)) continue;
       known.set(id, m);
       const key = entryKey(id);
       if (!entries.has(key)) { entries.set(key, fresh()); add.push(id); }
     }
+    // A queued/waiting row can leave a history window before being requested.
+    // Forget its slot so loading that row again enqueues it instead of stranding it.
+    for (const [key, entry] of entries) {
+      if (!key.startsWith(`${scope?.key ?? ''}\0`) || entry.status === 'inflight') continue;
+      const id = key.slice((scope?.key.length ?? 0) + 1);
+      if (!known.has(id)) { settle(key, entry, 'failed'); entries.delete(key); }
+    }
     // Newest rows are the ones on screen when a thread opens.
     if (add.length) queue = [...add.reverse(), ...queue];
-    const visible = add.length > 0 && reopenEnded(true);
+    const visible = add.length > 0 && reopenEnded();
     prune();
     return visible;
   }
@@ -333,7 +353,7 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
     /** Window back in view or another backfill trigger: asks again about ended rows whose cooldown has passed. */
     recheck(): void {
       if (!scope || !messages) return;
-      const visible = reopenEnded(false);
+      const visible = reopenEnded();
       pump();
       arm();
       if (visible) deps.changed();
@@ -348,6 +368,8 @@ export function createInboundTranslation(deps: InboundTranslationDeps) {
       entries.set(key, entry);
       entry.manual = true;
       entry.attempts = 0;
+      entry.backfills = 0;
+      entry.reask = false;
       entry.error = '';
       if (entry.status !== 'inflight') {
         entry.status = 'queued';

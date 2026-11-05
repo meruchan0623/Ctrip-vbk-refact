@@ -17,6 +17,7 @@ const fresh = (id: string, extra: Partial<UiMessage> = {}) => message(id, { crea
 function fixture(reply: (ids: readonly string[], call: number) => Answer | Promise<Answer>) {
   let now = NOW, seq = 0;
   const timers = new Map<number, { at: number; run: () => void }>();
+  const reports: { event: string; counts: Record<string, number> }[] = [];
   const calls: string[][] = [], applied: [string, string, string][] = [], changed: number[] = [];
   const controller = createInboundTranslation({
     invoke: async (_command, payload) => {
@@ -26,6 +27,7 @@ function fixture(reply: (ids: readonly string[], call: number) => Answer | Promi
       if (value instanceof Error) throw value;
       return value;
     },
+    report: (event, counts) => reports.push({ event, counts }),
     now: () => now,
     setTimeout: (run, ms) => { const id = ++seq; timers.set(id, { at: now + ms, run }); return id; },
     clearTimeout: (handle) => { timers.delete(handle as number); },
@@ -45,7 +47,7 @@ function fixture(reply: (ids: readonly string[], call: number) => Answer | Promi
     now = end;
     await flush();
   };
-  return { controller, calls, applied, changed, flush, advance };
+  return { controller, calls, applied, changed, flush, advance, reports };
 }
 
 test('on-screen rows are translated newest-first in batches of 20, and each ID is asked once', async () => {
@@ -85,7 +87,7 @@ test('a just-delivered message without a row is retried on a bounded schedule an
   await f.advance(8000); assert.equal(f.calls.length, 4);
   assert.deepEqual(f.controller.view(row), { status: 'missing' });
   await f.advance(60_000);
-  assert.equal(f.calls.length, 4, 'never polls forever');
+  assert.equal(f.calls.length, 5, 'a slow backfill follows the fast burst');
 });
 
 test('delayed indexing that resolves during the budget applies with no visible failure', async () => {
@@ -101,7 +103,7 @@ test('delayed indexing that resolves during the budget applies with no visible f
 
 test('not_needed, unsupported and an identical translation are terminal and silent', async () => {
   const f = fixture(ids => ({ supplier: null, items: ids.map(id => id === 'same' ? translated(id, '您好') : answer(id === 'zh' ? 'not_needed' : 'unsupported', id)) }));
-  const rows = [message('zh', { text: '您好，流量用完了' }), message('no'), message('same', { text: '您好' })];
+  const rows = [message('zh', { text: '您好，流量用完了' }), message('no', { text: '123' }), message('same', { text: '您好' })];
   f.controller.sync(scope(), rows);
   await f.flush();
   await f.advance(60_000);
@@ -130,7 +132,7 @@ test('a new foreign row echoed back untranslated keeps asking too', async () => 
   assert.deepEqual(f.applied, [['g', 'first', '您好']]);
 });
 
-test('a new row in the display language, and a manual request, take not_needed at once', async () => {
+test('Chinese not_needed is terminal, but a manual foreign request still retries', async () => {
   const f = fixture(ids => ({ supplier: null, items: ids.map(id => answer('not_needed', id)) }));
   f.controller.sync(scope(), [fresh('zh', { text: '您好，请问流量用完了吗' })]);
   await f.flush();
@@ -139,10 +141,13 @@ test('a new row in the display language, and a manual request, take not_needed a
   const manual = fixture(ids => ({ supplier: null, items: ids.map(id => answer('not_needed', id)) }));
   const row = fresh('ru');
   manual.controller.sync(scope(), [row]);
-  assert.equal(await manual.controller.retry(row), 'not_needed');
+  const pending = manual.controller.retry(row);
+  await manual.flush();
+  await manual.advance(12_000);
+  assert.equal(await pending, 'missing');
 });
 
-test('a new row gets a longer bounded budget, then stops', async () => {
+test('a new row gets a bounded fast budget, then continues slow backfill', async () => {
   const f = fixture(ids => ({ supplier: null, items: [answer('missing', ids[0]!)] }));
   const row = fresh('late');
   f.controller.sync(scope(), [row]);
@@ -157,10 +162,10 @@ test('a new row gets a longer bounded budget, then stops', async () => {
   assert.equal(f.calls.length, 8);
   assert.deepEqual(f.controller.view(row), { status: 'missing' });
   await f.advance(300_000);
-  assert.equal(f.calls.length, 8, 'never polls forever');
+  assert.equal(f.calls.length, 11, 'slow retries continue without list changes');
 });
 
-test('a later message asks again about a recent row that ended without a result', async () => {
+test('a later message cannot bypass the cooldown of a recent unanswered row', async () => {
   for (const status of ['missing', 'not_needed', 'unsupported'] as const) {
     let ready = false;
     const f = fixture(ids => ({ supplier: null, items: ids.map(id => ready ? translated(id, `译-${id}`) : answer(status, id)) }));
@@ -173,10 +178,12 @@ test('a later message asks again about a recent row that ended without a result'
     f.changed.length = 0;
     f.controller.sync(scope(), [first, fresh('second')]);
     await f.flush();
-    assert.deepEqual(f.calls.at(-1), ['second', 'first'], 'newest first, in one batch');
+    assert.deepEqual(f.calls.at(-1), ['second'], 'new traffic cannot bypass backfill cooldown');
+    await f.advance(27_000);
+    assert.deepEqual(f.calls.at(-1), ['first']);
     assert.deepEqual(f.applied, [['g', 'second', '译-second'], ['g', 'first', '译-first']]);
     assert.equal(f.controller.view(first), null, 'the failure marker is gone');
-    assert.equal(f.changed.length, status === 'unsupported' ? 0 : 1, 'only a drawn marker needs a redraw');
+    assert.equal(f.controller.view(first), null);
   }
 });
 
@@ -298,7 +305,7 @@ test('leaving a thread forgets failures so reopening asks again, but keeps termi
 
 const foreignOld = (id: string, extra: Partial<UiMessage> = {}) => message(id, { text: 'Здравствуйте, у меня не работает eSIM', ...extra });
 
-test('history: an old foreign row answered not_needed is asked again before it is believed, then ends silent', async () => {
+test('history: not_needed cannot permanently silence an untranslated foreign row', async () => {
   const f = fixture((ids, call) => ({ supplier: null, items: [call < 3 ? answer('not_needed', ids[0]!) : translated(ids[0]!, '您好')] }));
   f.controller.sync(scope(), [foreignOld('old')]);
   await f.flush();
@@ -309,8 +316,8 @@ test('history: an old foreign row answered not_needed is asked again before it i
   never.controller.sync(scope(), [row]);
   await never.flush();
   await never.advance(60_000);
-  assert.equal(never.calls.length, 4, 'bounded');
-  assert.equal(never.controller.view(row), null, 'old rows do not get a failure marker');
+  assert.equal(never.calls.length, 5, 'slow backfill has started');
+  assert.deepEqual(never.controller.view(row), { status: 'missing' });
 });
 
 test('history: an old Chinese row or one without language evidence is believed at once', async () => {
@@ -369,4 +376,95 @@ test('recheck (window back in view) reopens ended rows after the cooldown, never
   f.controller.recheck();
   await f.flush();
   assert.deepEqual(f.applied, [['g', 'old', '译-old']]);
+});
+
+test('untranslated history recovers automatically after every former stopping point, without focus or new rows', async () => {
+  for (const status of ['missing', 'not_needed', 'unsupported', 'echo', 'error'] as const) {
+    let ready = false;
+    const row = foreignOld('old');
+    const f = fixture(ids => status === 'error' && !ready ? new Error('offline') : ({ supplier: null, items: ids.map(id => ready ? translated(id) : status === 'echo' ? translated(id, row.text) : answer(status === 'error' ? 'missing' : status, id)) }));
+    f.controller.sync(scope(), [row]);
+    await f.flush();
+    await f.advance(222_000);
+    assert.equal(f.calls.length, 7, status);
+    ready = true;
+    await f.advance(300_000);
+    assert.deepEqual(f.applied, [['g', 'old', '译-old']], status);
+    await f.advance(600_000);
+    assert.equal(f.calls.length, 8, 'successful translation ends automatic requests');
+  }
+});
+
+test('old short foreign text and scripts outside the language heuristic keep backfilling', async () => {
+  for (const text of ['Hi', 'Sí', 'हाँ', 'שלום']) {
+    const row = foreignOld('short', { text });
+    const f = fixture((ids, call) => ({ supplier: null, items: ids.map(id => call < 5 ? answer('not_needed', id) : translated(id)) }));
+    f.controller.sync(scope(), [row]);
+    await f.flush();
+    await f.advance(42_000);
+    assert.deepEqual(f.applied, [['g', 'short', '译-short']], text);
+  }
+});
+
+test('backfill timers stop on scope exit and an independently supplied translation settles manual waiters', async () => {
+  const f = fixture(ids => ({ supplier: null, items: ids.map(id => answer('missing', id)) }));
+  const row = foreignOld('old');
+  f.controller.sync(scope(), [row]);
+  await f.flush();
+  await f.advance(12_000);
+  f.controller.stop();
+  await f.advance(3_600_000);
+  assert.equal(f.calls.length, 4);
+  const hung = fixture(() => new Promise<Answer>(() => undefined));
+  hung.controller.sync(scope(), [row]);
+  const pending = hung.controller.retry(row);
+  hung.controller.sync(scope(), [{ ...row, translation: '来自后续历史的译文' }]);
+  assert.equal(await pending, 'translated');
+  await hung.advance(60_000);
+  assert.equal(hung.calls.length, 1);
+});
+
+test('history backfill remains batched and gives new messages priority under load', async () => {
+  let ready = false;
+  const f = fixture(ids => ({ supplier: null, items: ids.map(id => ready ? translated(id) : answer('not_needed', id)) }));
+  const rows = Array.from({ length: 81 }, (_, i) => foreignOld(`old-${i}`));
+  f.controller.sync(scope(), rows);
+  await f.flush(); await f.flush();
+  await f.advance(12_000); await f.flush();
+  ready = true;
+  f.controller.sync(scope(), [...rows, fresh('new')]);
+  await f.flush();
+  assert.equal(f.applied[0]?.[1], 'new');
+  await f.advance(300_000); await f.flush();
+  assert.equal(new Set(f.applied.map(a => a[1])).size, 82);
+  assert.ok(f.calls.every(ids => ids.length <= 20));
+});
+
+test('queued history rows leaving the list before their batch runs are requested when loaded again', async () => {
+  const release: ((value: Answer) => void)[] = [];
+  const f = fixture((ids, call) => call <= 2 ? new Promise<Answer>(resolve => release.push(resolve)) : { supplier: null, items: ids.map(id => translated(id)) });
+  const rows = Array.from({ length: 45 }, (_, i) => foreignOld(`m${i}`));
+  f.controller.sync(scope(), rows);
+  await f.flush();
+  f.controller.sync(scope(), rows.slice(5));
+  release[0]!({ supplier: null, items: f.calls[0]!.map(id => translated(id)) });
+  release[1]!({ supplier: null, items: f.calls[1]!.map(id => translated(id)) });
+  await f.flush();
+  f.controller.sync(scope(), rows.map((row, i) => i < 5 ? row : { ...row, translation: '译' }));
+  await f.flush();
+  assert.deepEqual(f.calls.at(-1), ['m4', 'm3', 'm2', 'm1', 'm0']);
+  assert.equal(f.applied.length, 45);
+});
+
+test('diagnostics distinguish dispatched requests, echoes and applied translations without message content', async () => {
+  const row = foreignOld('private-id', { text: 'private foreign body' });
+  const f = fixture((ids, call) => ({ supplier: null, items: ids.map(id => translated(id, call === 1 ? row.text : '有效译文')) }));
+  f.controller.sync(scope(), [row]);
+  await f.flush();
+  assert.deepEqual(f.reports[0], { event: 'request', counts: { requested: 1, history: 1 } });
+  assert.equal(f.reports[1]?.counts.echoes, 1);
+  assert.equal(f.reports[1]?.counts.applied, 0);
+  await f.advance(1000);
+  assert.equal(f.reports.at(-1)?.counts.applied, 1);
+  assert.ok(!JSON.stringify(f.reports).includes('private'));
 });

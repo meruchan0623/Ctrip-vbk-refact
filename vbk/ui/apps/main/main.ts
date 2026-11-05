@@ -492,6 +492,7 @@ store.subscribe((s, previous) => {
 document.addEventListener('visibilitychange', syncMemberPreload);
 window.addEventListener('pagehide', () => memberPreload.stop());
 const inboundTranslation = createInboundTranslation({
+  report: (event, counts) => runtimeLog.record('receive', event === 'failed' ? 'warn' : 'info', `translation.${event}`, counts),
   invoke: (command, payload) => ipc.invoke(command, payload),
   now: Date.now,
   setTimeout: (run, ms) => setTimeout(run, ms),

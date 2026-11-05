@@ -12,7 +12,7 @@
 
 import type { UiMessageTranslation, UiMessageTranslations } from '../../ipc/src/client.ts';
 import type { AdapterDeps } from './deps.ts';
-import { messageText } from './display.ts';
+import { messageText, uiKindOf } from './display.ts';
 import { Endpoints } from './endpoints.ts';
 import { businessHead } from './heads.ts';
 import { getVenAgentByUid } from './settings.ts';
@@ -75,7 +75,7 @@ export async function translateMessages(deps: AdapterDeps, soa: SoaClient, req: 
     byMsgId.set(row['msgId'] as string, {
       msgId: row['msgId'] as string,
       messageBody: row['messageBody'] as string,
-      msgtype: typeof row['msgtype'] === 'number' ? (row['msgtype'] as number) : null,
+      msgtype: typeof row['msgtype'] === 'number' ? row['msgtype'] : typeof row['msgtype'] === 'string' && /^\d+$/.test(row['msgtype']) ? Number(row['msgtype']) : null,
     });
   }
   const missing = req.messageIdList.filter((id) => !byMsgId.has(id));
@@ -88,20 +88,21 @@ function serviceTypeAllowsTranslation(venAgentOption: Readonly<Record<string, un
   if (!Array.isArray(owners) || owners.length === 0) return null;
   const owner = owners.map(recordOrNull).find(row => String(row?.['ownerCode'] ?? '') === serviceType);
   const options = owner?.['venOptionList'];
-  if (!Array.isArray(options)) return false;
-  return options.map(recordOrNull).find(row => row?.['optionCode'] === 'translate_message')?.['optionValue'] === 'Y';
+  if (!Array.isArray(options)) return null;
+  const value = options.map(recordOrNull).find(row => row?.['optionCode'] === 'translate_message')?.['optionValue'];
+  return value === 'Y' ? true : value === 'N' ? false : null;
 }
 
 /** Successful reads only: a failed option read must not disable translation for this page. */
-const translationOptions = new WeakMap<SoaClient, Readonly<Record<string, unknown>> | null>();
+const translationOptions = new WeakMap<SoaClient, { expires: number; value: Readonly<Record<string, unknown>> | null }>();
 
 async function translationAllowed(deps: AdapterDeps, soa: SoaClient, serviceType: string): Promise<boolean> {
-  if (!translationOptions.has(soa)) {
+  if ((translationOptions.get(soa)?.expires ?? 0) <= deps.now()) {
     const agent = await getVenAgentByUid(deps, soa);
     if (agent.kind !== 'ok') return true;
-    translationOptions.set(soa, agent.value.venAgentOption);
+    translationOptions.set(soa, { expires: deps.now() + 60_000, value: agent.value.venAgentOption });
   }
-  return serviceTypeAllowsTranslation(translationOptions.get(soa) ?? null, serviceType) ?? true;
+  return serviceTypeAllowsTranslation(translationOptions.get(soa)?.value ?? null, serviceType) ?? true;
 }
 
 const MAX_SUPPLIER_LENGTH = 40;
@@ -121,7 +122,8 @@ export async function translateForDisplay(
     return { items: messageIds.map(message_id => ({ message_id, status: 'unsupported', translation: null, source_kind: null, reason: 'option_off' })), supplier: null };
   }
   const result = await translateMessages(deps, soa, {
-    sessionId: view.sessionId, groupId: view.gid, bizType: Number(view.serviceType), target: deps.context.locale, messageIdList: messageIds,
+    // Match official group + message-ID lookup: the first row and historical rows may predate the current session.
+    sessionId: '', groupId: view.gid, bizType: Number(view.serviceType), target: deps.context.locale, messageIdList: messageIds,
     ...(view.chatType ? { chatType: view.chatType } : {}),
   });
   if (result.kind !== 'translated') return { failed: result.outcome };
@@ -130,7 +132,10 @@ export async function translateForDisplay(
     if (!row) return { message_id, status: 'missing', translation: null, source_kind: null, reason: 'no_row' };
     const flagged = result.unneeded.includes(message_id);
     const type = row.msgtype ?? 0;
-    const source_kind = type === 0 ? 'text' : type === 1007 || type === 1009 ? 'system' : null;
+    // Use exactly the same body classification as history/realtime display.
+    // Types 2/7 also carry customer text (including a session's first message).
+    const kind = uiKindOf(type, row.messageBody);
+    const source_kind = kind === 'text' || kind === 'system' ? kind : null;
     if (!source_kind) return { message_id, status: 'not_needed', translation: null, source_kind: null, reason: 'card' };
     if (flagged && source_kind !== 'text') return { message_id, status: 'not_needed', translation: null, source_kind: null, reason: 'flagged' };
     const translation = messageText(type, row.messageBody);
