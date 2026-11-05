@@ -34,6 +34,8 @@ export const MEMBER_PRELOAD_POLICY = {
   visibleRequestsPerMinute: 6,
   hiddenRequestsPerMinute: 2,
   visibleTickMs: 5_000,
+  /** Entering a conversation: its first membership and full directory read go out back-to-back. */
+  loadingTickMs: 250,
   hiddenTickMs: 15_000,
   activeMembersMs: 30_000,
   hiddenActiveMembersMs: 120_000,
@@ -102,10 +104,16 @@ export function createMemberPreload(deps: Dependencies) {
   let requests: number[] = [];
   const visible = () => deps.isVisible?.() ?? (typeof document === 'undefined' || document.visibilityState !== 'hidden');
   function cancel() { cancelTimer?.(); cancelTimer = null; }
+  /** Just entered: its directory has not been read yet, so the first reads go out back-to-back. */
+  function loading(): boolean {
+    const active = context?.activeGid;
+    if (!context || !active || !context.gids.includes(active)) return false;
+    return scan === null && (!directory || directory.gid !== active) && ready('directory', deps.now());
+  }
   function schedule(delay?: number) {
     cancel();
     if (!context || context.paused || !context.gids.length || running) return;
-    const wait = delay ?? (visible() ? MEMBER_PRELOAD_POLICY.visibleTickMs : MEMBER_PRELOAD_POLICY.hiddenTickMs);
+    const wait = delay ?? (visible() ? loading() ? MEMBER_PRELOAD_POLICY.loadingTickMs : MEMBER_PRELOAD_POLICY.visibleTickMs : MEMBER_PRELOAD_POLICY.hiddenTickMs);
     const callback = () => { cancelTimer = null; void pump(); };
     if (deps.schedule) cancelTimer = deps.schedule(callback, wait);
     else if (typeof document !== 'undefined') { const timer = setTimeout(callback, wait); cancelTimer = () => clearTimeout(timer); }

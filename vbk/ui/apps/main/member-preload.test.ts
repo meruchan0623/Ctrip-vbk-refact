@@ -318,14 +318,14 @@ test('when an other candidate and the active read fall due on the same tick, the
   const h = harness(async command => command === UiCommands.IM_MEMBERS ? memberValue() : level());
   const start = h.now();
   h.service.sync({ account, gids: ['active', 'x'], activeGid: 'active' });
-  while (h.now() < start + 280_000) await h.next();
+  while (h.now() < start + 275_000) await h.next();
   // Shift the active read's phase so it falls due exactly when x does, right after a directory read.
   h.service.observeMembers({ account, gid: 'active' }, memberValue());
-  while (h.now() < start + 315_000) await h.next();
-  assert.equal(memberCalls(h.calls, 'x')[0]?.at, start + 10_000);
-  assert.equal(h.calls.find(call => call.at === start + 305_000)?.command, UiCommands.IM_INVITE_CANDIDATES);
-  assert.deepEqual(h.calls.filter(call => call.at === start + 310_000).map(call => call.payload['gid']), ['active']);
-  assert.deepEqual(h.calls.filter(call => call.at === start + 315_000).map(call => call.payload['gid']), ['x']);
+  while (h.now() < start + 310_250) await h.next();
+  assert.equal(memberCalls(h.calls, 'x')[0]?.at, start + 5_250);
+  assert.equal(h.calls.find(call => call.at === start + 300_250)?.command, UiCommands.IM_INVITE_CANDIDATES);
+  assert.deepEqual(h.calls.filter(call => call.at === start + 305_250).map(call => call.payload['gid']), ['active']);
+  assert.deepEqual(h.calls.filter(call => call.at === start + 310_250).map(call => call.payload['gid']), ['x']);
 });
 
 test('when the budget cannot refresh every candidate per interval, rotation still reaches the whole list', async () => {
