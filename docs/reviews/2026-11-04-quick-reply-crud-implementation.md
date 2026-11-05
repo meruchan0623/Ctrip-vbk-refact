@@ -20,6 +20,8 @@
 | 删除话术 deleteCustomerScript | id:number | Ack="Success" | 数量 1→0 | 现有 UI ID 是 decimal string；仅在无损 Number.isSafeInteger 时允许转换，否则拒绝并要求补证 |
 | 删除分类 deleteCategory | id:number, ownerType:3 | Ack="Success" | getCategories 不再有该分类 | 仅允许空分类；分类 ID 同样需要安全整数检查 |
 
+> 备注（2026-11-05 追加，原文不改）：上表 createRootCategory 的 type、status 阻塞已由 2026-11-05 对官方桌面客户端渲染层的静态逆向补齐，值为 `type:"CUSTOMSCRIPT"`、`status:"ACTIVE"`（`ownerType` 传字符串 type）。证据级别为静态调用点，无实机样本；其余改名、移动、排序、团队写等见[快捷回复分组管理决定](../decisions/2026-11-05-quick-reply-manage.md)与[端点契约](../api/quick-reply-manage.md)。
+
 已验证 ownerType 的接口差异：创建根分类传字符串 "VAGENT"；新增话术和删分类传数字 3；编辑/删话术请求不含该字段。不要统一成单一表示。getCategories 的读请求为 typeList:["VAGENT"], categoryType:"CUSTOMSCRIPT", status:"ACTIVE"；该查询常量不能代替创建请求的 status。
 
 ### 成功、失败与权限证据

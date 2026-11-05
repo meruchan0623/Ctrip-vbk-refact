@@ -8,6 +8,7 @@
 - [WebSocket、HTTP 兜底与侧栏文档](transports.md)
 - [TSim 登录、翻译与套餐查询源码契约](external-tsim.md)
 - [平台消息翻译：官方实现与对应](../research/2026-11-04-platform-message-translation.md)
+- [快捷回复分组管理 9 个端点（静态调用点，无实机样本）](quick-reply-manage.md)
 - [真实操作与读回记录](validation.md)
 - [开发准入与剩余缺项](readiness.md)
 - [逐接口机器目录及全部样本](catalog.json)
