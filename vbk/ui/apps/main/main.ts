@@ -472,16 +472,20 @@ const memberPreload = createMemberPreload({
 });
 function syncMemberPreload() {
   const s = S(), acc = activeAccount(s);
-  // Other views only pause: no requests go out, and a null context would wipe the cache and its pills.
+  // Only an open peripheral dialog pauses; the invite directory keeps refreshing slowly in every view.
   memberPreload.sync(acc?.state === 'online' ? {
     account: acc.context,
     gids: memberScanGids(s.conversations, s.activeGid),
     activeGid: s.activeGid,
-    paused: !!s.peripheral || s.view !== 'messages',
+    paused: !!s.peripheral,
   } : null);
 }
 store.subscribe((s, previous) => {
-  if (s.accounts !== previous.accounts || s.conversations !== previous.conversations || s.activeGid !== previous.activeGid || s.view !== previous.view || !!s.peripheral !== !!previous.peripheral) syncMemberPreload();
+  if (s.accounts !== previous.accounts || s.conversations !== previous.conversations || s.activeGid !== previous.activeGid || !!s.peripheral !== !!previous.peripheral) syncMemberPreload();
+});
+store.subscribe((s, previous) => {
+  // Opening the members panel re-reads the invite directory once, even if the invite tab is never shown.
+  if (s.peripheral?.kind === 'members' && previous.peripheral?.kind !== 'members') memberPreload.refreshDirectory();
 });
 document.addEventListener('visibilitychange', syncMemberPreload);
 window.addEventListener('pagehide', () => memberPreload.stop());

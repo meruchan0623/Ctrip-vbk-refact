@@ -41,8 +41,8 @@ export const MEMBER_PRELOAD_POLICY = {
   hiddenActiveMembersMs: 120_000,
   otherMembersMs: 300_000,
   hiddenOtherMembersMs: 900_000,
-  directoryMs: 60_000,
-  hiddenDirectoryMs: 300_000,
+  directoryMs: 300_000,
+  hiddenDirectoryMs: 900_000,
   groupBatchSize: 25,
   maxDirectoryGroups: 512,
   maxDirectoryAgents: 10_000,
@@ -94,6 +94,8 @@ export function createMemberPreload(deps: Dependencies) {
   let directory: DirectoryCache | null = null;
   let scan: Scan | null = null;
   let directoryRevision = 0;
+  /** One extra directory read requested by entering a conversation or opening the members panel. */
+  let forced = false;
   let rotation = 0;
   let category = 0;
   const members = new Map<string, CachedMembers>();
@@ -108,11 +110,11 @@ export function createMemberPreload(deps: Dependencies) {
   function loading(): boolean {
     const active = context?.activeGid;
     if (!context || !active || !context.gids.includes(active)) return false;
-    return scan === null && (!directory || directory.gid !== active) && ready('directory', deps.now());
+    return scan === null && !directory && ready('directory', deps.now());
   }
   function schedule(delay?: number) {
     cancel();
-    if (!context || context.paused || !context.gids.length || running) return;
+    if (!context || (context.paused && !forced) || !context.gids.length || running) return;
     const wait = delay ?? (visible() ? loading() ? MEMBER_PRELOAD_POLICY.loadingTickMs : MEMBER_PRELOAD_POLICY.visibleTickMs : MEMBER_PRELOAD_POLICY.hiddenTickMs);
     const callback = () => { cancelTimer = null; void pump(); };
     if (deps.schedule) cancelTimer = deps.schedule(callback, wait);
@@ -180,8 +182,8 @@ export function createMemberPreload(deps: Dependencies) {
   function nextTask(now: number, foreground: boolean): { kind: 'member' | 'directory'; gid: string } | null {
     if (!context) return null;
     const active = context.activeGid && context.gids.includes(context.activeGid) ? context.activeGid : null;
-    const memberDue = active !== null && due(active, foreground ? MEMBER_PRELOAD_POLICY.activeMembersMs : MEMBER_PRELOAD_POLICY.hiddenActiveMembersMs, now);
-    const directoryDue = active !== null && ready('directory', now) && (scan !== null || !directory || directory.gid !== active || now - directory.completedAt >= (foreground ? MEMBER_PRELOAD_POLICY.directoryMs : MEMBER_PRELOAD_POLICY.hiddenDirectoryMs));
+    const memberDue = !context.paused && active !== null && due(active, foreground ? MEMBER_PRELOAD_POLICY.activeMembersMs : MEMBER_PRELOAD_POLICY.hiddenActiveMembersMs, now);
+    const directoryDue = active !== null && ready('directory', now) && (forced || scan !== null || !directory || now - directory.completedAt >= (foreground ? MEMBER_PRELOAD_POLICY.directoryMs : MEMBER_PRELOAD_POLICY.hiddenDirectoryMs));
     // The entered conversation alternates membership and directory reads. Other
     // candidates only run when neither is due, except that a multi-batch
     // directory scan takes turns with them so it cannot starve the scan.
@@ -189,7 +191,7 @@ export function createMemberPreload(deps: Dependencies) {
       const which = category++ % 3;
       if (which === 0 && active !== null && memberDue) return { kind: 'member', gid: active };
       if (which === 1 && active !== null && directoryDue) return { kind: 'directory', gid: active };
-      if (which === 2 && !memberDue && (!directoryDue || scan !== null)) {
+      if (which === 2 && !context.paused && !memberDue && (!directoryDue || scan !== null)) {
         const gid = nextOtherGid(context.gids, context.activeGid, now, foreground);
         if (gid !== null) return { kind: 'member', gid };
       }
@@ -197,7 +199,7 @@ export function createMemberPreload(deps: Dependencies) {
     return null;
   }
   async function pump() {
-    if (running || !context || context.paused || !context.gids.length) return;
+    if (running || !context || (context.paused && !forced) || !context.gids.length) return;
     const now = deps.now(), foreground = visible();
     requests = requests.filter(time => now - time < 60_000);
     if (requests.length >= (foreground ? MEMBER_PRELOAD_POLICY.visibleRequestsPerMinute : MEMBER_PRELOAD_POLICY.hiddenRequestsPerMinute)) { schedule(); return; }
@@ -218,7 +220,7 @@ export function createMemberPreload(deps: Dependencies) {
         const work: Scan = scan ??= { gid: task.gid, startedAt: deps.now(), agents: new Map<string, UiInviteAgent>(), visited: new Set<number>(), pending: [] as number[], rooted: false };
         const parents = work.rooted ? work.pending.slice(0, MEMBER_PRELOAD_POLICY.groupBatchSize) : undefined;
         const value = await deps.invoke(UiCommands.IM_INVITE_CANDIDATES, { account, gid: work.gid, ...(parents ? { parent_skill_group_ids: parents } : {}) });
-        if (ticket !== epoch || !context || context.paused || revision !== directoryRevision || scan !== work || !context.gids.includes(work.gid)) return;
+        if (ticket !== epoch || !context || (context.paused && !forced) || revision !== directoryRevision || scan !== work || !context.gids.includes(work.gid)) return;
         const level = directoryLevel(value);
         if (parents) { work.pending.splice(0, parents.length); parents.forEach(id => work.visited.add(id)); }
         work.rooted = true;
@@ -227,7 +229,7 @@ export function createMemberPreload(deps: Dependencies) {
         if (work.visited.size + work.pending.length > MEMBER_PRELOAD_POLICY.maxDirectoryGroups || work.agents.size > MEMBER_PRELOAD_POLICY.maxDirectoryAgents) { scan = null; throw new Error('preload directory exceeds cache limits'); }
         if (!work.pending.length) {
           directory = { gid: work.gid, completedAt: deps.now(), value: { agents: [...work.agents.values()], fetched_at_ms: work.startedAt, complete: true } };
-          scan = null; deps.publish?.();
+          scan = null; forced = false; deps.publish?.();
         }
       }
       failures.delete(failureKey);
@@ -240,13 +242,20 @@ export function createMemberPreload(deps: Dependencies) {
     }
   }
   function sync(next: MemberPreloadContext | null) {
-    if (context?.activeGid !== next?.activeGid) { epoch++; scan = null; directory = null; category = 0; }
+    // The directory is account-wide: keep it across conversations and refresh it slowly.
+    if (context?.activeGid !== next?.activeGid) { epoch++; scan = null; category = 0; forced = next?.activeGid != null; }
     const changed = (context ? accountKey(context.account) : null) !== (next ? accountKey(next.account) : null);
-    if (changed) { epoch++; members.clear(); memberRevisions.clear(); directory = null; directoryRevision++; scan = null; failures.clear(); rotation = 0; category = 0; }
+    if (changed) { epoch++; members.clear(); memberRevisions.clear(); directory = null; directoryRevision++; scan = null; failures.clear(); rotation = 0; category = 0; forced = false; }
     context = next ? { ...next, account: { ...next.account }, gids: boundedCandidates(next) } : null;
-    if (!context || context.paused || !context.gids.length) cancel();
+    if (!context || (context.paused && !forced) || !context.gids.length) cancel();
     else if (!cancelTimer && !running) schedule(0);
   }
+  /** Read the invite directory once more right now, even while paused (members panel opened). */
+  function refreshDirectory() {
+    if (!context?.activeGid || !context.gids.includes(context.activeGid)) return;
+    forced = true; failures.delete('directory'); scan = null;
+    if (!running) schedule(0);
+  }
   function stop() { sync(null); cancel(); }
-  return { sync, getMembers, peekMembers, getDirectory, observeMembers, observeDirectory, stop };
+  return { sync, refreshDirectory, getMembers, peekMembers, getDirectory, observeMembers, observeDirectory, stop };
 }
