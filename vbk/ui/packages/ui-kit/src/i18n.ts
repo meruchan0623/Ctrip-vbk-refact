@@ -48,7 +48,7 @@ const zhCN = {
   'set.runtime.version': '当前版本',
   'set.runtime.versionUnknown': '未知',
   // app
-  'app.name': 'VBK 商家工作台',
+  'app.name': '旅游商家IM',
   'app.demoData': '示例数据',
   'app.loading': '正在加载…',
   'app.mockMode': '演示数据（未连接宿主）',
@@ -294,7 +294,7 @@ const zhCN = {
   'side.orderCopied': '订单号已复制',
 
   // welcome (no account)
-  'welcome.title': 'VBK 商家工作台',
+  'welcome.title': '旅游商家IM',
   'welcome.desc': '使用官方 VBooking 登录页添加商家账号。每个账号在独立的 WebView 中登录，Cookie 互不相通，客户端不读取密码。',
   'welcome.add': '添加账号',
   'welcome.foot': '最多 {max} 个账号 · 登录后在标题栏切换',
@@ -472,7 +472,7 @@ const zhCN = {
   'set.privacy.export': '导出',
 
   // login shell
-  'login.title': '登录 VBK 商家工作台',
+  'login.title': '登录旅游商家IM',
   'login.adding': '正在添加账号',
   'login.desc': '官方登录页在该账号独立的 WebView 配置中加载（由宿主完成），客户端不读取密码，也不复制 Cookie。',
   'login.url': 'https://vbooking.ctrip.com/ivbk/accountV2/login',

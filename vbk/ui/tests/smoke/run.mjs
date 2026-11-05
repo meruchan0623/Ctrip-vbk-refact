@@ -664,7 +664,7 @@ async function testMainWelcome(context, base) {
   watch(page, errors);
   await page.goto(`${base}/apps/main/index.html?scenario=no-accounts&platform=macos`);
   await page.waitForSelector('[data-welcome="ready"]', { timeout: 8000 });
-  check((await text(page, '.welcome-title')) === 'VBK 商家工作台', 'welcome shows the product name');
+  check((await text(page, '.welcome-title')) === '旅游商家IM', 'welcome shows the product name');
   check((await text(page, '[data-action="welcome-add"]')) === '添加账号', 'welcome primary button 添加账号');
   check((await page.$('.clist')) === null && (await page.$('.conv')) === null, 'no empty conversation list without an account');
   check((await page.$('[data-sb="agent"]')) === null, 'no agent status without an account');
@@ -1002,7 +1002,7 @@ async function testLogin(context, base) {
   watch(page, errors);
   await page.goto(`${base}/apps/login/index.html?platform=windows&attempt_id=attempt-demo-x`);
   await page.waitForSelector('[data-action="cancel"]', { timeout: 8000 });
-  check((await text(page, '.title')) === '登录 VBK 商家工作台', 'login header title');
+  check((await text(page, '.title')) === '登录旅游商家IM', 'login header title');
   check((await text(page, '.url')) === 'https://vbooking.ctrip.com/ivbk/accountV2/login', 'official login URL');
   check((await page.$('input[type="password"]')) === null && (await page.$('form')) === null, 'no password form in login shell');
   check((await page.$('[data-tauri-drag-region]')) !== null, 'login header is a drag region');

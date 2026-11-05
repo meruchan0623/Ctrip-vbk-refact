@@ -1,7 +1,7 @@
 /** Update-window copy (window-local; shared copy stays in ui-kit/i18n.ts). */
 export const UPDATE_STRINGS = {
   title: '软件更新',
-  heading: 'VBK 商家工作台',
+  heading: '旅游商家IM',
   version: '当前版本 {v}',
   versionUnknown: '当前版本未知',
   check: '检查更新',

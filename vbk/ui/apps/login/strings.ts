@@ -1,7 +1,7 @@
 /** Login-header copy (window-local; shared copy stays in ui-kit/i18n.ts). */
 export const LOGIN_STRINGS = {
   documentTitle: '登录',
-  title: '登录 VBK 商家工作台',
+  title: '登录旅游商家IM',
   url: 'https://vbooking.ctrip.com/ivbk/accountV2/login',
   embedded: '内嵌官方网页',
   close: '关闭',

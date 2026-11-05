@@ -9,7 +9,7 @@ import { ALARM_STRINGS } from '../alarm/strings.ts';
 import { UPDATE_STRINGS } from '../update/strings.ts';
 
 const windows = [
-  { app: 'main', expected: 'VBK 商家工作台', strings: {} },
+  { app: 'main', expected: '旅游商家IM', strings: {} },
   { app: 'setting', expected: '设置', strings: {} },
   { app: 'package-detail', expected: 'TSim 套餐详情', strings: {} },
   { app: 'update', expected: '软件更新', strings: UPDATE_STRINGS },
