@@ -106,9 +106,26 @@ export function createContextMenu(className = '', label = S.defaultLabel, keepEd
   return { open, close };
 }
 
+/** True when the page or a focused text control has a non-empty text selection (password fields never count). */
+export function hasSelectedText(): boolean {
+  const active = document.activeElement;
+  if ((active instanceof HTMLInputElement && active.type !== 'password') || active instanceof HTMLTextAreaElement) {
+    try {
+      if ((active.selectionStart ?? 0) !== (active.selectionEnd ?? 0)) return true;
+    } catch { /* Email/number inputs reject selection access. */ }
+  }
+  const selection = window.getSelection();
+  return !!selection && !selection.isCollapsed && selection.toString().trim() !== '';
+}
+
 /** Shared local-window edit menu. Passwords never expose cut/copy. */
 export function installEditingContextMenu(clipboard: { read(): Promise<string>; write(text: string): Promise<unknown> }): void {
   const menu = createContextMenu('edit-context-menu', S.editLabel, true);
+  // With selected text every right-click gets the native copy menu: stop all page handlers
+  // (they run later) and leave the event un-prevented. Window capture runs before any document listener.
+  window.addEventListener('contextmenu', event => {
+    if (hasSelectedText()) event.stopImmediatePropagation();
+  }, true);
   document.addEventListener('contextmenu', event => {
     if (event.defaultPrevented) return;
     const target = event.target as HTMLElement;
