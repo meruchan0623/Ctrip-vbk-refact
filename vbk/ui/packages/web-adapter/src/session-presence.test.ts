@@ -33,6 +33,23 @@ test('session presence: hidden adapter renews status without unknown flicker and
   f.session.stop();
 });
 
+test('session presence: first login keeps reading through failures until the work status is confirmed', async () => {
+  let failing = true;
+  const f = setup(call => call.url.includes('getConversationList')
+    ? (failing ? jsonResponse({}, 500) : statusResponse(2))
+    : jsonResponse({ ResponseStatus: OK_STATUS }), true);
+  f.session.start();
+  await f.base.clock.advance(20_000);
+  assert.equal(f.statuses().some(s => s.confirmed), false);
+  failing = false;
+  await f.base.clock.advance(6_000);
+  assert.deepEqual(f.statuses().at(-1), { kind: 'agent_status', status: 'leaving', confirmed: true });
+  const reads = f.base.fakeFetch.calls.filter(c => c.url.includes('getConversationList')).length;
+  await f.base.clock.advance(4_000);
+  assert.ok(f.base.fakeFetch.calls.filter(c => c.url.includes('getConversationList')).length - reads <= 1, 'acquisition stops once observed');
+  f.session.stop();
+});
+
 test('session presence: host-issued epoch and IPC sequence survive stop/start', async () => {
   const f = setup(call => call.url.includes('getConversationList') ? statusResponse(0) : jsonResponse({ ResponseStatus: OK_STATUS }));
   f.session.start(); await f.base.clock.advance(50);

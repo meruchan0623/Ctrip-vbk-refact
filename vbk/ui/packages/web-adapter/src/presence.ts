@@ -12,6 +12,7 @@ export interface StatusRead {
 export function createPresence(deps: Pick<AdapterDeps, 'now' | 'setTimeout' | 'clearTimeout'>, publish: (status: AgentStatus, confirmed: boolean) => void) {
   let status: AgentStatus = 'getoff';
   let confirmed = false;
+  let observed = false;
   let active = false;
   let writing = false;
   let revision = 0;
@@ -33,7 +34,9 @@ export function createPresence(deps: Pick<AdapterDeps, 'now' | 'setTimeout' | 'c
       return { status, confirmed };
     },
     invalidate,
-    start() { active = true; writing = false; invalidate(); },
+    /** True once this run has had one confirmed server observation; initial acquisition stops retrying then. */
+    get observed() { return observed; },
+    start() { active = true; writing = false; observed = false; invalidate(); },
     stop() { active = false; writing = false; invalidate(); },
     beginWrite() {
       if (!active || writing) return false;
@@ -55,6 +58,7 @@ export function createPresence(deps: Pick<AdapterDeps, 'now' | 'setTimeout' | 'c
           accepted = sequence;
           status = next;
           confirmed = true;
+          observed = true;
           expires = started + AGENT_STATUS_TTL_MS;
           clear();
           timer = deps.setTimeout(invalidate, expires - deps.now());

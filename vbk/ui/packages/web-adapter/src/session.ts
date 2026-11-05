@@ -25,7 +25,7 @@ import type { AdapterDeps, SdkMessageEvent, SdkSocketStatus } from './deps.ts';
 import { BridgeQueueError } from './bridge.ts';
 import { createAdapter, type Adapter } from './index.ts';
 import { SoaClient, isBizSuccess, recordOrNull, type SoaOutcome } from './soa.ts';
-import { toConversationFact, type ConversationListItem, type ConversationListResponse, type ConversationListVariant, type VisibilityGate } from './conversationList.ts';
+import { conversationListBody, toConversationFact, type ConversationListItem, type ConversationListResponse, type ConversationListVariant, type VisibilityGate } from './conversationList.ts';
 import type { OfficialConversationFeed } from './pageContext.ts';
 import type { RecentMessagesResponse } from './compensation.ts';
 import { effectiveMessageSender } from './message-body.ts';
@@ -682,6 +682,32 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     if (state !== 'connected') presence.invalidate();
   };
 
+  // First login: the work status must be learned before anything else. Keep reading
+  // until this run has one confirmed observation, at a short fixed cadence — the list
+  // poller's hidden-page stretch and failure backoff would leave the status unknown for
+  // minutes. Stops on the first observation (from any source), stop, or auth failure.
+  let acquireTimer: unknown = null;
+  const stopAcquire = (): void => { if (acquireTimer !== null) deps.clearTimeout(acquireTimer); acquireTimer = null; };
+  // The first read waits briefly: the list poller (or the official loop) normally answers
+  // at once, and a healthy start should not issue a second request.
+  const scheduleAcquire = (generation: number, attempt: number): void => {
+    stopAcquire();
+    acquireTimer = deps.setTimeout(() => { acquireTimer = null; acquireStatus(generation, attempt); }, attempt === 0 ? 1500 : Math.min(2000 * attempt, 5000));
+  };
+  const acquireStatus = (generation: number, attempt: number): void => {
+    if (!running || generation !== runGeneration || presence.observed || attempt > 60) return;
+    const ticket = presence.captureRead();
+    void soa.post<ConversationListResponse>(Endpoints.CONVERSATION_LIST, conversationListBody(deps, null, false)).then(outcome => {
+      if (!running || generation !== runGeneration) return;
+      if (outcome.kind === 'auth_invalid') { ticket.fail(); return; }
+      const status = outcome.kind === 'success' ? agentStatusOf(outcome.body.currentStatus) : null;
+      if (status !== null && ticket.commit(status)) return;
+      if (status === null) ticket.fail();
+      if (presence.observed) return;
+      scheduleAcquire(generation, attempt + 1);
+    });
+  };
+
   const variants = opts.variants ?? ['plain'];
   const adapter: Adapter = createAdapter(deps, {
     onTerminal: stopSession,
@@ -805,6 +831,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
     if (!running) return;
     runGeneration++;
     running = false;
+    stopAcquire();
     presence.stop();
     // Revoke queued/in-flight member enrichment before it can start remark
     // requests or publish profiles after this run has stopped.
@@ -846,6 +873,7 @@ export function createPageSession(deps: AdapterDeps, opts: PageSessionOptions): 
       unsubs = [opts.sdk.on('message', evt => { if (running && generation === runGeneration) onSdkMessage(evt); }), opts.sdk.on('socket_status', status => { if (running && generation === runGeneration) onSocket(status); })];
       pushDisplay({ kind: 'transport', state: opts.sdk.getSocketStatus() ? 'connected' : 'disconnected' });
       adapter.start();
+      scheduleAcquire(generation, 0);
       log(`adapter started (epoch ${adapter.bridge.epoch})`);
     },
     stop: stopSession,

@@ -14,7 +14,7 @@ function fixture(compensation: unknown[] = []) {
   const sdk = new FakePageSdk(), displays: AdapterDisplayPayload[] = [];
   const session = createPageSession({ ...base, now: () => base.clock.now() + offset, sdk }, { account: { account_id: 'synthetic', environment: 'production', session_generation: 1 }, selfUid: 'me', beginMsgTime: 1700000000000, initialEpoch: 1, sdk, pushDisplay: async p => { displays.push(p); } });
   const start = async () => { session.start(); await flush(); };
-  const release = async (rows: unknown[]) => { const done = lists.shift(); assert.ok(done); done(jsonResponse({ ResponseStatus: OK_STATUS, conversationList: rows, lastUpdateTime: 1700000000600, haveRest: false })); await flush(); };
+  const release = async (rows: unknown[]) => { const done = lists.shift(); assert.ok(done); done(jsonResponse({ ResponseStatus: OK_STATUS, conversationList: rows, currentStatus: 0, lastUpdateTime: 1700000000600, haveRest: false })); await flush(); };
   const last = (gid = GID) => displays.flatMap(d => d.kind === 'conversations' ? d.items : []).filter(d => d.gid === gid).at(-1);
   return { base, sdk, session, displays, start, release, last, expire: () => { offset = 60_001; } };
 }
