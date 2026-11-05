@@ -168,10 +168,7 @@ pub(crate) fn register_restored_attachment(
         return Err(crate::media_outbound::invalid());
     }
     let dto = frozen.dto.clone();
-    items.insert(
-        dto.attachment_id.clone(),
-        Attachment { path: None, frozen },
-    );
+    items.insert(dto.attachment_id.clone(), Attachment { path: None, frozen });
     Ok(dto)
 }
 

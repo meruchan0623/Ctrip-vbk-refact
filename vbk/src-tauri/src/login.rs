@@ -529,7 +529,7 @@ fn open_login_window(
 ) -> tauri::Result<()> {
     destroy_login_window(app);
     let builder = tauri::window::WindowBuilder::new(app, views::LOGIN)
-        .title("登录 VBooking")
+        .title("登录旅游商家IM")
         .inner_size(profiles::LOGIN_WIDTH, profiles::LOGIN_HEIGHT)
         .min_inner_size(profiles::LOGIN_MIN_WIDTH, profiles::LOGIN_MIN_HEIGHT)
         .resizable(true)
@@ -731,7 +731,7 @@ fn open_account_webview(app: &AppHandle, profile_id: &str) -> tauri::Result<()> 
             label: &label,
             profile_id,
             url,
-            title: "VBooking IM",
+            title: "旅游商家IM",
             visible: false,
             init_script: Some(crate::adapter::boot_script(app)),
         },

@@ -46,7 +46,7 @@ pub fn prepare(data_dir: &Path, version: &str) -> io::Result<Bundle> {
     let mut candidates = vec![Candidate {
         name: "environment.txt".into(),
         bytes: format!(
-            "VBooking diagnostics\nversion={version}\nos={}\narch={}\nLogs contain timestamps and levels only; all record details are omitted.\n",
+            "旅游商家IM diagnostics\nversion={version}\nos={}\narch={}\nLogs contain timestamps and levels only; all record details are omitted.\n",
             std::env::consts::OS,
             std::env::consts::ARCH
         ).into_bytes(),

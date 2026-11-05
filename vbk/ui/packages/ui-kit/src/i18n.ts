@@ -189,7 +189,6 @@ const zhCN = {
   'chat.copy': '复制',
   'chat.quotePrefix': '引用：',
   'chat.cancelQuote': '取消引用',
-  'chat.translated': '译',
   'chat.orderCard': '订单卡片',
   'chat.orderCardTitle': '订单咨询通知',
   'chat.order.channel': '来源渠道',
