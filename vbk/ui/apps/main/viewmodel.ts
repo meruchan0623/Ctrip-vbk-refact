@@ -476,6 +476,11 @@ export function mergeAgentStatus(previous: AgentDisplayStatus, next: UiAgentStat
   return last === undefined ? next : { ...next, lastConfirmedStatus: last };
 }
 
+/** A switched-to account shows its last observed work status (unconfirmed) instead of 「状态未知」 until the host answers. */
+export function seedAgentStatus(last: AgentStatus | undefined): AgentDisplayStatus {
+  return last === undefined ? { status: 'online', confirmed: false } : { status: last, confirmed: false, lastConfirmedStatus: last };
+}
+
 export function agentView(a: AgentDisplayStatus): { readonly label: string; readonly colorVar: string; readonly known: boolean } {
   const status = a.confirmed ? a.status : a.lastConfirmedStatus;
   if (status === undefined) return { label: t('status.unknown'), colorVar: '--c-offline', known: false };

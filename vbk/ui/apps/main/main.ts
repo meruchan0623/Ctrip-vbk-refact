@@ -145,7 +145,7 @@ import {
   isValidOrderId,
   langName,
   logoutCommand,
-  createNetOfflineGate, netView,
+  createNetOfflineGate, netView, seedAgentStatus,
   nextLocalId,
   orderContactReduce,
   persistFailed,
@@ -859,6 +859,19 @@ store.subscribe((s, prev) => {
   const a = activeAccount(s), b = activeAccount(prev);
   if (a?.context.account_id !== b?.context.account_id || a?.context.environment !== b?.context.environment
     || a?.context.session_generation !== b?.context.session_generation || (a?.state === 'online' && b?.state !== 'online')) netGate.reset();
+});
+// Work status last confirmed per account: a switch back shows it (unconfirmed) rather than 「状态未知」.
+const lastAgentSeen = new Map<string, AgentStatus>();
+const agentKey = (c: AccountContext): string => `${c.account_id}|${c.environment}`;
+store.subscribe((s, prev) => {
+  const a = activeAccount(s);
+  if (!a) return;
+  const key = agentKey(a.context);
+  if (s.agent.confirmed) { lastAgentSeen.set(key, s.agent.status); return; }
+  const before = activeAccount(prev);
+  const last = lastAgentSeen.get(key);
+  // The account reset starts from unknown; a switch to an account seen before shows its last status instead.
+  if (last !== undefined && s.agent.lastConfirmedStatus === undefined && (!before || agentKey(before.context) !== key)) store.patch({ agent: seedAgentStatus(last) });
 });
 window.addEventListener('online', () => netGate.setBrowserOnline(true));
 window.addEventListener('offline', () => netGate.setBrowserOnline(false));

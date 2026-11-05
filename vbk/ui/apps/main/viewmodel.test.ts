@@ -22,6 +22,7 @@ import {
   highlightParts,
   netView,
   createNetOfflineGate,
+  seedAgentStatus,
   mergeAgentStatus,
   NET_OFFLINE_GRACE_MS,
   pushBanner,
@@ -663,3 +664,10 @@ test('net gate: a browser offline flag is not believed while the connection is d
   assert.equal(h.gate.confirmed, true);
 });
 
+test('seedAgentStatus shows the last observed status unconfirmed, never 状态未知', () => {
+  assert.equal(agentView(seedAgentStatus(undefined)).known, false);
+  const seeded = seedAgentStatus('hangup');
+  assert.equal(seeded.confirmed, false);
+  assert.equal(agentView(seeded).label, '挂起');
+  assert.equal(agentView(mergeAgentStatus(seeded, { status: 'getoff', confirmed: false })).label, '挂起');
+});
