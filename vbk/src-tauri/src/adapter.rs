@@ -2562,49 +2562,6 @@ pub(crate) fn cached_image_url(
         .ok_or_else(|| not_ready("cached image is unavailable"))
 }
 
-/// Read-only server search. Results stay outside the host conversation cache.
-#[tauri::command(rename_all = "snake_case")]
-pub async fn im_server_search(
-    app: AppHandle,
-    webview: Webview,
-    state: State<'_, HostState>,
-    account: AccountContextDto,
-    query: Value,
-) -> CmdResult<Value> {
-    guard(&state, webview.label(), "im_server_search")?;
-    let ctx = read_account(&state, account)?;
-    if !query.is_object() || query.to_string().len() > 2048 {
-        return Err(e2dto(bad_reply()));
-    }
-    let result = request(&app, &ctx, "im.server_search", query, READ_TIMEOUT)
-        .await
-        .map_err(e2dto)?;
-    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
-    tagged_object(result, "groups").map_err(e2dto)
-}
-
-/// Selection token is resolved by the account's current adapter RPC instance;
-/// the UI cannot provide arbitrary gid, service identity, or message body.
-#[tauri::command(rename_all = "snake_case")]
-pub async fn im_search_history(
-    app: AppHandle,
-    webview: Webview,
-    state: State<'_, HostState>,
-    account: AccountContextDto,
-    query: Value,
-) -> CmdResult<Value> {
-    guard(&state, webview.label(), "im_search_history")?;
-    let ctx = read_account(&state, account)?;
-    if !query.is_object() || query.to_string().len() > 1024 {
-        return Err(e2dto(bad_reply()));
-    }
-    let result = request(&app, &ctx, "im.search_history", query, READ_TIMEOUT)
-        .await
-        .map_err(e2dto)?;
-    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
-    tagged_object(result, "items").map_err(e2dto)
-}
-
 /// `OrderSearchResult` / `{gid, reused}` are passed through after a shape check.
 fn tagged_object(v: Value, required: &str) -> Result<Value, AppError> {
     if v.get(required).is_some() {

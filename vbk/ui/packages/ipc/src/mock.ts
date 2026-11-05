@@ -1,4 +1,3 @@
-import type { UiServerSearchQuery, UiSearchHistoryRequest, ServerSearchGroup, UiServerSearchHit } from './server-search.ts';
 /**
  * Deterministic in-browser mock of the host IPC. Used when `window.__TAURI__`
  * is absent (plain browser, smoke tests) and by view-model tests.
@@ -343,9 +342,6 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
     mockImages.set(attachment.attachment_id, {attachment,created:now()});
     durableImages.set(attachment.lease_id!, attachment); return structuredClone(attachment);
   }
-  let searchSequence = 0;
-  const searchQueries = new Map<string, string>();
-  const searchSelections = new Map<string, { account: AccountContext; queryId: string; gid: string; messageId: string | null; time: number }>();
   const productSelections = new Map<string, { account: AccountContext; gid: string; ids: readonly string[]; expires: number }>();
   const browserTabs: { tab_id: string; account_id: string; url: string; title: string; loading: boolean }[] = [];
   let browserTabSeq = 0;
@@ -572,40 +568,6 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       const gid = String((p as { gid?: string }).gid ?? '');
       convFor(ctx, gid);
       return (st.messages.get(gid) ?? []).map((m) => ({ ...m }));
-    },
-    // Synthetic search fixtures only. `demo` shows every group and two pages;
-    // `empty`/`error` support deterministic browser empty/error acceptance.
-    [UiCommands.SERVER_SEARCH]: async (p) => {
-      const account = checkAccount(p), query = (p as { query: UiServerSearchQuery }).query;
-      if (!query || !Number.isSafeInteger(query.search_type) || query.search_type < 0 || query.search_type > 4 || !Number.isSafeInteger(query.page_no) || query.page_no < 1) throw appError(ErrorCodes.ADAPTER_FAILED, '无效搜索条件');
-      if (query.search_value === 'error') throw appError(ErrorCodes.ADAPTER_FAILED, '演示搜索失败，请重试');
-      const owner = `${account.environment}/${account.account_id}/${account.session_generation}`;
-      searchQueries.set(owner, query.query_id);
-      const result: Record<ServerSearchGroup, UiServerSearchHit[]> = { customer: [], content: [], order: [], date: [] };
-      const rows = conversationsOf(account);
-      for (const [index, row] of rows.entries()) {
-        const messages = st.messages.get(row.gid) ?? [], anchor = messages.at(-1);
-        const matches = query.search_type === 4 ? !!anchor && anchor.create_time_ms >= (query.start_ms ?? 0) && anchor.create_time_ms <= (query.end_ms ?? 0) : query.search_value === 'demo' || `${row.title} ${row.preview} ${row.order?.order_id ?? ''}`.toLowerCase().includes((query.search_value ?? '').toLowerCase());
-        if (!matches || query.search_value === 'empty') continue;
-        for (const group of ['customer', 'content', 'order', 'date'] as const) {
-          const token = `mock-search-${++searchSequence}`;
-          searchSelections.set(token, { account, queryId: query.query_id, gid: row.gid, messageId: anchor?.message_id ?? null, time: anchor?.create_time_ms ?? row.last_message_time_ms ?? now() });
-          result[group].push({ selection_token: token, gid: row.gid, title: row.title, preview: group === 'order' ? row.order?.order_id ?? '演示订单' : `${row.preview} · ${index + 1}`, message_id: anchor?.message_id ?? null, time_ms: anchor?.create_time_ms ?? now() });
-        }
-      }
-      const total = result.customer.length, pageCount = Math.ceil(total / 2);
-      if (query.search_type !== 3) for (const group of ['customer', 'content', 'order', 'date'] as const) result[group] = result[group].slice((query.page_no - 1) * 2, query.page_no * 2);
-      return { query_id: query.query_id, search_type: query.search_type, page_no: query.page_no, page_count: pageCount, has_more: query.search_type !== 3 && query.page_no < pageCount, groups: result };
-    },
-    [UiCommands.SEARCH_HISTORY]: async (p) => {
-      const account = checkAccount(p), query = (p as { query: UiSearchHistoryRequest }).query;
-      const selected = searchSelections.get(query?.selection_token);
-      const owner = `${account.environment}/${account.account_id}/${account.session_generation}`;
-      if (!selected || !sameAccountContext(selected.account, account) || searchQueries.get(owner) !== selected.queryId || (query.direction !== 'prev' && query.direction !== 'next')) throw appError(ErrorCodes.ADAPTER_FAILED, '搜索结果已过期');
-      const cursor = query.cursor_ms ?? (query.direction === 'prev' ? selected.time + 2000 : selected.time - 2000);
-      const all = (st.messages.get(selected.gid) ?? []).filter(m => query.direction === 'prev' ? m.create_time_ms < cursor : m.create_time_ms > cursor);
-      const items = (query.direction === 'prev' ? all.slice(-50) : all.slice(0, 50)).map(m => ({ ...m }));
-      return { selection_token: query.selection_token, direction: query.direction, items, cursor_ms: items.length ? (query.direction === 'prev' ? items[0]!.create_time_ms : items.at(-1)!.create_time_ms) : null, has_more: all.length > items.length, anchor_message_id: selected.messageId };
     },
     [UiCommands.IM_MESSAGE_PAGE]: async (p) => {
       const ctx = checkAccount(p);

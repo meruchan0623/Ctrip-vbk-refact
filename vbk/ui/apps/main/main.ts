@@ -8,7 +8,6 @@ import { voiceBubble } from './voice-bubble.ts';
 import { voicePlayerOf } from './features/voice-player.ts';
 import { createAttachmentDraftBook, unavailableAttachment, type UnavailableAttachment } from './attachment-draft-book.ts';
 import { createRecovery, recoveryView, type RecoveryState } from '../_shared/recovery.ts';
-import { createServerSearchPanel, EMPTY_SERVER_SEARCH, serverSearchView, type ServerSearchState } from './server-search.ts';
 import { createAccountNavigation } from './account-navigation.ts';
 import { bannerKey, loadIgnored, saveIgnored, splitCategories, toggleIgnored, withBannerCategory } from './notice-ignore.ts';
 import { createNoticeQuery, EMPTY_NOTICE_QUERY, type NoticeQueryState } from './notice-query.ts';
@@ -198,7 +197,7 @@ const workspaceColumns = createWorkspaceColumns();
 const EMOJI = ['😀', '😊', '😂', '🙏', '👍', '👌', '👏', '🎉', '❤️', '😅', '🤔', '😢', '🌹', '☀️', '✈️', '🏨', '🎫', '🚌', '📍', '⏰', '✅', '❗', '💡', '🙂'];
 const TR_TARGETS = OUTBOUND_TARGETS;
 
-type View = 'messages' | 'notifications' | 'order' | 'search';
+type View = 'messages' | 'notifications' | 'order';
 
 interface Attachment {
   readonly attachment_id?: string;
@@ -225,7 +224,6 @@ interface MainState {
   readonly loginAttempt: string | null;
   readonly view: View;
   readonly agent: AgentDisplayStatus;
-  readonly serverSearch: ServerSearchState;
   readonly agentOperation: object | null;
   readonly agentBusy: boolean;
   /** null until the host has reported the network state. */
@@ -325,7 +323,6 @@ const initial: MainState = {
   accountsError: null,
   loginAttempt: null,
   view: 'messages',
-  serverSearch: EMPTY_SERVER_SEARCH,
   agent: { status: 'online', confirmed: false },
   agentOperation: null,
   agentBusy: false,
@@ -640,7 +637,6 @@ const ACCOUNT_SCOPED_RESET = {
   get accountVisit() { return {}; },
   get roomVisit() { return {}; },
   get navigationOperation() { return {}; },
-  serverSearch: EMPTY_SERVER_SEARCH,
   conversations: [],
   conversationsError: null,
   conversationsLoading: false,
@@ -870,7 +866,6 @@ function applyAccountSnapshot(snap: UiAccountSnapshot): void {
     receiveDiagnostics.close();
     unknownOutbound.close();
     noticeQuery.reset();
-    serverSearchPanel.reset();
     const navigation = S().navigationOperation;
     const transfer = navigation?.targetAccount && !navigation.transferred && navigation.fromVisit === S().accountVisit
       && nextAccount?.state === 'online' && sameAccount(navigation.targetAccount, nextAccount.context)
@@ -1676,14 +1671,6 @@ function autoQueryPackage(): void {
 
 // --------------------------------------------------------------- notifications
 
-const serverSearchPanel = createServerSearchPanel({
-  account: () => activeAccount()?.state === 'online' ? activeAccount()!.context : null,
-  current: () => S().serverSearch,
-  publish: serverSearch => store.patch({ serverSearch }),
-  invoke: (command, payload) => ipc.invoke(command, payload),
-  error: errorMessage,
-});
-
 const noticeQuery = createNoticeQuery({
   account: () => activeAccount()?.context ?? null,
   current: S,
@@ -1968,7 +1955,6 @@ function navBar(s: MainState): HTMLElement {
     'nav',
     { class: 'nav', 'aria-label': t("main.navBar.navigation") },
     item('messages', t('nav.messages'), IC.chat, unreadMsgs, alarm),
-    item('search', t("main.navBar.chatHistory"), IC.search, 0),
     item('notifications', t('nav.notifications'), IC.bell, unreadNotice),
     item('order', t('nav.orderContact'), IC.order, 0),
     h('div', { class: 'nav-sp' }),
@@ -3248,7 +3234,7 @@ function part<T extends Node | null>(name: string, build: () => T): T {
 function render(s: MainState): Node {
   markRenderFrame(s);
   const hasAccount = !!activeAccount(s);
-  const view = !hasAccount ? welcomeView(s) : s.view === 'messages' ? messagesView(s) : s.view === 'notifications' ? notificationsView(s) : s.view === 'search' ? serverSearchView(s.serverSearch, serverSearchPanel) : orderView(s);
+  const view = !hasAccount ? welcomeView(s) : s.view === 'messages' ? messagesView(s) : s.view === 'notifications' ? notificationsView(s) : orderView(s);
   return h(
     'div',
     { class: 'app', dataset: { view: hasAccount ? s.view : 'welcome', ...(s.activeWeb ? { web: '1' } : {}) } },
@@ -3384,16 +3370,11 @@ featureRuntime.start();
 /** Slots are rendered inline by `chatPane` (`featureRuntime.renderSlot`); `requestRender` patches the store, so a fact never misses a frame. */
 const voicePlayer = voicePlayerOf(FEATURES);
 
-let lastSearchAnchor: string | null = null;
 subscribeFrame(store, (s) => {
   if (composerInput.deferRender()) return;
   // 增量 morph：已挂载的节点（滚动容器、行、头像、按 data-media-key 配对的 video）原地保留，
   // 计时刷新和实时更新既不重启播放，也不把正在滚动的列表/对话串从文档里拔下来（否则触控板惯性丢失、整树重排）。
   withMessageAnchor(s, () => rerender(root, () => render({ ...s, now: Date.now() }), { morph: true }));
-  if (s.view === 'search' && s.serverSearch.selected?.selection_token !== lastSearchAnchor) {
-    const anchor = root.querySelector<HTMLElement>('[data-search-message][data-anchor="true"]');
-    if (anchor) { anchor.scrollIntoView({ block: 'center' }); lastSearchAnchor = s.serverSearch.selected?.selection_token ?? null; }
-  }
   visibleReads.afterRender();
   fillHistoryViewport();
   syncConversationViewport();
@@ -3579,4 +3560,4 @@ void (async () => {
   await loadForActiveAccount();
 })();
 
-exposeForTests(sel, { __vbkStore: store, __vbkOpenConversation: openConversation, __vbkSoundLog: soundLog, __vbkSearch: serverSearchPanel });
+exposeForTests(sel, { __vbkStore: store, __vbkOpenConversation: openConversation, __vbkSoundLog: soundLog });

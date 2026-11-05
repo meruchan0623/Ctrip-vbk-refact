@@ -231,7 +231,7 @@ async function testMain(context, base) {
   check((await page.$('[data-nav="settings"]')) !== null, 'nav bottom 设置');
   check((await page.$('[data-nav="me"]')) === null && (await page.$('.tb [aria-haspopup="menu"]')) === null, 'title bar has no account dropdown');
   const navLabels = await page.$$eval('.nav .nav-i > span:not(.nav-badge):not(.nav-alarm)', (els) => els.map((e) => e.textContent?.trim()));
-  check(navLabels.join(',') === '消息,聊天记录,通知,订单联系,设置', `left nav only 消息/聊天记录/通知/订单联系/设置 (got ${navLabels.join(',')})`);
+  check(navLabels.join(',') === '消息,通知,订单联系,设置', `left nav only 消息/通知/订单联系/设置 (got ${navLabels.join(',')})`);
 
   // conversation list
   const doing = await text(page, '[data-tab="doing"]');

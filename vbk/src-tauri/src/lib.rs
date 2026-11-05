@@ -272,8 +272,6 @@ pub fn run() {
             adapter::im_outbound_lookup,
             adapter::im_message_page,
             adapter::im_translate_messages,
-            adapter::im_server_search,
-            adapter::im_search_history,
             adapter::im_send_text,
             message_media::shell_read_clipboard_text,
             message_media::shell_write_clipboard_text,

@@ -120,7 +120,6 @@ const zhCN = {
   'dlg.close': '关闭',
 
   // conversation list
-  'list.search': '聊天记录/用户/日期/订单号',
   'list.searchLabel': '搜索会话',
   'list.queue': '排队 -',
   'list.queueTitle': '排队数暂无宿主数据，不显示估计值',

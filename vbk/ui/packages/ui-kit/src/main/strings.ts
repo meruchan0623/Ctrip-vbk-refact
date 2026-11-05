@@ -9,7 +9,6 @@ export const mainStrings = {
   "main.receivePackageIdentity.loginCheckFailed": "无法核对 TSim 登录状态，请打开设置登录或刷新状态。",
   "main.titleBar.signedInAccounts": "已登录账号",
   "main.navBar.navigation": "导航",
-  "main.navBar.chatHistory": "聊天记录",
   "main.conversationList.localSearchDescription": "仅筛选当前账号已加载的会话名称、最新消息摘要和订单号；主动联系客人请用「订单联系」",
   "main.conversationList.localSearch": "搜索本地会话",
   "main.conversationList.reloadConversations": "重新读取会话",

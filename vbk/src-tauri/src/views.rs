@@ -95,8 +95,6 @@ impl Role {
             "im_outbound_lookup",
             "im_message_page",
             "im_translate_messages",
-            "im_server_search",
-            "im_search_history",
             "im_send_text",
             "im_copy_message_image",
             "im_save_message_image",
@@ -310,21 +308,6 @@ impl ViewRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn server_search_and_history_are_main_only_read_capabilities() {
-        for command in ["im_server_search", "im_search_history"] {
-            let mut registry = ViewRegistry::default();
-            registry.register(MAIN);
-            assert!(registry.authorize(MAIN, command).is_ok());
-            for label in [ALARM, SETTING, UPDATE, LOGIN, "acct-synthetic", "webview-1"] {
-                registry.register(label);
-                assert!(registry.authorize(label, command).is_err());
-            }
-            registry.unregister(MAIN);
-            assert!(registry.authorize(MAIN, command).is_err());
-        }
-    }
 
     #[test]
     fn quick_reply_and_product_card_commands_are_registered_main_only() {

@@ -1,7 +1,5 @@
 import { createMessageActionsRpc, MessageActionRpcError } from './message-actions.ts';
 import { adapterStrings } from './strings.ts';
-import { createServerSearch, SearchError } from './search.ts';
-import type { UiServerSearchQuery, UiSearchHistoryRequest } from '../../ipc/src/server-search.ts';
 /**
  * `adapter://request` dispatcher (D5): one handler per `AdapterRequest.op`,
  * answering with the `AdapterResultMap` shape for `adapter_reply`.
@@ -83,8 +81,6 @@ export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
   'im.send_text': 'WS body/send_result (transports.md, evidence 35/40); SDK facade name unverified',
   'im.mark_read': 'PutAdviceOfReadByMsgId.json body (11679 doc, evidence 71)',
   'im.set_mark': 'setWorkSheetStar (16037 doc, evidence 72-75)',
-  'im.server_search': 'official kyt/uyt, search enum and four groups; 2026-11-03 server search evidence',
-  'im.search_history': 'official uEe history anchor +/-2000ms; read-only result selection',
   'notice.categories': 'getIQConversations head1001; official desktop source (2026-11-03 notification query)',
   'notice.watch': 'getIQConversations head1001 lastMsgTime/lastMsgId; same read as notice.categories, driven by the host for opted-in banners',
   'notice.list': 'getIQMessages first cursor0/pageSize100/messageBody; official desktop source (2026-11-03 notification query)',
@@ -255,7 +251,6 @@ type Handler<K extends AdapterOp> = (ctx: RpcContext, args: unknown, state: RpcS
 
 interface RpcState {
   messageActions?: ReturnType<typeof createMessageActionsRpc>;
-  search?: ReturnType<typeof createServerSearch>;
   media?: ReturnType<typeof createMediaRpc>;
   recommend?: ReturnType<typeof createRecommendRpc>;
   readonly sends: Map<string, Promise<SendDisposition>>;
@@ -554,21 +549,6 @@ const imSetMark: Handler<'im.set_mark'> = async (ctx, args) => {
   }
   if (r.reason === 'biz_failure') fail(ErrorCodes.ADAPTER_FAILED, adapterStrings['rpc.colorRejected']);
   throw new RpcError(outcomeError(r.outcome, adapterStrings['rpc.colorOperation']));
-};
-
-const imServerSearch: Handler<'im.server_search'> = async (ctx, args, state) => {
-  const current = ctx.captureWriteGuard?.() ?? (() => true);
-  ensureCurrent(current);
-  state.search ??= createServerSearch(ctx.deps, ctx.soa, ctx.roles.selfUid, state.selectionNamespace);
-  try { return await state.search.search((recordOrNull(args) ?? {}) as unknown as UiServerSearchQuery, current); }
-  catch (error) { if (error instanceof SearchError) fail(ErrorCodes.ADAPTER_FAILED, error.detail); throw error; }
-};
-const imSearchHistory: Handler<'im.search_history'> = async (ctx, args, state) => {
-  const current = ctx.captureWriteGuard?.() ?? (() => true);
-  ensureCurrent(current);
-  if (!state.search) fail(ErrorCodes.ADAPTER_FAILED, adapterStrings['rpc.searchExpired']);
-  try { return await state.search.history((recordOrNull(args) ?? {}) as unknown as UiSearchHistoryRequest, current); }
-  catch (error) { if (error instanceof SearchError) fail(ErrorCodes.ADAPTER_FAILED, error.detail); throw error; }
 };
 
 const noticeCategories: Handler<'notice.categories'> = async (ctx, _args, state) => {
@@ -1000,8 +980,6 @@ const HANDLERS: { readonly [K in AdapterOp]: Handler<K> } = {
   'im.send_text': imSendText,
   'im.mark_read': imMarkRead,
   'im.set_mark': imSetMark,
-  'im.server_search': imServerSearch,
-  'im.search_history': imSearchHistory,
   'notice.categories': noticeCategories,
   'notice.watch': noticeWatch,
   'notice.list': noticeList,

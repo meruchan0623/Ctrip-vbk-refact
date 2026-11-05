@@ -129,13 +129,9 @@ export function createTauriIpc(): IpcClient {
 // and the host itself opens the login window.
 // ---------------------------------------------------------------------------
 
-export type { UiServerSearchQuery, UiServerSearchPage, UiServerSearchHit, UiSearchHistoryRequest, UiSearchHistoryPage } from './server-search.ts';
-
 export const UiCommands = {
   WEBVIEW_RECOVERY_STATUS: 'webview_recovery_status',
   WEBVIEW_RECOVERY_RETRY: 'webview_recovery_retry',
-  SERVER_SEARCH: 'im_server_search',
-  SEARCH_HISTORY: 'im_search_history',
   // contract version handshake (I-03): first call of every local window
   DEEP_LINK_SETTING_TAKE: 'deep_link_setting_take', // setting-only, pending section or null
   DEEP_LINK_TAKE: 'deep_link_take', // main-only, no args, validated pending navigation[]

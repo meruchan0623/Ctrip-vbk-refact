@@ -44,8 +44,6 @@ im_unknown_outbound
 im_outbound_lookup
 im_message_page
 im_translate_messages
-im_server_search
-im_search_history
 im_send_text
 im_copy_message_image
 im_save_message_image

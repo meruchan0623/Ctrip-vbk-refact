@@ -1,5 +1,4 @@
 @import '../_shared/recovery.css';
-@import './server-search.css';
 .media-video-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
 .media-preview-open { color: var(--c-primary, #1768ac); font-size: 12px; padding: 3px 0; }
 

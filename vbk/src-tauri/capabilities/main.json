@@ -39,8 +39,6 @@
     "allow-im-outbound-lookup",
     "allow-im-message-page",
     "allow-im-translate-messages",
-    "allow-im-server-search",
-    "allow-im-search-history",
     "allow-im-send-text",
     "allow-im-copy-message-image",
     "allow-im-save-message-image",
