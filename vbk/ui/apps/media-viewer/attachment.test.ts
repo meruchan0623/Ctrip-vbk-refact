@@ -44,5 +44,5 @@ test('only direct neighbours are visible peeks; further ones wait hidden on thei
 });
 
 test('wheel zoom moves 5% per notch, half the earlier 10%', () => {
-  assert.equal(WHEEL_ZOOM_STEP, 1.05);
+  assert.equal(WHEEL_ZOOM_STEP, 1.025);
 });

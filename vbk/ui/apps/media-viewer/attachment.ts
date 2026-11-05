@@ -29,7 +29,7 @@ export function isViewerGallery(value: unknown): value is UiViewerGallery {
 /** Cards stay mounted a little beyond the visible peeks: neighbours are preloaded and rapid moves stay animated. */
 const CAROUSEL_REACH = 3;
 /** 滚轮每格的缩放倍率；按钮与键盘仍按 1.25 一档。 */
-export const WHEEL_ZOOM_STEP = 1.05;
+export const WHEEL_ZOOM_STEP = 1.025;
 export function carouselSlots(count: number, index: number): { item: number; offset: number }[] {
   const slots: { item: number; offset: number }[] = [];
   for (let item = Math.max(0, index - CAROUSEL_REACH); item <= Math.min(count - 1, index + CAROUSEL_REACH); item++) slots.push({ item, offset: item - index });
