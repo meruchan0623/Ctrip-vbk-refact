@@ -21,6 +21,11 @@ a { color: var(--c-primary); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--c-scroll); border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
+/* Chromium paints this corner white by default; visible on the dark viewer. */
+::-webkit-scrollbar-corner { background: transparent; }
+/* WebView2 adds its own reveal/clear buttons inside password fields; separate rules because other engines drop the whole list. */
+input::-ms-reveal { display: none; }
+input::-ms-clear { display: none; }
 .ic { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .muted { color: var(--c-text-muted); }
@@ -31,9 +36,26 @@ a { color: var(--c-primary); }
 /* platform-only elements (window chrome) */
 html[data-platform="macos"] .win-only { display: none !important; }
 html:not([data-platform="macos"]) .mac-only { display: none !important; }
-/* Windows-style caption close button (prototype .wbtn.x); hidden on macOS where the traffic lights own it */
-.cap-x { width: 46px; height: 100%; display: inline-flex; align-items: center; justify-content: center; color: var(--c-text-2); flex: none; margin-left: auto; }
-.cap-x:hover { background: var(--c-win-close); color: #fff; }
+/*
+ * Windows caption (apps/_shared/window-controls.ts): 46px buttons, flush to the
+ * top-right corner. Windows on a dark bar override --cap-*. The host keeps the
+ * top ~4px of an undecorated window as its resize edge, so a title bar must not
+ * rely on that strip for clicks.
+ */
+.wbtns { display: flex; flex: none; align-self: stretch; }
+.wbtn { width: var(--cap-w); display: flex; align-items: center; justify-content: center; color: var(--cap-fg, var(--c-text-2)); flex: none; }
+.wbtn:hover { background: var(--cap-hover, rgba(0, 0, 0, 0.06)); }
+.wbtn:active { background: var(--cap-press, rgba(0, 0, 0, 0.1)); }
+.wbtn.x:hover { background: var(--c-win-close); color: #fff; }
+.wbtn.x:active { background: var(--c-win-close-press); color: #fff; }
+.wbtn:disabled { opacity: 0.4; background: none; color: var(--cap-fg, var(--c-text-2)); }
+.wbtn:focus-visible { outline: 2px solid var(--c-primary); outline-offset: -2px; }
+/* 1px glyph strokes at 10px, as native captions draw them. */
+.wbtn .ic { stroke-width: 2.4; }
+.wbtn:not(.x) .ic { shape-rendering: crispEdges; }
+.wbtn [data-cap-icon="restore"], html[data-window-maximized="true"] .wbtn [data-cap-icon="max"] { display: none; }
+html[data-window-maximized="true"] .wbtn [data-cap-icon="restore"] { display: block; }
+html[data-window-active="false"] .wbtn:not(:hover) { opacity: 0.55; }
 
 /* buttons */
 .btn { height: 30px; padding: 0 14px; border-radius: var(--radius); border: 1px solid var(--c-border-strong); background: var(--c-surface); display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: var(--fs-md); white-space: nowrap; flex: none; }
@@ -135,3 +157,14 @@ html:not([data-platform="macos"]) .mac-only { display: none !important; }
 .app-context-menu .mk.on { box-shadow: 0 0 0 2px #b0c2da; }
 @keyframes context-menu-enter { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .app-context-menu { animation: none; } .app-context-menu .mk { transition: none; } }
+
+/* Windows high contrast replaces backgrounds, which is all these states are made of. */
+@media (forced-colors: active) {
+  .wbtn:hover, .wbtn:focus-visible { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .tab.on, .conv.on, .nav-i.on, .seg-b.on, .ftab.on, .setnav button.on, .opt.on { outline: 2px solid Highlight; outline-offset: -2px; }
+  .tog { border: 1px solid ButtonText; }
+  .tog .knob { forced-color-adjust: none; top: 2px; left: 2px; background: ButtonText; }
+  .tog.on { forced-color-adjust: none; background: Highlight; }
+  .tog.on .knob { left: 20px; background: HighlightText; }
+  .cbx.on { forced-color-adjust: none; background: Highlight; border-color: Highlight; color: HighlightText; }
+}

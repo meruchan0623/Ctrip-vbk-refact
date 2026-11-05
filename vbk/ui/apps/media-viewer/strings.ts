@@ -27,8 +27,6 @@ export const MEDIA_VIEWER_STRINGS = {
   rotateShort: '旋转 ↻',
   windowTitle: '附件查看器',
   expired: '附件预览已失效，请从会话重新打开。',
-  minimize: '最小化',
-  maximize: '最大化',
   close: '关闭',
 } as const;
 

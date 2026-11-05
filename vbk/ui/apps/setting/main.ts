@@ -25,6 +25,7 @@ import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.t
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 document.title = t('set.title');
 import { IC } from '../_shared/icons.ts';
+import { installWindowChrome, windowControls } from '../_shared/window-controls.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isPrefsSnapshot, isUiAccountSnapshot } from '../_shared/guards.ts';
 import { EMPTY_TSIM_FORM, PERSONAL_SETTINGS_URL, SECTIONS, SPY_LOCK_MS, ZOOM_OPTIONS, isSectionId, isTsimStatus, pickActiveSection, prefsCommand, reminderCommand, sectionLabel, tsimErrorText, tsimFormValid, tsimStatusText, tsimSessionInputValid, tsimImportErrorText } from './viewmodel.ts';
@@ -63,6 +64,7 @@ const params = new URLSearchParams(location.search).get('section');
 const store = createStore<SettingState>({ prefs: null, section: isSectionId(params) ? params : 'general', tsimForm: EMPTY_TSIM_FORM, tsimBusy: false, tsimError: null, tsimStatus: null, tsimRequest: 0, tsimImportExpanded: false, tsimImportToken: '', settingsRequest: 0, loading: false, loadError: null, net: null, toast: null, account: null, version: null });
 const sel = selectIpc();
 const ipc = sel.ipc;
+installWindowChrome((command, payload) => ipc.invoke(command, payload));
 const root = document.getElementById('app');
 if (!root) throw new Error('#app missing');
 const recovery = createRecovery({
@@ -515,7 +517,7 @@ function titleBar(s: SettingState): HTMLElement {
     h('span', { class: 'fwin-title' }, t('set.title')),
     h('span', { class: 'sp' }),
     sel.mock ? h('span', { class: 'muted mock-tag' }, t('app.mockMode')) : null,
-    platform === 'windows' ? h('button', { class: 'cap-x', 'aria-label': S.close, title: S.close, dataset: { action: 'close' }, onclick: closeWindow }, icon(IC.close, 14)) : null,
+    windowControls({ invoke: (command, payload) => ipc.invoke(command, payload), onClose: closeWindow, closeLabel: S.close, closeDataset: { action: 'close' } }),
   );
 }
 

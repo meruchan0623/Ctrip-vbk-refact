@@ -8,10 +8,12 @@ html[data-platform="macos"] .viewer-bar { height: 40px; padding-left: 82px; padd
 .viewer button { min-width: 32px; min-height: 30px; padding: 0 10px; border: 1px solid #ffffff29; background: #ffffff09; border-radius: 6px; color: #f4f7fb; font-size: 12px; }
 .viewer button:hover { background: #ffffff1c; }
 .viewer button:focus-visible { outline: 2px solid #8ac8ff; outline-offset: 2px; }
-.viewer .viewer-win { display: flex; flex: none; height: 100%; }
-.viewer .viewer-win button { width: 46px; height: 100%; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 0; background: none; }
-.viewer .viewer-win button:hover { background: #ffffff1f; }
-.viewer .viewer-win button:last-child:hover { background: var(--c-win-close); color: #fff; }
+.viewer-bar { --cap-fg: #f4f7fb; --cap-hover: #ffffff1f; --cap-press: #ffffff2e; }
+.viewer .wbtn { min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; }
+.viewer .wbtn:hover { background: var(--cap-hover); }
+.viewer .wbtn:active { background: var(--cap-press); }
+.viewer .wbtn.x:hover { background: var(--c-win-close); }
+.viewer .wbtn.x:active { background: var(--c-win-close-press); }
 .viewer-stage { flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .viewer-stage.viewer-gallery { position: relative; padding: 0; container-type: size; }
 .viewer-card { --gutter: 16cqw; position: absolute; top: 20px; bottom: 20px; left: var(--gutter); right: var(--gutter); display: flex; align-items: center; justify-content: center; transition: transform .38s cubic-bezier(.22, .9, .24, 1), opacity .38s ease; }

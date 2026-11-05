@@ -42,6 +42,7 @@
   --c-scroll: #C3CAD4;
   --c-toast: #1E2A3B;
   --c-win-close: #C42B1C;
+  --c-win-close-press: #A82418;
 
   /* conversation marks (official five colours; action 1–5) */
   --mark-1: #F08A24;
@@ -78,6 +79,7 @@
   /* window chrome (platform shells; see html[data-platform] below) */
   --mac-traffic-w: calc(78px / var(--ui-zoom, 1));
   --fwin-h: 36px;
+  --cap-w: 46px;
 }
 
 /*
@@ -88,7 +90,8 @@
  */
 html[data-platform="windows"] {
   --font-ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-  --font-mono: Consolas, "Cascadia Mono", "SFMono-Regular", Menlo, monospace;
+  /* Consolas has no CJK glyphs; name the fallback so it is not left to GDI's SimSun. */
+  --font-mono: Consolas, "Cascadia Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace;
 }
 html[data-platform="macos"] {
   --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", system-ui, sans-serif;

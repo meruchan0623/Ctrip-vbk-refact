@@ -5,7 +5,8 @@
 //!   hidden (never destroyed) on close, positioned bottom-right of the work
 //!   area and clamped into the visible region after monitor changes.
 //! * `setting`, `update`: singletons; same D1 chrome as `main`
-//!   (macOS overlay title bar + traffic lights, Windows undecorated).
+//!   (macOS overlay title bar + traffic lights, Windows undecorated with the
+//!   page drawing its caption buttons, see `ui/apps/_shared/window-controls.ts`).
 //! * `media-viewer`: singleton attachment viewer, same chrome; reused across
 //!   attachments and destroyed on close so playback stops with the window.
 //!
@@ -112,7 +113,7 @@ pub fn ensure_alarm(app: &AppHandle) -> tauri::Result<()> {
     if app.get_webview_window(views::ALARM).is_some() {
         return Ok(());
     }
-    let win = WebviewWindowBuilder::new(
+    let builder = WebviewWindowBuilder::new(
         app,
         views::ALARM,
         WebviewUrl::App("apps/alarm/index.html".into()),
@@ -128,8 +129,12 @@ pub fn ensure_alarm(app: &AppHandle) -> tauri::Result<()> {
     // Windows only; macOS has no per-window Dock entry to skip.
     .skip_taskbar(true)
     .focused(false)
-    .visible(false)
-    .build()?;
+    .visible(false);
+    // The red ring is the window edge: DWM's undecorated shadow would round it
+    // away on Windows 11 and add a 1px white border on Windows 10.
+    #[cfg(target_os = "windows")]
+    let builder = builder.shadow(false);
+    let win = builder.build()?;
     // Close → hide; the window is a singleton reused for every round.
     let handle = win.clone();
     win.on_window_event(move |event| {
@@ -160,12 +165,20 @@ pub fn show_alarm(app: &AppHandle, corner: Corner, raise: bool) -> tauri::Result
     Ok(())
 }
 
+/// Windows rescales a window that lands on a monitor with another DPI
+/// (WM_DPICHANGED), so it has to arrive there before the final size is set.
+fn apply_rect(win: &WebviewWindow, r: Rect) -> tauri::Result<()> {
+    #[cfg(target_os = "windows")]
+    win.set_position(PhysicalPosition::new(r.x, r.y))?;
+    win.set_size(PhysicalSize::new(r.w, r.h))?;
+    win.set_position(PhysicalPosition::new(r.x, r.y))
+}
+
 fn fit_alarm(app: &AppHandle, win: &WebviewWindow, corner: Corner) -> tauri::Result<()> {
     if let Some((area, scale)) = work_area_of_primary(app) {
         let height = f64::from(ALARM_HEIGHT.load(Ordering::Relaxed));
         let r = place_alarm(area, scale * crate::ui_zoom::factor(), corner, height);
-        win.set_size(PhysicalSize::new(r.w, r.h))?;
-        win.set_position(PhysicalPosition::new(r.x, r.y))?;
+        apply_rect(win, r)?;
     }
     Ok(())
 }
@@ -269,11 +282,15 @@ fn place_notice(app: &AppHandle, height: f64) -> tauri::Result<()> {
         let w = (NOTICE_WIDTH * scale).round() as u32;
         let h = (height.min(NOTICE_MAX_HEIGHT) * scale).round() as u32;
         let margin = (NOTICE_MARGIN * scale).round() as i32;
-        win.set_size(PhysicalSize::new(w, h))?;
-        win.set_position(PhysicalPosition::new(
-            area.x + area.w as i32 - w as i32 - margin,
-            area.y + margin,
-        ))?;
+        apply_rect(
+            &win,
+            Rect {
+                x: area.x + area.w as i32 - w as i32 - margin,
+                y: area.y + margin,
+                w,
+                h,
+            },
+        )?;
     }
     Ok(())
 }
@@ -351,13 +368,32 @@ pub async fn open_singleton(
             return Ok(());
         }
         let (w, h) = crate::ui_zoom::scaled_size(&app, w, h);
+        let (min_w, min_h) = secondary_min_size(&label);
+        let (min_w, min_h) = crate::ui_zoom::scaled_size(&app, min_w, min_h);
+        // Fixed dialog on Windows: no resize border, and a double-click on its
+        // title bar cannot blow it up to full screen. macOS keeps its behaviour.
+        #[cfg(target_os = "windows")]
+        let resizable = label != views::UPDATE;
         let builder = WebviewWindowBuilder::new(&app, label, WebviewUrl::App(url.into()))
             .title(title)
-            .inner_size(w, h);
+            .inner_size(w, h)
+            .min_inner_size(min_w, min_h);
+        #[cfg(target_os = "windows")]
+        let builder = builder.resizable(resizable);
         with_platform_chrome(builder).build()?;
         Ok(())
     })
     .await
+}
+
+/// Smallest content size each secondary window still lays out without clipping
+/// (logical px at 100% zoom, verified by the Windows-mode layout audit).
+fn secondary_min_size(label: &str) -> (f64, f64) {
+    match label {
+        views::SETTING => (640.0, 480.0),
+        views::UPDATE => (420.0, 300.0),
+        _ => (520.0, 400.0),
+    }
 }
 
 /// Traffic-light origin (logical px) that centres the macOS buttons in the
@@ -369,7 +405,7 @@ pub const TRAFFIC_LIGHT_Y: f64 = 14.0;
 /// Plan D1 window chrome for local secondary windows (setting / update):
 /// macOS keeps native decorations with an overlay title bar (traffic lights
 /// on the left, no native title text); Windows drops decorations so the page
-/// draws its own minimize / close buttons.
+/// draws its own caption buttons.
 fn with_platform_chrome<'a, R: tauri::Runtime, M: Manager<R>>(
     builder: WebviewWindowBuilder<'a, R, M>,
 ) -> WebviewWindowBuilder<'a, R, M> {
@@ -439,6 +475,14 @@ pub async fn open_update(app: &AppHandle) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secondary_windows_have_a_usable_minimum() {
+        assert_eq!(secondary_min_size(views::SETTING), (640.0, 480.0));
+        assert_eq!(secondary_min_size(views::UPDATE), (420.0, 300.0));
+        let detail = format!("{}x", views::PACKAGE_DETAIL_PREFIX);
+        assert_eq!(secondary_min_size(&detail), (520.0, 400.0));
+    }
 
     #[test]
     fn secondary_window_builder_runs_off_the_invoking_thread() {

@@ -30,7 +30,7 @@ for (const { app, expected, strings } of windows) test(`${app}: actual early tit
   const prefix = source.statements.slice(0, titleIndex + 1).filter(statement => !ts.isImportDeclaration(statement));
   // Only the existing synchronous platform initialization may precede the title.
   // This rejects moving it below stores, IPC, location parsing, render or async work.
-  assert.deepEqual(prefix.slice(0, -1).map(statement => statement.getText(source)), app === 'package-detail' ? [] : app === 'alarm' ? ['applyPlatform();'] : ['const platform = applyPlatform();']);
+  assert.deepEqual(prefix.slice(0, -1).map(statement => statement.getText(source)), app === 'package-detail' ? [] : ['alarm', 'update', 'login'].includes(app) ? ['applyPlatform();'] : ['const platform = applyPlatform();']);
   const initialization = prefix.map(statement => statement.getText(source)).join('\n');
   const document = { title: fallback }, calls: string[] = [];
   const failure = new Error('synthetic later startup failure');

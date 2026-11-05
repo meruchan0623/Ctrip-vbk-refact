@@ -1,24 +1,21 @@
 import { applyPlatform } from '../_shared/platform.ts';
-const platform = applyPlatform();
-import { h, icon } from '../../packages/ui-kit/src/h.ts';
+applyPlatform();
+import { installWindowChrome, windowControls } from '../_shared/window-controls.ts';
+import { h } from '../../packages/ui-kit/src/h.ts';
 import { UiCommands, UiEvents } from '../../packages/ipc/src/client.ts';
 import { selectIpc, exposeForTests } from '../_shared/ipc.ts';
-import { IC } from '../_shared/icons.ts';
 import { isViewerGallery, renderViewer, type ViewerSurface } from './attachment.ts';
 import { MEDIA_VIEWER_STRINGS as S } from './strings.ts';
 
 const sel = selectIpc(), ipc = sel.ipc;
+installWindowChrome((command, payload) => ipc.invoke(command, payload));
 const root = document.getElementById('app');
 if (!root) throw new Error('#app missing');
 const appRoot: HTMLElement = root;
 
 const windowAction = (action: 'minimize' | 'toggle_maximize' | 'close') => void ipc.invoke(UiCommands.SHELL_WINDOW, { action }).catch(() => { /* The system window controls remain available. */ });
 const close = () => windowAction('close');
-function caption(): HTMLElement | null {
-  if (platform !== 'windows') return null;
-  const button = (label: string, action: 'minimize' | 'toggle_maximize' | 'close', path: string, size: number) => h('button', { type: 'button', 'aria-label': label, title: label, dataset: { win: action }, onclick: () => windowAction(action) }, icon(path, size));
-  return h('div', { class: 'viewer-win' }, button(S.minimize, 'minimize', IC.min, 14), button(S.maximize, 'toggle_maximize', IC.max, 13), button(S.close, 'close', IC.close, 14));
-}
+const caption = (): HTMLElement | null => windowControls({ invoke: (command, payload) => ipc.invoke(command, payload) });
 
 let surface: ViewerSurface | null = null;
 function mount(next: ViewerSurface): void {

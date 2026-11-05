@@ -354,9 +354,10 @@ pub fn shell_window(
     window: Window,
     state: State<'_, HostState>,
     action: String,
-) -> CmdResult<()> {
+) -> CmdResult<WindowChromeState> {
     guard(&state, &window, "shell_window")?;
     match action.as_str() {
+        "state" => Ok(()),
         "minimize" => window.minimize().map_err(tauri_err),
         "toggle_maximize" => {
             if window.is_maximized().unwrap_or(false) {
@@ -365,21 +366,54 @@ pub fn shell_window(
                 window.maximize().map_err(tauri_err)
             }
         }
-        "close" => {
-            if window.label() == views::MAIN {
-                if prefs::close_quits(&app) {
-                    state.request_quit(&app);
-                    Ok(())
-                } else {
-                    window.hide().map_err(tauri_err)
-                }
-            } else {
-                // Goes through CloseRequested so per-window handlers apply.
-                window.close().map_err(tauri_err)
-            }
-        }
+        "close" => close_caller_window(&app, &window).map_err(tauri_err),
+        "system_menu" => show_system_menu(&window).map_err(tauri_err),
         other => Err(invalid_argument(format!("unknown window action {other:?}"))),
+    }?;
+    Ok(WindowChromeState {
+        maximized: window.is_maximized().unwrap_or(false),
+        focused: window.is_focused().unwrap_or(true),
+    })
+}
+
+/// What the self-drawn caption needs to mirror the native window state.
+#[derive(serde::Serialize)]
+pub struct WindowChromeState {
+    maximized: bool,
+    focused: bool,
+}
+
+fn close_caller_window(app: &AppHandle, window: &Window) -> tauri::Result<()> {
+    if window.label() == views::MAIN {
+        if prefs::close_quits(app) {
+            app.state::<HostState>().request_quit(app);
+            Ok(())
+        } else {
+            window.hide()
+        }
+    } else {
+        // Goes through CloseRequested so per-window handlers apply.
+        window.close()
     }
+}
+
+/// Native menu for a right-click on the self-drawn title bar. Its Close entry
+/// takes the same path as the caption button so `close_action` still applies.
+#[cfg(target_os = "windows")]
+fn show_system_menu(window: &Window) -> tauri::Result<()> {
+    let app = window.app_handle().clone();
+    let target = window.clone();
+    crate::win_chrome::show_system_menu(window, move || {
+        if let Err(e) = close_caller_window(&app, &target) {
+            log::warn!("system menu close failed: {e}");
+        }
+    })
+}
+
+/// macOS keeps the native title bar, so it never reaches this action in use.
+#[cfg(not(target_os = "windows"))]
+fn show_system_menu(_window: &Window) -> tauri::Result<()> {
+    Ok(())
 }
 
 #[tauri::command]

@@ -31,7 +31,7 @@ test('newer manual detail refresh wins; malformed fields fail closed without pri
 test('actual detail render refresh button invokes the same read controller and field values remain text children', async () => {
   const f = fixture(); await f.controller.load();
   const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
-  const env: Record<string, any> = { t, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), platform: 'windows', detail: f.controller, close() {} };
+  const env: Record<string, any> = { t, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), windowControls: (o: { closeLabel?: string; onClose?: () => void; closeDataset?: object }) => ({ tag: 'div', props: { class: 'wbtns' }, children: [{ tag: 'button', props: { 'aria-label': o.closeLabel, onclick: o.onClose, dataset: o.closeDataset ?? {} }, children: [] }] }), ipc: {}, detail: f.controller, close() {} };
   function actual(name: string, next: string) { const a = source.indexOf('function ' + name + '('), b = source.indexOf('\n' + next, a); assert.ok(a >= 0 && b > a); return new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   env['fieldTable'] = actual('fieldTable', 'function render('); const render = actual('render', 'subscribeBatched(');
   function nodes(tree: any): any[] { if (Array.isArray(tree)) return tree.flatMap(nodes); return tree && typeof tree === 'object' ? [tree, ...nodes(tree.children)] : []; }

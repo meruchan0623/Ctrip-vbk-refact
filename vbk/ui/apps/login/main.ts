@@ -9,7 +9,7 @@
  */
 
 import { applyPlatform } from '../_shared/platform.ts';
-const platform = applyPlatform();
+applyPlatform();
 
 import { AccountCommands, Events } from '../../packages/ipc/src/commands.ts';
 import type { UiAccountSnapshot } from '../../packages/ipc/src/client.ts';
@@ -18,6 +18,7 @@ import { isAppError } from '../../packages/ipc/src/contracts.ts';
 import { h, icon, rerender } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
 import { IC } from '../_shared/icons.ts';
+import { installWindowChrome, windowControls } from '../_shared/window-controls.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { guarded, isUiAccountSnapshot } from '../_shared/guards.ts';
 import { LOGIN_STRINGS as S, fmt } from './strings.ts';
@@ -35,6 +36,7 @@ interface LoginState {
 const store = createStore<LoginState>({ accounts: null, closing: false, error: null });
 const sel = selectIpc();
 const ipc = sel.ipc;
+installWindowChrome((command, payload) => ipc.invoke(command, payload));
 const root = document.getElementById('app');
 if (!root) throw new Error('#app missing');
 const browser = createBrowserLogin({
@@ -70,9 +72,7 @@ function render(s: LoginState): Node {
       h('div', { class: 'logo' }, 'V'),
       h('span', { class: 'title' }, S.title),
       h('span', { class: 'sp' }),
-      platform === 'windows'
-        ? h('button', { class: 'cap-x', 'aria-label': S.close, title: S.close, disabled: s.closing, dataset: { action: 'cancel' }, onclick: () => void cancelAndClose() }, icon(IC.close, 14))
-        : null,
+      windowControls({ invoke: (command, payload) => ipc.invoke(command, payload), onClose: () => void cancelAndClose(), closeLabel: S.close, closeDisabled: s.closing, closeDataset: { action: 'cancel' } }),
     ),
     h(
       'div',

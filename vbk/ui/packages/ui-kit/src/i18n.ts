@@ -66,7 +66,8 @@ const zhCN = {
   'tab.logout': '登出此账号',
   'tab.cancelLogin': '取消登录',
   'win.minimize': '最小化',
-  'win.maximize': '最大化或还原',
+  'win.maximize': '最大化',
+  'win.restore': '还原',
   'win.close': '关闭',
 
   // nav

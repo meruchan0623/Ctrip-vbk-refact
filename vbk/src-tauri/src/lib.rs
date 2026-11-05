@@ -50,6 +50,8 @@ pub mod tray;
 mod ui_zoom;
 pub mod views;
 mod webview_recovery;
+#[cfg(target_os = "windows")]
+mod win_chrome;
 pub mod windows;
 
 use std::time::{SystemTime, UNIX_EPOCH};

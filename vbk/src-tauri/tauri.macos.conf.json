@@ -22,7 +22,6 @@
     }
   },
   "app": {
-    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",

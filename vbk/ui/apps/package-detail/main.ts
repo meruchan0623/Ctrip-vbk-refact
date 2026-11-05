@@ -1,7 +1,8 @@
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 document.title = t('packageDetailRuntime.heading');
 import { applyPlatform } from '../_shared/platform.ts';
-const platform = applyPlatform();
+applyPlatform();
+import { installWindowChrome, windowControls } from '../_shared/window-controls.ts';
 import { h, rerender } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
 import { UiCommands, UiEvents, type UiPackageField } from '../../packages/ipc/src/client.ts';
@@ -9,6 +10,7 @@ import { selectIpc, exposeForTests } from '../_shared/ipc.ts';
 import { isTsimStatus } from '../setting/viewmodel.ts';
 import { createPackageDetail, type DetailView } from './controller.ts';
 const sel = selectIpc(), ipc = sel.ipc;
+installWindowChrome((command, payload) => ipc.invoke(command, payload));
 const store = createStore<DetailView>({ busy: false, data: null, error: null, invalidated: false });
 const detail = createPackageDetail({ invoke: (command, payload) => ipc.invoke(command, payload), publish: view => store.set(view) });
 const root = document.getElementById('app');
@@ -20,7 +22,7 @@ function fieldTable(title: string, values: readonly UiPackageField[]): HTMLEleme
 function render(s: DetailView): HTMLElement {
   const data = s.data;
   return h('div', { class: 'detail-window' },
-    h('header', { class: 'detail-chrome', 'data-tauri-drag-region': 'deep' }, h('span', null, t('packageDetailRuntime.heading')), h('span', { class: 'sp' }), platform === 'windows' ? h('button', { class: 'cap-x', 'aria-label': t('packageDetailRuntime.closeLabel'), onclick: close }, '×') : null),
+    h('header', { class: 'detail-chrome', 'data-tauri-drag-region': 'deep' }, h('span', null, t('packageDetailRuntime.heading')), h('span', { class: 'sp' }), windowControls({ invoke: (command, payload) => ipc.invoke(command, payload), onClose: close, closeLabel: t('packageDetailRuntime.closeLabel') })),
     h('main', { class: 'detail-body', dataset: { keepScroll: 'detail' } },
       h('div', { class: 'detail-heading' }, h('div', null, h('div', { class: 'eyebrow' }, data ? t('packageDetailRuntime.order', { id: data.order_id }) : t('packageDetailRuntime.orderFallback')), h('h1', null, data?.plan.plan || t('packageDetailRuntime.planFallback')), h('p', { class: 'detail-subtitle' }, t('packageDetailRuntime.subtitle'))), h('button', { class: 'btn pri', disabled: s.busy || s.invalidated, dataset: { action: 'refresh-detail' }, onclick: () => void detail.load() }, s.busy ? t('packageDetailRuntime.refreshing') : t('packageDetailRuntime.refresh'))),
       s.busy ? h('p', { role: 'status', class: 'detail-notice' }, t('packageDetailRuntime.loading')) : null,

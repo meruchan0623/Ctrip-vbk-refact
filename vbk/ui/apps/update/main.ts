@@ -6,7 +6,7 @@
  */
 
 import { applyPlatform } from '../_shared/platform.ts';
-const platform = applyPlatform();
+applyPlatform();
 
 import { UiCommands } from '../../packages/ipc/src/client.ts';
 import { isAppError } from '../../packages/ipc/src/contracts.ts';
@@ -14,6 +14,7 @@ import { h, icon, rerender } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
 import { IC } from '../_shared/icons.ts';
+import { installWindowChrome, windowControls } from '../_shared/window-controls.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import { UPDATE_STRINGS as S, fmt } from './strings.ts';
 document.title = S.title;
@@ -29,6 +30,7 @@ interface UpdateState {
 const store = createStore<UpdateState>({ version: null, phase: 'idle', error: null });
 const sel = selectIpc();
 const ipc = sel.ipc;
+installWindowChrome((command, payload) => ipc.invoke(command, payload));
 const root = document.getElementById('app');
 if (!root) throw new Error('#app missing');
 
@@ -46,7 +48,7 @@ function render(s: UpdateState): Node {
       h('span', { class: 'fwin-title' }, S.title),
       h('span', { class: 'sp' }),
       sel.mock ? h('span', { class: 'muted mock-tag' }, t('app.mockMode')) : null,
-      platform === 'windows' ? h('button', { class: 'cap-x', 'aria-label': S.close, title: S.close, dataset: { action: 'close' }, onclick: close }, icon(IC.close, 14)) : null,
+      windowControls({ invoke: (command, payload) => ipc.invoke(command, payload), actions: ['minimize', 'close'], onClose: close, closeLabel: S.close, closeDataset: { action: 'close' } }),
     ),
     h(
       'div',

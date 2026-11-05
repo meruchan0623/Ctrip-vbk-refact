@@ -288,6 +288,7 @@ function cloneSettings(s: ReminderSettings): ReminderSettings {
 }
 
 export function createMockIpc(scenario: MockScenario = 'default', options: MockOptions = {}): MockIpc {
+  let mockWindowMaximized = false;
   const now = options.now ?? (() => Date.now());
   const latency = options.latency ?? 120;
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
@@ -936,8 +937,10 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       return null;
     },
     [UiCommands.SHELL_WINDOW]: async (p) => {
-      emit(UiEvents.TOAST, { text: `（演示）窗口操作：${String((p as { action?: string }).action ?? '')}` });
-      return null;
+      const action = String((p as { action?: string }).action ?? '');
+      if (action === 'toggle_maximize') mockWindowMaximized = !mockWindowMaximized;
+      if (action !== 'state') emit(UiEvents.TOAST, { text: `（演示）窗口操作：${action}` });
+      return { maximized: mockWindowMaximized, focused: true };
     },
     [UiCommands.MEDIA_PICK]: async (p) => {
       const kind = String((p as { kind?: string }).kind ?? 'file');

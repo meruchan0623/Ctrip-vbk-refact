@@ -40,7 +40,7 @@ test('actual login header preserves browser labels and state messages literally 
   const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
   const start = source.indexOf('function render('), end = source.indexOf('\nsubscribeBatched(', start);
   assert.ok(start >= 0 && end > start);
-  const env = { S, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), platform: 'windows', icon: () => null, IC: {}, cancelAndClose() {}, browser: { select() {}, connect() {}, discover() {} } };
+  const env = { S, h: (tag: string, props: object | null, ...children: unknown[]) => ({ tag, props: props ?? {}, children }), icon: () => null, IC: {}, windowControls: (o: { closeLabel?: string; onClose?: () => void; closeDataset?: object }) => ({ tag: 'div', props: { class: 'wbtns' }, children: [{ tag: 'button', props: { 'aria-label': o.closeLabel, onclick: o.onClose, dataset: o.closeDataset ?? {} }, children: [] }] }), ipc: {}, cancelAndClose() {}, browser: { select() {}, connect() {}, discover() {} } };
   const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(start, end)) + '\nreturn render;')(...Object.values(env));
   const label = '用户浏览器 {label} <Chrome>', message = 'controller {message}';
   const output = JSON.stringify(render({ accounts: null, closing: false, error: null, browser: { choices: [{ id: 'Default', label }], selected: 'Default', busy: false, message } }));

@@ -191,7 +191,7 @@ export const UiCommands = {
   BROWSER_NAV: 'browser_nav', // {tab_id, action: 'back'|'forward'|'reload'}
   BROWSER_CLOSE: 'browser_close', // {tab_id}
   SHELL_OPEN_WINDOW: 'shell_open_window', // {label}
-  SHELL_WINDOW: 'shell_window', // {action: 'minimize'|'toggle_maximize'|'close'}
+  SHELL_WINDOW: 'shell_window', // {action: 'state'|'minimize'|'toggle_maximize'|'close'|'system_menu'} → {maximized, focused}
   MEDIA_SCREENSHOT: 'media_screenshot', // {account,gid} → UiAttachment | null
   MEDIA_ANNOTATION_SOURCE: 'media_annotation_source', // owner + attachment_id → AnnotationSource
   MEDIA_ANNOTATION_APPLY: 'media_annotation_apply', // validated local annotation export → UiAttachment

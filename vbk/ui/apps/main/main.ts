@@ -82,6 +82,7 @@ import { hasKey, t } from '../../packages/ui-kit/src/i18n.ts';
 import { badgeText, formatClock, formatDate, formatDuration, formatRelativeTime, formatStopwatch } from '../../packages/ui-kit/src/format.ts';
 document.title = t('app.name');
 import { IC } from '../_shared/icons.ts';
+import { installWindowChrome, windowControls } from '../_shared/window-controls.ts';
 import { exposeForTests, selectIpc } from '../_shared/ipc.ts';
 import {
   guarded,
@@ -232,8 +233,8 @@ interface MainState {
   readonly agentBusy: boolean;
   /** null until the host has reported the network state. */
   readonly net: UiNetStatus | null;
-  readonly clockTrusted: boolean;
   readonly netOfflineConfirmed: boolean;
+  readonly clockTrusted: boolean;
   readonly alarmCount: number;
   /** Longest-waiting active alarm entry: where the top-right alarm button jumps. */
   readonly alarmTarget: { readonly account: AccountContext; readonly gid: string } | null;
@@ -332,8 +333,8 @@ const initial: MainState = {
   agentOperation: null,
   agentBusy: false,
   net: null,
-  clockTrusted: true,
   netOfflineConfirmed: false,
+  clockTrusted: true,
   alarmCount: 0,
   alarmTarget: null,
   prefs: null,
@@ -405,6 +406,7 @@ window.addEventListener('pagehide', () => messageContextMenu.close());
 
 const sel = selectIpc();
 const ipc = sel.ipc;
+installWindowChrome((command, payload) => ipc.invoke(command, payload));
 const conversationContextMenu = createContextMenu('ctx-menu', t('mainTs.conversationMenu.title'));
 const messageToolOptions: MessageToolOptions = {
   current: account => stillActive(account),
@@ -848,11 +850,11 @@ async function loadForActiveAccount(): Promise<void> {
   stopAccountLoadObservation = null;
   const acc = activeAccount();
   if (!acc) { store.patch({ conversationsLoading: false, conversationsError: null }); return; }
-  const account = acc.context;
-  store.patch({ conversationsLoading: true, conversationsError: null });
   // Host reads are refused until the account is online. Restoring is not a read failure;
   // applyAccountSnapshot reads again when it comes online.
   if (acc.state === 'suspended' || acc.state === 'logging_in' || acc.state === 'expired') { store.patch({ conversationsLoading: false, conversationsError: null }); return; }
+  const account = acc.context;
+  store.patch({ conversationsLoading: true, conversationsError: null });
   void noticeQuery.categories();
   const agentAtRead = S().agent;
   const belongs = (c: UiConversation): boolean => sameAccount(c.account, account) && c.account.session_generation === account.session_generation;
@@ -1951,6 +1953,24 @@ function onTitleMouseDown(e: MouseEvent): void {
   void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'toggle_maximize' });
 }
 
+/** Sixteen accounts do not fit the title bar: an ordinary wheel scrolls the strip sideways. */
+function onTabsWheel(e: WheelEvent): void {
+  const strip = e.currentTarget as HTMLElement;
+  if (strip.scrollWidth <= strip.clientWidth || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+  strip.scrollLeft += e.deltaY;
+  e.preventDefault();
+}
+
+let revealedTab: string | null = null;
+/** Scrolls only when the active account changes, so a re-render never undoes the user's scroll. */
+function revealActiveTab(accountId: string): (el: Element) => void {
+  return (el) => {
+    if (revealedTab === accountId) return;
+    revealedTab = accountId;
+    queueMicrotask(() => el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }));
+  };
+}
+
 function titleBar(s: MainState): HTMLElement {
   const snap = s.accounts;
   const tabs = (snap?.accounts ?? []).map((a) => {
@@ -1965,6 +1985,7 @@ function titleBar(s: MainState): HTMLElement {
         'aria-selected': String(on),
         title: t('tab.editRemark'),
         dataset: { account: a.context.account_id, state: a.state, fid: `acct-tab:${a.context.account_id}` },
+        ...(on ? { ref: revealActiveTab(a.context.account_id) } : {}),
         onclick: () => { browserTabs.activate(null); void switchAccount(a); },
         ondblclick: (e: Event) => {
           e.preventDefault();
@@ -2018,7 +2039,7 @@ function titleBar(s: MainState): HTMLElement {
     h('div', { class: 'tb-logo', 'data-tauri-drag-region': true }, h('div', { class: 'logo', 'aria-hidden': 'true', 'data-tauri-drag-region': true }, 'V')),
     h(
       'div',
-      { class: 'tabs', role: 'tablist', 'aria-label': t("main.titleBar.signedInAccounts"), 'data-tauri-drag-region': true },
+      { class: 'tabs', role: 'tablist', 'aria-label': t("main.titleBar.signedInAccounts"), 'data-tauri-drag-region': true, dataset: { keepScroll: 'tabs' }, onwheel: onTabsWheel },
       tabs,
       s.webTabs.map((tab) => webTabView(tab, tab.tab_id === s.activeWeb, snap?.accounts.find((a) => a.context.account_id === tab.account_id)?.remark ?? snap?.accounts.find((a) => a.context.account_id === tab.account_id)?.nick ?? '', { onSelect: () => browserTabs.activate(tab.tab_id), onClose: () => void browserTabs.close(tab.tab_id) }, h, icon)),
       canAdd ? h('button', { class: 'tab-add', 'aria-label': t('tab.add'), title: t('tab.addTitle', { max: snap?.max_accounts ?? 16 }), dataset: { action: 'add-account' }, onclick: () => void startLogin() }, icon(IC.plus, 16)) : null,
@@ -2026,13 +2047,8 @@ function titleBar(s: MainState): HTMLElement {
     s.alarmCount > 0
       ? h('button', { class: 'tb-alarm', title: t('tb.alarmTitle', { n: s.alarmCount }), dataset: { tbAlarm: String(s.alarmCount) }, onclick: () => { if (s.alarmTarget) void locateConversation(s.alarmTarget.account, s.alarmTarget.gid); else void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.ALARM }); } }, icon(IC.clock, 13), t('tb.alarm', { n: s.alarmCount }))
       : null,
-    h(
-      'div',
-      { class: 'wbtns' },
-      h('button', { class: 'wbtn', 'aria-label': t('win.minimize'), dataset: { win: 'minimize' }, onclick: () => void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'minimize' }) }, icon(IC.min, 14)),
-      h('button', { class: 'wbtn', 'aria-label': t('win.maximize'), dataset: { win: 'toggle_maximize' }, onclick: () => void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'toggle_maximize' }) }, icon(IC.max, 13)),
-      h('button', { class: 'wbtn x', 'aria-label': t('win.close'), dataset: { win: 'close' }, onclick: () => void invokeSafe(UiCommands.SHELL_WINDOW, { action: 'close' }) }, icon(IC.close, 14)),
-    ),
+    h('div', { class: 'tb-drag', 'aria-hidden': 'true', 'data-tauri-drag-region': true }),
+    windowControls({ invoke: (command, payload) => invokeSafe(command, payload) }),
   );
 }
 
