@@ -118,7 +118,7 @@ pub fn notify_alarm_resize(
     height: f64,
 ) -> CmdResult<()> {
     guard(&state, &window, "notify_alarm_resize")?;
-    let corner = windows::Corner::from_bottom_right(state.settings().position_bottom_right);
+    let corner = state.settings().alarm_corner;
     windows::resize_alarm(&app, corner, height)
         .map_err(|e| err(AppError::new("notify.alarm_resize", e.to_string())))
 }

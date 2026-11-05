@@ -109,12 +109,3 @@ export function hideAllCommand(snapshot: AlarmSnapshot): { cmd: string; payload:
     payload: { seen: snapshot.entries.map(roundRef) },
   };
 }
-
-/** Prototype avatar palette; the colour is a stable function of the conversation id. */
-export const AVATAR_COLORS: readonly string[] = ['#2C7F8F', '#3A6FD8', '#8A5CD6', '#C7672B', '#2FA36B', '#B8487A', '#5B7FB8', '#A07A1E'];
-
-export function avatarColor(seed: string): string {
-  let h = 0;
-  for (let i = 0; i < seed.length; i += 1) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length] ?? '#5B7FB8';
-}

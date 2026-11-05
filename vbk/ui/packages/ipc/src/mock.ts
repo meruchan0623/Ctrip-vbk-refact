@@ -931,6 +931,7 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       const sec = (st.prefs as unknown as Record<string, Record<string, unknown>>)[section];
       if (!sec || !Object.prototype.hasOwnProperty.call(sec, key)) throw appError('prefs.unknown_key', `未知设置 ${section}.${key}`);
       if (typeof sec[key] !== typeof value) throw appError('prefs.bad_type', `设置 ${section}.${key} 类型错误`);
+      if (section === 'reminder' && key === 'alarm_corner' && !['top_left', 'top_right', 'bottom_left', 'bottom_right'].includes(value as string)) throw appError('prefs.invalid_value', `设置 ${section}.${key} 取值错误`);
       st.prefs = { ...st.prefs, [section]: { ...sec, [key]: value } } as PrefsSnapshot;
       pushPrefs();
       if (section === 'reminder') pushAlarm(); // the alarm snapshot carries the reminder settings

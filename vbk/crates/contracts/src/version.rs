@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use crate::error::{codes, AppError};
 
-pub const CONTRACT_VERSION: u32 = 2;
+pub const CONTRACT_VERSION: u32 = 3;
 
 /// Upper bound for retained diagnostics; the oldest entry is dropped first.
 const MAX_DIAGNOSTICS: usize = 32;

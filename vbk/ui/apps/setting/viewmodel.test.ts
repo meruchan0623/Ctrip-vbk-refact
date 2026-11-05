@@ -50,7 +50,7 @@ test('every reminder toggle persists through the command the view-model picks (n
   const ipc = createMockIpc('default', { tick: false, latency: 0 });
   const alarmPushes: { settings: Record<string, unknown> }[] = [];
   ipc.listen<{ settings: Record<string, unknown> }>(Events.ALARM_SNAPSHOT, (s) => alarmPushes.push(s));
-  const keys = ['continuous_l4', 'position_bottom_right', 'alert_during_dnd', 'alert_during_fullscreen', 'tray_flash', 'taskbar_badge'] as const;
+  const keys = ['continuous_l4', 'alert_during_dnd', 'alert_during_fullscreen', 'tray_flash', 'taskbar_badge'] as const;
   for (const key of keys) {
     const before = (await ipc.invoke<PrefsSnapshot>(PrefsCommands.SNAPSHOT)).reminder[key];
     const { cmd, payload } = reminderCommand(key, !before);

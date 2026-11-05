@@ -186,7 +186,7 @@ export const UiCommands = {
   BROWSER_SHOW: 'browser_show', // {tab_id: string|null, bounds?: {x,y,width,height}} logical px; null hides all
   BROWSER_NAV: 'browser_nav', // {tab_id, action: 'back'|'forward'|'reload'}
   BROWSER_CLOSE: 'browser_close', // {tab_id}
-  SHELL_OPEN_WINDOW: 'shell_open_window', // {label}
+  SHELL_OPEN_WINDOW: 'shell_open_window', // {label, section?}
   SHELL_WINDOW: 'shell_window', // {action: 'state'|'minimize'|'toggle_maximize'|'close'|'system_menu'} → {maximized, focused}
   MEDIA_SAVE_IMAGE: 'media_save_image', // media-viewer window only: {index} of the bound gallery → {saved:boolean}; native dialog, original bytes only
   MEDIA_PICK: 'media_pick', // {account,gid,kind:'image'|'file'} → UiAttachment | null
@@ -195,7 +195,7 @@ export const UiCommands = {
   NET_STATUS: 'net_status', // {include_diagnostics?: boolean, account?: AccountContext} → UiNetStatus; diagnostics require account
   // prefs (in addition to PrefsCommands.SNAPSHOT)
   // {section, key, value} → PrefsSnapshot. `section: 'reminder'` is accepted only for the fields without a
-  // notify_set_* command (continuous_l4, position_bottom_right, alert_during_dnd, alert_during_fullscreen,
+  // notify_set_* command (continuous_l4, alarm_corner, alert_during_dnd, alert_during_fullscreen,
   // tray_flash, taskbar_badge); enabled / t1_seconds / timeout_sound are rejected (`prefs.use_notify`).
   PREFS_SET: 'prefs_set',
   // assistant (TSim)

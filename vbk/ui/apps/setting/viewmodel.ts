@@ -1,6 +1,6 @@
 /** Pure settings logic (no DOM): sections, validation, command mapping. */
 
-import type { ReminderSettings } from '../../packages/ipc/src/contracts.ts';
+import type { AlarmCorner, ReminderSettings } from '../../packages/ipc/src/contracts.ts';
 import { ALLOWED_T1_SECONDS } from '../../packages/ipc/src/contracts.ts';
 import { NotifyCommands } from '../../packages/ipc/src/commands.ts';
 import type { PrefsSection, PrefsSnapshot, UiTsimStatus } from '../../packages/ipc/src/client.ts';
@@ -40,11 +40,14 @@ export function isAllowedT1(n: number): n is (typeof ALLOWED_T1_SECONDS)[number]
 export function validateReminderSettings(s: ReminderSettings): string[] {
   const bad: string[] = [];
   if (!isAllowedT1(s.t1_seconds)) bad.push('t1_seconds');
-  for (const k of ['enabled', 'timeout_sound', 'continuous_l4', 'position_bottom_right', 'alert_during_dnd', 'alert_during_fullscreen', 'tray_flash', 'taskbar_badge'] as const) {
+  for (const k of ['enabled', 'timeout_sound', 'continuous_l4', 'alert_during_dnd', 'alert_during_fullscreen', 'tray_flash', 'taskbar_badge'] as const) {
     if (typeof s[k] !== 'boolean') bad.push(k);
   }
+  if (!(ALARM_CORNERS as readonly string[]).includes(s.alarm_corner)) bad.push('alarm_corner');
   return bad;
 }
+
+export const ALARM_CORNERS: readonly AlarmCorner[] = ['top_left', 'top_right', 'bottom_left', 'bottom_right'];
 
 export interface SettingCommand {
   readonly cmd: string;

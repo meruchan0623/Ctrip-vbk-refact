@@ -22,7 +22,7 @@ use crate::prefs;
 use crate::state::HostState;
 use crate::tray;
 use crate::views;
-use crate::windows::{self, Corner};
+use crate::windows;
 
 pub const TICK: Duration = Duration::from_millis(1000);
 pub const FLASH_PHASE: Duration = Duration::from_millis(500);
@@ -95,7 +95,7 @@ fn run(app: AppHandle) {
             }
             match effect {
                 Effect::ShowAlarm { raise } => {
-                    let corner = Corner::from_bottom_right(state.settings().position_bottom_right);
+                    let corner = state.settings().alarm_corner;
                     if let Err(e) = windows::show_alarm(&app, corner, raise) {
                         log::warn!("show alarm failed: {e}");
                     }

@@ -119,13 +119,6 @@ test('rows carry the host preview unchanged, null when the display cache has non
   assert.deepEqual(rows.map((r) => r.preview), ['请问怎么激活？', null]);
 });
 
-test('avatar colour is stable per conversation and from the palette', async () => {
-  const { avatarColor, AVATAR_COLORS } = await import('./viewmodel.ts');
-  assert.equal(avatarColor('g-1'), avatarColor('g-1'));
-  assert.ok(AVATAR_COLORS.includes(avatarColor('anything')));
-  assert.ok(AVATAR_COLORS.includes(avatarColor('')));
-});
-
 
 test('row keys isolate environments, generations and delimiter-containing identities', () => {
   const first = entry('g', 30);

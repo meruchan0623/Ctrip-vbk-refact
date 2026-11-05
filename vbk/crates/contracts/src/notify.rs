@@ -52,6 +52,46 @@ pub const L4_SOUND_CAP_SECONDS: u32 = 600;
 /// Waiting time after which the alarm entry is rendered red.
 pub const RED_AFTER_SECONDS: u32 = 90;
 
+/// Default corner of the alarm window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AlarmCorner {
+    TopLeft,
+    TopRight,
+    #[default]
+    BottomLeft,
+    BottomRight,
+}
+
+impl AlarmCorner {
+    pub const ALL: [AlarmCorner; 4] = [
+        AlarmCorner::TopLeft,
+        AlarmCorner::TopRight,
+        AlarmCorner::BottomLeft,
+        AlarmCorner::BottomRight,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AlarmCorner::TopLeft => "top_left",
+            AlarmCorner::TopRight => "top_right",
+            AlarmCorner::BottomLeft => "bottom_left",
+            AlarmCorner::BottomRight => "bottom_right",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| c.as_str() == s)
+    }
+
+    pub fn is_top(self) -> bool {
+        matches!(self, AlarmCorner::TopLeft | AlarmCorner::TopRight)
+    }
+
+    pub fn is_right(self) -> bool {
+        matches!(self, AlarmCorner::TopRight | AlarmCorner::BottomRight)
+    }
+}
+
 /// Reminder settings (strong-alert §2 "设置项").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReminderSettings {
@@ -60,7 +100,8 @@ pub struct ReminderSettings {
     pub timeout_sound: bool,
     /// L4 continuous reminder; default off.
     pub continuous_l4: bool,
-    pub position_bottom_right: bool,
+    /// Screen corner the alarm window appears in; default bottom-left.
+    pub alarm_corner: AlarmCorner,
     /// "勿扰时仍提醒回复超时", default on.
     pub alert_during_dnd: bool,
     /// "全屏时仍弹回复超时", default on.
@@ -76,7 +117,7 @@ impl Default for ReminderSettings {
             t1_seconds: DEFAULT_T1_SECONDS,
             timeout_sound: true,
             continuous_l4: false,
-            position_bottom_right: true,
+            alarm_corner: AlarmCorner::BottomLeft,
             alert_during_dnd: true,
             alert_during_fullscreen: true,
             tray_flash: true,

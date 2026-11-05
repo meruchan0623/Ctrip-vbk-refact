@@ -33,6 +33,7 @@ pub use im::{
     RoundEndReason, RoundEvent, SendDisposition, SenderRole, WaitingRoundRef,
 };
 pub use notify::{
-    AlarmCommand, AlarmEntry, AlarmLevel, AlarmSnapshot, ReminderSettings, SnoozeMinutes,
+    AlarmCommand, AlarmCorner, AlarmEntry, AlarmLevel, AlarmSnapshot, ReminderSettings,
+    SnoozeMinutes,
 };
 pub use version::{ContractGate, GateDiagnostic, CONTRACT_VERSION};

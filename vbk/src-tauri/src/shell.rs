@@ -294,7 +294,7 @@ pub async fn shell_open_window(
             if state.alarm_snapshot().entries.is_empty() {
                 return Ok(());
             }
-            let corner = windows::Corner::from_bottom_right(state.settings().position_bottom_right);
+            let corner = state.settings().alarm_corner;
             let app = app.clone();
             windows::dispatch_secondary_window(move || windows::show_alarm(&app, corner, true))
                 .await

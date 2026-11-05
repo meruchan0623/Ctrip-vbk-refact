@@ -2,7 +2,7 @@
 //!
 //! * `main`: resident; close → hide to tray.
 //! * `alarm`: singleton, always-on-top, shown without stealing focus,
-//!   hidden (never destroyed) on close, positioned bottom-right of the work
+//!   hidden (never destroyed) on close, positioned in the configured corner of the work
 //!   area and clamped into the visible region after monitor changes.
 //! * `setting`, `update`: singletons; same D1 chrome as `main`
 //!   (macOS overlay title bar + traffic lights, Windows undecorated with the
@@ -22,30 +22,16 @@ use tauri::{
 use crate::views;
 
 /// Alarm window size in logical px (prototype: ≤ 60% of work-area height).
-pub const ALARM_WIDTH: f64 = 380.0;
+pub const ALARM_WIDTH: f64 = 280.0;
 pub const ALARM_MAX_HEIGHT_RATIO: f64 = 0.6;
-pub const ALARM_MIN_HEIGHT: f64 = 72.0;
+pub const ALARM_MIN_HEIGHT: f64 = 40.0;
 /// Header plus one row, until the page reports its real content height.
-const ALARM_FIRST_HEIGHT: u32 = 112;
+const ALARM_FIRST_HEIGHT: u32 = 64;
 /// Last content height the page reported, kept across hide/show.
 static ALARM_HEIGHT: AtomicU32 = AtomicU32::new(ALARM_FIRST_HEIGHT);
 const MARGIN: f64 = 12.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Corner {
-    BottomRight,
-    BottomLeft,
-}
-
-impl Corner {
-    pub fn from_bottom_right(bottom_right: bool) -> Self {
-        if bottom_right {
-            Self::BottomRight
-        } else {
-            Self::BottomLeft
-        }
-    }
-}
+pub use contracts::AlarmCorner as Corner;
 
 /// Rectangle in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,11 +57,16 @@ pub fn place_alarm(
     let min_h = (ALARM_MIN_HEIGHT * scale).round() as u32;
     let wanted = (wanted_height_logical * scale).round() as u32;
     let h = wanted.clamp(min_h.min(max_h.max(1)), max_h.max(1));
-    let x = match corner {
-        Corner::BottomRight => work_area.x + work_area.w as i32 - w as i32 - margin,
-        Corner::BottomLeft => work_area.x + margin,
+    let x = if corner.is_right() {
+        work_area.x + work_area.w as i32 - w as i32 - margin
+    } else {
+        work_area.x + margin
     };
-    let y = work_area.y + work_area.h as i32 - h as i32 - margin;
+    let y = if corner.is_top() {
+        work_area.y + margin
+    } else {
+        work_area.y + work_area.h as i32 - h as i32 - margin
+    };
     // Clamp into the work area (monitor removed / shrunk).
     let x = x.clamp(
         work_area.x,
@@ -128,7 +119,11 @@ pub fn ensure_alarm(app: &AppHandle) -> tauri::Result<()> {
     .visible_on_all_workspaces(true)
     // Windows only; macOS has no per-window Dock entry to skip.
     .skip_taskbar(true)
+    // Never activatable on either OS: neither showing it nor clicking its
+    // buttons may take the keyboard from what the user is typing in.
+    .focusable(false)
     .focused(false)
+    .accept_first_mouse(true)
     .visible(false);
     // The red ring is the window edge: DWM's undecorated shadow would round it
     // away on Windows 11 and add a 1px white border on Windows 10.
@@ -183,7 +178,22 @@ fn show_without_activating(win: &WebviewWindow) -> tauri::Result<()> {
             let _ = shown.show();
         })
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        // `show` is makeKeyAndOrderFront, which makes the window key;
+        // orderFrontRegardless only brings it up, even while another app is active.
+        let target = win.clone();
+        win.run_on_main_thread(move || {
+            if let Ok(ns_window) = target.ns_window() {
+                // SAFETY: `ns_window` is this live window's NSWindow, used on the main thread.
+                unsafe {
+                    let obj = &*(ns_window as *const objc2::runtime::AnyObject);
+                    let _: () = objc2::msg_send![obj, orderFrontRegardless];
+                }
+            }
+        })
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     win.show()
 }
 
@@ -239,12 +249,12 @@ pub fn resize_alarm(app: &AppHandle, corner: Corner, height: f64) -> tauri::Resu
 
 /// Moves the alarm window to the configured corner at the current zoom.
 pub fn refit_alarm(app: &AppHandle) {
-    let bottom_right = app
+    let corner = app
         .state::<crate::state::HostState>()
         .settings()
-        .position_bottom_right;
+        .alarm_corner;
     if let Some(win) = app.get_webview_window(views::ALARM) {
-        if let Err(e) = fit_alarm(app, &win, Corner::from_bottom_right(bottom_right)) {
+        if let Err(e) = fit_alarm(app, &win, corner) {
             log::warn!("refit alarm failed: {e}");
         }
     }
@@ -344,7 +354,7 @@ pub fn show_notice(app: &AppHandle) -> tauri::Result<()> {
     };
     if !win.is_visible().unwrap_or(false) {
         place_notice(app, NOTICE_FIRST_HEIGHT)?;
-        win.show()?;
+        show_without_activating(&win)?;
     }
     Ok(())
 }
@@ -595,9 +605,9 @@ mod tests {
             h: 1040,
         };
         let r = place_alarm(area, 1.0, Corner::BottomRight, 320.0);
-        assert_eq!(r.w, 380);
+        assert_eq!(r.w, 280);
         assert_eq!(r.h, 320);
-        assert_eq!(r.x, 1920 - 380 - 12);
+        assert_eq!(r.x, 1920 - 280 - 12);
         assert_eq!(r.y, 1040 - 320 - 12);
     }
 
@@ -617,6 +627,20 @@ mod tests {
     }
 
     #[test]
+    fn top_corners_hug_the_top_edge() {
+        let area = Rect {
+            x: 0,
+            y: 40,
+            w: 1920,
+            h: 1000,
+        };
+        let tl = place_alarm(area, 1.0, Corner::TopLeft, 200.0);
+        assert_eq!((tl.x, tl.y), (12, 52));
+        let tr = place_alarm(area, 1.0, Corner::TopRight, 200.0);
+        assert_eq!((tr.x, tr.y), (1920 - tr.w as i32 - 12, 52));
+    }
+
+    #[test]
     fn dpi_scale_applies() {
         let area = Rect {
             x: 0,
@@ -625,7 +649,7 @@ mod tests {
             h: 2080,
         };
         let r = place_alarm(area, 2.0, Corner::BottomRight, 320.0);
-        assert_eq!(r.w, 760);
+        assert_eq!(r.w, 560);
         assert_eq!(r.h, 640);
     }
 }

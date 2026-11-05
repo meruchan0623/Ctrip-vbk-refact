@@ -240,7 +240,7 @@ pub struct PrefsSnapshotDto {
 
 const REMINDER_LOCAL_KEYS: &[&str] = &[
     "continuous_l4",
-    "position_bottom_right",
+    "alarm_corner",
     "alert_during_dnd",
     "alert_during_fullscreen",
     "tray_flash",
@@ -345,13 +345,19 @@ pub fn apply_reminder(
             format!("unknown preference reminder.{key}"),
         ));
     }
+    let mut next = current.clone();
+    if key == "alarm_corner" {
+        next.alarm_corner = value
+            .as_str()
+            .and_then(contracts::AlarmCorner::parse)
+            .ok_or_else(|| invalid(key, "expected top_left|top_right|bottom_left|bottom_right"))?;
+        return Ok(next);
+    }
     let v = value
         .as_bool()
         .ok_or_else(|| invalid(key, "expected boolean"))?;
-    let mut next = current.clone();
     match key {
         "continuous_l4" => next.continuous_l4 = v,
-        "position_bottom_right" => next.position_bottom_right = v,
         "alert_during_dnd" => next.alert_during_dnd = v,
         "alert_during_fullscreen" => next.alert_during_fullscreen = v,
         "tray_flash" => next.tray_flash = v,
@@ -757,7 +763,7 @@ pub fn prefs_set(
     })?;
     if section == "reminder" {
         m.set_reminder(&state, &key, &value)?;
-        if key == "position_bottom_right" {
+        if key == "alarm_corner" {
             crate::windows::refit_alarm(&app);
         }
         return Ok(announce(&app));

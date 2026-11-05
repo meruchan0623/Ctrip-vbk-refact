@@ -14,7 +14,7 @@ import { createRecovery, recoveryView, type RecoveryState } from '../_shared/rec
 import { applyPlatform } from '../_shared/platform.ts';
 const platform = applyPlatform();
 
-import type { AccountContext, ReminderSettings } from '../../packages/ipc/src/contracts.ts';
+import type { AccountContext, AlarmCorner, ReminderSettings } from '../../packages/ipc/src/contracts.ts';
 import { ALLOWED_T1_SECONDS, isAppError } from '../../packages/ipc/src/contracts.ts';
 import { AccountCommands, Events, PrefsCommands, ShellCommands } from '../../packages/ipc/src/commands.ts';
 import type { PrefsSection, PrefsSnapshot, UiAccountSnapshot, UiNetStatus, UiTsimStatus } from '../../packages/ipc/src/client.ts';
@@ -303,7 +303,7 @@ function notifySection(p: PrefsSnapshot): Child[] {
     toggle(t('set.notify.sound'), t('set.notify.soundDesc'), r.timeout_sound, (v) => void setReminder('timeout_sound', v), 'reminder.timeout_sound'),
     segment(t('set.notify.tone'), t('set.notify.toneDesc'), [{ value: 'soft' as SoundProfile, label: t('set.notify.toneSoft') }, { value: 'strong' as SoundProfile, label: t('set.notify.toneStrong') }], getSoundProfile(), (v) => { setSoundProfile(v); playSound('timeout'); store.patch({}); }, 'local.sound_profile'),
     toggle(t('set.notify.l4'), t('set.notify.l4Desc'), r.continuous_l4, (v) => void setReminder('continuous_l4', v), 'reminder.continuous_l4'),
-    segment(t('set.notify.position'), null, [{ value: 'br', label: t('set.notify.posBR') }, { value: 'bl', label: t('set.notify.posBL') }], r.position_bottom_right ? 'br' : 'bl', (v) => void setReminder('position_bottom_right', v === 'br'), 'reminder.position'),
+    segment(t('set.notify.position'), null, [{ value: 'top_left' as AlarmCorner, label: t('set.notify.posTL') }, { value: 'top_right' as AlarmCorner, label: t('set.notify.posTR') }, { value: 'bottom_left' as AlarmCorner, label: t('set.notify.posBL') }, { value: 'bottom_right' as AlarmCorner, label: t('set.notify.posBR') }], r.alarm_corner, (v) => void setReminder('alarm_corner', v), 'reminder.alarm_corner'),
     head(t('set.notify.dnd')),
     toggle(t('set.notify.dndSchedule'), t('set.notify.dndScheduleDesc'), p.dnd.schedule_enabled, (v) => void setPref('dnd', 'schedule_enabled', v), 'dnd.schedule_enabled'),
     toggle(t('set.notify.dndFollow'), platform === 'macos' ? t('set.notify.dndFollowMac') : t('set.notify.dndFollowWin'), p.dnd.follow_system, (v) => void setPref('dnd', 'follow_system', v), 'dnd.follow_system'),
@@ -498,6 +498,15 @@ function selectSection(id: SectionId, fromUser = true): void {
   scrollToSection(id, false);
 }
 
+/** TSim 入口：滚到登录行中部；未登录时聚焦用户名。 */
+function revealTsimLogin(): void {
+  const row = root?.querySelector<HTMLElement>('[data-tsim="1"]');
+  if (!row) return;
+  const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  row.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+  root?.querySelector<HTMLInputElement>('[data-fid="tsim-user"]')?.focus({ preventScroll: true });
+}
+
 function onBodyScroll(e: Event): void {
   if (spyFrame) return;
   const scroller = e.currentTarget as HTMLElement;
@@ -549,7 +558,7 @@ async function takeDeepLinkSection(): Promise<void> {
   const serial = deepLinkSectionSerial;
   try {
     const section = await ipc.invoke<unknown>(UiCommands.DEEP_LINK_SETTING_TAKE);
-    if (serial === deepLinkSectionSerial && typeof section === 'string' && isSectionId(section) && settingsNavigationVersion === previous) selectSection(section, false);
+    if (serial === deepLinkSectionSerial && typeof section === 'string' && isSectionId(section) && settingsNavigationVersion === previous) { selectSection(section, false); if (section === 'assistant') revealTsimLogin(); }
   } catch { /* The settings window can mount before the host contract is ready. */ }
   finally { takingDeepLinkSection = false; if (serial !== deepLinkSectionSerial) void takeDeepLinkSection(); }
 }

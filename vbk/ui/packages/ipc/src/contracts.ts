@@ -15,7 +15,7 @@
  * mismatch the host rejects all commands of that window. Bump both together;
  * `contracts.test.ts` fails when the two numbers drift.
  */
-export const CONTRACT_VERSION = 2;
+export const CONTRACT_VERSION = 3;
 
 // ---------------------------------------------------------------- identity
 
@@ -276,12 +276,14 @@ export const L4_SOUND_PERIOD_SECONDS = 15;
 export const L4_SOUND_CAP_SECONDS = 600;
 export const RED_AFTER_SECONDS = 90;
 
+export type AlarmCorner = 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
+
 export interface ReminderSettings {
   readonly enabled: boolean;
   readonly t1_seconds: number;
   readonly timeout_sound: boolean;
   readonly continuous_l4: boolean;
-  readonly position_bottom_right: boolean;
+  readonly alarm_corner: AlarmCorner;
   readonly alert_during_dnd: boolean;
   readonly alert_during_fullscreen: boolean;
   readonly tray_flash: boolean;
@@ -293,7 +295,7 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   t1_seconds: DEFAULT_T1_SECONDS,
   timeout_sound: true,
   continuous_l4: false,
-  position_bottom_right: true,
+  alarm_corner: 'bottom_left',
   alert_during_dnd: true,
   alert_during_fullscreen: true,
   tray_flash: true,

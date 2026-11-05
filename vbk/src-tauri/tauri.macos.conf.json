@@ -29,6 +29,7 @@
         "url": "apps/main/index.html",
         "width": 1280,
         "height": 820,
+        "maximized": true,
         "minWidth": 980,
         "minHeight": 640,
         "visible": false,

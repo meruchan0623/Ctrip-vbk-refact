@@ -66,11 +66,17 @@ pub struct ReminderSettingsDto {
     pub t1_seconds: u32,
     pub timeout_sound: bool,
     pub continuous_l4: bool,
-    pub position_bottom_right: bool,
+    /// `top_left|top_right|bottom_left|bottom_right`; older files without it get bottom-left.
+    #[serde(default = "default_alarm_corner")]
+    pub alarm_corner: String,
     pub alert_during_dnd: bool,
     pub alert_during_fullscreen: bool,
     pub tray_flash: bool,
     pub taskbar_badge: bool,
+}
+
+fn default_alarm_corner() -> String {
+    contracts::AlarmCorner::default().as_str().to_string()
 }
 
 impl From<&ReminderSettings> for ReminderSettingsDto {
@@ -80,7 +86,7 @@ impl From<&ReminderSettings> for ReminderSettingsDto {
             t1_seconds: s.t1_seconds,
             timeout_sound: s.timeout_sound,
             continuous_l4: s.continuous_l4,
-            position_bottom_right: s.position_bottom_right,
+            alarm_corner: s.alarm_corner.as_str().to_string(),
             alert_during_dnd: s.alert_during_dnd,
             alert_during_fullscreen: s.alert_during_fullscreen,
             tray_flash: s.tray_flash,
@@ -96,7 +102,7 @@ impl From<ReminderSettingsDto> for ReminderSettings {
             t1_seconds: d.t1_seconds,
             timeout_sound: d.timeout_sound,
             continuous_l4: d.continuous_l4,
-            position_bottom_right: d.position_bottom_right,
+            alarm_corner: contracts::AlarmCorner::parse(&d.alarm_corner).unwrap_or_default(),
             alert_during_dnd: d.alert_during_dnd,
             alert_during_fullscreen: d.alert_during_fullscreen,
             tray_flash: d.tray_flash,
