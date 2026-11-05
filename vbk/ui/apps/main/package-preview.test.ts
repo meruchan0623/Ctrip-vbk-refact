@@ -88,7 +88,7 @@ test('package card omits detail action and keeps the native settings login', asy
   const f = fixture(); f.auto(); await settle(); let tree = f.actual('packageCard')(f.store.get(), f.store.get().conversations[0]);
   assert.equal(nodes(tree).filter(n => n.props?.dataset?.packageAction === 'detail').length, 0);
   f.actual('receivePackageIdentity')({ logged_in: false, user: null, session_epoch: 2 }); await settle(); tree = f.actual('packageCard')(f.store.get(), f.store.get().conversations[0]);
-  nodes(tree).find(n => n.props?.dataset?.packageAction === 'login').props.onclick(); await settle(); assert.equal(f.calls[1]?.command, UiCommands.SHELL_OPEN_WINDOW); assert.deepEqual(f.calls[1]?.payload, { label: 'setting' });
+  nodes(tree).find(n => n.props?.dataset?.packageAction === 'login').props.onclick(); await settle(); assert.equal(f.calls[1]?.command, UiCommands.SHELL_OPEN_WINDOW); assert.deepEqual(f.calls[1]?.payload, { label: 'setting', section: 'assistant' });
 });
 
 test('query errors do not auto-retry on broadcasts; a current explicit refresh starts exactly one fresh request', async () => {

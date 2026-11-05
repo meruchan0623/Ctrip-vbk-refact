@@ -263,6 +263,8 @@ export interface TranslationState {
   readonly target: string;
   readonly text: string;
   readonly error: string | null;
+  /** 失败原因是 TSim 未登录/会话失效：错误行给出「打开设置登录」入口。 */
+  readonly needLogin?: boolean;
 }
 
 export const TRANSLATION_IDLE: TranslationState = { status: 'idle', gid: null, draftVersion: 0, target: 'en', text: '', error: null };

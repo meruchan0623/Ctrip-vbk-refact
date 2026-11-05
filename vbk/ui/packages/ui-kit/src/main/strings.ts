@@ -15,6 +15,7 @@ export const mainStrings = {
   "main.conversationList.readingConversations": "正在读取会话列表…",
   "main.translationBar.directSendKey": "直接发送模式，此时按{key}将直接发送输入框原文",
   "main.translationBar.sendDraft": "发送输入框内容",
+  "main.translationBar.openLoginSettings": "打开设置登录 TSim",
   "main.translationBar.replaceSendKey": "替换草稿模式，此时按{key}将直接{action}",
   "main.translationBar.translationError": "{label}：{message}",
   "main.translationBar.directSendHint": "输入内容后，按发送键直接发送输入框原文。",

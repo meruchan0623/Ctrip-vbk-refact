@@ -1441,8 +1441,9 @@ async function translateAndSend(text: string): Promise<void> {
     await sendText(r.text, text);
   } catch (e) {
     if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || S().translation !== request) return;
-    const msg = isAppError(e) && e.code === 'assistant.tsim_unauthenticated' ? t('tr.needLogin') : errorMessage(e);
-    store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg } });
+    const needLogin = isAppError(e) && (e.code === 'assistant.tsim_unauthenticated' || e.code === 'assistant.session_cleared');
+    const msg = needLogin ? t('tr.needLogin') : errorMessage(e);
+    store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg, needLogin } });
   }
 }
 
@@ -1509,8 +1510,9 @@ async function runPreviewTranslation(): Promise<void> {
   } catch (e) {
     queuedSend = null;
     if (!stillActive(acc.context) || S().activeGid !== conv.gid || S().draftVersion !== version || S().translation !== request) return;
-    const msg = isAppError(e) && e.code === 'assistant.tsim_unauthenticated' ? t('tr.needLogin') : errorMessage(e);
-    store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg } });
+    const needLogin = isAppError(e) && (e.code === 'assistant.tsim_unauthenticated' || e.code === 'assistant.session_cleared');
+    const msg = needLogin ? t('tr.needLogin') : errorMessage(e);
+    store.patch({ translation: { status: 'error', gid: conv.gid, draftVersion: version, target, text: '', error: msg, needLogin } });
   }
 }
 
@@ -1770,7 +1772,7 @@ store.subscribe((s, prev) => {
 });
 window.addEventListener('pagehide', () => operatorOverlay.dispose());
 
-function openTsimSettings(): void { void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }); }
+function openTsimSettings(): void { void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING, section: 'assistant' }); }
 
 function receivePackageIdentity(value: unknown): void {
   if (!packageIdentity(value)) { packagePreview.reset(); store.patch({ packageIdentityRequest: (S().packageIdentityRequest ?? 0) + 1, tsimStatus: null, pkg: { ...PKG_IDLE, status: 'error', failure: 'login', error: t("main.receivePackageIdentity.loginCheckFailed") } }); return; }
@@ -2721,6 +2723,7 @@ function translationBar(s: MainState, conv: UiConversation, more: HTMLElement | 
       h('span', { style: { color: 'var(--c-alert-text)' } }, t("main.translationBar.translationError", { label: t('tr.failed'), message: tr.error ?? '' })),
       h('span', { class: 'sp' }),
       h('button', { class: 'btn sm', dataset: { tr: 'send-original', fid: 'tr:send-original' } , onclick: () => { if (applies()) void sendText(S().draft.trim(), null); } }, t('tr.sendOriginal')),
+      tr.needLogin ? h('button', { class: 'btn sm', dataset: { tr: 'login', fid: 'tr:login' }, onclick: () => { if (applies()) openTsimSettings(); } }, t('main.translationBar.openLoginSettings')) : null,
       h('button', { class: 'btn sm pri', dataset: { tr: 'retry', fid: 'tr:retry' } , onclick: () => { if (applies()) { void runPreviewTranslation(); } } }, t('tr.retry')),
     );
   } else if (direct) {
