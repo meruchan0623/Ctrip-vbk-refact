@@ -21,6 +21,8 @@ import {
   expireBanners,
   highlightParts,
   netView,
+  createNetOfflineGate,
+  NET_OFFLINE_GRACE_MS,
   pushBanner,
   resumeBanners,
   contextMenuCommand,
@@ -586,4 +588,67 @@ test('waitTier switches colour exactly at 30/60/90/120 seconds', () => {
   const at = [0, 29, 30, 59, 60, 89, 90, 119, 120, 3600].map(waitTier);
   assert.deepEqual(at, ['calm', 'calm', 'notice', 'notice', 'warn', 'warn', 'urgent', 'urgent', 'overdue', 'overdue']);
   assert.equal(RED_AFTER_SECONDS, 90, 'the urgent band starts where the alarm window turns red');
+});
+
+function netGateHarness(browserOnline = true) {
+  const changes: boolean[] = [];
+  let pending: { fn: () => void; ms: number } | null = null;
+  const gate = createNetOfflineGate({
+    browserOnline,
+    onChange: (confirmed) => changes.push(confirmed),
+    setTimer: (fn, ms) => { pending = { fn, ms }; return 'timer'; },
+    clearTimer: () => { pending = null; },
+  });
+  return { gate, changes, timer: () => pending, fire: () => { const p = pending!; pending = null; p.fn(); } };
+}
+const NET_UP = { online: true, transport: 'connected' } as const;
+const NET_DOWN = { online: false, transport: 'disconnected' } as const;
+const NET_LOADING = { online: false, transport: 'connecting' } as const;
+
+test('net gate: a connection that never came up is loading, however long it takes', () => {
+  const h = netGateHarness();
+  h.gate.note(NET_DOWN); h.gate.note(NET_LOADING); h.gate.note(NET_DOWN);
+  assert.equal(h.timer(), null);
+  assert.equal(h.gate.confirmed, false);
+  assert.equal(netView(NET_DOWN, h.gate.confirmed).offline, false);
+});
+
+test('net gate: a loss is reported only after staying down for the grace period', () => {
+  const h = netGateHarness();
+  h.gate.note(NET_UP); h.gate.note(NET_DOWN);
+  assert.equal(h.gate.confirmed, false);
+  assert.equal(h.timer()?.ms, NET_OFFLINE_GRACE_MS);
+  h.gate.note(NET_LOADING); h.gate.note(NET_DOWN);
+  assert.equal(h.gate.confirmed, false, 'a reconnect loop does not restart or cancel the wait');
+  h.fire();
+  assert.equal(netView(NET_DOWN, h.gate.confirmed).offline, true);
+  h.gate.note(NET_UP);
+  assert.equal(h.gate.confirmed, false);
+  assert.deepEqual(h.changes, [true, false]);
+});
+
+test('net gate: reconnecting within the grace period reports nothing', () => {
+  const h = netGateHarness();
+  h.gate.note(NET_UP); h.gate.note(NET_DOWN); h.gate.note(NET_UP);
+  assert.equal(h.timer(), null);
+  assert.deepEqual(h.changes, []);
+});
+
+test('net gate: another account having connected does not count for the next one', () => {
+  const h = netGateHarness();
+  h.gate.note(NET_UP); h.gate.note(NET_DOWN); h.gate.reset();
+  assert.equal(h.timer(), null);
+  h.gate.note(NET_DOWN);
+  assert.equal(h.timer(), null);
+  assert.equal(h.gate.confirmed, false);
+});
+
+test('net gate: the browser reporting no network is believed at once, even on first start', () => {
+  const start = netGateHarness(false);
+  assert.equal(start.gate.confirmed, true);
+  assert.equal(netView(NET_DOWN, start.gate.confirmed).offline, true);
+  const h = netGateHarness();
+  h.gate.setBrowserOnline(false); assert.equal(h.gate.confirmed, true);
+  h.gate.setBrowserOnline(true); assert.equal(h.gate.confirmed, false);
+  assert.deepEqual(h.changes, [true, false]);
 });

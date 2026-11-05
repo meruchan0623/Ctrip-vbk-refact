@@ -1,3 +1,5 @@
+import { ErrorCodes } from '../../packages/ipc/src/contracts.ts';
+
 export type DraftRetryAction = () => Promise<void>;
 
 export interface DraftFailureNoticeOptions {
@@ -6,6 +8,12 @@ export interface DraftFailureNoticeOptions {
   readonly retry: () => Promise<void> | void;
   readonly now?: () => number;
   readonly intervalMs?: number;
+}
+
+/** The account is restoring or re-logging in: no write failed, so there is nothing to report. */
+function isAccountTransition(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  return code === ErrorCodes.ACCOUNT_NOT_ONLINE || code === ErrorCodes.ACCOUNT_STALE_GENERATION;
 }
 
 /** Coalesce repeated storage failures without ever passing the underlying error to the UI. */
@@ -24,8 +32,10 @@ export function createDraftFailureNotice(options: DraftFailureNoticeOptions) {
       .finally(() => { retrying = false; });
   };
 
-  function onError(_error: unknown): void {
+  function onError(error: unknown): void {
     try {
+      // The text stays dirty and is written once the account is online again.
+      if (isAccountTransition(error)) return;
       const at = now();
       if (!retrying && at - lastNoticeAt < intervalMs) return;
       lastNoticeAt = at;

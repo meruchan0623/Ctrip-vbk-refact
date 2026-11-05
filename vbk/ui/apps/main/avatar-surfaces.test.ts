@@ -38,7 +38,7 @@ function render(name: 'conversationList' | 'chatPane' | 'peripheralDialog', next
     icon: () => ({ tag: 'icon' }), IC: {}, t: translateUi,
     tabCounts: () => ({ doing: 1, done: 0 }), filterConversations: () => [conv],
     activeAccount: () => ({ context: { account_id: 'synthetic-account' }, state: 'online', avatar: 'https://example.invalid/never-use-account.png' }),
-    activeConv: () => conv, agentView: () => ({}), netEverConnected: true, netView: () => ({ offline: false }),
+    activeConv: () => conv, agentView: () => ({}), netView: () => ({ offline: false }),
     MARK_COLORS: [], isDone: () => false, langName: (lang: string) => lang,
     accBadge: () => null, formatRelativeTime: () => '', stillActive: () => true,
     visibleMessages: () => [], composer: () => null, emojiPicker: () => null,

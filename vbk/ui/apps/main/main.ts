@@ -146,7 +146,7 @@ import {
   isValidOrderId,
   langName,
   logoutCommand,
-  netView,
+  createNetOfflineGate, netView,
   nextLocalId,
   orderContactReduce,
   persistFailed,
@@ -233,6 +233,7 @@ interface MainState {
   /** null until the host has reported the network state. */
   readonly net: UiNetStatus | null;
   readonly clockTrusted: boolean;
+  readonly netOfflineConfirmed: boolean;
   readonly alarmCount: number;
   /** Longest-waiting active alarm entry: where the top-right alarm button jumps. */
   readonly alarmTarget: { readonly account: AccountContext; readonly gid: string } | null;
@@ -332,6 +333,7 @@ const initial: MainState = {
   agentBusy: false,
   net: null,
   clockTrusted: true,
+  netOfflineConfirmed: false,
   alarmCount: 0,
   alarmTarget: null,
   prefs: null,
@@ -848,6 +850,9 @@ async function loadForActiveAccount(): Promise<void> {
   if (!acc) { store.patch({ conversationsLoading: false, conversationsError: null }); return; }
   const account = acc.context;
   store.patch({ conversationsLoading: true, conversationsError: null });
+  // Host reads are refused until the account is online. Restoring is not a read failure;
+  // applyAccountSnapshot reads again when it comes online.
+  if (acc.state === 'suspended' || acc.state === 'logging_in' || acc.state === 'expired') { store.patch({ conversationsLoading: false, conversationsError: null }); return; }
   void noticeQuery.categories();
   const agentAtRead = S().agent;
   const belongs = (c: UiConversation): boolean => sameAccount(c.account, account) && c.account.session_generation === account.session_generation;
@@ -912,9 +917,21 @@ async function loadPrefs(): Promise<void> {
 }
 
 /** 本进程是否曾观测到已连接；之前的 disconnected/reconnecting 视为冷启动过渡态，不提示断连。 */
-let netEverConnected = false;
+const netGate = createNetOfflineGate({
+  browserOnline: navigator.onLine,
+  onChange: (netOfflineConfirmed) => store.patch({ netOfflineConfirmed }),
+});
+store.patch({ netOfflineConfirmed: netGate.confirmed });
+// Another account's connection says nothing about this one, which has to come up on its own.
+store.subscribe((s, prev) => {
+  const a = activeAccount(s), b = activeAccount(prev);
+  if (a?.context.account_id !== b?.context.account_id || a?.context.environment !== b?.context.environment
+    || a?.context.session_generation !== b?.context.session_generation || (a?.state === 'online' && b?.state !== 'online')) netGate.reset();
+});
+window.addEventListener('online', () => netGate.setBrowserOnline(true));
+window.addEventListener('offline', () => netGate.setBrowserOnline(false));
 function noteNet(n: UiNetStatus): UiNetStatus {
-  if (n.online && n.transport === 'connected') netEverConnected = true;
+  netGate.note(n);
   return n;
 }
 
@@ -953,7 +970,9 @@ function applyAccountSnapshot(snap: UiAccountSnapshot): void {
       ...(transfer ? { navigationOperation: navigation } : {}) });
     void loadForActiveAccount();
   } else {
-    store.patch({ accounts: snap, accountsError: null, loginAttempt });
+    const before = activeAccount()?.state;
+    store.patch({ accounts: snap, accountsError: null, loginAttempt, ...(before === 'online' && nextAccount?.state !== 'online' ? { conversationsError: null } : {}) });
+    if (before && before !== 'online' && nextAccount?.state === 'online') void loadForActiveAccount();
   }
 }
 
@@ -2108,7 +2127,7 @@ function conversationList(s: MainState): HTMLElement {
   const range = virtualConversationRange(list.length, window?.top ?? 0, window?.height ?? 900);
   const acc = activeAccount(s);
   const av = agentView(s.agent);
-  const nv = netView(s.net, netEverConnected);
+  const nv = netView(s.net, s.netOfflineConfirmed);
   const nextRows = new Map<string, { deps: readonly unknown[]; node: HTMLElement }>();
   const rows = list.slice(range.start, range.end).map((c) => {
     const on = c.gid === s.activeGid;
@@ -2855,7 +2874,7 @@ function chatPane(s: MainState): HTMLElement {
       h('button', { class: 'btn sm', 'aria-label': t("main.chatPane.memberManagement"), disabled: isDone(conv), title: isDone(conv) ? t("main.openPeripheral.membersFinished") : t("main.chatPane.memberManagement"), dataset: { chatAct: 'members', fid: 'chat-act:members' } , onclick: () => openPeripheral('members') }, icon(IC.users, 17), t("main.chatPane.memberManagement")),
       h('button', { class: cx('ibtn', { on: s.sideOpen }), title: t('chat.side'), 'aria-label': t('chat.toggleSide'), dataset: { chatAct: 'side', fid: 'chat-act:side' } , onclick: () => store.patch({ sideOpen: !S().sideOpen }) }, icon(IC.sidebar, 17)),
     )),
-    netView(s.net, netEverConnected).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
+    netView(s.net, s.netOfflineConfirmed).offline ? h('div', { class: 'netbar', style: { margin: '8px 16px 0' } }, t('chat.offlineNotice')) : null,
     // 插槽内容直接参与同一次渲染：morph 不再先清空再由另一帧填回（每帧多一次布局失效，且测量时横幅缺席）。
     h('div', { dataset: { featureSlot: 'conversation-banner' } }, featureRuntime.renderSlot('conversation-banner')),
     messagePane(s, conv, acc, pinned),
@@ -3054,7 +3073,7 @@ function bannerStack(s: MainState): HTMLElement | null {
 let clockEl: HTMLElement | null = null;
 function statusBar(s: MainState): HTMLElement {
   const av = agentView(s.agent);
-  const nv = netView(s.net, netEverConnected);
+  const nv = netView(s.net, s.netOfflineConfirmed);
   const pf = persistFailedView(s.accounts);
   const hasAccount = !!activeAccount(s);
   // morph 下新建的 span 可能被折叠进页面上的旧 span：经 ref 拿到真正留在页面上的那个给时钟定时器用。
@@ -3387,7 +3406,14 @@ async function retryDraftSync(): Promise<void> {
 store.subscribe((s, prev) => {
   const a = activeAccount(s)?.context ?? null, b = activeAccount(prev)?.context ?? null;
   if (!a) return;
-  if (!b || !sameAccount(a, b) || a.session_generation !== b.session_generation) { void restoreDrafts(a); return; }
+  const state = activeAccount(s)?.state, before = activeAccount(prev)?.state;
+  const waiting = state === 'suspended' || state === 'logging_in' || state === 'expired';
+  const cameOnline = state === 'online' && !!before && before !== 'online';
+  if (!b || !sameAccount(a, b) || a.session_generation !== b.session_generation || cameOnline) {
+    // Drafts typed while the account was restoring stayed dirty; write them now that the host accepts them.
+    if (!waiting) void restoreDrafts(a).then(() => draftBook.flush());
+    return;
+  }
   if (s.drafts === prev.drafts) return;
   for (const [gid, text] of Object.entries(s.drafts)) if (prev.drafts[gid] !== text) draftBook.write(a, gid, text);
   for (const gid of Object.keys(prev.drafts)) if (!(gid in s.drafts)) draftBook.write(a, gid, '');

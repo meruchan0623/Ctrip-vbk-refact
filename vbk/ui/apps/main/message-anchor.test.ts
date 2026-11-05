@@ -83,7 +83,7 @@ function fixture(initial: UiMessage[], options: { rowHeight?: (id: string) => nu
     document: { querySelector: () => pane }, getComputedStyle: () => ({ marginBottom: '0px' }), queueMicrotask, Element: class {}, CSS: { escape: encodeURIComponent },
     inboundTranslation: { view: () => null, supplier: () => null }, refreshMessageTranslation() {}, composerInput: { deferRender: () => false }, renderMessageAvatar: () => 'avatar', formatDate: () => 'date', formatClock: () => 'time', t: (k: string) => k, icon: () => null, IC: {}, richText: (text: string) => [text],
     h: (tag: string, props: Record<string, any> | null, ...children: unknown[]) => { if (props?.['class'] === 'msgs') built.count++; if (props?.['dataset']?.['rowId']) built.rows++; return { tag, props: props ?? {}, children, dataset: props?.['dataset'] ?? {} }; },
-    netEverConnected: true, netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, langName: (c: string) => c, openConversation: () => {}, loadEarlier: () => {}, setTimeout, clearTimeout,
+    netView: () => ({ offline: false }), composer: () => null, emojiPicker: () => null, langName: (c: string) => c, openConversation: () => {}, loadEarlier: () => {}, setTimeout, clearTimeout,
     stopHistoryLayout: () => stopLayout(),
     startHistoryLayout: (scroll: Pane, capture: () => unknown, restore: (a: unknown) => void, current: () => boolean) => {
       class Observer { constructor(fn: () => void) { resize = fn; } observe() {} disconnect() {} }

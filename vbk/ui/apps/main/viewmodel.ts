@@ -515,11 +515,13 @@ export function persistFailedView(snap: Pick<UiAccountSnapshot, 'persist_failed'
   return persistFailed(snap) ? { label: t('bar.persistFailed'), title: t('bar.persistFailedTitle') } : null;
 }
 
-/** Network label from the host read-back only; `null` means nothing was read back yet (「未连接」). */
-export function netView(n: UiNetStatus | null, everConnected = true): { readonly label: string; readonly ok: boolean; readonly offline: boolean } {
+/**
+ * Network label from the host read-back only; `null` means nothing was read back yet (「未连接」).
+ * `offlineConfirmed` comes from {@link createNetOfflineGate}: an unconfirmed loss is a loading transition.
+ */
+export function netView(n: UiNetStatus | null, offlineConfirmed = true): { readonly label: string; readonly ok: boolean; readonly offline: boolean } {
   if (!n) return { label: t('bar.net.none'), ok: false, offline: false };
-  // 首次启动、尚未连上过：断开/重连只是冷启动的过渡态，不报「网络不可用 / 正在重连」。
-  if (!everConnected && !(n.online && n.transport === 'connected')) return { label: t('bar.net.connecting'), ok: false, offline: false };
+  if (!offlineConfirmed && !(n.online && n.transport === 'connected')) return { label: t('bar.net.connecting'), ok: false, offline: false };
   if (!n.online) return { label: t('bar.net.offline'), ok: false, offline: true };
   switch (n.transport) {
     case 'connected':
@@ -531,6 +533,64 @@ export function netView(n: UiNetStatus | null, everConnected = true): { readonly
     default:
       return { label: t('bar.net.none'), ok: false, offline: false };
   }
+}
+
+export const NET_OFFLINE_GRACE_MS = 15_000;
+
+/**
+ * The host reports every state except `connected` as not online, including a
+ * page that is still loading. Confirm a real loss before warning the user: the
+ * browser reports no network, or this account's connection was up and stayed
+ * down for the grace period. Display only; sending never consults this.
+ */
+export function createNetOfflineGate(options: {
+  readonly onChange: (confirmed: boolean) => void;
+  readonly browserOnline?: boolean;
+  readonly graceMs?: number;
+  readonly setTimer?: (fn: () => void, ms: number) => unknown;
+  readonly clearTimer?: (handle: unknown) => void;
+}) {
+  const graceMs = options.graceMs ?? NET_OFFLINE_GRACE_MS;
+  const setTimer = options.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+  const clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+  let browserOnline = options.browserOnline ?? true;
+  let everConnected = false;
+  let lapsed = false;
+  let timer: unknown = null;
+  let published = !browserOnline;
+  const publish = (): void => {
+    const next = !browserOnline || lapsed;
+    if (next === published) return;
+    published = next;
+    options.onChange(next);
+  };
+  const settle = (): void => {
+    if (timer !== null) clearTimer(timer);
+    timer = null;
+    lapsed = false;
+  };
+  return {
+    get confirmed(): boolean { return published; },
+    note(n: UiNetStatus): void {
+      if (n.online && n.transport === 'connected') {
+        everConnected = true;
+        settle();
+      } else if (everConnected && !lapsed && timer === null) {
+        timer = setTimer(() => { timer = null; lapsed = true; publish(); }, graceMs);
+      }
+      publish();
+    },
+    /** The account or its session changed: its connection has to come up on its own. */
+    reset(): void {
+      everConnected = false;
+      settle();
+      publish();
+    },
+    setBrowserOnline(online: boolean): void {
+      browserOnline = online;
+      publish();
+    },
+  };
 }
 
 // ------------------------------------------------------------ inline highlights

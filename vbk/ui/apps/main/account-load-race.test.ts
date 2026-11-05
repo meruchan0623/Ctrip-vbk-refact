@@ -20,10 +20,11 @@ function row(gid: string, title = 'OLD', account = owner): UiConversation {
 function deferred() { let resolve!: (value: unknown) => void; return { promise: new Promise(r => { resolve = r; }), resolve }; }
 function fixture(initial: UiConversation[] = []) {
   let context: AccountContext | null = owner;
+  let accountState: string | undefined;
   const store = createStore<Record<string, any>>({ conversations: initial, activeGid: null, attachment: null, noticeCats: [], noticeCat: null, agent: null, net: null });
   let responses: Record<string, unknown> = {};
   const calls: string[] = [], released: unknown[] = [];
-  const env = { t: translateUi, store, S: () => store.get(), activeAccount: () => context ? { context } : null,
+  const env = { t: translateUi, store, S: () => store.get(), activeAccount: () => context ? { context, state: accountState } : null,
     stillActive: (account: AccountContext) => !!context && sameAccount(account, context) && account.session_generation === context.session_generation,
     sameAccount, isUiConversation, isUiAgentStatus, isUiNetStatus,
     invokeQuiet: async (command: string) => { calls.push(command); try { const result = await responses[command]; if (result instanceof Error) throw result; return result; } catch { return null; } },
@@ -35,7 +36,7 @@ function fixture(initial: UiConversation[] = []) {
   const upsertStart = source.indexOf('function upsertConversation('), upsertEnd = source.indexOf('\nasync function sendText(', upsertStart);
   const code = source.slice(helperStart < 0 ? functionStart : helperStart, end) + '\n' + source.slice(upsertStart, upsertEnd);
   const actual = new Function(...Object.keys(env), stripTypeScriptTypes(code) + '\nreturn { load: loadForActiveAccount, upsert: upsertConversation };')(...Object.values(env)) as { load: () => Promise<void>; upsert: (c: UiConversation) => void };
-  return { ...actual, store, calls, released, owner: (next: AccountContext | null) => { context = next; }, responses: (next: Record<string, unknown>) => { responses = next; } };
+  return { ...actual, store, calls, released, owner: (next: AccountContext | null) => { context = next; }, accountState: (next: string) => { accountState = next; }, responses: (next: Record<string, unknown>) => { responses = next; } };
 }
 
 test('actual account load retains newer real upserts while unrelated agent read is pending', async () => {
@@ -110,6 +111,18 @@ test('first-load failures are distinguishable from a confirmed empty list, and a
     const fresh = row('223456'); f.responses({ convs: [fresh] }); await f.load(); assert.deepEqual(f.store.get().conversations, [fresh]); assert.equal(f.store.get().conversationsError, null);
     assert.ok(f.calls.every(command => ['convs', 'agent', 'net'].includes(command)), 'retry does not send or mark read');
   }
+});
+
+test('an account still restoring or logging in is not read and shows no list failure', async () => {
+  for (const state of ['suspended', 'logging_in', 'expired']) {
+    const kept = row('123456'), f = fixture([kept]); f.accountState(state); f.store.patch({ conversationsError: 'previous', conversationsLoading: true }); f.responses({ convs: null });
+    await f.load();
+    assert.deepEqual(f.calls.filter(command => command === 'convs'), [], state);
+    assert.equal(f.store.get().conversationsError, null, state); assert.equal(f.store.get().conversationsLoading, false, state);
+    assert.deepEqual(f.store.get().conversations, [kept], state);
+  }
+  const f = fixture(); f.accountState('online'); f.responses({ convs: null }); await f.load();
+  assert.ok(f.store.get().conversationsError, 'a read refused while online is still reported');
 });
 
 test('late failed reads cannot replace a newer successful refresh or contaminate an A→B→A visit', async () => {

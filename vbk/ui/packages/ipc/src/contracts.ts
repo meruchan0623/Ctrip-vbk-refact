@@ -119,6 +119,7 @@ export const ErrorCodes = {
   ACCOUNT_TICKET_EXPIRED: 'account.ticket_expired',
   ACCOUNT_STALE_GENERATION: 'account.stale_generation',
   ACCOUNT_UNKNOWN: 'account.unknown',
+  ACCOUNT_NOT_ONLINE: 'account.not_online',
   HOST_VIEW_UNAUTHORIZED: 'host.view_unauthorized',
   IM_SEND_UNKNOWN: 'im.send_unknown',
   IM_PERMISSION_DENIED: 'im.permission_denied',

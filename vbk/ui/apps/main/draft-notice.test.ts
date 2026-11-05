@@ -106,6 +106,31 @@ test('the real DraftBook failure callback keeps dirty text, hides errors, rate-l
   assert.equal(notices.length, 2, 'a successful save does not show an unverified success message');
 });
 
+test('an account that is not online yet raises no notice, and its dirty text is saved once it is', async () => {
+  let online = false;
+  const saves: string[] = [];
+  const refused = (code: string) => Object.assign(new Error('refused'), { code });
+  let code = 'account.not_online';
+  const port: DraftPort = {
+    async load() { if (!online) throw refused(code); return {}; },
+    async save(_owner, _gid, text) { if (!online) throw refused(code); saves.push(text); },
+  };
+  const { book, notices } = connect(port);
+  await book.restore(A);
+  book.write(A, '10000000', 'typed while restoring');
+  await book.flush();
+  code = 'account.stale_generation';
+  await book.flush();
+  assert.equal(notices.length, 0);
+  assert.equal(book.pending, 1);
+  online = true;
+  await book.restore(A);
+  await book.flush();
+  assert.deepEqual(saves, ['typed while restoring']);
+  assert.equal(book.pending, 0);
+  assert.equal(notices.length, 0);
+});
+
 test('a load failure is generic and the notice action explicitly retries loading', async () => {
   let loads = 0;
   const port: DraftPort = {
