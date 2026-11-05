@@ -103,6 +103,7 @@ import {
 } from '../_shared/guards.ts';
 import type { SoundName } from '../_shared/guards.ts';
 import { playSound, stopSound } from './sound.ts';
+import { MESSAGE_CACHE_HIDDEN_MS, keptConversations, touchRecent, trimMessageCache } from './message-cache.ts';
 import { createMemberPreload } from './member-preload.ts';
 import { memberPills, memberScanGids } from './member-pills.ts';
 import { createPeripheralPanel, filteredInviteAgents, type PeripheralKind, type PeripheralPanelState } from './peripheralPanel.ts';
@@ -3363,6 +3364,27 @@ store.subscribe((s, prev) => {
 });
 window.addEventListener('pagehide', () => void draftBook.flush());
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') void draftBook.flush(); });
+
+// ------------------------------------------------------- message cache bounds
+/** Single place that decides "nobody can see this page"; timers and cache trimming share it. */
+const pageHidden = (): boolean => typeof document !== 'undefined' && document.visibilityState === 'hidden';
+let recentGids: string[] = [];
+let hiddenTrimTimer: ReturnType<typeof setTimeout> | null = null;
+function trimMessages(hiddenLong: boolean): void {
+  const s = S();
+  const next = trimMessageCache({ messages: s.messages, history: s.history }, keptConversations(s.activeGid, recentGids, hiddenLong));
+  if (next) store.patch(next);
+}
+store.subscribe((s, prev) => {
+  if (s.accountVisit !== prev.accountVisit) recentGids = [];
+  if (s.activeGid === prev.activeGid || !s.activeGid) return;
+  recentGids = touchRecent(recentGids, s.activeGid);
+  queueMicrotask(() => trimMessages(false));
+});
+document.addEventListener('visibilitychange', () => {
+  if (hiddenTrimTimer !== null) { clearTimeout(hiddenTrimTimer); hiddenTrimTimer = null; }
+  if (pageHidden()) hiddenTrimTimer = setTimeout(() => { hiddenTrimTimer = null; if (pageHidden()) trimMessages(true); }, MESSAGE_CACHE_HIDDEN_MS);
+});
 
 function syncConversationViewport(): void {
   const pane = root?.querySelector<HTMLElement>('[data-list-scope]');
