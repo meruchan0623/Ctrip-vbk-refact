@@ -23,6 +23,8 @@ import { h, icon, rerender, cx } from '../../packages/ui-kit/src/h.ts';
 import type { Child } from '../../packages/ui-kit/src/h.ts';
 import { createStore, subscribeBatched } from '../../packages/ui-kit/src/store.ts';
 import { t } from '../../packages/ui-kit/src/i18n.ts';
+import { getSoundProfile, playSound, setSoundProfile } from '../main/sound.ts';
+import type { SoundProfile } from '../main/sound.ts';
 document.title = t('set.title');
 import { IC } from '../_shared/icons.ts';
 import { installWindowChrome, windowControls } from '../_shared/window-controls.ts';
@@ -349,6 +351,7 @@ function notifySection(p: PrefsSnapshot): Child[] {
       ),
     ),
     toggle(t('set.notify.sound'), t('set.notify.soundDesc'), r.timeout_sound, (v) => void setReminder('timeout_sound', v), 'reminder.timeout_sound'),
+    segment(t('set.notify.tone'), t('set.notify.toneDesc'), [{ value: 'soft' as SoundProfile, label: t('set.notify.toneSoft') }, { value: 'strong' as SoundProfile, label: t('set.notify.toneStrong') }], getSoundProfile(), (v) => { setSoundProfile(v); playSound('timeout'); store.patch({}); }, 'local.sound_profile'),
     toggle(t('set.notify.l4'), t('set.notify.l4Desc'), r.continuous_l4, (v) => void setReminder('continuous_l4', v), 'reminder.continuous_l4'),
     segment(t('set.notify.position'), null, [{ value: 'br', label: t('set.notify.posBR') }, { value: 'bl', label: t('set.notify.posBL') }], r.position_bottom_right ? 'br' : 'bl', (v) => void setReminder('position_bottom_right', v === 'br'), 'reminder.position'),
     head(t('set.notify.dnd')),

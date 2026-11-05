@@ -52,3 +52,23 @@ test('notification session closes after the last tone and on cancellation', () =
     else Reflect.deleteProperty(globalThis, 'window');
   }
 });
+
+test('sound profile defaults to soft and strong is louder and longer', async () => {
+  const { getSoundProfile, setSoundProfile } = await import('./sound.ts');
+  const store = new Map<string, string>();
+  const prev = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) },
+  });
+  try {
+    assert.equal(getSoundProfile(), 'soft');
+    setSoundProfile('strong');
+    assert.equal(getSoundProfile(), 'strong');
+    setSoundProfile('soft');
+    assert.equal(getSoundProfile(), 'soft');
+  } finally {
+    if (prev) Object.defineProperty(globalThis, 'localStorage', prev);
+    else delete (globalThis as { localStorage?: unknown }).localStorage;
+  }
+});

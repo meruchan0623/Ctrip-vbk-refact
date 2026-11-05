@@ -26,6 +26,47 @@ const TONES: Readonly<Record<SoundName, readonly Tone[]>> = {
   ],
 };
 
+/** 提示音档位：soft 为默认较轻的提示音；strong 近似官方客户端的强提醒。 */
+export type SoundProfile = 'soft' | 'strong';
+export const SOUND_PROFILE_KEY = 'vbk.sound.profile';
+
+interface Shape {
+  readonly type: OscillatorType;
+  readonly gain: number;
+  readonly hold: number;
+}
+
+const SHAPES: Readonly<Record<SoundProfile, Shape>> = {
+  soft: { type: 'sine', gain: 0.1, hold: 0.18 },
+  strong: { type: 'triangle', gain: 0.4, hold: 0.09 },
+};
+
+// 强提醒：中频高低双音快速连敲（三角波，较圆润），音量大但不刺耳。
+const STRONG_PULSE: readonly Tone[] = [
+  [880, 0], [660, 0.08], [880, 0.16], [660, 0.24], [880, 0.32], [660, 0.4],
+];
+const STRONG_TONES: Readonly<Record<SoundName, readonly Tone[]>> = {
+  new_message: STRONG_PULSE.slice(0, 4),
+  timeout: STRONG_PULSE,
+  loop: STRONG_PULSE,
+};
+
+export function getSoundProfile(): SoundProfile {
+  try {
+    return localStorage.getItem(SOUND_PROFILE_KEY) === 'strong' ? 'strong' : 'soft';
+  } catch {
+    return 'soft';
+  }
+}
+
+export function setSoundProfile(profile: SoundProfile): void {
+  try {
+    localStorage.setItem(SOUND_PROFILE_KEY, profile);
+  } catch {
+    /* 存储不可用时保持默认档位 */
+  }
+}
+
 interface AudioCtor {
   new (): AudioContext;
 }
@@ -78,15 +119,18 @@ export function playSound(name: SoundName): number {
   try {
     if (ac.state === 'suspended') void ac.resume().catch(() => undefined);
     let n = 0;
-    for (const [freq, offset] of TONES[name]) {
+    const profile = getSoundProfile();
+    const shape = SHAPES[profile];
+    const tones = profile === 'strong' ? STRONG_TONES[name] : TONES[name];
+    for (const [freq, offset] of tones) {
       const o = ac.createOscillator();
       const g = ac.createGain();
       const st = ac.currentTime + offset;
-      o.type = 'sine';
+      o.type = shape.type;
       o.frequency.value = freq;
       g.gain.setValueAtTime(0.0001, st);
-      g.gain.exponentialRampToValueAtTime(0.1, st + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, st + 0.18);
+      g.gain.exponentialRampToValueAtTime(shape.gain, st + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, st + shape.hold);
       o.connect(g);
       g.connect(ac.destination);
       o.onended = () => {
@@ -96,7 +140,7 @@ export function playSound(name: SoundName): number {
         releaseContext();
       };
       o.start(st);
-      o.stop(st + 0.2);
+      o.stop(st + shape.hold + 0.02);
       live.add(o);
       n += 1;
     }
