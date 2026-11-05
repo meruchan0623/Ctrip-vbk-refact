@@ -22,6 +22,7 @@ import {
   highlightParts,
   netView,
   createNetOfflineGate,
+  mergeAgentStatus,
   NET_OFFLINE_GRACE_MS,
   pushBanner,
   resumeBanners,
@@ -278,11 +279,11 @@ test('mock enforces contracts used by the main window', async () => {
   ipc.dispose();
 });
 
-test('no fake status: unconfirmed agent → 状态未知, no net read-back → 未连接', () => {
+test('no fake status: unconfirmed agent → 状态未知, no net read-back yet → 连接中 (not an alarm)', () => {
   assert.equal(agentView({ status: 'online', confirmed: false }).label, '状态未知');
   assert.equal(agentView({ status: 'online', confirmed: false }).known, false);
   assert.equal(agentView({ status: 'hangup', confirmed: true }).label, '挂起');
-  assert.equal(netView(null).label, '未连接');
+  assert.equal(netView(null).label, '连接中');
   assert.equal(netView(null).ok, false);
   assert.equal(netView({ online: true, transport: 'connected' }).label, '已连接');
   // 首次启动尚未连上过：不显示断连 / 重连 / 网络不可用
@@ -652,3 +653,13 @@ test('net gate: the browser reporting no network is believed at once, even on fi
   h.gate.setBrowserOnline(true); assert.equal(h.gate.confirmed, false);
   assert.deepEqual(h.changes, [true, false]);
 });
+
+test('net gate: a browser offline flag is not believed while the connection is demonstrably up', () => {
+  const h = netGateHarness();
+  h.gate.note(NET_UP);
+  h.gate.setBrowserOnline(false);
+  assert.equal(h.gate.confirmed, false);
+  h.gate.note(NET_DOWN); // the connection really went away: the browser flag now agrees
+  assert.equal(h.gate.confirmed, true);
+});
+

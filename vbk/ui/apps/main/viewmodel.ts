@@ -520,7 +520,7 @@ export function persistFailedView(snap: Pick<UiAccountSnapshot, 'persist_failed'
  * `offlineConfirmed` comes from {@link createNetOfflineGate}: an unconfirmed loss is a loading transition.
  */
 export function netView(n: UiNetStatus | null, offlineConfirmed = true): { readonly label: string; readonly ok: boolean; readonly offline: boolean } {
-  if (!n) return { label: t('bar.net.none'), ok: false, offline: false };
+  if (!n) return { label: t('bar.net.connecting'), ok: false, offline: false };
   if (!offlineConfirmed && !(n.online && n.transport === 'connected')) return { label: t('bar.net.connecting'), ok: false, offline: false };
   if (!n.online) return { label: t('bar.net.offline'), ok: false, offline: true };
   switch (n.transport) {
@@ -535,13 +535,13 @@ export function netView(n: UiNetStatus | null, offlineConfirmed = true): { reado
   }
 }
 
-export const NET_OFFLINE_GRACE_MS = 15_000;
+export const NET_OFFLINE_GRACE_MS = 30_000;
 
 /**
  * The host reports every state except `connected` as not online, including a
- * page that is still loading. Confirm a real loss before warning the user: the
- * browser reports no network, or this account's connection was up and stayed
- * down for the grace period. Display only; sending never consults this.
+ * page that is still loading. Confirm a real loss before warning the user: this
+ * account's connection was up and stayed down for the grace period, or the
+ * browser reports no network while no live connection contradicts it. Display only; sending never consults this.
  */
 export function createNetOfflineGate(options: {
   readonly onChange: (confirmed: boolean) => void;
@@ -556,10 +556,13 @@ export function createNetOfflineGate(options: {
   let browserOnline = options.browserOnline ?? true;
   let everConnected = false;
   let lapsed = false;
+  let up = false;
   let timer: unknown = null;
   let published = !browserOnline;
   const publish = (): void => {
-    const next = !browserOnline || lapsed;
+    // `navigator.onLine` is unreliable (VPN switches, wake from sleep): a live
+    // connection outweighs it, so it alone never raises the warning.
+    const next = (!browserOnline && !up) || lapsed;
     if (next === published) return;
     published = next;
     options.onChange(next);
@@ -572,7 +575,8 @@ export function createNetOfflineGate(options: {
   return {
     get confirmed(): boolean { return published; },
     note(n: UiNetStatus): void {
-      if (n.online && n.transport === 'connected') {
+      up = n.online && n.transport === 'connected';
+      if (up) {
         everConnected = true;
         settle();
       } else if (everConnected && !lapsed && timer === null) {
@@ -583,6 +587,7 @@ export function createNetOfflineGate(options: {
     /** The account or its session changed: its connection has to come up on its own. */
     reset(): void {
       everConnected = false;
+      up = false;
       settle();
       publish();
     },
