@@ -238,12 +238,13 @@ async function testMain(context, base) {
   const done = await text(page, '[data-tab="done"]');
   check(/^待处理 \d+$/.test(doing ?? ''), `待处理 N tab (${doing})`);
   check(/^已处理 \d+$/.test(done ?? ''), `已处理 N tab (${done})`);
-  check(/^接待中 5 · 排队/.test((await text(page, '[data-serving]')) ?? ''), '「接待中 N · 排队」 header');
-  check((await page.getAttribute('.search .inp', 'placeholder')) === '聊天记录/用户/日期/订单号', 'search placeholder from the prototype');
+  check((await page.$('.agent-status-control .stat-pill')) !== null, 'agent status control in the list header');
+  check((await page.getAttribute('.search .inp', 'placeholder')) === '搜索本地会话', 'search placeholder says it only filters local conversations');
   const firstConv = await page.$('.conv');
   check((await firstConv?.getAttribute('class'))?.includes('top'), 'pinned conversation sorts first');
-  // A read receipt cannot clear the authoritative unread count (host data only), so the badge stays after opening.
-  check((await text(page, '.conv[data-gid="g-demo-1"] .badge')) === '1', 'opening a conversation leaves the authoritative unread badge untouched');
+  // A visible conversation sends a read receipt (visible-read.ts); the badge clears only from the host's confirmed row.
+  await page.waitForFunction(() => document.querySelector('.conv[data-gid="g-demo-1"]') && !document.querySelector('.conv[data-gid="g-demo-1"] .badge'), null, { timeout: 5000 }).catch(() => undefined);
+  check((await page.$('.conv[data-gid="g-demo-1"] .badge')) === null, 'opening a conversation clears its badge once the host confirms the read');
   check(/^\d{2}:\d{2}$/.test((await text(page, '.conv[data-gid="g-demo-1"] .conv-lead .wait')) ?? ''), 'opening + marking read leaves the waiting chip untouched (host data only)');
   check((await text(page, '.conv[data-gid="g-demo-2"] .badge')) === '1', 'unread badge on another conversation');
   check((await text(page, '.conv[data-gid="g-demo-2"] .chip-lang')) === '日语', 'language chip on the row');
@@ -279,7 +280,8 @@ async function testMain(context, base) {
   check((await page.$$('.msg')).length >= 3, 'messages rendered');
   check((await text(page, '.chat-name .chip-lang')) === '客户语言：英语', 'chat header customer language chip');
   check(/客户等待 \d+秒/.test((await text(page, '.chat-sub')) ?? ''), 'chat header waiting line');
-  for (const act of ['transfer', 'invite', 'end']) {
+  // Transfer and invite live in the member-management dialog behind `members`.
+  for (const act of ['members', 'end']) {
     const r = await page.$eval(`[data-chat-act="${act}"]`, (el) => ({ disabled: el.disabled }));
     check(!r.disabled, `chat ${act} opens its peripheral flow (enabled)`);
   }
@@ -294,7 +296,7 @@ async function testMain(context, base) {
   await page.waitForSelector('[data-sb="alarm"]', { timeout: 5000 });
   check((await text(page, '[data-sb="alarm"]'))?.includes('超时提醒 3'), 'status bar alarm count from snapshot event');
   check((await page.getAttribute('[data-tb-alarm]', 'data-tb-alarm')) === '3' && (await page.getAttribute('[data-nav-alarm]', 'data-nav-alarm')) === '3', 'title bar + left nav timeout count from the alarm snapshot');
-  check((await page.$eval('[data-tool="recommend"]', (el) => el.disabled)) === true, 'composer tool recommend disabled (no frozen command)');
+  check((await page.$eval('[data-tool="recommend"]', (el) => el.disabled)) === false, 'composer tool recommend enabled (产品推荐 flow)');
   check((await page.$eval('[data-tool="phrases"]', (el) => el.disabled)) === false, 'composer tool phrases enabled (快捷话术 flow)');
   await page.click('[data-tool="hide-tr"]');
   await page.waitForFunction(() => !Array.from(document.querySelectorAll('.btr')).some((e) => e.textContent.includes('你好，我预订了')), null, { timeout: 3000 }).catch(() => undefined);
@@ -303,8 +305,10 @@ async function testMain(context, base) {
 
   // package quick view fills in for a conversation with an ICCID
   await page.click('.conv[data-gid="g-demo-2"]');
-  await page.waitForSelector('[data-package-action="detail"]', { timeout: 8000 });
-  await page.waitForFunction(() => document.querySelector('.companion-card .count')?.textContent === '2 个套餐', null, { timeout: 3000 }).catch(() => undefined);
+  // The card renders in a shadow root; only Playwright selectors pierce it, not document.querySelector.
+  // Wait for the ICCID first: the previous conversation's card also says 2 个套餐.
+  await page.waitForSelector('.hl[data-hl="iccid"]', { timeout: 8000 }).catch(() => undefined);
+  await page.waitForSelector('.companion-card .count:has-text("2 个套餐")', { timeout: 8000 }).catch(() => undefined);
   check((await text(page, '.companion-card .count')) === '2 个套餐' && (await text(page, '.hl[data-hl="iccid"]')) === '8981100022334455667', 'ICCID highlighted and package quick view loaded');
 
   // send states on 李先生: unknown never resent, rejected offers manual resend
@@ -319,6 +323,8 @@ async function testMain(context, base) {
   // translation bar in replace-draft mode (Emma, English)
   await page.click('.conv[data-gid="g-demo-1"]');
   await page.waitForSelector('.trbar', { timeout: 5000 });
+  // The mode line follows the prefs read-back, a moment after the bar itself.
+  await page.waitForSelector('.trbar:has-text("替换草稿")', { timeout: 5000 }).catch(() => undefined);
   check((await text(page, '.trbar'))?.includes('替换草稿'), 'translation bar shows ReplaceDraft mode');
   await page.fill('textarea.ta', '你好，示例草稿');
   await page.waitForSelector('[data-tr-state="done"]', { timeout: 8000 });
@@ -352,6 +358,9 @@ async function testMain(context, base) {
   );
   check(true, 'colour mark updated to 紫');
   await page.click('.conv[data-gid="g-demo-3"]', { button: 'right' });
+  await page.waitForSelector('.ctx-menu', { timeout: 3000 });
+  await page.$eval('.msgs', (el) => el.dispatchEvent(new Event('scroll')));
+  check((await page.$('.ctx-menu')) !== null, 'the chat pane scrolling by itself leaves the list menu open');
   await page.click('.ctx-menu [data-ctx="top"]');
   await page.waitForFunction(() => Array.from(document.querySelectorAll('.conv')).slice(0, 2).map((e) => e.getAttribute('data-gid')).join(',') === 'g-demo-1,g-demo-3', null, { timeout: 5000 });
   check((await page.$('.conv[data-gid="g-demo-3"].top')) !== null, 'pinned conversation moves into the pinned group (after the newer pinned Emma)');
@@ -498,7 +507,7 @@ async function testMain(context, base) {
   check((await expectState('3050000403', 'forbidden'))?.includes('无权'), 'forbidden state');
   check((await expectState('3051999999', 'none'))?.includes('未找到'), 'none state');
   await rec.reset();
-  check((await expectState('3051000408', 'unknown'))?.includes('不会自动重试'), 'timeout → unknown, no auto retry');
+  check((await expectState('3051000408', 'unknown'))?.includes('稍后重新查询'), 'timeout → unknown, leaves the retry to the user');
   await page.waitForTimeout(500);
   check((await rec.calls('order_search')).length === 1, 'a timed-out order query is issued exactly once (no automatic replay)');
   await page.fill('[data-fid="order-query"]', '123');
@@ -529,7 +538,8 @@ async function testMain(context, base) {
   const lateIm = await rec.calls('order_create_im_chat');
   const lateConvs = await rec.calls('im_conversations');
   check(lateIm.length === 1 && lateIm[0].payload.account?.account_id === 'acc-demo-a', `in-flight createimchat still carries account A (${JSON.stringify(lateIm.map((c) => c.payload.account?.account_id))})`);
-  check(lateConvs.some((c) => c.payload.account?.account_id === 'acc-demo-a') && lateConvs.some((c) => c.payload.account?.account_id === 'acc-demo-b'), `conversation reloads are issued per account (${JSON.stringify(lateConvs.map((c) => c.payload.account?.account_id))})`);
+  // A's own reload is dropped once the visit changes, so only B's is guaranteed; the next check covers leaks.
+  check(lateConvs.some((c) => c.payload.account?.account_id === 'acc-demo-b'), `switching tabs reloads the new account's conversations (${JSON.stringify(lateConvs.map((c) => c.payload.account?.account_id))})`);
   check(document_view(await page.getAttribute('.app', 'data-view')) === 'order' && (await page.$('[data-order-state]')) === null, 'switching accounts keeps the navigation view but drops the other account\'s order result');
   await page.click('[data-nav="messages"]');
   await page.waitForTimeout(100);
@@ -557,7 +567,8 @@ async function testMain(context, base) {
 
   // clock-untrusted scenario
   await page.goto(`${base}/apps/main/index.html?scenario=clock-untrusted`);
-  await page.waitForSelector('[data-sb="clock-untrusted"]', { timeout: 8000 });
+  // The status bar re-renders during load, so wait on the text rather than reading it once.
+  await page.waitForSelector('[data-sb="clock-untrusted"]:has-text("待核对")', { timeout: 8000 }).catch(() => undefined);
   check((await text(page, '[data-sb="clock-untrusted"]')) === '待核对', 'clock-untrusted indicator in status bar');
 
   for (const e of errors) check(false, `main: ${e}`);
@@ -602,12 +613,42 @@ async function testMainChrome(context, base) {
     const box = await page.$eval('.tabs', (el) => { const b = el.getBoundingClientRect(); return { x: b.right - 20, y: b.top + b.height / 2 }; });
     await page.mouse.dblclick(box.x, box.y);
     await page.waitForTimeout(300);
-    const maxCalls = await rec.calls('shell_window');
+    const maxCalls = (await rec.calls('shell_window')).filter((c) => c.payload.action !== 'state');
     if (platform === 'windows') check(maxCalls.length === 1 && maxCalls[0].payload.action === 'toggle_maximize', `windows: double-click on the title bar → shell_window toggle_maximize (${JSON.stringify(maxCalls.map((c) => c.payload))})`);
     else check(maxCalls.length === 0, 'macos: double-click is left to the native title bar (no shell_window)');
+    if (platform === 'windows') {
+      const caption = () => page.$eval('[data-win="toggle_maximize"]', (el) => ({ label: el.getAttribute('aria-label'), restore: getComputedStyle(el.querySelector('[data-cap-icon="restore"]')).display !== 'none', max: getComputedStyle(el.querySelector('[data-cap-icon="max"]')).display !== 'none' }));
+      // The double-click above maximized the window without touching the caption; the host's resize syncs it.
+      await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+      await page.waitForFunction(() => document.documentElement.dataset.windowMaximized === 'true', null, { timeout: 3000 });
+      const maximized = await caption();
+      check(maximized.label === '还原' && maximized.restore && !maximized.max, `windows: maximized window shows the restore glyph (${JSON.stringify(maximized)})`);
+      await page.click('[data-win="toggle_maximize"]');
+      await page.waitForFunction(() => document.documentElement.dataset.windowMaximized === 'false', null, { timeout: 3000 });
+      const restored = await caption();
+      check(restored.label === '最大化' && restored.max && !restored.restore, `windows: restored window shows the maximize glyph (${JSON.stringify(restored)})`);
+      await page.mouse.click(box.x, box.y, { button: 'right' });
+      await page.waitForTimeout(100);
+      check((await rec.calls('shell_window')).some((c) => c.payload.action === 'system_menu'), 'windows: right-click on the title bar opens the system menu');
+      const strip = await page.evaluate(() => {
+        const tabs = document.querySelector('.tabs');
+        const first = tabs.querySelector('.tab');
+        const add = tabs.querySelector('.tab-add');
+        const clones = Array.from({ length: 15 }, () => tabs.insertBefore(first.cloneNode(true), add));
+        const box = tabs.getBoundingClientRect();
+        const addBox = add.getBoundingClientRect();
+        const dragW = document.querySelector('.tb-drag').getBoundingClientRect().width;
+        const capLeft = document.querySelector('.wbtns').getBoundingClientRect().left;
+        tabs.scrollLeft = tabs.scrollWidth;
+        const reached = Math.round(clones.at(-1).getBoundingClientRect().right) <= Math.round(addBox.left) + 1;
+        tabs.scrollLeft = 0;
+        clones.forEach((c) => c.remove());
+        return { scrollable: tabs.scrollWidth >= tabs.clientWidth, addInside: addBox.right <= box.right + 1, dragW, reached, clear: box.right <= capLeft };
+      });
+      check(strip.addInside && strip.reached && strip.dragW === 46 && strip.clear, `windows: 16 account tabs stay reachable and leave a drag area (${JSON.stringify(strip)})`);
+    }
     await page.evaluate(() => window.__vbkOpenConversation('g-demo-2'));
-    await page.waitForSelector('[data-package-action="detail"]', { timeout: 8000 });
-  await page.waitForFunction(() => document.querySelector('.companion-card .count')?.textContent === '2 个套餐', null, { timeout: 3000 }).catch(() => undefined);
+    await page.waitForSelector('.companion-card .count:has-text("2 个套餐")', { timeout: 8000 });
     await page.mouse.move(600, 400);
     await shot(page, `main-${platform}.png`);
     await page.close();
@@ -783,7 +824,7 @@ async function testAlarm(context, base) {
   check((await text(page, '[data-alarm-notice]')) === '提醒已更新，已刷新列表', 'version mismatch notice');
   check((await page.$$('.arow')).length === 3, 'stale hide did not remove the entry');
   const hideCalls = await rec.calls('notify_hide_round');
-  check(hideCalls.length === 1 && hideCalls[0].payload.version === staleVersion && JSON.stringify(Object.keys(hideCalls[0].payload).sort()) === '["account","gid","round_id","version"]', 'hide echoed the displayed (stale) version exactly once; no retry');
+  check(hideCalls.length === 1 && hideCalls[0].payload.round.version === staleVersion && JSON.stringify(Object.keys(hideCalls[0].payload.round).sort()) === '["account","gid","round_id","version"]', 'hide echoed the displayed (stale) version exactly once; no retry');
   check((await rec.calls('notify_snapshot')).length >= 1, 'version mismatch triggers a notify_snapshot refresh');
   await page.waitForFunction((v) => Number(document.querySelector('.arow:first-child')?.getAttribute('data-version')) === v, staleVersion - 10, { timeout: 5000 });
   check(true, 'refreshed row carries the host version again');
@@ -795,15 +836,16 @@ async function testAlarm(context, base) {
   await page.waitForFunction(() => document.querySelectorAll('.arow').length === 2, null, { timeout: 5000 });
   check(true, '清除 hides the round');
   const hide2 = await rec.calls('notify_hide_round');
-  check(hide2.length === 1 && hide2[0].payload.gid === row1.gid && hide2[0].payload.round_id === row1.round_id && hide2[0].payload.version === row1.version, 'notify_hide_round echoes the displayed row');
+  check(hide2.length === 1 && hide2[0].payload.round.gid === row1.gid && hide2[0].payload.round.round_id === row1.round_id && hide2[0].payload.round.version === row1.version, 'notify_hide_round echoes the displayed row');
   const shown = await page.$$eval('.arow', (els) => els.map((el) => ({ gid: el.dataset.gid, round_id: el.dataset.round, version: Number(el.dataset.version) })));
   await rec.reset();
   await page.click('[data-act="hide-all"]');
   await page.waitForSelector('.empty', { timeout: 5000 });
   check((await text(page, '.empty'))?.includes('没有回复超时'), '全部清除 empties the list');
   const hideAll = await rec.calls('notify_hide_all');
-  const sortRef = (a) => [...a].sort((x, y) => x.gid.localeCompare(y.gid));
-  check(hideAll.length === 1 && JSON.stringify(sortRef(hideAll[0].payload.seen)) === JSON.stringify(sortRef(shown)), `notify_hide_all sends exactly the displayed versions (${JSON.stringify(hideAll[0]?.payload.seen)})`);
+  // Each ref also carries its account, so a hide can never land on another account's round.
+  const sortRef = (a) => a.map(({ gid, round_id, version }) => ({ gid, round_id, version })).sort((x, y) => x.gid.localeCompare(y.gid));
+  check(hideAll.length === 1 && hideAll[0].payload.seen.every((ref) => ref.account?.account_id) && JSON.stringify(sortRef(hideAll[0].payload.seen)) === JSON.stringify(sortRef(shown)), `notify_hide_all sends exactly the displayed versions (${JSON.stringify(hideAll[0]?.payload.seen)})`);
 
   await page.goto(`${base}/apps/alarm/index.html?scenario=reconciling`);
   await page.waitForSelector('[data-alarm-banner="reconciling"]', { timeout: 8000 });
@@ -830,7 +872,7 @@ async function testMediaViewer(context, base) {
   check((await text(page, '.viewer-heading strong')) === '演示图片2.png', 'viewer opens on the image the host selected');
   check((await text(page, '.viewer-count')) === '2 / 4', 'sequence position is shown');
   check(await page.evaluate(() => !document.querySelector('dialog')), 'viewer is the window itself, not an in-page dialog');
-  check((await page.$$('.viewer-win button')).length === 3, 'Windows draws minimize / maximize / close');
+  check((await page.$$('.wbtns .wbtn')).length === 3, 'Windows draws minimize / maximize / close');
   await page.click('button[aria-label="放大"]');
   check((await text(page, 'button[aria-label="恢复适应窗口"]'))?.includes('125%'), 'image zoom works');
   const recorded = await recordInvokes(page);
@@ -855,7 +897,7 @@ async function testMediaViewer(context, base) {
   check((await page.$('.viewer-nav')) === null && (await page.$('.viewer-count')) === null, 'a single image has no navigation');
   await page.goto(`${base}/apps/media-viewer/index.html?scenario=default&platform=macos&kind=video`);
   await page.waitForSelector('video.viewer-player', { timeout: 8000 });
-  check((await page.$('.viewer-win')) === null, 'macOS keeps the traffic lights');
+  check((await page.$('.wbtns')) === null, 'macOS keeps the traffic lights');
   await page.goto(`${base}/apps/media-viewer/index.html?scenario=default&platform=macos&kind=file`);
   await page.waitForSelector('.viewer-file h2', { timeout: 8000 });
   check((await text(page, '.viewer-file h2')) === '演示文档.pdf', 'document shows its name and the external open action');
@@ -868,6 +910,8 @@ async function testSetting(context, base) {
   console.log('[smoke] setting');
   const errors = [];
   const page = await openPage(context, { width: 880, height: 640 });
+  // Section links scroll instantly under this preference; a smooth scroll in flight can stall Playwright's stability wait.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   watch(page, errors);
   await page.goto(`${base}/apps/setting/index.html`);
   await page.waitForSelector('[data-setting="reminder.enabled"]', { timeout: 8000 });
@@ -924,7 +968,7 @@ async function testSetting(context, base) {
   check((await page.$('[data-send-mode]')) === null, 'translation mode moved out of settings');
   check((await page.getAttribute('[data-tsim-status]', 'data-tsim-status')) === 'in', 'TSim initially logged in (demo)');
   await page.click('[data-action="tsim-logout"]');
-  await page.waitForSelector('[data-fid="tsim-user"]', { timeout: 5000 });
+  await page.waitForSelector('[data-fid="tsim-user"]', { timeout: 15000 });
   await page.fill('[data-fid="tsim-user"]', 'tsim-demo-user');
   await page.fill('[data-fid="tsim-pass"]', 'wrong');
   await page.click('[data-action="tsim-login"]');

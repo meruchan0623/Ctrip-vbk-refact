@@ -49,6 +49,8 @@ export function createContextMenu(className = '', label = S.defaultLabel, keepEd
     closeActive?.(); close();
     if (!actions.length || !valid()) return;
     previousFocus = document.activeElement as HTMLElement | null;
+    // Read before the menu covers the point: what the menu was opened on.
+    const anchor = document.elementFromPoint?.(x, y) ?? null;
     let activeIndex = 0;
     const own = h('div', { class: `app-context-menu ${className}`, role: 'menu', 'aria-label': label, oncontextmenu: (e: Event) => { e.preventDefault(); e.stopPropagation(); },
       onmousedown: (e: Event) => { e.stopPropagation(); if (keepEditorFocus) e.preventDefault(); },
@@ -85,13 +87,18 @@ export function createContextMenu(className = '', label = S.defaultLabel, keepEd
     const outside = (e: Event) => { if (!own.contains(e.target as Node)) close(); };
     const resized = () => close();
     document.addEventListener('mousedown', outside, true);
-    document.addEventListener('scroll', outside, true);
+    // Another pane scrolling by itself (the chat following a sent message) leaves the anchor in place.
+    const scrolled = (e: Event) => {
+      const target = e.target as Node;
+      if (!anchor || target === document || target.contains?.(anchor)) outside(e);
+    };
+    document.addEventListener('scroll', scrolled, true);
     window.addEventListener('resize', resized);
     window.addEventListener('blur', resized);
     cleanup = () => {
       document.removeEventListener('keydown', editingKey, true);
       document.removeEventListener('mousedown', outside, true);
-      document.removeEventListener('scroll', outside, true);
+      document.removeEventListener('scroll', scrolled, true);
       window.removeEventListener('resize', resized);
       window.removeEventListener('blur', resized);
     };
