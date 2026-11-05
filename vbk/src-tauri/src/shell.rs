@@ -493,11 +493,20 @@ pub async fn shell_open_data_directory(
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let mut command = std::process::Command::new("xdg-open");
         // Pass as one process argument, never through a command shell.
-        let status = command.arg(&dir).status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(std::io::Error::other("directory launcher failed"))
+        command.arg(&dir);
+        // explorer.exe exits non-zero even after opening the folder.
+        #[cfg(target_os = "windows")]
+        {
+            command.spawn().map(drop)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let status = command.status()?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(std::io::Error::other("directory launcher failed"))
+            }
         }
     })
     .await
