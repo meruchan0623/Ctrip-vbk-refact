@@ -179,6 +179,9 @@ export const UiCommands = {
   NOTICE_CATEGORIES: 'notice_categories', // {account} → UiNoticeCategory[]
   NOTICE_LIST: 'notice_list', // {account, category_id, before_ms?} → UiNotice[] (up to 100, older than cursor)
   NOTICE_MARK_READ: 'notice_mark_read', // {account, category_id, id | null}
+  // merchant events, read-only (official queryEventTypeByEid / queryTodoListEvent; never readEvent)
+  MERCHANT_EVENT_TYPES: 'merchant_event_types', // {account, tab} → UiMerchantEventType[]
+  MERCHANT_EVENT_LIST: 'merchant_event_list', // {account, tab, type_ids, order_id, page} → UiMerchantEventPage
   // order contact (official searchorderlist / createimchat)
   ORDER_SEARCH: 'order_search', // {account, order_id} → OrderSearchResult
   ORDER_CREATE_IM_CHAT: 'order_create_im_chat', // {account, order_id} → {gid}
@@ -488,6 +491,54 @@ export interface UiNoticeCategory {
   readonly id: string;
   readonly name: string;
   readonly unread: number;
+}
+
+/** Official page tabs; `pending` is the tab the official page labels 处理中 (`option: UNPROCESSED`). */
+export type MerchantEventTab = 'pending' | 'completed' | 'sent';
+
+/** Server-issued per account and tab; ids are never hard-coded on the client. */
+export interface UiMerchantEventType {
+  readonly id: number;
+  readonly name: string;
+}
+
+/** One bounded row of `queryTodoListEvent`. Text fields are plain text, stripped of upstream HTML by the adapter. */
+export interface UiMerchantEvent {
+  readonly id: string;
+  readonly type_id: number | null;
+  readonly type_name: string;
+  readonly status: number | null;
+  /** Server display string; the client does not map status codes to copy. */
+  readonly status_label: string;
+  readonly order_id: string;
+  /** https only, otherwise empty. */
+  readonly order_url: string;
+  readonly product_id: string;
+  readonly product_name: string;
+  readonly provider_name: string;
+  readonly content: string;
+  readonly complete_remark: string;
+  /** Official `createTime` (发送时间), the sort key behind `orderBy.SendDate`. */
+  readonly created_ms: number | null;
+  /** Official `serviceDate` (指标时间). */
+  readonly due_ms: number | null;
+  readonly completed_ms: number | null;
+  readonly sender_name: string;
+  readonly processor_name: string;
+  readonly must_reply: boolean;
+  readonly timed_out: boolean;
+  readonly urge_count: number;
+  readonly suspend_count: number;
+  readonly is_task: boolean;
+}
+
+export interface UiMerchantEventPage {
+  readonly items: readonly UiMerchantEvent[];
+  /** Upstream `totalCount` under the current filter; not a global unprocessed count. */
+  readonly total: number;
+  /** 1-based page number (`startIndex` is a page number upstream, not an offset). */
+  readonly page: number;
+  readonly page_size: number;
 }
 
 export interface UiNotice {

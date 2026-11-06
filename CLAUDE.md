@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 VBooking（携程）商家网页 IM 的桌面客户端重构，工程在 `vbk/`：Tauri 2 宿主 + 仅依赖 `std` 的 Rust 核心 crate + 运行时零依赖的 TypeScript 界面与适配器。
 
-- **范围**：携程业务只保留消息、通知、订单“详情 → IM 联系 → 网页会话”入口；左侧栏其他业务模块不做（见 `docs/decisions/2026-10-30-web-only-scope.md`）。自有能力保留：多账号、托盘、独立强提醒窗、商家助手（TSim/出站翻译/套餐速览）、更新与诊断。截图与标注已删除（见 `docs/decisions/2026-11-05-no-screenshot.md`）；OCR 目前没有代码。
+- **范围**：携程业务只保留消息、通知、只读事件页（见 `docs/decisions/2026-11-06-merchant-events-page.md`）、订单“详情 → IM 联系 → 网页会话”入口；左侧栏其他业务模块不做（见 `docs/decisions/2026-10-30-web-only-scope.md`）。自有能力保留：多账号、托盘、独立强提醒窗、商家助手（TSim/出站翻译/套餐速览）、更新与诊断。截图与标注已删除（见 `docs/decisions/2026-11-05-no-screenshot.md`）；OCR 目前没有代码。
 - **`vbk-electron/`** 是被 git 忽略的官方客户端调查样本，不是实现，不要修改或当作代码基准。
 - **代码落盘不等于验收**：G1–G5 运行验收是独立关口。汇报时不要把单测通过说成功能已验收，当前断点见 `PROGRESS.md`、`BLOCKED.md`。
 
