@@ -111,6 +111,8 @@ jobs:
         # `--runner` is spawned as ONE executable and cargo-auditable refuses to run unless invoked
         # as `cargo auditable ...`, so point the runner at a tiny forwarding script.
         run: |
+          # Empty identity is not "no identity" for Tauri (it fails with "no identity found"): unset when not signing.
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then unset APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; fi
           printf '#!/bin/sh\nexec cargo auditable "$@"\n' > "$RUNNER_TEMP/cargo-auditable-runner"
           chmod +x "$RUNNER_TEMP/cargo-auditable-runner"
           cargo tauri build --runner "$RUNNER_TEMP/cargo-auditable-runner" --target ${{ matrix.target }} --bundles app,dmg
@@ -282,14 +284,19 @@ jobs:
         shell: pwsh
         run: |
           $rel = "vbk/src-tauri/target/x86_64-pc-windows-msvc/release"
-          $files = @(Get-ChildItem "$rel/*.exe") + @(Get-ChildItem "$rel/bundle/nsis/*.exe") + @(Get-ChildItem "$rel/bundle/msi/*.msi")
-          if ($files.Count -lt 3) { Write-Error "expected app exe, NSIS installer and MSI"; exit 1 }
-          foreach ($f in $files) {
+          # Shipped installers must carry the test signature; loose exes in target/ are informational
+          # (Tauri signs the copies it packs, not necessarily the build-tree binary).
+          $must = @(Get-ChildItem "$rel/bundle/nsis/*.exe") + @(Get-ChildItem "$rel/bundle/msi/*.msi")
+          if ($must.Count -lt 2) { Write-Error "expected NSIS installer and MSI"; exit 1 }
+          foreach ($f in $must) {
             $sig = Get-AuthenticodeSignature $f.FullName
             if (-not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -ne '${{ steps.winsign.outputs.thumbprint }}') {
               Write-Error "not signed by the test cert: $($f.Name) ($($sig.Status))"; exit 1
             }
             Write-Host "$($f.Name): signed by test cert ($($sig.Status))"
+          }
+          foreach ($f in @(Get-ChildItem "$rel/*.exe")) {
+            Write-Host "info: $($f.Name): $((Get-AuthenticodeSignature $f.FullName).Status)"
           }
           Write-Warning "test-signed build (self-signed) - SmartScreen will still warn"
 
