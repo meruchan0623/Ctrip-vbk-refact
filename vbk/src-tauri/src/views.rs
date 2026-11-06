@@ -123,6 +123,8 @@ impl Role {
             "notice_categories",
             "notice_list",
             "notice_mark_read",
+            "merchant_event_types",
+            "merchant_event_list",
             "order_validate_im_url",
             "order_search",
             "order_create_im_chat",
@@ -374,6 +376,42 @@ mod tests {
         let mut registry = ViewRegistry::default();
         registry.register(SETTING);
         assert!(registry.authorize(SETTING, "shell_open_external").is_err());
+    }
+
+    #[test]
+    fn merchant_event_commands_are_registered_main_only() {
+        let commands = ["merchant_event_types", "merchant_event_list"];
+        let main_acl: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
+        let adapter_acl: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/adapter.json")).unwrap();
+        let detail = format!("{PACKAGE_DETAIL_PREFIX}{}", uuid::Uuid::new_v4());
+        for command in commands {
+            let mut registry = ViewRegistry::default();
+            assert!(registry.authorize(MAIN, command).is_err());
+            registry.register(MAIN);
+            assert!(registry.authorize(MAIN, command).is_ok());
+            assert!(include_str!("../commands.txt")
+                .lines()
+                .any(|line| line == command));
+            assert!(granted(&main_acl, command), "main.json: {command}");
+            assert!(!granted(&adapter_acl, command), "adapter.json: {command}");
+            for label in [
+                ALARM,
+                SETTING,
+                UPDATE,
+                LOGIN,
+                "acct-synthetic",
+                detail.as_str(),
+                "webview-1",
+            ] {
+                registry.register(label);
+                assert!(
+                    registry.authorize(label, command).is_err(),
+                    "{label}: {command}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -1,6 +1,8 @@
 import { isUiAccountSnapshot } from '../_shared/guards.ts';
 import { createAccountNavigation } from './account-navigation.ts';
 import { EMPTY_NOTICE_QUERY } from './notice-query.ts';
+import { EMPTY_EVENT_QUERY } from './event-query.ts';
+import { EVENT_PICKER_CLOSED } from './events-view.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -29,8 +31,8 @@ function fixture() {
   const a = source.indexOf('function conversationList('), b = source.indexOf('\nfunction contextMenu(', a);
   const render = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(a, b)) + '\nreturn conversationList;')(...Object.values(env));
   const resetA = source.indexOf('const ACCOUNT_SCOPED_RESET ='), resetB = source.indexOf('} as const satisfies Partial<MainState>;', resetA) + '} as const satisfies Partial<MainState>;'.length;
-  const reset = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', stripTypeScriptTypes(source.slice(resetA, resetB)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {}, EMPTY_NOTICE_QUERY);
-  Object.assign(env, { closeRuntimeLog() {}, ACCOUNT_SCOPED_RESET: reset, activeAccount: () => store.get().accounts.accounts.find((a: any) => a.context.account_id === store.get().accounts.active_account_id), peripheral: { close() {} }, receiveDiagnostics: { close() {} }, unknownOutbound: { close() {} }, loadForActiveAccount: async () => undefined });
+  const reset = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', 'EMPTY_EVENT_QUERY', 'EVENT_PICKER_CLOSED', stripTypeScriptTypes(source.slice(resetA, resetB)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {}, EMPTY_NOTICE_QUERY, EMPTY_EVENT_QUERY, EVENT_PICKER_CLOSED);
+  Object.assign(env, { closeRuntimeLog() {}, eventQuery: { reset() {} }, ACCOUNT_SCOPED_RESET: reset, activeAccount: () => store.get().accounts.accounts.find((a: any) => a.context.account_id === store.get().accounts.active_account_id), peripheral: { close() {} }, receiveDiagnostics: { close() {} }, unknownOutbound: { close() {} }, loadForActiveAccount: async () => undefined });
   const accountA = source.indexOf('function applyAccountSnapshot('), accountB = source.indexOf('\nasync function switchAccount(', accountA);
   const applyAccount = new Function(...Object.keys(env), stripTypeScriptTypes(source.slice(accountA, accountB)) + '\nreturn applyAccountSnapshot;')(...Object.values(env));
   return { store, sideEffects, applyAccount, tree: () => render(store.get()) as Node, click: (key: string, value: string) => { const button = nodes(render(store.get())).find(n => n.props.dataset?.[key] === value); assert.ok(button, `${key}=${value}`); button.props.onclick(); } };

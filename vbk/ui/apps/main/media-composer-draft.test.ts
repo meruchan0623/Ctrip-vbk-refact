@@ -6,6 +6,8 @@ import { createAttachmentDraftBook, unavailableAttachment } from './attachment-d
 import { UiCommands as RealUiCommands } from '../../packages/ipc/src/client.ts';
 import { ImCommands } from '../../packages/ipc/src/commands.ts';
 import { EMPTY_NOTICE_QUERY } from './notice-query.ts';
+import { EMPTY_EVENT_QUERY } from './event-query.ts';
+import { EVENT_PICKER_CLOSED } from './events-view.ts';
 import { readHistoryPage } from './history-read.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -68,7 +70,8 @@ function fixture() {
   function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name); const tail = source.slice(a), next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z])/.exec(tail); assert.ok(next, name); const helperStart = name === 'loadForActiveAccount' ? source.lastIndexOf('let accountLoadTicket', a) : -1; const helpers = helperStart < 0 ? '' : source.slice(helperStart, a); return new Function(...Object.keys(env), stripTypeScriptTypes(helpers + tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   for (const name of ['activeAccount', 'activeConv', 'stillActive', 'releaseAttachment', 'persistSelectedAttachment', 'persistAttachmentBeforeLeave', 'restoreRoomAttachment', 'retryAttachmentDraft', 'setDraft', 'upsertMessage', 'translationTarget', 'sendText', 'translateAndSend', 'ownedAttachment', 'mediaOperationCurrent', 'sendMediaAttachment', 'removeAttachment', 'translationBar']) if (source.includes(`function ${name}(`)) env[name] = actual(name);
   const resetStart = source.indexOf('const ACCOUNT_SCOPED_RESET ='), resetEnd = source.indexOf('} as const satisfies Partial<MainState>;', resetStart) + '} as const satisfies Partial<MainState>;'.length;
-  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {}, EMPTY_NOTICE_QUERY);
+  env['eventQuery'] = { reset() {} };
+  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', 'EMPTY_EVENT_QUERY', 'EVENT_PICKER_CLOSED', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {}, EMPTY_NOTICE_QUERY, EMPTY_EVENT_QUERY, EVENT_PICKER_CLOSED);
   env['applyAccountSnapshot'] = actual('applyAccountSnapshot');
   for (const name of ['ctool', 'composerMoreMenu', 'navigateToAccount', 'acceptAttachment']) env[name] = actual(name);
   env['switchAccount'] = actual('switchAccount');

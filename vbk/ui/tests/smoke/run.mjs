@@ -179,10 +179,10 @@ async function recordInvokes(page) {
 }
 
 /** Pruning §8 / CSP checks shared by every window: no inline script or handler, no link to a deleted module. */
-const DELETED_MODULES = /首页|工作台|事件|公告|商服|产品管理|数据|BI|点评|退款|核销|导出|特别关注|星标/;
+const DELETED_MODULES = /首页|工作台|公告|商服|产品管理|数据|BI|点评|退款|核销|导出|特别关注|星标/;
 // For free-text button labels, 「数据」/「导出」 are matched as whole labels only: 「数据目录」 (storage) and the local
 // diagnostics 「导出」 (08-update-telemetry) are not business modules, and the logout dialog mentions 「WebView 数据」.
-const DELETED_MODULES_SUBSTR = /首页|工作台|事件|公告|商服|产品管理|BI|点评|退款|核销|特别关注|星标/;
+const DELETED_MODULES_SUBSTR = /首页|工作台|公告|商服|产品管理|BI|点评|退款|核销|特别关注|星标/;
 const DELETED_MODULES_EXACT = /^(数据|BI|导出|数据报表|经营数据)$/;
 async function hygiene(page, name) {
   const r = await page.evaluate(() => {
@@ -227,11 +227,11 @@ async function testMain(context, base) {
   check((await page.$('.tab[data-account="acc-demo-c"] [data-tab-state="expired"]')) !== null, 'expired account tab shows 已过期');
   check((await text(page, '.tab[data-account="acc-demo-b"] .tab-badge')) === '3', 'background account tab shows its unread badge');
   check((await page.$('[data-nav="messages"]')) !== null, 'nav 消息 present');
-  check((await page.$('[data-nav="notifications"]')) !== null && (await page.$('[data-nav="order"]')) !== null, 'nav 通知 / 订单联系 present');
+  check((await page.$('[data-nav="notifications"]')) !== null && (await page.$('[data-nav="events"]')) !== null && (await page.$('[data-nav="order"]')) !== null, 'nav 通知 / 事件 / 订单联系 present');
   check((await page.$('[data-nav="settings"]')) !== null, 'nav bottom 设置');
   check((await page.$('[data-nav="me"]')) === null && (await page.$('.tb [aria-haspopup="menu"]')) === null, 'title bar has no account dropdown');
   const navLabels = await page.$$eval('.nav .nav-i > span:not(.nav-badge):not(.nav-alarm)', (els) => els.map((e) => e.textContent?.trim()));
-  check(navLabels.join(',') === '消息,通知,订单联系,设置', `left nav only 消息/通知/订单联系/设置 (got ${navLabels.join(',')})`);
+  check(navLabels.join(',') === '消息,通知,事件,订单联系,设置', `left nav only 消息/通知/事件/订单联系/设置 (got ${navLabels.join(',')})`);
 
   // conversation list
   const doing = await text(page, '[data-tab="doing"]');
@@ -479,6 +479,23 @@ async function testMain(context, base) {
   await page.click('[data-action="mark-all"]');
   await page.waitForFunction(() => document.querySelectorAll('.nitem.unread').length === 0, null, { timeout: 5000 });
   check(true, '全部标为已读 clears unread');
+
+  // 事件 (read-only): its own view, the pending tab with the three default types, local expansion, picker applies on close.
+  await page.click('[data-nav="events"]');
+  await page.waitForSelector('[data-event-state="loaded"]', { timeout: 5000 });
+  check((await page.getAttribute('.app', 'data-view')) === 'events' && (await page.$('.evt-title')) !== null, 'nav 事件 renders the events view, not the order fallback');
+  check(/^处理中 \(\d+\)$/.test((await text(page, '[data-event-tab="pending"]')) ?? ''), '处理中 tab shows the server total');
+  check((await page.$$('.tagsel-tag')).length === 3, 'the three default event types are selected');
+  await page.click('.evt-sum');
+  await page.waitForSelector('.evt-detail', { timeout: 5000 });
+  check((await page.getAttribute('.evt-sum', 'aria-expanded')) === 'true' && (await page.$('[data-action="event-official"]')) !== null, 'a row expands locally and offers the official page');
+  await page.click('.tagsel-toggle');
+  await page.waitForSelector('.tagsel-pop', { timeout: 5000 });
+  check(await page.evaluate(() => document.activeElement?.classList.contains('tagsel-search-input')), 'opening the type picker focuses its search box');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('.tagsel-pop'), null, { timeout: 5000 });
+  await hygiene(page, 'main/events');
+  await shot(page, 'main-events.png');
 
   // order contact
   await page.click('[data-nav="order"]');

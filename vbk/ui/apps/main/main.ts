@@ -12,6 +12,8 @@ import { createAccountNavigation } from './account-navigation.ts';
 import { accountTabTitle } from './account-tab-info.ts';
 import { bannerKey, loadIgnored, saveIgnored, splitCategories, toggleIgnored, withBannerCategory } from './notice-ignore.ts';
 import { createNoticeQuery, EMPTY_NOTICE_QUERY, type NoticeQueryState } from './notice-query.ts';
+import { createEventQuery, EMPTY_EVENT_QUERY, withServerDetail, type EventQueryState } from './event-query.ts';
+import { createEventPicker, EVENT_PICKER_CLOSED, eventsView, type EventPickerState } from './events-view.ts';
 import { createQuickReplies, quickRepliesView, replyDialogOpen, type QuickRepliesState, type ReplyContext } from './quick-replies.ts';
 import { createRecommendPanel, recommendView, type RecommendState } from './recommend-panel.ts';
 import { companionPackageCard } from './companion-card.ts';
@@ -34,8 +36,8 @@ import { ConfirmController, mountConfirmDialog } from './features/confirm-dialog
 import { FeatureEvents } from './features/context.ts';
 /**
  * Main window (prototype 02-main): title bar with account tabs, left nav
- * (消息 / 通知 / 订单联系, bottom 设置 / 账号), messages workspace,
- * notification centre, order contact, banner notifier, status bar.
+ * (消息 / 通知 / 事件 / 订单联系, bottom 设置 / 账号), messages workspace,
+ * notification centre, read-only merchant events, order contact, banner notifier, status bar.
  *
  * Every displayed status comes from a host read-back (command result or
  * event); nothing is assumed: the agent status starts as 「状态未知」 and
@@ -206,7 +208,7 @@ const workspaceColumns = createWorkspaceColumns();
 const EMOJI = ['😀', '😊', '😂', '🙏', '👍', '👌', '👏', '🎉', '❤️', '😅', '🤔', '😢', '🌹', '☀️', '✈️', '🏨', '🎫', '🚌', '📍', '⏰', '✅', '❗', '💡', '🙂'];
 const TR_TARGETS = OUTBOUND_TARGETS;
 
-type View = 'messages' | 'notifications' | 'order';
+type View = 'messages' | 'notifications' | 'events' | 'order';
 
 interface Attachment {
   readonly attachment_id?: string;
@@ -223,7 +225,7 @@ interface MediaOperation {
 interface AttachmentSelection { readonly account: AccountContext; readonly gid: string; readonly draftVersion: number; readonly accountVisit?: object | undefined; readonly roomVisit?: object | undefined }
 interface NavigationOperation { readonly targetAccount?: AccountContext; readonly fromVisit?: object | undefined; targetVisit?: object; transferred?: boolean }
 
-interface MainState {
+interface MainState extends EventQueryState {
   readonly recovery?: RecoveryState;
   readonly navigationOperation?: NavigationOperation | undefined;
   readonly accountVisit?: object;
@@ -308,6 +310,8 @@ interface MainState {
   /** 本机忽略的通知分类，按账号（环境:账号 ID）缓存；未缓存时从本地存储读取。 */
   readonly noticeIgnored: Readonly<Record<string, readonly string[]>>;
   readonly noticeIgnoredOpen: boolean;
+  // merchant events (the query fields come from EventQueryState)
+  readonly eventPicker: EventPickerState;
   // order contact
   readonly orderQuery: string;
   readonly order: OrderContactState;
@@ -389,6 +393,8 @@ const initial: MainState = {
   ...EMPTY_NOTICE_QUERY,
   noticeIgnored: {},
   noticeIgnoredOpen: false,
+  ...EMPTY_EVENT_QUERY,
+  eventPicker: EVENT_PICKER_CLOSED,
   orderQuery: '',
   order: { kind: 'idle' },
   orderBusyId: null,
@@ -776,6 +782,8 @@ const ACCOUNT_SCOPED_RESET = {
   hotOrder: false,
   pkgHot: false,
   ...EMPTY_NOTICE_QUERY,
+  ...EMPTY_EVENT_QUERY,
+  eventPicker: EVENT_PICKER_CLOSED,
   order: { kind: 'idle' },
   orderBusyId: null,
   ctxMenu: null,
@@ -878,6 +886,7 @@ async function loadForActiveAccount(): Promise<void> {
   const account = acc.context;
   store.patch({ conversationsLoading: true, conversationsError: null });
   void noticeQuery.categories();
+  if (S().view === 'events') void eventQuery.open();
   const agentAtRead = S().agent;
   const belongs = (c: UiConversation): boolean => sameAccount(c.account, account) && c.account.session_generation === account.session_generation;
   // Preserve mutations received after this read began, including removals. A
@@ -993,6 +1002,7 @@ function applyAccountSnapshot(snap: UiAccountSnapshot): void {
     peripheral.close();
     closeRuntimeLog();
     noticeQuery.reset();
+    eventQuery.reset();
     const navigation = S().navigationOperation;
     const transfer = navigation?.targetAccount && !navigation.transferred && navigation.fromVisit === S().accountVisit
       && nextAccount?.state === 'online' && sameAccount(navigation.targetAccount, nextAccount.context)
@@ -1810,6 +1820,21 @@ const noticeQuery = createNoticeQuery({
   ignored: () => ignoredNoticeCats(S()),
 });
 
+const eventQuery = createEventQuery({
+  account: () => activeAccount()?.context ?? null,
+  current: S,
+  publish: patch => store.patch(patch),
+  invoke: (command, payload) => ipc.invoke(command, payload),
+  error: error => withServerDetail(error, errorMessage(error)),
+});
+
+const eventPicker = createEventPicker({
+  current: () => S().eventPicker,
+  publish: next => store.patch({ eventPicker: next }),
+  applied: () => S().eventTypeIds,
+  apply: ids => void eventQuery.setTypes(ids),
+});
+
 const noticeCatMenu = createContextMenu('ncat-menu', t('mainTs.noticeCatMenu.title'));
 
 function ignoredNoticeCats(s: MainState): readonly string[] {
@@ -2086,7 +2111,7 @@ function navBar(s: MainState): HTMLElement {
   const item = (view: View, label: string, d: string, badge: number, extra: HTMLElement | null = null) =>
     h(
       'button',
-      { class: cx('nav-i', { on: s.view === view }), 'aria-label': label, 'aria-current': s.view === view ? 'page' : undefined, dataset: { nav: view, fid: `nav:${view}` }, onclick: () => { store.patch({ view, ctxMenu: null, meMenu: false }); if (view === 'notifications') void noticeQuery.categories(); } },
+      { class: cx('nav-i', { on: s.view === view }), 'aria-label': label, 'aria-current': s.view === view ? 'page' : undefined, dataset: { nav: view, fid: `nav:${view}` }, onclick: () => { store.patch({ view, ctxMenu: null, meMenu: false }); if (view === 'notifications') void noticeQuery.categories(); if (view === 'events') void eventQuery.open(); } },
       icon(d, 20),
       h('span', null, label),
       badge > 0 ? h('span', { class: 'nav-badge' }, badgeText(badge)) : null,
@@ -2098,6 +2123,7 @@ function navBar(s: MainState): HTMLElement {
     { class: 'nav', 'aria-label': t("main.navBar.navigation") },
     item('messages', t('nav.messages'), IC.chat, unreadMsgs, alarm),
     item('notifications', t('nav.notifications'), IC.bell, unreadNotice),
+    item('events', t('nav.events'), IC.event, 0),
     item('order', t('nav.orderContact'), IC.order, 0),
     h('div', { class: 'nav-sp' }),
     h('button', { class: 'nav-i', 'aria-label': t('nav.settings'), dataset: { nav: 'settings', fid: 'nav:settings' } , onclick: () => void invokeSafe(UiCommands.SHELL_OPEN_WINDOW, { label: WindowLabels.SETTING }) }, icon(IC.gear, 20), h('span', null, t('nav.settings'))),
@@ -3139,6 +3165,16 @@ function orderView(s: MainState): HTMLElement {
   );
 }
 
+// ---- merchant events view
+
+function merchantEventsView(s: MainState): HTMLElement {
+  return eventsView(s, {
+    h, icon, cx, query: eventQuery, picker: eventPicker,
+    openUrl: (url) => { const acc = activeAccount(); if (acc) void browserTabs.open(acc.context, url); },
+    relogin: () => { const acc = activeAccount(); if (acc) void startLogin(acc.context); },
+  });
+}
+
 // ---- banners, status bar, dialogs
 
 function bannerStack(s: MainState): HTMLElement | null {
@@ -3439,7 +3475,7 @@ function part<T extends Node | null>(name: string, build: () => T): T {
 function render(s: MainState): Node {
   markRenderFrame(s);
   const hasAccount = !!activeAccount(s);
-  const view = !hasAccount ? welcomeView(s) : s.view === 'messages' ? messagesView(s) : s.view === 'notifications' ? notificationsView(s) : orderView(s);
+  const view = !hasAccount ? welcomeView(s) : s.view === 'messages' ? messagesView(s) : s.view === 'notifications' ? notificationsView(s) : s.view === 'events' ? merchantEventsView(s) : orderView(s);
   return h(
     'div',
     { class: 'app', dataset: { view: hasAccount ? s.view : 'welcome', ...(s.activeWeb ? { web: '1' } : {}) } },
@@ -3624,6 +3660,7 @@ window.addEventListener('focus', () => visibleReads.afterRender());
 document.addEventListener('visibilitychange', () => visibleReads.afterRender());
 
 document.addEventListener('mousedown', () => {
+  eventPicker.close();
   const s = S();
   if (s.ctxMenu || s.meMenu || s.emoOpen || s.composerMore) store.patch({ ctxMenu: null, meMenu: false, emoOpen: false, composerMore: false });
 });
@@ -3641,6 +3678,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     // A quick-reply write that is out keeps its dialog open until it settles.
     quickReplies.dismiss(); recommendations.close();
+    eventPicker.close();
     if (S().peripheral) peripheral.close();
     if (S().runtimeLog) closeRuntimeLog();
     const s = S();

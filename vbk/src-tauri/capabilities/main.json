@@ -67,6 +67,8 @@
     "allow-notice-categories",
     "allow-notice-list",
     "allow-notice-mark-read",
+    "allow-merchant-event-types",
+    "allow-merchant-event-list",
     "allow-order-validate-im-url",
     "allow-order-search",
     "allow-order-create-im-chat",

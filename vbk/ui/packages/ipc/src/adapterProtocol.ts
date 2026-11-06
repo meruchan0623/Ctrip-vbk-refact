@@ -15,7 +15,7 @@
  */
 
 import type { AccountContext, AdapterFactEnvelope, AppError, SendDisposition, TransportState } from './contracts.ts';
-import type { AgentStatus, MarkAction, OrderSearchResult, UiConversation, UiMessage, UiMessagePage, UiMessageTranslations, UiNotice, UiNoticeCategory, UiCustomerScripts, UiQuickReplyCategories, UiQuickReplyEdit, UiQuickReplyEditResult, UiQuickReplyManageInfo, UiQuickReplyType, UiMembers, UiInviteCandidates, UiPeripheralWrite } from './client.ts';
+import type { AgentStatus, MarkAction, MerchantEventTab, OrderSearchResult, UiConversation, UiMerchantEventPage, UiMerchantEventType, UiMessage, UiMessagePage, UiMessageTranslations, UiNotice, UiNoticeCategory, UiCustomerScripts,UiQuickReplyCategories, UiQuickReplyEdit, UiQuickReplyEditResult, UiQuickReplyManageInfo, UiQuickReplyType, UiMembers, UiInviteCandidates, UiPeripheralWrite } from './client.ts';
 
 export interface MediaTarget { readonly target_token: string; readonly identity_sha256: string; readonly sender_id: string }
 export interface MediaUploadReply {
@@ -136,6 +136,8 @@ export type AdapterRequest =
   | { readonly req_id: string; readonly op: 'notice.watch'; readonly args: Record<string, never> }
   | { readonly req_id: string; readonly op: 'notice.list'; readonly args: { readonly category_id: string; readonly before_ms?: number | null } }
   | { readonly req_id: string; readonly op: 'notice.mark_read'; readonly args: { readonly category_id: string; readonly id: string | null } }
+  | { readonly req_id: string; readonly op: 'merchant_event.types'; readonly args: { readonly tab: MerchantEventTab } }
+  | { readonly req_id: string; readonly op: 'merchant_event.list'; readonly args: { readonly tab: MerchantEventTab; readonly type_ids: readonly number[]; readonly order_id: string; readonly page: number } }
   | { readonly req_id: string; readonly op: 'order.search'; readonly args: { readonly order_id: string } }
   | { readonly req_id: string; readonly op: 'order.create_im_chat'; readonly args: { readonly order_id: string } }
   | { readonly req_id: string; readonly op: 'agent.set_status'; readonly args: { readonly status: AgentStatus } }
@@ -182,6 +184,8 @@ export interface AdapterResultMap {
   'notice.watch': readonly { readonly id: string; readonly name: string; readonly last_msg_time: number; readonly last_msg_id: string | null }[];
   'notice.list': readonly UiNotice[];
   'notice.mark_read': null;
+  'merchant_event.types': readonly UiMerchantEventType[];
+  'merchant_event.list': UiMerchantEventPage;
   'order.search': OrderSearchResult;
   'order.create_im_chat': { readonly gid: string; readonly reused: boolean };
   'agent.set_status': { readonly status: AgentStatus; readonly confirmed: boolean };

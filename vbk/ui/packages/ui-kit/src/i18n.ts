@@ -15,6 +15,7 @@ import { recommendPanelStrings } from './recommend-panel/strings.ts';
 import { mainTsStrings } from './main-ts/strings.ts';
 import { orderMiscStrings } from './order-misc/strings.ts';
 import { quickReplyManageStrings } from './quick-reply-manage/strings.ts';
+import { eventStrings } from './events/strings.ts';
 /**
  * zh-CN string table. Every piece of UI copy goes through `t()` so a second
  * locale can be added later without touching views. `{name}` placeholders
@@ -40,6 +41,7 @@ const zhCN = {
   ...mainTsStrings,
   ...orderMiscStrings,
   ...quickReplyManageStrings,
+  ...eventStrings,
   // app
   'app.name': '旅游商家IM',
   'app.demoData': '示例数据',
@@ -72,6 +74,7 @@ const zhCN = {
   // nav
   'nav.messages': '消息',
   'nav.notifications': '通知',
+  'nav.events': '事件',
   'nav.orderContact': '订单联系',
   'nav.settings': '设置',
 

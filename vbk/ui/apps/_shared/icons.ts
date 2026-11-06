@@ -43,4 +43,5 @@ export const IC = {
   swap: 'M4 8h15l-4-4M20 16H5l4 4',
   exit: 'M10 4H5v16h5M14 8l4 4-4 4M18 12H9',
   volume: 'M4 9.5v5h3.5L12 18V6L7.5 9.5zM15.5 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11',
+  event: 'M12 3l9.5 17h-19zM12 10v4.5M12 17.5v.2',
 } as const;

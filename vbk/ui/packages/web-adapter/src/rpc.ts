@@ -46,6 +46,7 @@ import { AGENT_STATUS_CODES, agentStatusOf, byCreateTime, httpMessageToUi, order
 import type { PageSdk } from './sdkGlue.ts';
 import { roomJidFromMessage, type ConversationStore, RoleBook } from './stores.ts';
 import { fetchNoticeCategories, fetchNoticeList, markNoticeRead, parseNoticeCategoryId, translateNoticeMessage, type NoticeCategoryInfo } from './notice.ts';
+import { fetchMerchantEventPage, fetchMerchantEventTypes, isMerchantEventTab, MERCHANT_EVENT_MAX_ORDER_ID_DIGITS, MERCHANT_EVENT_MAX_PAGE, MERCHANT_EVENT_MAX_TYPE_IDS } from './merchant-events.ts';
 import type { StatusRead } from './presence.ts';
 import { createFeatureDispatcher, FeatureOpError, type FeatureDispatcher, type FeatureOpContext } from './features.ts';
 import { createAdapterFeatures } from './adapterFeatures.ts';
@@ -88,6 +89,8 @@ export const OP_EVIDENCE: Readonly<Record<AdapterOp, string>> = {
   'notice.watch': 'getIQConversations head1001 lastMsgTime/lastMsgId; same read as notice.categories, driven by the host for opted-in banners',
   'notice.list': 'getIQMessages first cursor0/pageSize100/messageBody; official desktop source (2026-11-03 notification query)',
   'notice.mark_read': 'putAdviceofreadIQMessage static call site only (same excerpt)',
+  'merchant_event.types': 'queryEventTypeByEid type 6/7/4; official event page static analysis (2026-11-06 reverse note), not read back while logged in',
+  'merchant_event.list': 'queryTodoListEvent read-only; official event page static analysis (2026-11-06 reverse note), not read back while logged in; never readEvent or batchTranslate',
   'order.search': 'searchorderlist all-orders exact request verified 2026-11-03; matching string ID and bounded summary',
   'order.create_im_chat': 'createimchat strict success + verified legacy web initChat2/startChatB2C; exact order read-back before UI open',
   'agent.set_status': 'setVenAgentStatus static chain (agent-status research §1) + currentStatus read-back',
@@ -612,6 +615,51 @@ const noticeMarkRead: Handler<'notice.mark_read'> = async (ctx, args, state) => 
   throw new RpcError(outcomeError(outcome, adapterStrings['rpc.noticeMarkRead']));
 };
 
+function merchantEventTab(args: unknown) {
+  const tab = recordOrNull(args)?.['tab'];
+  if (!isMerchantEventTab(tab)) fail(ErrorCodes.ADAPTER_FAILED, adapterStrings['rpc.invalidArgument']('tab'));
+  return tab;
+}
+
+function merchantEventBuid(ctx: RpcContext): string {
+  if (!ctx.buid) fail(ErrorCodes.ADAPTER_NOT_READY, adapterStrings['rpc.merchantEventIdentityNotReady'], true);
+  return ctx.buid;
+}
+
+/** `errMsg` of an `isSuccess: false` answer is bounded by merchant-events.ts and travels as `detail`; an Ack failure keeps its error code. */
+function merchantEventError(outcome: SoaOutcome<unknown>, what: string): AppError {
+  const error = outcomeError(outcome, what);
+  const first = outcome.kind === 'business_failure' ? outcome.errors[0] : undefined;
+  return first && first.ErrorCode === null && first.Message ? { ...error, detail: first.Message } : error;
+}
+
+const merchantEventTypes: Handler<'merchant_event.types'> = async (ctx, args) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  ensureCurrent(current);
+  const tab = merchantEventTab(args);
+  const r = await fetchMerchantEventTypes(ctx.deps, ctx.soa, merchantEventBuid(ctx), tab);
+  ensureCurrent(current);
+  if (!r.ok) throw new RpcError(merchantEventError(r.outcome, adapterStrings['rpc.merchantEventTypes']));
+  return r.value;
+};
+
+const merchantEventList: Handler<'merchant_event.list'> = async (ctx, args) => {
+  const current = ctx.captureWriteGuard?.() ?? (() => true);
+  ensureCurrent(current);
+  const a = recordOrNull(args);
+  const tab = merchantEventTab(args);
+  const typeIds = a?.['type_ids'];
+  if (!Array.isArray(typeIds) || typeIds.length > MERCHANT_EVENT_MAX_TYPE_IDS || !typeIds.every((id) => Number.isSafeInteger(id))) fail(ErrorCodes.ADAPTER_FAILED, adapterStrings['rpc.invalidArgument']('type_ids'));
+  const orderId = a?.['order_id'];
+  if (typeof orderId !== 'string' || orderId.length > MERCHANT_EVENT_MAX_ORDER_ID_DIGITS || !/^\d*$/.test(orderId)) fail(ErrorCodes.ADAPTER_FAILED, adapterStrings['rpc.invalidArgument']('order_id'));
+  const page = a?.['page'];
+  if (typeof page !== 'number' || !Number.isSafeInteger(page) || page < 1 || page > MERCHANT_EVENT_MAX_PAGE) fail(ErrorCodes.ADAPTER_FAILED, adapterStrings['rpc.invalidArgument']('page'));
+  const r = await fetchMerchantEventPage(ctx.deps, ctx.soa, merchantEventBuid(ctx), { tab, typeIds: typeIds as number[], orderId, page });
+  ensureCurrent(current);
+  if (!r.ok) throw new RpcError(merchantEventError(r.outcome, adapterStrings['rpc.merchantEventList']));
+  return r.value;
+};
+
 const orderSearch: Handler<'order.search'> = async (ctx, args) => {
   const id = requireString(args, 'order_id');
   if (!/^(?:\d{10}|\d{16})$/.test(id)) fail(ErrorCodes.ADAPTER_FAILED, adapterStrings['rpc.orderIdInvalid']);
@@ -1062,6 +1110,8 @@ const HANDLERS: { readonly [K in AdapterOp]: Handler<K> } = {
   'notice.watch': noticeWatch,
   'notice.list': noticeList,
   'notice.mark_read': noticeMarkRead,
+  'merchant_event.types': merchantEventTypes,
+  'merchant_event.list': merchantEventList,
   'order.search': orderSearch,
   'order.create_im_chat': orderCreateImChat,
   'agent.set_status': agentSetStatus,

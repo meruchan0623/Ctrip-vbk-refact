@@ -2,6 +2,8 @@ import { isUiAccountSnapshot } from '../_shared/guards.ts';
 import { createAccountNavigation } from './account-navigation.ts';
 import { t as translateUi } from '../../packages/ui-kit/src/i18n.ts';
 import { EMPTY_NOTICE_QUERY } from './notice-query.ts';
+import { EMPTY_EVENT_QUERY } from './event-query.ts';
+import { EVENT_PICKER_CLOSED } from './events-view.ts';
 import { readHistoryPage } from './history-read.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,7 +36,8 @@ function fixture() {
   function actual(name: string): (...args: any[]) => any { const a = source.search(new RegExp('(?:async )?function ' + name + '\\(')); assert.ok(a >= 0, name); const tail = source.slice(a), next = /\n(?:(?:async )?function |(?:let|const) [A-Za-z])/.exec(tail); assert.ok(next, name); const helperStart = name === 'loadForActiveAccount' ? source.lastIndexOf('let accountLoadTicket', a) : -1; const helpers = helperStart < 0 ? '' : source.slice(helperStart, a); return new Function(...Object.keys(env), stripTypeScriptTypes(helpers + tail.slice(0, next.index)) + '\nreturn ' + name + ';')(...Object.values(env)); }
   for (const name of ['activeAccount', 'activeConv', 'stillActive', 'setDraft', 'upsertMessage', 'translationTarget', 'sendText', 'translateAndSend', 'ownedAttachment', 'mediaOperationCurrent', 'releaseAttachment', 'acceptAttachment', 'focusComposer', 'receiveFileDrag', 'receiveFileDrop', 'setSendMode', 'sendMediaAttachment', 'removeAttachment', 'translationBar', 'ctool', 'formatFileSize', 'composerMoreMenu']) if (source.includes(`function ${name}(`)) env[name] = actual(name);
   const resetStart = source.indexOf('const ACCOUNT_SCOPED_RESET ='), resetEnd = source.indexOf('} as const satisfies Partial<MainState>;', resetStart) + '} as const satisfies Partial<MainState>;'.length;
-  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {}, EMPTY_NOTICE_QUERY);
+  env['eventQuery'] = { reset() {} };
+  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', 'EMPTY_EVENT_QUERY', 'EVENT_PICKER_CLOSED', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {}, EMPTY_NOTICE_QUERY, EMPTY_EVENT_QUERY, EVENT_PICKER_CLOSED);
   const picks: Promise<unknown>[] = [];
   env['attach'] = (kind: string) => { const choosing = actual('attach')(kind); picks.push(choosing); return choosing; };
   env['handleSend'] = actual('handleSend');

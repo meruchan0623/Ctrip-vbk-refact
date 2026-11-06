@@ -106,11 +106,18 @@ pub enum EndpointScope {
     PageAuxiliaryNotInScope,
     /// "官方订单详情页内部读取旁证；不恢复完整订单管理".
     OrderDetailEvidenceNotInScope,
+    /// The read-only merchant events page restored by
+    /// docs/decisions/2026-11-06-merchant-events-page.md. Not a README column:
+    /// the rest of the event service stays unregistered or evidence only.
+    MerchantEventsRead,
 }
 
 impl EndpointScope {
     pub fn is_in_scope(self) -> bool {
-        matches!(self, EndpointScope::Core | EndpointScope::OrderContact)
+        matches!(
+            self,
+            EndpointScope::Core | EndpointScope::OrderContact | EndpointScope::MerchantEventsRead
+        )
     }
 }
 
@@ -153,7 +160,7 @@ const VBOOKING: &str = "vbooking.ctrip.com";
 
 use AuthKind::{CookieSession as Cookie, NepheleToken, SdkHead};
 use EndpointScope::{
-    Core, OrderContact, OrderDetailEvidenceNotInScope as OrderEvidence,
+    Core, MerchantEventsRead, OrderContact, OrderDetailEvidenceNotInScope as OrderEvidence,
     PageAuxiliaryNotInScope as PageAux, SettingsReadback,
 };
 use ResponseKind::{Html, NepheleCode, Raw, SoaAck, SoaBizStatus, SoaResponseErrorCode as SoaErr};
@@ -913,7 +920,31 @@ const TABLE: &[Row] = &[
 ///   `tour/im/ex-area/qconfig/json`: page-auxiliary traffic of the official
 ///   page. They are evidence only (`assert_in_scope` refuses them); the
 ///   adapter never calls them.
+/// * `16566/queryEventTypeByEid`, `16566/queryTodoListEvent`: static analysis of
+///   the official event page (docs/research/2026-11-06-merchant-events-reverse.md,
+///   section B1), not yet read back while logged in. The event writes, `readEvent`
+///   and `batchTranslate` are deliberately absent, so they are refused as unregistered.
 const SUPPLEMENT: &[Row] = &[
+    (
+        "online:16566/queryEventTypeByEid",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/16566/queryEventTypeByEid",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        MerchantEventsRead,
+    ),
+    (
+        "online:16566/queryTodoListEvent",
+        Method::Post,
+        ONLINE,
+        "/restapi/soa2/16566/queryTodoListEvent",
+        Cookie,
+        ReadOnly,
+        SoaAck,
+        MerchantEventsRead,
+    ),
     (
         "m:11679/getMessageTranslate",
         Method::Post,
@@ -1395,6 +1426,37 @@ mod tests {
             .expect("alias");
         assert_eq!(p.host, "m.ctrip.com");
         assert_eq!(BUILD_PROFILE, "test-endpoints");
+    }
+
+    #[test]
+    fn merchant_events_register_only_the_two_reads() {
+        let r = EndpointRegistry::official();
+        for path in [
+            "/restapi/soa2/16566/queryEventTypeByEid",
+            "/restapi/soa2/16566/queryTodoListEvent",
+        ] {
+            let p = r
+                .authorize(Method::Post, "online.ctrip.com", path)
+                .expect(path);
+            assert_eq!(p.side_effect, SideEffect::ReadOnly, "{path}");
+            assert_eq!(p.auth, AuthKind::CookieSession, "{path}");
+            assert_eq!(p.scope, EndpointScope::MerchantEventsRead, "{path}");
+        }
+        // Writes, the auto-read and the outbound translation stay unregistered.
+        for path in [
+            "/restapi/soa2/16051/readEvent",
+            "/restapi/soa2/16051/completeEvent",
+            "/restapi/soa2/11380/eventOperate",
+            "/restapi/soa2/11380/assignDispatchEvent",
+            "/restapi/soa2/11380/batchTranslate",
+        ] {
+            let e = r
+                .authorize(Method::Post, "online.ctrip.com", path)
+                .expect_err(path);
+            assert!(e.is(net_codes::NET_ENDPOINT_UNREGISTERED), "{path}");
+        }
+        // The sidebar badge count is out of scope by the same decision.
+        assert!(r.assert_in_scope("online:16566/queryCountByEid").is_err());
     }
 
     #[test]

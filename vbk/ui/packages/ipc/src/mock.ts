@@ -31,6 +31,9 @@ import type {
   UiAccountSnapshot,
   UiAgentStatus,
   UiConversation,
+  UiMerchantEvent,
+  UiMerchantEventType,
+  MerchantEventTab,
   UiMessage,
   UiNetStatus,
   UiNotice,
@@ -52,6 +55,72 @@ import type {
   UiQuickReplyType,
 } from './client.ts';
 import { UiCommands, UiEvents } from './client.ts';
+
+const MOCK_EVENT_PAGE_SIZE = 20;
+const MOCK_EVENT_INVALID_QUERY = 'merchant_event.invalid_query';
+/** Previews the login-expired state of the merchant events page. */
+const MOCK_EVENT_EXPIRED_ORDER_ID = '999000';
+const MOCK_EVENT_TYPE_NAMES = ['供应商沟通/产品咨询', '月考核不达标预警', '系统对接异常-订单下单', '订单变更确认', '客户投诉跟进', '资源库存预警'] as const;
+/** Skewed towards the three default types, so the default filter alone spans two pages on the first account. */
+const MOCK_EVENT_TYPE_CYCLE = [0, 1, 2, 0, 3, 1, 2, 0, 4, 1, 2, 5] as const;
+const MOCK_EVENT_TABS: readonly MerchantEventTab[] = ['pending', 'completed', 'sent'];
+const MOCK_EVENT_LONG_TEXT = Array.from({ length: 14 }, (_, i) => `第 ${i + 1} 段：客人反馈集合地点与确认单不一致，请核对行程单、集合时间和接送安排，并在指标时间前给出明确答复；如需调整，请同步更新产品说明，避免后续同类订单重复产生咨询。`).join('\n');
+
+interface MockMerchantEventRow {
+  readonly tab: MerchantEventTab;
+  readonly event: UiMerchantEvent;
+}
+
+function mockEventTab(payload: unknown): MerchantEventTab {
+  const tab = (payload as { tab?: unknown }).tab;
+  const known = MOCK_EVENT_TABS.find((t) => t === tab);
+  if (!known) throw appError(MOCK_EVENT_INVALID_QUERY, '事件标签无效');
+  return known;
+}
+
+/** Fictional and deterministic per account; type ids differ between accounts because the server issues them per account. */
+function merchantEventSeed(accountId: string, t0: number): { readonly types: readonly UiMerchantEventType[]; readonly rows: readonly MockMerchantEventRow[] } {
+  const accountIndex = [ACCOUNT_A, ACCOUNT_B, ACCOUNT_C].findIndex((a) => a.account_id === accountId);
+  const offset = accountIndex < 0 ? 3 : accountIndex;
+  const types = MOCK_EVENT_TYPE_NAMES.map((name, i) => ({ id: 3600 + offset * 100 + i, name }));
+  const rows = Array.from({ length: 40 - offset * 6 }, (_, i): MockMerchantEventRow => {
+    const type = types[MOCK_EVENT_TYPE_CYCLE[i % MOCK_EVENT_TYPE_CYCLE.length]!]!;
+    const tab: MerchantEventTab = i % 10 === 7 ? 'sent' : i % 10 === 3 || i % 10 === 8 ? 'completed' : 'pending';
+    const status = tab === 'completed' ? 5 : tab === 'sent' ? [2, 3, 5][i % 3]! : i % 3 === 0 ? 3 : 2;
+    const created = t0 - (i + 1) * 47 * 60_000 - offset * 11 * 60_000;
+    const hasOrder = i % 4 !== 2;
+    const orderId = hasOrder ? String(3_052_000_100 + offset * 10_000 + i) : '';
+    const timedOut = status !== 5 && i % 5 === 1;
+    return {
+      tab,
+      event: {
+        id: String(900_000 + offset * 1000 + i),
+        type_id: type.id,
+        type_name: type.name,
+        status,
+        status_label: status === 5 ? '已完成' : status === 3 ? '处理中' : '未处理',
+        order_id: orderId,
+        order_url: hasOrder ? `https://vbooking.ctrip.com/ticket_order/order/detail?orderId=${orderId}` : '',
+        product_id: hasOrder ? String(77_000 + i) : '',
+        product_name: hasOrder ? ['东京+富士山5日4晚跟团游', '上海迪士尼乐园1日票', '日本 eSIM 7日流量包'][i % 3]! : '',
+        provider_name: '云游国际旅行社',
+        content: i % 11 === 4 ? MOCK_EVENT_LONG_TEXT : `${type.name}：请在指标时间前处理第 ${i + 1} 条事件，并核对订单与产品信息。`,
+        complete_remark: status === 5 ? `已与平台确认，第 ${i + 1} 条事件处理完毕。` : '',
+        created_ms: created,
+        due_ms: created + (timedOut ? 30 : 24 * 60) * 60_000,
+        completed_ms: status === 5 ? created + 90 * 60_000 : null,
+        sender_name: i % 2 === 0 ? '平台运营' : '系统通知',
+        processor_name: status === 2 ? '' : '云游·小王',
+        must_reply: status !== 5 && i % 3 === 0,
+        timed_out: timedOut,
+        urge_count: i % 6 === 0 ? 2 : i % 6 === 3 ? 1 : 0,
+        suspend_count: i % 9 === 2 ? 1 : 0,
+        is_task: i % 13 === 5,
+      },
+    };
+  });
+  return { types, rows };
+}
 
 /** `no-accounts`: first start, nothing logged in (main window shows the welcome state). */
 export type MockScenario = 'default' | 'empty' | 'offline' | 'clock-untrusted' | 'reconciling' | 'no-accounts' | 'media-draft';
@@ -819,6 +888,29 @@ export function createMockIpc(scenario: MockScenario = 'default', options: MockO
       const { category_id, id } = p as { category_id: string; id: string | null };
       st.notices = st.notices.map((n) => (n.category_id === category_id && (id === null || n.id === id) ? { ...n, unread: false } : n));
       return null;
+    },
+
+    // ---- merchant events (read-only)
+    [UiCommands.MERCHANT_EVENT_TYPES]: async (p) => {
+      const ctx = checkAccount(p);
+      mockEventTab(p);
+      return blank ? [] : merchantEventSeed(ctx.account_id, t0).types.map((t) => ({ ...t }));
+    },
+    [UiCommands.MERCHANT_EVENT_LIST]: async (p) => {
+      const ctx = checkAccount(p);
+      const tab = mockEventTab(p);
+      const { type_ids, order_id, page } = p as { type_ids?: unknown; order_id?: unknown; page?: unknown };
+      if (!Array.isArray(type_ids) || type_ids.length > 200 || !type_ids.every((id) => Number.isSafeInteger(id))) throw appError(MOCK_EVENT_INVALID_QUERY, '事件类型筛选无效');
+      if (typeof order_id !== 'string' || !/^\d{0,32}$/.test(order_id)) throw appError(MOCK_EVENT_INVALID_QUERY, '订单号无效');
+      if (typeof page !== 'number' || !Number.isSafeInteger(page) || page < 1 || page > 10_000) throw appError(MOCK_EVENT_INVALID_QUERY, '页码无效');
+      if (order_id === MOCK_EVENT_EXPIRED_ORDER_ID) throw appError(ErrorCodes.ACCOUNT_TICKET_EXPIRED, '登录已过期，请重新登录');
+      const page_size = MOCK_EVENT_PAGE_SIZE;
+      if (blank) return { items: [], total: 0, page, page_size };
+      const matched = merchantEventSeed(ctx.account_id, t0).rows
+        .filter((r) => r.tab === tab && (type_ids.length === 0 || (r.event.type_id !== null && type_ids.includes(r.event.type_id))) && (order_id === '' || r.event.order_id === order_id))
+        .map((r) => r.event)
+        .sort((a, b) => (b.created_ms ?? 0) - (a.created_ms ?? 0));
+      return { items: matched.slice((page - 1) * page_size, page * page_size).map((e) => ({ ...e })), total: matched.length, page, page_size };
     },
 
     // ---- order contact

@@ -2624,6 +2624,175 @@ pub async fn notice_mark_read(
     .map_err(e2dto)
 }
 
+/// Mirrors `UiMerchantEventType` (client.ts).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiMerchantEventTypeDto {
+    pub id: i64,
+    pub name: String,
+}
+
+/// Mirrors `UiMerchantEvent` (client.ts). Text is already plain and bounded by
+/// the adapter; it is held by no cache here and never logged.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiMerchantEventDto {
+    pub id: String,
+    pub type_id: Option<i64>,
+    pub type_name: String,
+    pub status: Option<i64>,
+    pub status_label: String,
+    pub order_id: String,
+    pub order_url: String,
+    pub product_id: String,
+    pub product_name: String,
+    pub provider_name: String,
+    pub content: String,
+    pub complete_remark: String,
+    pub created_ms: Option<i64>,
+    pub due_ms: Option<i64>,
+    pub completed_ms: Option<i64>,
+    pub sender_name: String,
+    pub processor_name: String,
+    pub must_reply: bool,
+    pub timed_out: bool,
+    pub urge_count: u32,
+    pub suspend_count: u32,
+    pub is_task: bool,
+}
+
+/// Mirrors `UiMerchantEventPage` (client.ts).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiMerchantEventPageDto {
+    pub items: Vec<UiMerchantEventDto>,
+    pub total: u64,
+    pub page: u32,
+    pub page_size: u32,
+}
+
+const MERCHANT_EVENT_TABS: [&str; 3] = ["pending", "completed", "sent"];
+const MERCHANT_EVENT_MAX_TYPE_IDS: usize = 200;
+const MERCHANT_EVENT_MAX_ORDER_ID_DIGITS: usize = 32;
+const MERCHANT_EVENT_MAX_PAGE: u32 = 10_000;
+/// `Number.MAX_SAFE_INTEGER`: the page validates ids as JavaScript safe integers.
+const JS_MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+const MERCHANT_EVENT_INVALID_QUERY: &str = "merchant_event.invalid_query";
+
+fn validate_merchant_event_tab(tab: &str) -> Result<(), AppError> {
+    if MERCHANT_EVENT_TABS.contains(&tab) {
+        Ok(())
+    } else {
+        Err(AppError::new(
+            MERCHANT_EVENT_INVALID_QUERY,
+            "invalid event tab",
+        ))
+    }
+}
+
+fn validate_merchant_event_query(
+    tab: &str,
+    type_ids: &[i64],
+    order_id: &str,
+    page: u32,
+) -> Result<(), AppError> {
+    validate_merchant_event_tab(tab)?;
+    if type_ids.len() > MERCHANT_EVENT_MAX_TYPE_IDS
+        || type_ids
+            .iter()
+            .any(|id| !(-JS_MAX_SAFE_INTEGER..=JS_MAX_SAFE_INTEGER).contains(id))
+    {
+        return Err(AppError::new(
+            MERCHANT_EVENT_INVALID_QUERY,
+            "invalid event type filter",
+        ));
+    }
+    if order_id.len() > MERCHANT_EVENT_MAX_ORDER_ID_DIGITS
+        || !order_id.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(AppError::new(
+            MERCHANT_EVENT_INVALID_QUERY,
+            "invalid event order id",
+        ));
+    }
+    if !(1..=MERCHANT_EVENT_MAX_PAGE).contains(&page) {
+        return Err(AppError::new(
+            MERCHANT_EVENT_INVALID_QUERY,
+            "invalid event page",
+        ));
+    }
+    Ok(())
+}
+
+/// The page is not trusted to answer the question that was asked.
+fn validate_merchant_event_reply(
+    requested_page: u32,
+    reply: &UiMerchantEventPageDto,
+) -> Result<(), AppError> {
+    if reply.page != requested_page || reply.items.len() > reply.page_size as usize {
+        return Err(bad_reply());
+    }
+    Ok(())
+}
+
+/// Read-only: the page calls `queryEventTypeByEid`. Does not move UI focus.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn merchant_event_types(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    tab: String,
+) -> CmdResult<Vec<UiMerchantEventTypeDto>> {
+    guard(&state, webview.label(), "merchant_event_types")?;
+    let ctx = read_account(&state, account)?;
+    validate_merchant_event_tab(&tab).map_err(e2dto)?;
+    let items = forward(
+        &app,
+        &ctx,
+        "merchant_event.types",
+        serde_json::json!({ "tab": tab }),
+        READ_TIMEOUT,
+    )
+    .await
+    .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    Ok(items)
+}
+
+/// Read-only: the page calls `queryTodoListEvent`, never `readEvent`. Does not
+/// move UI focus.
+#[tauri::command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)] // Tauri injects app/window/state alongside the wire arguments.
+pub async fn merchant_event_list(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, HostState>,
+    account: AccountContextDto,
+    tab: String,
+    type_ids: Vec<i64>,
+    order_id: String,
+    page: u32,
+) -> CmdResult<UiMerchantEventPageDto> {
+    guard(&state, webview.label(), "merchant_event_list")?;
+    let ctx = read_account(&state, account)?;
+    validate_merchant_event_query(&tab, &type_ids, &order_id, page).map_err(e2dto)?;
+    let reply: UiMerchantEventPageDto = forward(
+        &app,
+        &ctx,
+        "merchant_event.list",
+        serde_json::json!({
+            "tab": tab,
+            "type_ids": type_ids,
+            "order_id": order_id,
+            "page": page,
+        }),
+        READ_TIMEOUT,
+    )
+    .await
+    .map_err(e2dto)?;
+    state.lock().accounts.validate(&ctx).map_err(e2dto)?;
+    validate_merchant_event_reply(page, &reply).map_err(e2dto)?;
+    Ok(reply)
+}
+
 /// Resolve only an already-cached image in this account's exact thread.
 pub(crate) fn cached_image_url(
     app: &AppHandle,
@@ -2906,6 +3075,76 @@ pub fn on_account_removed(app: &AppHandle, account: &contracts::AccountContext) 
 }
 
 // ------------------------------------------------------------------ tests
+
+#[cfg(test)]
+mod merchant_event_tests {
+    use super::*;
+
+    #[test]
+    fn query_bounds_match_the_page_handler() {
+        fn ok(tab: &str, ids: &[i64], order: &str, page: u32) -> bool {
+            validate_merchant_event_query(tab, ids, order, page).is_ok()
+        }
+        for tab in MERCHANT_EVENT_TABS {
+            assert!(ok(tab, &[], "", 1), "{tab}");
+        }
+        assert!(ok("pending", &[JS_MAX_SAFE_INTEGER], "3051228766", 10_000));
+        assert!(ok("sent", &vec![1; 200], &"1".repeat(32), 1));
+        assert!(!ok("all", &[], "", 1));
+        assert!(!ok("", &[], "", 1));
+        assert!(!ok("Pending", &[], "", 1));
+        assert!(!ok("pending", &vec![1; 201], "", 1));
+        assert!(!ok("pending", &[JS_MAX_SAFE_INTEGER + 1], "", 1));
+        assert!(!ok("pending", &[i64::MIN], "", 1));
+        assert!(!ok("pending", &[], &"1".repeat(33), 1));
+        assert!(!ok("pending", &[], "12a", 1));
+        assert!(!ok("pending", &[], "12\n", 1));
+        assert!(!ok("pending", &[], "\u{0661}", 1));
+        assert!(!ok("pending", &[], "", 0));
+        assert!(!ok("pending", &[], "", 10_001));
+        assert!(validate_merchant_event_tab("toString").is_err());
+    }
+
+    fn page_reply() -> serde_json::Value {
+        serde_json::json!({
+            "items": [{
+                "id": "900123", "type_id": 3861, "type_name": "t", "status": null,
+                "status_label": "", "order_id": "", "order_url": "", "product_id": "",
+                "product_name": "", "provider_name": "", "content": "c", "complete_remark": "",
+                "created_ms": 1_700_000_000_000_i64, "due_ms": null, "completed_ms": null,
+                "sender_name": "", "processor_name": "", "must_reply": true, "timed_out": false,
+                "urge_count": 2, "suspend_count": 0, "is_task": false
+            }],
+            "total": 41, "page": 2, "page_size": 20
+        })
+    }
+
+    #[test]
+    fn reply_round_trips_the_client_contract_unchanged() {
+        let reply: UiMerchantEventPageDto = serde_json::from_value(page_reply()).unwrap();
+        assert_eq!(serde_json::to_value(&reply).unwrap(), page_reply());
+        assert!(validate_merchant_event_reply(2, &reply).is_ok());
+    }
+
+    #[test]
+    fn reply_for_another_page_or_oversized_is_rejected() {
+        let reply: UiMerchantEventPageDto = serde_json::from_value(page_reply()).unwrap();
+        assert!(validate_merchant_event_reply(3, &reply).is_err());
+        let mut oversized = reply;
+        oversized.page_size = 0;
+        assert!(validate_merchant_event_reply(2, &oversized).is_err());
+    }
+
+    #[test]
+    fn reply_missing_a_required_field_does_not_deserialize() {
+        let mut value = page_reply();
+        value["items"][0].as_object_mut().unwrap().remove("id");
+        assert!(serde_json::from_value::<UiMerchantEventPageDto>(value).is_err());
+        let mut negative = page_reply();
+        negative["total"] = serde_json::json!(-1);
+        assert!(serde_json::from_value::<UiMerchantEventPageDto>(negative).is_err());
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -1,5 +1,10 @@
 # VBooking 消息面板对齐（2026-10-31）
 
+## 2026-11-06：新增只读事件页
+- 用户要求逆向官方事件功能并实现，见[决定](docs/decisions/2026-11-06-merchant-events-page.md)、[逆向事实](docs/research/2026-11-06-merchant-events-reverse.md)、[接口](docs/api/merchant-events.md)。默认「处理中」标签、发送时间从新到旧、三个默认类型按名称匹配服务端下发表。本期只读，不调 `readEvent`、`batchTranslate` 和事件写接口。
+- 单测、门禁、冒烟和宿主测试通过，均在 mock 或离线下运行，**未实机验收**。
+- 待登录只读核对：`SendDate` + `desc:true` 的方向（常量 `NEWEST_FIRST_ORDER_BY`）；三个类型名是否匹配；不带 `w-payload-source` 能否查询；真实响应结构与时间格式；官方页深链。租车账号未适配。
+
 ## 2026-11-05：删除截图与截图标注
 - 用户决定不做截图（2026-11-04、2026-11-05），见[决定](docs/decisions/2026-11-05-no-screenshot.md)。这些代码是被旧快照合并误恢复回来的。
 - 已删：`media_screenshot`、截图全局热键与 `keys.screenshot`、主窗入口、标注编辑器及 `media_annotation_*`、只服务标注的 `media_save_attachment`、`crates/core-media`。保留普通图片/文件发送、粘贴拖拽、附件草稿持久化、`media-viewer`、`attachment_leases`、`keys.toggle_main`。

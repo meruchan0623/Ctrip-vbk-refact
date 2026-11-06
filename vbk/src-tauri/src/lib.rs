@@ -304,6 +304,8 @@ pub fn run() {
             adapter::notice_categories,
             adapter::notice_list,
             adapter::notice_mark_read,
+            adapter::merchant_event_types,
+            adapter::merchant_event_list,
             adapter::order_search,
             adapter::order_create_im_chat,
             adapter::net_status,

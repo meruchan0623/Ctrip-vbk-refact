@@ -1,6 +1,8 @@
 import { isUiAccountSnapshot } from '../_shared/guards.ts';
 import { createAccountNavigation } from './account-navigation.ts';
 import { EMPTY_NOTICE_QUERY } from './notice-query.ts';
+import { EMPTY_EVENT_QUERY } from './event-query.ts';
+import { EVENT_PICKER_CLOSED } from './events-view.ts';
 import { readHistoryPage } from './history-read.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,7 +37,8 @@ function fixture() {
   }
   for (const name of ['activeAccount', 'activeConv', 'stillActive']) env[name] = actual(name);
   const resetStart = source.indexOf('const ACCOUNT_SCOPED_RESET ='), resetEnd = source.indexOf('} as const satisfies Partial<MainState>;', resetStart) + '} as const satisfies Partial<MainState>;'.length;
-  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {}, EMPTY_NOTICE_QUERY);
+  env['eventQuery'] = { reset() {} };
+  env['ACCOUNT_SCOPED_RESET'] = new Function('TRANSLATION_IDLE', 'PKG_IDLE', 'EMPTY_NOTICE_QUERY', 'EMPTY_EVENT_QUERY', 'EVENT_PICKER_CLOSED', stripTypeScriptTypes(source.slice(resetStart, resetEnd)) + '\nreturn ACCOUNT_SCOPED_RESET;')(vm.TRANSLATION_IDLE, {}, EMPTY_NOTICE_QUERY, EMPTY_EVENT_QUERY, EVENT_PICKER_CLOSED);
   for (const name of ['setDraft', 'upsertMessage', 'sendText', 'translationTarget', 'translateAndSend']) env[name] = actual(name);
   const set = env['setDraft'] as (text: string) => void;
   const open = actual('openConversation'), snapshot = actual('applyAccountSnapshot');

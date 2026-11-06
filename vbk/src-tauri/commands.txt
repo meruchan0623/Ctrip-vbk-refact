@@ -72,6 +72,8 @@ im_remove
 notice_categories
 notice_list
 notice_mark_read
+merchant_event_types
+merchant_event_list
 order_search
 order_create_im_chat
 net_status
