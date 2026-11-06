@@ -63,6 +63,18 @@ EOF
   echo "CI secret MAC_DEV_CERTIFICATE: base64 -i \"$out\" | pbcopy"
 }
 
+SIGN_TMP=""
+SIGN_KC=""
+SIGN_OLD_KEYCHAINS=()
+sign_cleanup() {
+  if [[ ${#SIGN_OLD_KEYCHAINS[@]} -gt 0 ]]; then
+    security list-keychains -d user -s "${SIGN_OLD_KEYCHAINS[@]}" 2>/dev/null || true
+  fi
+  [[ -n "$SIGN_KC" ]] && security delete-keychain "$SIGN_KC" 2>/dev/null
+  [[ -n "$SIGN_TMP" ]] && rm -rf "$SIGN_TMP"
+  return 0
+}
+
 # 用 .p12 重签已打好的 .app。Tauri 只认 `find-identity -v`（受信任）的身份，
 # 自签名证书过不了，所以由这里签：证书导入一次性的临时钥匙串，`codesign
 # --keychain` 直接用它，不进钥匙串搜索列表、不改登录钥匙串，签完即删。
@@ -70,17 +82,25 @@ sign() {
   local p12="${1:?usage: sign <p12> <app>}" app="${2:?usage: sign <p12> <app>}"
   [[ -f "$p12" ]] || { echo "$p12 not found" >&2; exit 1; }
   [[ -d "$app" ]] || { echo "$app not found" >&2; exit 1; }
-  local pw tmp kc kcpw
+  local pw kcpw
   pw="$(password)"
-  tmp="$(mktemp -d)"
-  kc="$tmp/sign.keychain-db"
+  SIGN_TMP="$(mktemp -d)"
+  SIGN_KC="$SIGN_TMP/sign.keychain-db"
   kcpw="$(uuidgen)"
-  # shellcheck disable=SC2064 # expand now: `tmp`/`kc` are local and gone by EXIT.
-  trap "security delete-keychain '$kc' 2>/dev/null; rm -rf '$tmp'" EXIT
-  security create-keychain -p "$kcpw" "$kc"
-  security unlock-keychain -p "$kcpw" "$kc"
-  security import "$p12" -k "$kc" -P "$pw" -T /usr/bin/codesign >/dev/null
-  security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpw" "$kc" >/dev/null
+  trap sign_cleanup EXIT
+  security create-keychain -p "$kcpw" "$SIGN_KC"
+  security unlock-keychain -p "$kcpw" "$SIGN_KC"
+  security import "$p12" -k "$SIGN_KC" -P "$pw" -T /usr/bin/codesign >/dev/null
+  security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpw" "$SIGN_KC" >/dev/null
+  # 新版 macOS 上只靠 `codesign --keychain` 找不到自签名身份（"no identity found"），
+  # 须把临时钥匙串放进用户搜索列表；退出时由 sign_cleanup 还原原列表。
+  local l
+  while IFS= read -r l; do
+    l="${l//\"/}"; l="${l#"${l%%[![:space:]]*}"}"
+    [[ -n "$l" ]] && SIGN_OLD_KEYCHAINS+=("$l")
+  done < <(security list-keychains -d user)
+  security list-keychains -d user -s "$SIGN_KC" ${SIGN_OLD_KEYCHAINS[@]+"${SIGN_OLD_KEYCHAINS[@]}"}
+  local kc="$SIGN_KC"
   # 与 Tauri 签名一致：hardened runtime，entitlements 保持为空（release.yml 会检查）。
   # 按 SHA-1 指纹签名：自签名证书不受信任，CI 的新版 macOS 上按名称查找会报 "no identity found"。
   local hash
