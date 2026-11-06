@@ -62,10 +62,10 @@ jobs:
         include:
           - arch: arm64
             target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-latest
           - arch: x86_64
             target: x86_64-apple-darwin
-            runner: macos-14
+            runner: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -108,8 +108,12 @@ jobs:
           APPLE_PASSWORD: ${{ env.SIGN == 'true' && secrets.APPLE_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ env.SIGN == 'true' && secrets.APPLE_TEAM_ID || '' }}
           VBK_GIT_COMMIT: ${{ github.sha }}
-        # `--runner` is spawned as ONE executable (no shell split): the cargo-auditable binary, not "cargo auditable".
-        run: cargo tauri build --runner cargo-auditable --target ${{ matrix.target }} --bundles app,dmg
+        # `--runner` is spawned as ONE executable and cargo-auditable refuses to run unless invoked
+        # as `cargo auditable ...`, so point the runner at a tiny forwarding script.
+        run: |
+          printf '#!/bin/sh\nexec cargo auditable "$@"\n' > "$RUNNER_TEMP/cargo-auditable-runner"
+          chmod +x "$RUNNER_TEMP/cargo-auditable-runner"
+          cargo tauri build --runner "$RUNNER_TEMP/cargo-auditable-runner" --target ${{ matrix.target }} --bundles app,dmg
 
       # sign=false: re-sign with the shared test identity (Tauri only accepts
       # trusted identities, so this cannot go through APPLE_CERTIFICATE) and
@@ -250,9 +254,12 @@ jobs:
         env:
           VBK_GIT_COMMIT: ${{ github.sha }}
         run: |
+          # Same forwarding shim as on macOS (cargo-auditable must be called as `cargo auditable`).
+          $shim = Join-Path $env:RUNNER_TEMP "cargo-auditable-runner.cmd"
+          Set-Content -Path $shim -Value "@cargo auditable %*" -Encoding ascii
           $extra = @()
           if ('${{ steps.winsign.outputs.mode }}' -ne 'none') { $extra = @("--config", (Join-Path $env:RUNNER_TEMP "sign.conf.json")) }
-          cargo tauri build --runner cargo-auditable --target x86_64-pc-windows-msvc --bundles nsis,msi @extra
+          cargo tauri build --runner $shim --target x86_64-pc-windows-msvc --bundles nsis,msi @extra
 
       - name: Authenticode verification (exe, NSIS installer, MSI)
         if: steps.winsign.outputs.mode == 'prod'
