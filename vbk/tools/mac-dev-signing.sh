@@ -82,8 +82,12 @@ sign() {
   security import "$p12" -k "$kc" -P "$pw" -T /usr/bin/codesign >/dev/null
   security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpw" "$kc" >/dev/null
   # 与 Tauri 签名一致：hardened runtime，entitlements 保持为空（release.yml 会检查）。
+  # 按 SHA-1 指纹签名：自签名证书不受信任，CI 的新版 macOS 上按名称查找会报 "no identity found"。
+  local hash
+  hash="$(security find-identity -p codesigning "$kc" | awk -v id="\"$IDENTITY\"" 'index($0, id) {print $2; exit}')"
+  [[ -n "$hash" ]] || { echo "identity $IDENTITY not found in temporary keychain" >&2; security find-identity "$kc" >&2; exit 1; }
   codesign --force --deep --options runtime --timestamp=none \
-    --keychain "$kc" --sign "$IDENTITY" "$app"
+    --keychain "$kc" --sign "$hash" "$app"
   codesign --verify --deep --strict "$app"
   local req
   req="$(codesign -dr - "$app" 2>&1)"

@@ -139,6 +139,22 @@ jobs:
           rm -f "$p12" "$out"/dmg/*.dmg
           tools/mac-dev-signing.sh dmg "$app" "$out/dmg/$(basename "$app" .app)_test_${{ matrix.arch }}.dmg"
 
+      - name: Diagnose test signing failure (cert subject/dates/keychain only)
+        if: failure() && env.SIGN != 'true'
+        env:
+          MAC_DEV_CERTIFICATE: ${{ secrets.MAC_DEV_CERTIFICATE }}
+          VBK_DEV_P12_PASSWORD: ${{ secrets.MAC_DEV_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$MAC_DEV_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/d.p12" || true
+          ls -l "$RUNNER_TEMP/d.p12"
+          openssl version
+          openssl pkcs12 -in "$RUNNER_TEMP/d.p12" -nodes -passin env:VBK_DEV_P12_PASSWORD -legacy 2>/dev/null | openssl x509 -noout -subject -issuer -dates -ext extendedKeyUsage || echo "openssl read failed"
+          kc="$RUNNER_TEMP/diag.keychain-db"; security create-keychain -p x "$kc"; security unlock-keychain -p x "$kc"
+          security import "$RUNNER_TEMP/d.p12" -k "$kc" -P "$VBK_DEV_P12_PASSWORD" -T /usr/bin/codesign; echo "import exit=$?"
+          security find-identity -p codesigning "$kc"
+          security find-identity "$kc"
+          rm -f "$RUNNER_TEMP/d.p12"; security delete-keychain "$kc" || true
+
       - name: Architecture check (lipo -archs)
         run: |
           app="$(ls -d vbk/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app | head -n1)"
