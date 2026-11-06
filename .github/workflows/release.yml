@@ -21,6 +21,9 @@ name: vbk release
 #                                the same designated requirement (keychain access)
 #   WINDOWS_CERTIFICATE          base64 .pfx (Authenticode)
 #   WINDOWS_CERTIFICATE_PASSWORD
+#   WINDOWS_DEV_CERTIFICATE      base64 .pfx, self-signed "VBK Dev Signing" test cert; signs
+#   WINDOWS_DEV_CERTIFICATE_PASSWORD  the exe/NSIS/MSI when sign=false (untrusted by Windows,
+#                                but keeps a stable signer across test builds)
 #   MINISIGN_SECRET_KEY / MINISIGN_PASSWORD     update signing (I-19), unused here
 
 on:
@@ -58,7 +61,7 @@ jobs:
             runner: macos-14
           - arch: x86_64
             target: x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -211,50 +214,77 @@ jobs:
           npm ci
           npm run bundle:ui
 
+      # sign=true: production Authenticode cert (required). sign=false: the shared
+      # self-signed test cert when WINDOWS_DEV_CERTIFICATE exists, else unsigned.
       - name: Prepare Authenticode config
-        if: env.SIGN == 'true'
+        id: winsign
         shell: pwsh
         env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          CERT_B64: ${{ env.SIGN == 'true' && secrets.WINDOWS_CERTIFICATE || secrets.WINDOWS_DEV_CERTIFICATE }}
+          CERT_PW: ${{ env.SIGN == 'true' && secrets.WINDOWS_CERTIFICATE_PASSWORD || secrets.WINDOWS_DEV_CERTIFICATE_PASSWORD }}
         run: |
-          if (-not $env:WINDOWS_CERTIFICATE) { Write-Error "WINDOWS_CERTIFICATE secret missing"; exit 1 }
+          if (-not $env:CERT_B64) {
+            if ($env:SIGN -eq 'true') { Write-Error "WINDOWS_CERTIFICATE secret missing"; exit 1 }
+            Write-Warning "WINDOWS_DEV_CERTIFICATE missing - building unsigned"
+            "mode=none" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
           $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-          $pw = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_B64))
+          $pw = ConvertTo-SecureString $env:CERT_PW -AsPlainText -Force
           $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
           Remove-Item $pfx
           # tauri.windows.conf.json already sets digestAlgorithm / timestampUrl / tsp.
           $cfg = @{ bundle = @{ windows = @{ certificateThumbprint = $cert.Thumbprint } } } | ConvertTo-Json -Depth 5
           Set-Content -Path (Join-Path $env:RUNNER_TEMP "sign.conf.json") -Value $cfg
+          "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
+          if ($env:SIGN -eq 'true') { "mode=prod" >> $env:GITHUB_OUTPUT } else { "mode=dev" >> $env:GITHUB_OUTPUT }
 
-      - name: Build (cargo auditable, NSIS)
+      - name: Build (cargo auditable, NSIS + MSI)
         working-directory: vbk/src-tauri
         shell: pwsh
         env:
           VBK_GIT_COMMIT: ${{ github.sha }}
         run: |
           $extra = @()
-          if ($env:SIGN -eq 'true') { $extra = @("--config", (Join-Path $env:RUNNER_TEMP "sign.conf.json")) }
-          cargo tauri build --runner cargo-auditable --target x86_64-pc-windows-msvc --bundles nsis @extra
+          if ('${{ steps.winsign.outputs.mode }}' -ne 'none') { $extra = @("--config", (Join-Path $env:RUNNER_TEMP "sign.conf.json")) }
+          cargo tauri build --runner cargo-auditable --target x86_64-pc-windows-msvc --bundles nsis,msi @extra
 
-      - name: Authenticode verification (exe, installer)
-        if: env.SIGN == 'true'
+      - name: Authenticode verification (exe, NSIS installer, MSI)
+        if: steps.winsign.outputs.mode == 'prod'
         shell: pwsh
         run: |
           $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
             Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1).FullName
           $rel = "vbk/src-tauri/target/x86_64-pc-windows-msvc/release"
-          $files = @(Get-ChildItem "$rel/*.exe") + @(Get-ChildItem "$rel/bundle/nsis/*.exe")
-          if ($files.Count -lt 2) { Write-Error "expected app exe and NSIS installer"; exit 1 }
+          $files = @(Get-ChildItem "$rel/*.exe") + @(Get-ChildItem "$rel/bundle/nsis/*.exe") + @(Get-ChildItem "$rel/bundle/msi/*.msi")
+          if ($files.Count -lt 3) { Write-Error "expected app exe, NSIS installer and MSI"; exit 1 }
           foreach ($f in $files) {
             & $signtool verify /pa /v $f.FullName
             if ($LASTEXITCODE -ne 0) { Write-Error "signtool verify failed: $($f.Name)"; exit 1 }
           }
 
+      # Test cert is self-signed, so trust-chain verification (signtool /pa) must fail;
+      # check instead that every file carries a signature by the shared test cert.
+      - name: Test signature check (VBK Dev Signing)
+        if: steps.winsign.outputs.mode == 'dev'
+        shell: pwsh
+        run: |
+          $rel = "vbk/src-tauri/target/x86_64-pc-windows-msvc/release"
+          $files = @(Get-ChildItem "$rel/*.exe") + @(Get-ChildItem "$rel/bundle/nsis/*.exe") + @(Get-ChildItem "$rel/bundle/msi/*.msi")
+          if ($files.Count -lt 3) { Write-Error "expected app exe, NSIS installer and MSI"; exit 1 }
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f.FullName
+            if (-not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -ne '${{ steps.winsign.outputs.thumbprint }}') {
+              Write-Error "not signed by the test cert: $($f.Name) ($($sig.Status))"; exit 1
+            }
+            Write-Host "$($f.Name): signed by test cert ($($sig.Status))"
+          }
+          Write-Warning "test-signed build (self-signed) - SmartScreen will still warn"
+
       - name: Unsigned build notice
-        if: env.SIGN != 'true'
-        run: echo "::warning::unsigned build - signtool verify SKIPPED"
+        if: steps.winsign.outputs.mode == 'none'
+        run: echo "::warning::unsigned build - signature checks SKIPPED"
 
       - name: Release-artifact string scan + size record
         shell: bash
@@ -279,6 +309,7 @@ jobs:
           if-no-files-found: error
           path: |
             vbk/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            vbk/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
             reports/*
 
   # Tag builds only: a DRAFT release for a human to review and publish.
@@ -312,4 +343,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes \
-            dist/*/*.dmg dist/*/*.exe dist/*/size-*.json dist/*/sbom-*.cdx.json
+            dist/*/*.dmg dist/*/*.exe dist/*/*.msi dist/*/size-*.json dist/*/sbom-*.cdx.json
