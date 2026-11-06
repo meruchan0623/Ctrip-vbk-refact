@@ -350,7 +350,7 @@ jobs:
           mkdir -p prev
           gh release download --repo "$GITHUB_REPOSITORY" --pattern 'size-*.json' --dir prev 2>/dev/null \
             || echo "no previous size reports"
-          for f in dist/*/size-*.json; do
+          for f in $(find dist -type f -name 'size-*.json'); do
             name="$(basename "$f")"
             if [ -f "prev/$name" ]; then
               echo "== $name vs previous"; diff <(jq -S .sizes "prev/$name") <(jq -S .sizes "$f") || true
@@ -360,14 +360,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # upload-artifact keeps the common ancestor of its paths, so installers sit in nested dirs.
+          find dist -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.msi' \) | sort
+          [ "$(find dist -type f -name '*.dmg' | wc -l)" -ge 1 ] && [ "$(find dist -type f -name '*.msi' | wc -l)" -ge 1 ] \
+            || { echo "::error::expected at least one dmg and one msi"; exit 1; }
           if [ "${{ github.event_name }}" = "push" ]; then
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes \
-              dist/*/*.dmg dist/*/*.exe dist/*/*.msi dist/*/size-*.json dist/*/sbom-*.cdx.json
+              $(find dist -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.msi' -o -name 'size-*.json' -o -name 'sbom-*.cdx.json' \))
           else
             # Public, clearly marked as a test build (sign=false is self-signed, not notarized).
             tag="test-${{ github.run_number }}-${GITHUB_SHA::7}"
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
               --title "Test build $tag (sign=${{ inputs.sign }})" \
               --notes "Built from $GITHUB_SHA by workflow run ${{ github.run_id }}. sign=${{ inputs.sign }}: test-signed only (not Developer ID / not notarized; Windows self-signed, SmartScreen will warn)." \
-              dist/*/*.dmg dist/*/*.exe dist/*/*.msi
+              $(find dist -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.msi' \))
           fi
