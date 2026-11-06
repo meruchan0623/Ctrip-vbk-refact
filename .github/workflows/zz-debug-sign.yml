@@ -1,0 +1,33 @@
+name: zz debug mac sign
+on:
+  push:
+    branches: ["ci/mac-sign-fix"]
+    paths: [".github/workflows/zz-debug-sign.yml"]
+jobs:
+  d:
+    runs-on: macos-latest
+    steps:
+      - env:
+          P12: ${{ secrets.MAC_DEV_CERTIFICATE }}
+          PW: ${{ secrets.MAC_DEV_CERTIFICATE_PASSWORD }}
+        run: |
+          sw_vers; codesign --version 2>&1 | head -1
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/d.p12"
+          cp /bin/ls "$RUNNER_TEMP/t1"
+          kc="$RUNNER_TEMP/d.keychain-db"; kcpw=x
+          security create-keychain -p "$kcpw" "$kc"; security set-keychain-settings -lut 3600 "$kc"; security unlock-keychain -p "$kcpw" "$kc"
+          security import "$RUNNER_TEMP/d.p12" -k "$kc" -P "$PW" -A -T /usr/bin/codesign >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kcpw" "$kc" >/dev/null
+          h=$(security find-identity -p codesigning "$kc" | awk '/VBK Dev Signing/{print $2; exit}'); echo "hash=$h"
+          echo "--- A: --keychain only"; codesign -f -s "$h" --keychain "$kc" "$RUNNER_TEMP/t1" 2>&1 | tail -2; echo "rc=$?"
+          security list-keychains -d user -s "$kc" login.keychain
+          security list-keychains -d user
+          echo "--- B: in search list, by hash"; codesign -f -s "$h" "$RUNNER_TEMP/t1" 2>&1 | tail -2
+          echo "--- C: in search list, by name"; codesign -f -s "VBK Dev Signing" "$RUNNER_TEMP/t1" 2>&1 | tail -2
+          echo "--- D: with --keychain and search list"; codesign -f -s "$h" --keychain "$kc" "$RUNNER_TEMP/t1" 2>&1 | tail -2
+          openssl pkcs12 -in "$RUNNER_TEMP/d.p12" -clcerts -nokeys -legacy -passin env:PW -out "$RUNNER_TEMP/c.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/c.pem"; echo "trust rc=$?"
+          security find-identity -v -p codesigning
+          echo "--- E: after system trust, by hash"; codesign -f -s "$h" "$RUNNER_TEMP/t1" 2>&1 | tail -2
+          echo "--- F: after trust with --keychain"; codesign -f -s "$h" --keychain "$kc" "$RUNNER_TEMP/t1" 2>&1 | tail -2
+          codesign -dr - "$RUNNER_TEMP/t1" 2>&1 | tail -1
