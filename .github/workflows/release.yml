@@ -35,6 +35,10 @@ on:
         description: "Sign (and notarize on macOS). Needs the secrets above."
         type: boolean
         default: false
+      publish:
+        description: "Publish the built dmg/msi/exe as a PUBLIC pre-release (tag test-<run>-<sha>) so anyone can download them."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -315,8 +319,8 @@ jobs:
   # Tag builds only: a DRAFT release for a human to review and publish.
   # Never auto-publishes, never attaches update manifests (I-19 is separate).
   draft-release:
-    name: Draft GitHub release
-    if: github.event_name == 'push'
+    name: GitHub release (draft on tags, public pre-release when publish=true)
+    if: github.event_name == 'push' || inputs.publish
     needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
@@ -338,9 +342,18 @@ jobs:
               echo "== $name vs previous"; diff <(jq -S .sizes "prev/$name") <(jq -S .sizes "$f") || true
             fi
           done
-      - name: Create draft release
+      - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes \
-            dist/*/*.dmg dist/*/*.exe dist/*/*.msi dist/*/size-*.json dist/*/sbom-*.cdx.json
+          if [ "${{ github.event_name }}" = "push" ]; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes \
+              dist/*/*.dmg dist/*/*.exe dist/*/*.msi dist/*/size-*.json dist/*/sbom-*.cdx.json
+          else
+            # Public, clearly marked as a test build (sign=false is self-signed, not notarized).
+            tag="test-${{ github.run_number }}-${GITHUB_SHA::7}"
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+              --title "Test build $tag (sign=${{ inputs.sign }})" \
+              --notes "Built from $GITHUB_SHA by workflow run ${{ github.run_id }}. sign=${{ inputs.sign }}: test-signed only (not Developer ID / not notarized; Windows self-signed, SmartScreen will warn)." \
+              dist/*/*.dmg dist/*/*.exe dist/*/*.msi
+          fi
