@@ -133,6 +133,10 @@ jobs:
           fi
           p12="$RUNNER_TEMP/dev.p12"
           echo "$MAC_DEV_CERTIFICATE" | base64 --decode > "$p12"
+          # On current macOS runners codesign ignores untrusted identities ("no identity found").
+          # The runner VM is ephemeral, so trust the self-signed test cert for code signing system-wide.
+          openssl pkcs12 -in "$p12" -clcerts -nokeys -legacy -passin env:VBK_DEV_P12_PASSWORD -out "$RUNNER_TEMP/dev-cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/dev-cert.pem"
           out="src-tauri/target/${{ matrix.target }}/release/bundle"
           app="$(ls -d "$out"/macos/*.app | head -n1)"
           tools/mac-dev-signing.sh sign "$p12" "$app"
